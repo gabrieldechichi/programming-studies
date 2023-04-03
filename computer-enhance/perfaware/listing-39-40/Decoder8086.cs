@@ -8,7 +8,7 @@ public static class Decoder8086
     private const byte W_MASK = 0b0000_0001;
     private const byte REG_MASK = 0b0011_1000;
     private const byte RM_MASK = 0b0111;
-    
+
     private const byte MOD_MASK = 0b1100_0000;
 
     private static readonly string[] RegTable_W0 = new string[]
@@ -47,7 +47,7 @@ public static class Decoder8086
             var byte1 = bytes[index++];
 
             //Register/memory to/from register
-            if ((byte1 & (0xFF << 2)) == OP_MOVE_REGMEM)
+            if ((byte1 & 0xFF << 2) == OP_MOVE_REGMEM)
             {
                 var d = byte1 & D_MASK;
                 var w = byte1 & W_MASK;
@@ -67,6 +67,18 @@ public static class Decoder8086
                         break;
                     }
                 }
+            }
+            //immediate to register
+            else if ((byte1 & 0xFF << 4) == 0b1011_0000)
+            {
+                var w = (byte1 & 0b0000_1000) > 0;
+                var reg = byte1 & 0b0000_0111;
+
+                var immediate = w
+                    ? (ushort)(bytes[index++] | (bytes[index++] << 8))
+                    : (ushort)(sbyte)bytes[index++];
+                var regTable = w ? RegTable_W1 : RegTable_W0;
+                strBuilder.AppendLine($"mov {regTable[reg]}, {immediate}");
             }
         }
 
