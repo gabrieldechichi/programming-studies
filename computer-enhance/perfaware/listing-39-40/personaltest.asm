@@ -1,9 +1,5 @@
 bits 16
 
-; Register-to-register
-mov si, bx
-mov dh, al
-
-; 8-bit immediate-to-register
-mov cl, 12
-mov ch, -12
+; Explicit sizes
+mov [bp + di], byte 7
+mov [di + 901], word 347
