@@ -2,8 +2,6 @@ using System.Text;
 
 public static class Decoder8086
 {
-    private const byte D_MASK = 0b0000_0010;
-    private const byte W_MASK = 0b0000_0001;
     private const byte REG_MASK = 0b0011_1000;
     private const byte RM_MASK = 0b0111;
 
@@ -62,6 +60,26 @@ public static class Decoder8086
             return bytes[index++];
         }
 
+        string decodeEffectAddressCalculation(byte b)
+        {
+            var mod = (b & MOD_MASK) >> 6;
+            var rm = b & RM_MASK;
+            var displacementOrDirectAddress = mod switch
+            {
+                //direct address (16 bit)
+                0b00 when rm == 0b110 => readWord(),
+                //8bit displacement
+                0b01 => readByte(),
+                //16bit displacement
+                0b10 => readWord(),
+                _ => 0
+            };
+
+            return displacementOrDirectAddress > 0
+                ? $"[{MODOperandsTable[rm]} + {displacementOrDirectAddress}]"
+                : $"[{MODOperandsTable[rm]}]";
+        }
+
         while (index < bytes.Length)
         {
             var byte1 = bytes[index++];
@@ -69,82 +87,28 @@ public static class Decoder8086
             //Register/memory to/from register
             if ((byte1 & 0xFF << 2) == 0b1000_1000)
             {
-                var d = (byte1 & D_MASK) > 0;
-                var w = (byte1 & W_MASK) > 0;
+                var w = (byte1 & 0b0000_0001) > 0;
 
                 var byte2 = bytes[index++];
                 var mod = (byte2 & MOD_MASK) >> 6;
-                var reg = (byte2 & REG_MASK) >> 3;
                 var rm = byte2 & RM_MASK;
 
                 var regTable = w ? RegTable_W1 : RegTable_W0;
 
-                switch (mod)
+                var reg = (byte2 & REG_MASK) >> 3;
+                //register to register
+                if (mod == 0b11)
                 {
-                    //no displacement
-                    case 0b00:
-                    {
-                        //direct address, 16bit displacement
-                        if (rm == 0b110)
-                        {
-                            var immediate = readWord();
-                            strBuilder.AppendLine(d
-                                ? $"mov {regTable[reg]}, [{immediate}]"
-                                : $"mov [{immediate}], {regTable[reg]}");
-                        }
-                        else
-                        {
-                            strBuilder.AppendLine(d
-                                ? $"mov {regTable[reg]}, [{MODOperandsTable[rm]}]"
-                                : $"mov [{MODOperandsTable[rm]}], {regTable[reg]}");
-                        }
+                    strBuilder.AppendLine($"mov {regTable[rm]}, {regTable[reg]}");
+                }
+                else
+                {
+                    var d = (byte1 & 0b0000_0010) > 0;
+                    var addressCalc = decodeEffectAddressCalculation(byte2);
 
-                        break;
-                    }
-                    //8bit displacement
-                    case 0b01:
-                    {
-                        var immediate = readByte();
-                        if (immediate > 0)
-                        {
-                            strBuilder.AppendLine(d
-                                ? $"mov {regTable[reg]}, [{MODOperandsTable[rm]} + {immediate}]"
-                                : $"mov [{MODOperandsTable[rm]} + {immediate}], {regTable[reg]}");
-                        }
-                        else
-                        {
-                            strBuilder.AppendLine(d
-                                ? $"mov {regTable[reg]}, [{MODOperandsTable[rm]}]"
-                                : $"mov [{MODOperandsTable[rm]}], {regTable[reg]}");
-                        }
-
-                        break;
-                    }
-                    //16bit displacement
-                    case 0b10:
-                    {
-                        var immediate = readWord();
-                        if (immediate > 0)
-                        {
-                            strBuilder.AppendLine(d
-                                ? $"mov {regTable[reg]}, [{MODOperandsTable[rm]} + {immediate}]"
-                                : $"mov [{MODOperandsTable[rm]} + {immediate}], {regTable[reg]}");
-                        }
-                        else
-                        {
-                            strBuilder.AppendLine(d
-                                ? $"mov {regTable[reg]}, [{MODOperandsTable[rm]}]"
-                                : $"mov [{MODOperandsTable[rm]}], {regTable[reg]}");
-                        }
-
-                        break;
-                    }
-                    //register to gister
-                    case 0b11:
-                    {
-                        strBuilder.AppendLine($"mov {regTable[rm]}, {regTable[reg]}");
-                        break;
-                    }
+                    strBuilder.AppendLine(d
+                        ? $"mov {regTable[reg]}, {addressCalc}"
+                        : $"mov {addressCalc}, {regTable[reg]}");
                 }
             }
             //immediate to register
@@ -160,8 +124,10 @@ public static class Decoder8086
             //immediate to memory
             else if ((byte1 & 0xFF << 1) == 0b1100_0110)
             {
-                var w = (byte1 << 7) > 0;
-                strBuilder.AppendLine($"immediate to memory");
+                var w = (byte1 & 0b0000_0001) > 0;
+                var addressCalc = decodeEffectAddressCalculation(bytes[index++]);
+                var immediate = w ? $"word {readWord()}" : $"byte {readByte()}";
+                strBuilder.AppendLine($"mov {addressCalc}, {immediate}");
             }
         }
 
