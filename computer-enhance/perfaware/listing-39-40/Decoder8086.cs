@@ -129,6 +129,16 @@ public static class Decoder8086
                 var immediate = w ? $"word {readWord()}" : $"byte {readByte()}";
                 strBuilder.AppendLine($"mov {addressCalc}, {immediate}");
             }
+            //memory to acc / acc to memory
+            else if ((byte1 & 0xFF << 2) == 0b1010_0000)
+            {
+                var d = (byte1 & 0b0000_00010) > 0;
+                var w = (byte1 & 0b0000_00001) > 0;
+                var effectiveAddress = w ? readWord() : readByte();
+                strBuilder.AppendLine(d
+                    ? $"mov [{effectiveAddress}], ax"
+                    : $"mov ax, [{effectiveAddress}]");
+            }
         }
 
         return strBuilder.ToString();
