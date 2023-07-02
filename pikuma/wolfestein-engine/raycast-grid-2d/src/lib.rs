@@ -7,7 +7,7 @@ pub mod math {
 }
 
 pub mod graphics {
-    use macroquad::prelude::{vec2, Vec2};
+    use macroquad::prelude::*;
 
     pub struct Viewport2D {
         pub size: Vec2,
@@ -17,13 +17,44 @@ pub mod graphics {
         pub fn world_to_viewport(&self, pos: Vec2) -> Vec2 {
             vec2(pos.x + self.size.x * 0.5, -pos.y + self.size.y * 0.5)
         }
+
+        pub fn draw_rectangle(&self, center: Vec2, size: Vec2, color: Color) {
+            let draw_pos = self.world_to_viewport(Viewport2D::rect_top_left(center, size));
+            draw_rectangle(draw_pos.x, draw_pos.y, size.x, size.y, color);
+        }
+
+        pub fn draw_rectangle_lines(&self, center: Vec2, size: Vec2, thickness: f32, color: Color) {
+            let draw_pos = self.world_to_viewport(Viewport2D::rect_top_left(center, size));
+            draw_rectangle_lines(draw_pos.x, draw_pos.y, size.x, size.y, thickness, color);
+        }
+
+        pub fn draw_line(&self, from: Vec2, to: Vec2, thickness: f32, color: Color) {
+            let from_draw = self.world_to_viewport(from);
+            let to_draw = self.world_to_viewport(to);
+            draw_line(
+                from_draw.x,
+                from_draw.y,
+                to_draw.x,
+                to_draw.y,
+                thickness,
+                color,
+            );
+        }
+
+        pub fn draw_circle(&self, center: Vec2, r: f32, color: Color) {
+            let center_draw = self.world_to_viewport(center);
+            draw_circle(center_draw.x, center_draw.y, r, color);
+        }
+
+        fn rect_top_left(center: Vec2, size: Vec2) -> Vec2 {
+            center + vec2(-size.x, size.y) * 0.5
+        }
     }
 }
 
 pub mod game {
-    use std::fs::read_to_string;
 
-    use macroquad::{miniquad::gl::WGL_CONTEXT_MAJOR_VERSION_ARB, prelude::*};
+    use macroquad::prelude::*;
 
     use crate::{graphics::Viewport2D, math};
 
@@ -43,6 +74,14 @@ pub mod game {
             (self.row_count * self.tile_size) as u16
         }
 
+        pub fn get_tile(&self, x: usize, y: usize) -> u8 {
+            self.grid[y][x]
+        }
+
+        pub fn tile_size(&self) -> Vec2 {
+            vec2(self.tile_size as f32, self.tile_size as f32)
+        }
+
         pub fn tile_center(&self, x: usize, y: usize) -> Vec2 {
             let map_pos = Vec2::ZERO;
             let tile_size = self.tile_size as f32;
@@ -53,6 +92,16 @@ pub mod game {
             let tile_y = map_pos.y + tile_size * y as f32 - extents.y + tile_size * 0.5;
 
             vec2(tile_x, tile_y)
+        }
+
+        pub fn position_to_coords(&self, pos: Vec2) -> (usize, usize) {
+            let map_pos = Vec2::ZERO;
+            let extents = vec2(self.width() as f32 * 0.5, self.height() as f32 * 0.5);
+            let tile_size = self.tile_size as f32;
+            let x = ((pos.x - map_pos.x + extents.x - tile_size * 0.5) / tile_size).round() as i32;
+            let y = ((pos.y - map_pos.y + extents.y - tile_size * 0.5) / tile_size).round() as i32;
+
+            (x as usize, y as usize)
         }
     }
 
@@ -84,32 +133,19 @@ pub mod game {
 
         loop {
             clear_background(GRAY);
-            update_player(&mut player, get_frame_time());
+            let dt = get_frame_time();
 
             draw_map(&map, &viewport);
+
             draw_player(&player, &viewport);
+
+            update_player(&mut player, &map, dt);
 
             next_frame().await;
         }
     }
 
-    fn update_player(player: &mut Player, dt: f32) {
-        //move
-        {
-            let mut move_input = 0.0;
-            if is_key_down(KeyCode::W) {
-                move_input += 1.0;
-            }
-            if is_key_down(KeyCode::S) {
-                move_input -= 1.0;
-            }
-
-            let move_amount = player.move_speed * move_input * dt;
-            let move_vector = math::polar_to_cartesian(move_amount, player.rotation_radians);
-
-            player.position += move_vector;
-        }
-
+    fn update_player(player: &mut Player, map: &Map, dt: f32) {
         //rotate
         {
             let mut rot_input = 0.0;
@@ -123,27 +159,52 @@ pub mod game {
             let rot_amount = player.rotation_speed_radians * rot_input * dt;
             player.rotation_radians += rot_amount;
         }
+
+        //move
+        {
+            let mut move_input = 0.0;
+            if is_key_down(KeyCode::W) {
+                move_input += 1.0;
+            }
+            if is_key_down(KeyCode::S) {
+                move_input -= 1.0;
+            }
+
+            let move_amount = player.move_speed * move_input * dt;
+
+            let move_vector = math::polar_to_cartesian(move_amount, player.rotation_radians);
+
+            let new_pos = player.position + move_vector;
+
+            let mut can_move = true;
+            const SKIN_WIDTH: f32 = 3.0;
+            for deg in [45.0, 180.0 - 45.0, 180.0 + 45.0, -45.0] {
+                let radians = (deg as f32).to_radians();
+                let point = new_pos + math::polar_to_cartesian(player.radius + SKIN_WIDTH, radians);
+
+                let tile_coors = map.position_to_coords(point);
+                let mut c = GREEN;
+                c.a = 0.5;
+
+                let tile = map.get_tile(tile_coors.0, tile_coors.1);
+                if tile == 1 {
+                    can_move = false;
+                    break;
+                }
+            }
+
+            if can_move {
+                player.position = new_pos;
+            }
+        }
     }
 
     fn draw_player(player: &Player, viewport: &Viewport2D) {
-        let player_draw_pos = viewport.world_to_viewport(player.position);
         let line_end = player.position + math::polar_to_cartesian(50.0, player.rotation_radians);
-        let line_end_draw = viewport.world_to_viewport(line_end);
-        draw_line(
-            player_draw_pos.x,
-            player_draw_pos.y,
-            line_end_draw.x,
-            line_end_draw.y,
-            2.0,
-            BLUE,
-        );
 
-        draw_circle(
-            player_draw_pos.x,
-            player_draw_pos.y,
-            player.radius,
-            player.color,
-        );
+        viewport.draw_line(player.position, line_end, 2.0, BLUE);
+
+        viewport.draw_circle(player.position, player.radius, player.color);
     }
 
     fn create_map() -> Map {
@@ -175,38 +236,16 @@ pub mod game {
     fn draw_map(map: &Map, viewport: &Viewport2D) {
         for (y, line) in map.grid.iter().enumerate() {
             for (x, cell) in line.iter().enumerate() {
-                let tile_size: f32 = map.tile_size as f32;
+                let tile_size = vec2(map.tile_size as f32, map.tile_size as f32);
 
                 let tile_center = map.tile_center(x, y);
-                let tile_top_left_viewport =
-                    viewport.world_to_viewport(tile_center + vec2(-tile_size, tile_size) * 0.5);
-
                 match cell {
                     0 => {
-                        draw_rectangle(
-                            tile_top_left_viewport.x,
-                            tile_top_left_viewport.y,
-                            tile_size,
-                            tile_size,
-                            WHITE,
-                        );
-                        draw_rectangle_lines(
-                            tile_top_left_viewport.x,
-                            tile_top_left_viewport.y,
-                            tile_size,
-                            tile_size,
-                            1.0,
-                            BLACK,
-                        );
+                        viewport.draw_rectangle(tile_center, tile_size, WHITE);
+                        viewport.draw_rectangle_lines(tile_center, tile_size, 1.0, BLACK);
                     }
                     1 => {
-                        draw_rectangle(
-                            tile_top_left_viewport.x,
-                            tile_top_left_viewport.y,
-                            tile_size,
-                            tile_size,
-                            BLACK,
-                        );
+                        viewport.draw_rectangle(tile_center, tile_size, BLACK);
                     }
                     _ => (),
                 };
