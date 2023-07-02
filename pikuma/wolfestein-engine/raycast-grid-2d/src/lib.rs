@@ -21,7 +21,9 @@ pub mod graphics {
 }
 
 pub mod game {
-    use macroquad::prelude::*;
+    use std::fs::read_to_string;
+
+    use macroquad::{miniquad::gl::WGL_CONTEXT_MAJOR_VERSION_ARB, prelude::*};
 
     use crate::{graphics::Viewport2D, math};
 
@@ -71,22 +73,55 @@ pub mod game {
         };
         let map = create_map();
 
-        let player = Player {
+        let mut player = Player {
             radius: 10.0,
             color: RED,
             position: Vec2::ZERO,
-            rotation_radians: 45.0_f32.to_radians(),
-            move_speed: 5.0,
-            rotation_speed_radians: 1.0_f32.to_radians(),
+            rotation_radians: 15.0_f32.to_radians(),
+            move_speed: 100.0,
+            rotation_speed_radians: 80.0_f32.to_radians(),
         };
 
         loop {
             clear_background(GRAY);
-            //TODO DRAW MAMP WITH VIEWPORT
+            update_player(&mut player, get_frame_time());
+
             draw_map(&map, &viewport);
             draw_player(&player, &viewport);
 
             next_frame().await;
+        }
+    }
+
+    fn update_player(player: &mut Player, dt: f32) {
+        //move
+        {
+            let mut move_input = 0.0;
+            if is_key_down(KeyCode::W) {
+                move_input += 1.0;
+            }
+            if is_key_down(KeyCode::S) {
+                move_input -= 1.0;
+            }
+
+            let move_amount = player.move_speed * move_input * dt;
+            let move_vector = math::polar_to_cartesian(move_amount, player.rotation_radians);
+
+            player.position += move_vector;
+        }
+
+        //rotate
+        {
+            let mut rot_input = 0.0;
+            if is_key_down(KeyCode::A) {
+                rot_input += 1.0;
+            }
+            if is_key_down(KeyCode::D) {
+                rot_input -= 1.0;
+            }
+
+            let rot_amount = player.rotation_speed_radians * rot_input * dt;
+            player.rotation_radians += rot_amount;
         }
     }
 
@@ -175,9 +210,6 @@ pub mod game {
                     }
                     _ => (),
                 };
-
-                let tile_center_draw = viewport.world_to_viewport(tile_center);
-                draw_circle(tile_center_draw.x, tile_center_draw.y, 1.0, YELLOW);
             }
         }
     }
