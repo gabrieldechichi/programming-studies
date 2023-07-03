@@ -105,9 +105,21 @@ pub mod game {
 
         pub position: Vec2,
         pub rotation_radians: f32,
+        pub fov: PlayerFov,
 
         pub move_speed: f32,
         pub rotation_speed_radians: f32,
+    }
+
+    pub struct PlayerFov {
+        pub ray_count: usize,
+        pub half_fov_radians: f32,
+    }
+
+    impl PlayerFov {
+        pub fn dtheta(&self) -> f32 {
+            self.half_fov_radians * 2 as f32 / self.ray_count as f32
+        }
     }
 
     pub async fn run() {
@@ -120,6 +132,10 @@ pub mod game {
             radius: 10.0,
             color: RED,
             position: Vec2::ZERO,
+            fov: PlayerFov {
+                ray_count: 100,
+                half_fov_radians: 30.0_f32.to_radians(),
+            },
             rotation_radians: 15.0_f32.to_radians(),
             move_speed: 100.0,
             rotation_speed_radians: 80.0_f32.to_radians(),
@@ -135,6 +151,7 @@ pub mod game {
 
             update_player(&mut player, dt);
             player_map_collision(&mut player, &map, &viewport);
+            draw_player_fov(&player, &viewport);
 
             next_frame().await;
         }
@@ -226,6 +243,19 @@ pub mod game {
 
                 player.position -= penetration;
             }
+        }
+    }
+
+    fn draw_player_fov(player: &Player, viewport: &Viewport2D) {
+        let dtheta = player.fov.dtheta();
+        let mut c = GREEN;
+        c.a = 0.3;
+
+        for i in 0..player.fov.ray_count {
+            let theta = player.rotation_radians - player.fov.half_fov_radians + dtheta * i as f32;
+
+            let end_point = player.position + math::polar_to_cartesian(50.0, theta);
+            viewport.draw_line(player.position, end_point, 1.0, c);
         }
     }
 
