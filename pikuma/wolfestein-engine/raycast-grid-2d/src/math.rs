@@ -1,7 +1,13 @@
 use macroquad::prelude::*;
 
+pub const PI : f32 = std::f32::consts::PI;
+
 pub fn polar_to_cartesian(r: f32, theta_radians: f32) -> Vec2 {
     vec2(theta_radians.cos() * r, theta_radians.sin() * r)
+}
+
+pub fn normalize_angle(a: f32) -> f32 {
+    a.rem_euclid(2.0*std::f32::consts::PI)
 }
 
 ///Returns how much a line of `center` and `extents` is outside a given `bounds`, or 0.0 if inside

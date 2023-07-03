@@ -55,6 +55,17 @@ pub mod grid {
         pub y: i32,
     }
 
+    impl std::ops::Add<GridCoords> for GridCoords {
+        type Output = GridCoords;
+
+        fn add(self, rhs: GridCoords) -> Self::Output {
+            GridCoords {
+                x: self.x + rhs.x,
+                y: self.y + rhs.y,
+            }
+        }
+    }
+
     pub fn coords(x: i32, y: i32) -> GridCoords {
         GridCoords { x, y }
     }
@@ -103,8 +114,20 @@ pub mod game {
             vec2(self.width() as f32 * 0.5, self.height() as f32 * 0.5)
         }
 
-        pub fn get_tile(&self, x: usize, y: usize) -> u8 {
-            self.grid[y][x]
+        pub fn get_tile(&self, x: usize, y: usize) -> Option<u8> {
+            if x >= self.row_count || y >= self.column_count {
+                None
+            } else {
+                Some(self.grid[y][x])
+            }
+        }
+
+        pub fn is_wall(&self, x: usize, y: usize) -> bool {
+            if let Some(t) = self.get_tile(x, y) {
+                t == 1
+            } else {
+                false
+            }
         }
 
         pub fn tile_size(&self) -> Vec2 {
@@ -113,6 +136,10 @@ pub mod game {
 
         pub fn tile_center(&self, x: usize, y: usize) -> Vec2 {
             tile_center(x as i32, y as i32, self.tile_size as f32) + self.pivot - self.extents()
+        }
+
+        pub fn tile_bl(&self, x: usize, y: usize) -> Vec2 {
+            tile_bl(x as i32, y as i32, self.tile_size as f32) + self.pivot - self.extents()
         }
 
         pub fn position_to_coords(&self, pos: Vec2) -> GridCoords {
@@ -148,7 +175,7 @@ pub mod game {
         let viewport = Viewport2D {
             size: vec2(screen_width(), screen_height()),
         };
-        let map = create_map();
+        let level = create_level();
 
         let mut player = Player {
             radius: 10.0,
@@ -167,15 +194,59 @@ pub mod game {
             clear_background(GRAY);
             let dt = get_frame_time();
 
-            draw_map(&map, &viewport);
+            draw_map(&level, &viewport);
 
             draw_player_fov(&player, &viewport);
             draw_player(&player, &viewport);
 
             update_player(&mut player, dt);
-            player_map_collision(&mut player, &map, &viewport);
+            player_map_collision(&mut player, &level, &viewport);
+            raycast_grid(&level, player.position, player.rotation_radians, &viewport);
 
             next_frame().await;
+        }
+    }
+
+    fn raycast_grid(level: &Level, origin: Vec2, theta: f32, viewport: &Viewport2D) {
+        //horizontal
+        // 1. find coordinate of first horizontal intersection
+        // 2. find ystep
+        // 3. find xtep
+        // 4. convert intersection into coords
+        // 5. if hits wall: store horizontal distance
+        {
+            let delta_coord_y = if math::normalize_angle(theta) < math::PI {
+                1
+            } else {
+                0
+            };
+
+            let theta_tan = theta.tan();
+
+            let start_coords = level.position_to_coords(origin) + coords(0, delta_coord_y);
+
+            let mut y_intersect = level
+                .tile_bl(start_coords.x as usize, start_coords.y as usize)
+                .y;
+            let mut x_intersect = origin.x + (y_intersect - origin.y) / theta_tan;
+
+            let y_step = theta.sin().signum() * level.tile_size as f32;
+            let x_step = y_step / theta_tan;
+
+            loop {
+                let coords = level.position_to_coords(vec2(x_intersect, y_intersect));
+
+                viewport.draw_circle(vec2(x_intersect, y_intersect), 2.0, PURPLE);
+                if let Some(t) = level.get_tile(coords.x as usize, coords.y as usize) {
+                    if t == 1 {
+                        break;
+                    }
+                    x_intersect += x_step;
+                    y_intersect += y_step;
+                } else {
+                    break;
+                }
+            }
         }
     }
 
@@ -254,8 +325,7 @@ pub mod game {
             let tile_center = map.tile_center(coords.x as usize, coords.y as usize);
             viewport.draw_rectangle(tile_center, map.tile_size(), c);
 
-            let tile = map.get_tile(coords.x as usize, coords.y as usize);
-            if tile == 1 {
+            if map.is_wall(coords.x as usize, coords.y as usize) {
                 let penetration = math::circle_aabb_penetration(
                     player.position,
                     player.radius,
@@ -289,7 +359,7 @@ pub mod game {
         viewport.draw_circle(player.position, player.radius, player.color);
     }
 
-    fn create_map() -> Level {
+    fn create_level() -> Level {
         let grid: Vec<Vec<u8>> = vec![
             vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
