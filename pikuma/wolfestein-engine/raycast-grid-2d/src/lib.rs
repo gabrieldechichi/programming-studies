@@ -48,13 +48,6 @@ pub mod graphics {
 
 pub mod grid {
     use macroquad::prelude::*;
-    #[derive(Debug, Clone)]
-    pub struct Map {
-        pub grid: Vec<Vec<u8>>,
-        pub row_count: usize,
-        pub column_count: usize,
-        pub tile_size: usize,
-    }
 
     #[derive(Debug, Clone, Copy)]
     pub struct GridCoords {
@@ -66,13 +59,48 @@ pub mod grid {
         GridCoords { x, y }
     }
 
-    impl Map {
+    pub fn tile_center(x: i32, y: i32, tile_size: f32) -> Vec2 {
+        tile_bl(x, y, tile_size) + tile_size * 0.5
+    }
+
+    pub fn tile_bl(x: i32, y: i32, tile_size: f32) -> Vec2 {
+        let tile_x = tile_size * x as f32;
+        let tile_y = tile_size * y as f32;
+        vec2(tile_x, tile_y)
+    }
+
+    pub fn position_to_coords(pos: Vec2, tile_size: f32) -> GridCoords {
+        let x = (pos.x / tile_size).floor() as i32;
+        let y = (pos.y / tile_size).floor() as i32;
+        GridCoords { x, y }
+    }
+}
+
+pub mod game {
+
+    use crate::{graphics::Viewport2D, grid::*, math};
+    use macroquad::prelude::*;
+
+    #[derive(Debug, Clone)]
+    pub struct Level {
+        pub grid: Vec<Vec<u8>>,
+        pub pivot: Vec2,
+        pub row_count: usize,
+        pub column_count: usize,
+        pub tile_size: usize,
+    }
+
+    impl Level {
         pub fn width(&self) -> u16 {
             (self.column_count * self.tile_size) as u16
         }
 
         pub fn height(&self) -> u16 {
             (self.row_count * self.tile_size) as u16
+        }
+
+        pub fn extents(&self) -> Vec2 {
+            vec2(self.width() as f32 * 0.5, self.height() as f32 * 0.5)
         }
 
         pub fn get_tile(&self, x: usize, y: usize) -> u8 {
@@ -84,34 +112,14 @@ pub mod grid {
         }
 
         pub fn tile_center(&self, x: usize, y: usize) -> Vec2 {
-            let map_pos = Vec2::ZERO;
-            let tile_size = self.tile_size as f32;
-            let extents = vec2(self.width() as f32 * 0.5, self.height() as f32 * 0.5);
-
-            let tile_x = map_pos.x + tile_size * x as f32 - extents.x + tile_size * 0.5;
-
-            let tile_y = map_pos.y + tile_size * y as f32 - extents.y + tile_size * 0.5;
-
-            vec2(tile_x, tile_y)
+            tile_center(x as i32, y as i32, self.tile_size as f32) + self.pivot - self.extents()
         }
 
         pub fn position_to_coords(&self, pos: Vec2) -> GridCoords {
-            let map_pos = Vec2::ZERO;
-            let extents = vec2(self.width() as f32 * 0.5, self.height() as f32 * 0.5);
-            let tile_size = self.tile_size as f32;
-            let x = ((pos.x - map_pos.x + extents.x - tile_size * 0.5) / tile_size).round() as i32;
-            let y = ((pos.y - map_pos.y + extents.y - tile_size * 0.5) / tile_size).round() as i32;
-
-            GridCoords { x, y }
+            let adjusted_pos = pos + self.extents() - self.pivot;
+            position_to_coords(adjusted_pos, self.tile_size as f32)
         }
     }
-}
-
-pub mod game {
-
-    use macroquad::prelude::*;
-
-    use crate::{graphics::Viewport2D, grid::*, math};
 
     pub struct Player {
         pub radius: f32,
@@ -161,11 +169,11 @@ pub mod game {
 
             draw_map(&map, &viewport);
 
+            draw_player_fov(&player, &viewport);
             draw_player(&player, &viewport);
 
             update_player(&mut player, dt);
             player_map_collision(&mut player, &map, &viewport);
-            draw_player_fov(&player, &viewport);
 
             next_frame().await;
         }
@@ -204,7 +212,7 @@ pub mod game {
         }
     }
 
-    fn player_map_collision(player: &mut Player, map: &Map, viewport: &Viewport2D) {
+    fn player_map_collision(player: &mut Player, map: &Level, viewport: &Viewport2D) {
         let current_tile_coords = map.position_to_coords(player.position);
 
         for coords in [
@@ -281,7 +289,7 @@ pub mod game {
         viewport.draw_circle(player.position, player.radius, player.color);
     }
 
-    fn create_map() -> Map {
+    fn create_map() -> Level {
         let grid: Vec<Vec<u8>> = vec![
             vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
@@ -299,15 +307,16 @@ pub mod game {
         let row_count = grid.len();
         let column_count = grid[0].len();
 
-        Map {
+        Level {
             grid,
+            pivot: Vec2::ZERO,
             row_count,
             column_count,
             tile_size: 32,
         }
     }
 
-    fn draw_map(map: &Map, viewport: &Viewport2D) {
+    fn draw_map(map: &Level, viewport: &Viewport2D) {
         for (y, line) in map.grid.iter().enumerate() {
             for (x, cell) in line.iter().enumerate() {
                 let tile_size = vec2(map.tile_size as f32, map.tile_size as f32);
