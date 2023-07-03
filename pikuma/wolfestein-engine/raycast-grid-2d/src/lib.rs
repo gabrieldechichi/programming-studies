@@ -46,17 +46,24 @@ pub mod graphics {
     }
 }
 
-pub mod game {
-
+pub mod grid {
     use macroquad::prelude::*;
-
-    use crate::{graphics::Viewport2D, math};
-
+    #[derive(Debug, Clone)]
     pub struct Map {
         pub grid: Vec<Vec<u8>>,
         pub row_count: usize,
         pub column_count: usize,
         pub tile_size: usize,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct GridCoords {
+        pub x: i32,
+        pub y: i32,
+    }
+
+    pub fn coords(x: i32, y: i32) -> GridCoords {
+        GridCoords { x, y }
     }
 
     impl Map {
@@ -88,16 +95,23 @@ pub mod game {
             vec2(tile_x, tile_y)
         }
 
-        pub fn position_to_coords(&self, pos: Vec2) -> (usize, usize) {
+        pub fn position_to_coords(&self, pos: Vec2) -> GridCoords {
             let map_pos = Vec2::ZERO;
             let extents = vec2(self.width() as f32 * 0.5, self.height() as f32 * 0.5);
             let tile_size = self.tile_size as f32;
             let x = ((pos.x - map_pos.x + extents.x - tile_size * 0.5) / tile_size).round() as i32;
             let y = ((pos.y - map_pos.y + extents.y - tile_size * 0.5) / tile_size).round() as i32;
 
-            (x as usize, y as usize)
+            GridCoords { x, y }
         }
     }
+}
+
+pub mod game {
+
+    use macroquad::prelude::*;
+
+    use crate::{graphics::Viewport2D, grid::*, math};
 
     pub struct Player {
         pub radius: f32,
@@ -194,45 +208,45 @@ pub mod game {
         let current_tile_coords = map.position_to_coords(player.position);
 
         for coords in [
-            (
-                current_tile_coords.0 as i32 + 1,
-                current_tile_coords.1 as i32 + 1,
+            coords(
+                current_tile_coords.x as i32 + 1,
+                current_tile_coords.y as i32 + 1,
             ),
-            (
-                current_tile_coords.0 as i32 + 1,
-                current_tile_coords.1 as i32,
+            coords(
+                current_tile_coords.x as i32 + 1,
+                current_tile_coords.y as i32,
             ),
-            (
-                current_tile_coords.0 as i32,
-                current_tile_coords.1 as i32 + 1,
+            coords(
+                current_tile_coords.x as i32,
+                current_tile_coords.y as i32 + 1,
             ),
-            (
-                current_tile_coords.0 as i32 - 1,
-                current_tile_coords.1 as i32,
+            coords(
+                current_tile_coords.x as i32 - 1,
+                current_tile_coords.y as i32,
             ),
-            (
-                current_tile_coords.0 as i32,
-                current_tile_coords.1 as i32 - 1,
+            coords(
+                current_tile_coords.x as i32,
+                current_tile_coords.y as i32 - 1,
             ),
-            (
-                current_tile_coords.0 as i32 - 1,
-                current_tile_coords.1 as i32 - 1,
+            coords(
+                current_tile_coords.x as i32 - 1,
+                current_tile_coords.y as i32 - 1,
             ),
-            (
-                current_tile_coords.0 as i32 + 1,
-                current_tile_coords.1 as i32 - 1,
+            coords(
+                current_tile_coords.x as i32 + 1,
+                current_tile_coords.y as i32 - 1,
             ),
-            (
-                current_tile_coords.0 as i32 - 1,
-                current_tile_coords.1 as i32 + 1,
+            coords(
+                current_tile_coords.x as i32 - 1,
+                current_tile_coords.y as i32 + 1,
             ),
         ] {
             let mut c = GREEN;
             c.a = 0.5;
-            let tile_center = map.tile_center(coords.0 as usize, coords.1 as usize);
+            let tile_center = map.tile_center(coords.x as usize, coords.y as usize);
             viewport.draw_rectangle(tile_center, map.tile_size(), c);
 
-            let tile = map.get_tile(coords.0 as usize, coords.1 as usize);
+            let tile = map.get_tile(coords.x as usize, coords.y as usize);
             if tile == 1 {
                 let penetration = math::circle_aabb_penetration(
                     player.position,
