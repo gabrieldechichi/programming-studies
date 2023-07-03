@@ -115,7 +115,7 @@ pub mod game {
         }
 
         pub fn get_tile(&self, x: usize, y: usize) -> Option<u8> {
-            if x >= self.row_count || y >= self.column_count {
+            if x >= self.column_count || y >= self.row_count {
                 None
             } else {
                 Some(self.grid[y][x])
@@ -185,7 +185,7 @@ pub mod game {
                 ray_count: 100,
                 half_fov_radians: 30.0_f32.to_radians(),
             },
-            rotation_radians: 15.0_f32.to_radians(),
+            rotation_radians: (180.0_f32 - 30.0_f32).to_radians(),
             move_speed: 100.0,
             rotation_speed_radians: 80.0_f32.to_radians(),
         };
@@ -201,42 +201,54 @@ pub mod game {
 
             update_player(&mut player, dt);
             player_map_collision(&mut player, &level, &viewport);
-            raycast_grid(&level, player.position, player.rotation_radians, &viewport);
+            let hit_distance = raycast_grid(&level, player.position, player.rotation_radians);
+
+            let hit_point =
+                player.position + math::polar_to_cartesian(hit_distance, player.rotation_radians);
+            viewport.draw_line(player.position, hit_point, 2.0, PURPLE);
+
+            viewport.draw_circle(hit_point, 3.0, RED);
 
             next_frame().await;
         }
     }
 
-    fn raycast_grid(level: &Level, origin: Vec2, theta: f32, viewport: &Viewport2D) {
+    fn raycast_grid(level: &Level, origin: Vec2, theta: f32) -> f32 {
+        let origin_coords = level.position_to_coords(origin);
+
+        let theta_tan = theta.tan();
         //horizontal
-        // 1. find coordinate of first horizontal intersection
-        // 2. find ystep
-        // 3. find xtep
-        // 4. convert intersection into coords
-        // 5. if hits wall: store horizontal distance
-        {
-            let delta_coord_y = if math::normalize_angle(theta) < math::PI {
-                1
+        let h_intersect_dist = {
+            let y_sign = math::normalize_angle(theta) < math::PI;
+
+            let start_coords = if y_sign {
+                origin_coords + coords(0, 1)
             } else {
-                0
+                origin_coords
             };
-
-            let theta_tan = theta.tan();
-
-            let start_coords = level.position_to_coords(origin) + coords(0, delta_coord_y);
 
             let mut y_intersect = level
                 .tile_bl(start_coords.x as usize, start_coords.y as usize)
                 .y;
             let mut x_intersect = origin.x + (y_intersect - origin.y) / theta_tan;
 
-            let y_step = theta.sin().signum() * level.tile_size as f32;
+            let y_step = if y_sign {
+                level.tile_size as f32
+            } else {
+                -(level.tile_size as f32)
+            };
+
             let x_step = y_step / theta_tan;
 
-            loop {
-                let coords = level.position_to_coords(vec2(x_intersect, y_intersect));
+            let p_extra = if y_sign {
+                vec2(0.001, 0.001)
+            } else {
+                -vec2(0.001, 0.001)
+            };
 
-                viewport.draw_circle(vec2(x_intersect, y_intersect), 2.0, PURPLE);
+            loop {
+                let coords = level.position_to_coords(vec2(x_intersect, y_intersect) + p_extra);
+
                 if let Some(t) = level.get_tile(coords.x as usize, coords.y as usize) {
                     if t == 1 {
                         break;
@@ -247,6 +259,62 @@ pub mod game {
                     break;
                 }
             }
+
+            vec2(x_intersect, y_intersect).distance(origin)
+        };
+
+        //vertical
+        let v_intersect_dist = {
+            let x_sign = !(math::normalize_angle(theta) > math::PI * 0.5
+                && math::normalize_angle(theta) < math::PI * 1.5);
+
+            let start_coords = if x_sign {
+                origin_coords + coords(1, 0)
+            } else {
+                origin_coords
+            };
+
+            let mut x_intersect = level
+                .tile_bl(start_coords.x as usize, start_coords.y as usize)
+                .x;
+
+            let mut y_intersect = origin.y + (x_intersect - origin.x) * theta_tan;
+
+            let x_step = if x_sign {
+                level.tile_size as f32
+            } else {
+                -(level.tile_size as f32)
+            };
+
+            let y_step = x_step * theta_tan;
+
+            let p_extra = if x_sign {
+                vec2(0.001, 0.001)
+            } else {
+                -vec2(0.001, 0.001)
+            };
+
+            loop {
+                let coords = level.position_to_coords(vec2(x_intersect, y_intersect) + p_extra);
+
+                if let Some(t) = level.get_tile(coords.x as usize, coords.y as usize) {
+                    if t == 1 {
+                        break;
+                    }
+                    x_intersect += x_step;
+                    y_intersect += y_step;
+                } else {
+                    break;
+                }
+            }
+
+            vec2(x_intersect, y_intersect).distance(origin)
+        };
+
+        if h_intersect_dist > v_intersect_dist {
+            v_intersect_dist
+        } else {
+            h_intersect_dist
         }
     }
 
@@ -352,10 +420,6 @@ pub mod game {
     }
 
     fn draw_player(player: &Player, viewport: &Viewport2D) {
-        let line_end = player.position + math::polar_to_cartesian(50.0, player.rotation_radians);
-
-        viewport.draw_line(player.position, line_end, 2.0, BLUE);
-
         viewport.draw_circle(player.position, player.radius, player.color);
     }
 
