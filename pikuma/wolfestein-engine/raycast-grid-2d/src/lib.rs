@@ -1,10 +1,4 @@
-pub mod math {
-    use macroquad::prelude::*;
-
-    pub fn polar_to_cartesian(r: f32, theta_radians: f32) -> Vec2 {
-        vec2(theta_radians.cos() * r, theta_radians.sin() * r)
-    }
-}
+pub mod math;
 
 pub mod graphics {
     use macroquad::prelude::*;
@@ -139,13 +133,14 @@ pub mod game {
 
             draw_player(&player, &viewport);
 
-            update_player(&mut player, &map, dt);
+            update_player(&mut player, dt);
+            player_map_collision(&mut player, &map, &viewport);
 
             next_frame().await;
         }
     }
 
-    fn update_player(player: &mut Player, map: &Map, dt: f32) {
+    fn update_player(player: &mut Player, dt: f32) {
         //rotate
         {
             let mut rot_input = 0.0;
@@ -174,27 +169,62 @@ pub mod game {
 
             let move_vector = math::polar_to_cartesian(move_amount, player.rotation_radians);
 
-            let new_pos = player.position + move_vector;
+            player.position = player.position + move_vector;
+        }
+    }
 
-            let mut can_move = true;
-            const SKIN_WIDTH: f32 = 3.0;
-            for deg in [45.0, 180.0 - 45.0, 180.0 + 45.0, -45.0] {
-                let radians = (deg as f32).to_radians();
-                let point = new_pos + math::polar_to_cartesian(player.radius + SKIN_WIDTH, radians);
+    fn player_map_collision(player: &mut Player, map: &Map, viewport: &Viewport2D) {
+        let current_tile_coords = map.position_to_coords(player.position);
 
-                let tile_coors = map.position_to_coords(point);
-                let mut c = GREEN;
-                c.a = 0.5;
+        for coords in [
+            (
+                current_tile_coords.0 as i32 + 1,
+                current_tile_coords.1 as i32 + 1,
+            ),
+            (
+                current_tile_coords.0 as i32 + 1,
+                current_tile_coords.1 as i32,
+            ),
+            (
+                current_tile_coords.0 as i32,
+                current_tile_coords.1 as i32 + 1,
+            ),
+            (
+                current_tile_coords.0 as i32 - 1,
+                current_tile_coords.1 as i32,
+            ),
+            (
+                current_tile_coords.0 as i32,
+                current_tile_coords.1 as i32 - 1,
+            ),
+            (
+                current_tile_coords.0 as i32 - 1,
+                current_tile_coords.1 as i32 - 1,
+            ),
+            (
+                current_tile_coords.0 as i32 + 1,
+                current_tile_coords.1 as i32 - 1,
+            ),
+            (
+                current_tile_coords.0 as i32 - 1,
+                current_tile_coords.1 as i32 + 1,
+            ),
+        ] {
+            let mut c = GREEN;
+            c.a = 0.5;
+            let tile_center = map.tile_center(coords.0 as usize, coords.1 as usize);
+            viewport.draw_rectangle(tile_center, map.tile_size(), c);
 
-                let tile = map.get_tile(tile_coors.0, tile_coors.1);
-                if tile == 1 {
-                    can_move = false;
-                    break;
-                }
-            }
+            let tile = map.get_tile(coords.0 as usize, coords.1 as usize);
+            if tile == 1 {
+                let penetration = math::circle_aabb_penetration(
+                    player.position,
+                    player.radius,
+                    tile_center,
+                    map.tile_size() * 0.5,
+                );
 
-            if can_move {
-                player.position = new_pos;
+                player.position -= penetration;
             }
         }
     }
