@@ -196,20 +196,27 @@ pub mod game {
 
             draw_map(&level, &viewport);
 
-            draw_player_fov(&player, &viewport);
+            draw_player_fov(&player, &level, &viewport);
             draw_player(&player, &viewport);
 
             update_player(&mut player, dt);
             player_map_collision(&mut player, &level, &viewport);
-            let hit_distance = raycast_grid(&level, player.position, player.rotation_radians);
-
-            let hit_point =
-                player.position + math::polar_to_cartesian(hit_distance, player.rotation_radians);
-            viewport.draw_line(player.position, hit_point, 2.0, PURPLE);
-
-            viewport.draw_circle(hit_point, 3.0, RED);
 
             next_frame().await;
+        }
+    }
+
+    fn draw_player_fov(player: &Player, level: &Level, viewport: &Viewport2D) {
+        let dtheta = player.fov.dtheta();
+        let mut color = PURPLE;
+        color.a = 0.5;
+
+        for i in 0..player.fov.ray_count {
+            let theta = player.rotation_radians - player.fov.half_fov_radians + dtheta * i as f32;
+            let distance = raycast_grid(level, player.position, theta);
+
+            let hit_point = player.position + math::polar_to_cartesian(distance, theta);
+            viewport.draw_line(player.position, hit_point, 2.0, color);
         }
     }
 
@@ -403,19 +410,6 @@ pub mod game {
 
                 player.position -= penetration;
             }
-        }
-    }
-
-    fn draw_player_fov(player: &Player, viewport: &Viewport2D) {
-        let dtheta = player.fov.dtheta();
-        let mut c = GREEN;
-        c.a = 0.3;
-
-        for i in 0..player.fov.ray_count {
-            let theta = player.rotation_radians - player.fov.half_fov_radians + dtheta * i as f32;
-
-            let end_point = player.position + math::polar_to_cartesian(50.0, theta);
-            viewport.draw_line(player.position, end_point, 1.0, c);
         }
     }
 
