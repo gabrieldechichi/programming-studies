@@ -5,21 +5,39 @@ pub mod graphics {
 
     pub struct Viewport2D {
         pub size: Vec2,
+        pub pivot: Vec2,
+        pub scale: f32,
     }
 
     impl Viewport2D {
         pub fn world_to_viewport(&self, pos: Vec2) -> Vec2 {
-            vec2(pos.x + self.size.x * 0.5, -pos.y + self.size.y * 0.5)
+            vec2(
+                self.pivot.x + pos.x * self.scale + self.size.x * 0.5,
+                self.pivot.y - pos.y * self.scale + self.size.y * 0.5,
+            )
         }
 
         pub fn draw_rectangle(&self, center: Vec2, size: Vec2, color: Color) {
             let draw_pos = self.world_to_viewport(Viewport2D::rect_top_left(center, size));
-            draw_rectangle(draw_pos.x, draw_pos.y, size.x, size.y, color);
+            draw_rectangle(
+                draw_pos.x,
+                draw_pos.y,
+                size.x * self.scale,
+                size.y * self.scale,
+                color,
+            );
         }
 
         pub fn draw_rectangle_lines(&self, center: Vec2, size: Vec2, thickness: f32, color: Color) {
             let draw_pos = self.world_to_viewport(Viewport2D::rect_top_left(center, size));
-            draw_rectangle_lines(draw_pos.x, draw_pos.y, size.x, size.y, thickness, color);
+            draw_rectangle_lines(
+                draw_pos.x,
+                draw_pos.y,
+                size.x * self.scale,
+                size.y * self.scale,
+                thickness,
+                color,
+            );
         }
 
         pub fn draw_line(&self, from: Vec2, to: Vec2, thickness: f32, color: Color) {
@@ -30,14 +48,14 @@ pub mod graphics {
                 from_draw.y,
                 to_draw.x,
                 to_draw.y,
-                thickness,
+                thickness * self.scale,
                 color,
             );
         }
 
         pub fn draw_circle(&self, center: Vec2, r: f32, color: Color) {
             let center_draw = self.world_to_viewport(center);
-            draw_circle(center_draw.x, center_draw.y, r, color);
+            draw_circle(center_draw.x, center_draw.y, r * self.scale, color);
         }
 
         fn rect_top_left(center: Vec2, size: Vec2) -> Vec2 {
@@ -172,10 +190,18 @@ pub mod game {
     }
 
     pub async fn run() {
+        let level = create_level();
         let viewport = Viewport2D {
             size: vec2(screen_width(), screen_height()),
+            pivot: Vec2::ZERO,
+            scale: 1.0,
         };
-        let level = create_level();
+        // let viewport = Viewport2D {
+        //     size: vec2(screen_width(), screen_height()),
+        //     pivot: -vec2(screen_width(), screen_height()) * 0.5
+        //         + vec2(level.width() as f32, level.height() as f32) * 0.5 * 0.4,
+        //     scale: 0.4,
+        // };
 
         let mut player = Player {
             radius: 10.0,
