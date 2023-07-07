@@ -1,3 +1,4 @@
+use crate::math;
 use macroquad::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
@@ -35,4 +36,94 @@ pub fn position_to_coords(pos: Vec2, tile_size: f32) -> GridCoords {
     let x = (pos.x / tile_size).floor() as i32;
     let y = (pos.y / tile_size).floor() as i32;
     GridCoords { x, y }
+}
+
+pub fn raycast_grid<F>(origin: Vec2, theta: f32, tile_size: f32, is_wall: F) -> f32
+where
+    F: Fn(i32, i32) -> bool,
+{
+    let origin_coords = position_to_coords(origin, tile_size);
+
+    let theta_tan = theta.tan();
+    //horizontal
+    let h_intersect_dist = {
+        let y_sign = math::normalize_angle(theta) < math::PI;
+
+        let start_coords = if y_sign {
+            origin_coords + coords(0, 1)
+        } else {
+            origin_coords
+        };
+
+        let mut y_intersect = tile_bl(start_coords.x, start_coords.y, tile_size).y;
+        let mut x_intersect = origin.x + (y_intersect - origin.y) / theta_tan;
+
+        let y_step = if y_sign { tile_size } else { -tile_size };
+
+        let x_step = y_step / theta_tan;
+
+        let p_extra = if y_sign {
+            vec2(0.001, 0.001)
+        } else {
+            -vec2(0.001, 0.001)
+        };
+
+        loop {
+            let coords = position_to_coords(vec2(x_intersect, y_intersect) + p_extra, tile_size);
+
+            if is_wall(coords.x, coords.y) {
+                break;
+            } else {
+                x_intersect += x_step;
+                y_intersect += y_step;
+            }
+        }
+
+        vec2(x_intersect, y_intersect).distance(origin)
+    };
+
+    //vertical
+    let v_intersect_dist = {
+        let x_sign = !(math::normalize_angle(theta) > math::PI * 0.5
+            && math::normalize_angle(theta) < math::PI * 1.5);
+
+        let start_coords = if x_sign {
+            origin_coords + coords(1, 0)
+        } else {
+            origin_coords
+        };
+
+        let mut x_intersect = tile_bl(start_coords.x, start_coords.y, tile_size).x;
+
+        let mut y_intersect = origin.y + (x_intersect - origin.x) * theta_tan;
+
+        let x_step = if x_sign { tile_size } else { -tile_size };
+
+        let y_step = x_step * theta_tan;
+
+        let p_extra = if x_sign {
+            vec2(0.001, 0.001)
+        } else {
+            -vec2(0.001, 0.001)
+        };
+
+        loop {
+            let coords = position_to_coords(vec2(x_intersect, y_intersect) + p_extra, tile_size);
+
+            if is_wall(coords.x, coords.y) {
+                break;
+            } else {
+                x_intersect += x_step;
+                y_intersect += y_step;
+            }
+        }
+
+        vec2(x_intersect, y_intersect).distance(origin)
+    };
+
+    if h_intersect_dist > v_intersect_dist {
+        v_intersect_dist
+    } else {
+        h_intersect_dist
+    }
 }

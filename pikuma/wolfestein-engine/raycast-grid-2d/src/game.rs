@@ -55,6 +55,17 @@ impl Level {
         let adjusted_pos = pos + self.extents() - self.pivot;
         position_to_coords(adjusted_pos, self.tile_size as f32)
     }
+
+    fn raycast_grid(&self, origin: Vec2, theta: f32) -> f32 {
+        let adjusted_pos = origin + self.extents() - self.pivot;
+        raycast_grid(adjusted_pos, theta, self.tile_size as f32, |x, y| {
+            if let Some(t) = self.get_tile(x as usize, y as usize) {
+                t == 1
+            } else {
+                true
+            }
+        })
+    }
 }
 
 pub struct Player {
@@ -130,115 +141,10 @@ fn draw_player_fov(player: &Player, level: &Level, viewport: &Viewport2D) {
 
     for i in 0..player.fov.ray_count {
         let theta = player.rotation_radians - player.fov.half_fov_radians + dtheta * i as f32;
-        let distance = raycast_grid(level, player.position, theta);
+        let distance = level.raycast_grid(player.position, theta);
 
         let hit_point = player.position + math::polar_to_cartesian(distance, theta);
         viewport.draw_line(player.position, hit_point, 2.0, color);
-    }
-}
-
-fn raycast_grid(level: &Level, origin: Vec2, theta: f32) -> f32 {
-    let origin_coords = level.position_to_coords(origin);
-
-    let theta_tan = theta.tan();
-    //horizontal
-    let h_intersect_dist = {
-        let y_sign = math::normalize_angle(theta) < math::PI;
-
-        let start_coords = if y_sign {
-            origin_coords + coords(0, 1)
-        } else {
-            origin_coords
-        };
-
-        let mut y_intersect = level
-            .tile_bl(start_coords.x as usize, start_coords.y as usize)
-            .y;
-        let mut x_intersect = origin.x + (y_intersect - origin.y) / theta_tan;
-
-        let y_step = if y_sign {
-            level.tile_size as f32
-        } else {
-            -(level.tile_size as f32)
-        };
-
-        let x_step = y_step / theta_tan;
-
-        let p_extra = if y_sign {
-            vec2(0.001, 0.001)
-        } else {
-            -vec2(0.001, 0.001)
-        };
-
-        loop {
-            let coords = level.position_to_coords(vec2(x_intersect, y_intersect) + p_extra);
-
-            if let Some(t) = level.get_tile(coords.x as usize, coords.y as usize) {
-                if t == 1 {
-                    break;
-                }
-                x_intersect += x_step;
-                y_intersect += y_step;
-            } else {
-                break;
-            }
-        }
-
-        vec2(x_intersect, y_intersect).distance(origin)
-    };
-
-    //vertical
-    let v_intersect_dist = {
-        let x_sign = !(math::normalize_angle(theta) > math::PI * 0.5
-            && math::normalize_angle(theta) < math::PI * 1.5);
-
-        let start_coords = if x_sign {
-            origin_coords + coords(1, 0)
-        } else {
-            origin_coords
-        };
-
-        let mut x_intersect = level
-            .tile_bl(start_coords.x as usize, start_coords.y as usize)
-            .x;
-
-        let mut y_intersect = origin.y + (x_intersect - origin.x) * theta_tan;
-
-        let x_step = if x_sign {
-            level.tile_size as f32
-        } else {
-            -(level.tile_size as f32)
-        };
-
-        let y_step = x_step * theta_tan;
-
-        let p_extra = if x_sign {
-            vec2(0.001, 0.001)
-        } else {
-            -vec2(0.001, 0.001)
-        };
-
-        loop {
-            let coords = level.position_to_coords(vec2(x_intersect, y_intersect) + p_extra);
-
-            if let Some(t) = level.get_tile(coords.x as usize, coords.y as usize) {
-                if t == 1 {
-                    break;
-                }
-                x_intersect += x_step;
-                y_intersect += y_step;
-            } else {
-                break;
-            }
-        }
-
-        vec2(x_intersect, y_intersect).distance(origin)
-    };
-
-    if h_intersect_dist > v_intersect_dist {
-        v_intersect_dist
-    } else {
-        h_intersect_dist
     }
 }
 
