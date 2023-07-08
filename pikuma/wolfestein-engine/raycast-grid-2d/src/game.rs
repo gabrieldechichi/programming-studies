@@ -93,17 +93,12 @@ impl PlayerFov {
 
 pub async fn run() {
     let level = create_level();
-    let viewport = Viewport2D {
+    let minimap_viewport = Viewport2D {
         size: vec2(screen_width(), screen_height()),
-        pivot: Vec2::ZERO,
-        scale: 1.0,
+        pivot: -vec2(screen_width(), screen_height()) * 0.5
+            + vec2(level.width() as f32, level.height() as f32) * 0.5 * 0.4,
+        scale: 0.4,
     };
-    // let viewport = Viewport2D {
-    //     size: vec2(screen_width(), screen_height()),
-    //     pivot: -vec2(screen_width(), screen_height()) * 0.5
-    //         + vec2(level.width() as f32, level.height() as f32) * 0.5 * 0.4,
-    //     scale: 0.4,
-    // };
 
     let mut player = Player {
         radius: 10.0,
@@ -122,15 +117,53 @@ pub async fn run() {
         clear_background(GRAY);
         let dt = get_frame_time();
 
-        draw_map(&level, &viewport);
+        //simulation
+        {
+            update_player(&mut player, dt);
+            player_map_collision(&mut player, &level);
+        }
 
-        draw_player_fov(&player, &level, &viewport);
-        draw_player(&player, &viewport);
+        //render 3d level
+        {
+            draw_3d_level(&player, &level);
+        }
 
-        update_player(&mut player, dt);
-        player_map_collision(&mut player, &level, &viewport);
+        //render minimap
+        {
+            draw_map(&level, &minimap_viewport);
+            draw_player_fov(&player, &level, &minimap_viewport);
+            draw_player(&player, &minimap_viewport);
+        }
 
         next_frame().await;
+    }
+}
+
+fn draw_3d_level(player: &Player, level: &Level) {
+    let screen_width = screen_width();
+    let screen_height = screen_height();
+    let wall_width_proj = 1.0; //1 pixel
+
+    let half_fov = player.fov.half_fov_radians;
+    let ray_count = (screen_width / wall_width_proj) as i32;
+    let dtheta = half_fov * 2.0 / ray_count as f32;
+    let wall_height = level.tile_size as f32;
+    let dist_proj_plane = screen_width * 0.5 / half_fov.tan();
+
+    for i in 0..ray_count {
+        let theta = player.rotation_radians + player.fov.half_fov_radians - dtheta * i as f32;
+
+        let ray_dist = level.raycast_grid(player.position, theta);
+
+        let wall_heigh_proj = dist_proj_plane * wall_height / ray_dist;
+
+        draw_rectangle(
+            i as f32,
+            (screen_height - wall_heigh_proj) * 0.5,
+            wall_width_proj,
+            wall_heigh_proj,
+            WHITE,
+        );
     }
 }
 
@@ -181,7 +214,7 @@ fn update_player(player: &mut Player, dt: f32) {
     }
 }
 
-fn player_map_collision(player: &mut Player, map: &Level, viewport: &Viewport2D) {
+fn player_map_collision(player: &mut Player, map: &Level) {
     let current_tile_coords = map.position_to_coords(player.position);
 
     for coords in [
@@ -221,8 +254,6 @@ fn player_map_collision(player: &mut Player, map: &Level, viewport: &Viewport2D)
         let mut c = GREEN;
         c.a = 0.5;
         let tile_center = map.tile_center(coords.x as usize, coords.y as usize);
-        viewport.draw_rectangle(tile_center, map.tile_size(), c);
-
         if map.is_wall(coords.x as usize, coords.y as usize) {
             let penetration = math::circle_aabb_penetration(
                 player.position,
