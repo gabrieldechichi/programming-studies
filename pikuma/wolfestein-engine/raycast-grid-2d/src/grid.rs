@@ -1,7 +1,7 @@
 use crate::math;
 use macroquad::prelude::*;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GridCoords {
     pub x: i32,
     pub y: i32,
@@ -125,5 +125,83 @@ where
         v_intersect_dist
     } else {
         h_intersect_dist
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use macroquad::math::Vec2;
+
+    #[test]
+    fn add_grid_coords_test() {
+        let coord1 = GridCoords { x: 5, y: 3 };
+        let coord2 = GridCoords { x: 2, y: 7 };
+        let result = coord1 + coord2;
+        assert_eq!(result.x, 7);
+        assert_eq!(result.y, 10);
+    }
+
+    #[test]
+    fn coords_function_test() {
+        let result = coords(4, 7);
+        assert_eq!(result.x, 4);
+        assert_eq!(result.y, 7);
+    }
+
+    #[test]
+    fn tile_center_test() {
+        let result = tile_center(2, 3, 5.0);
+        assert_eq!(result, vec2(12.5, 17.5));
+    }
+
+    #[test]
+    fn tile_bl_test() {
+        let result = tile_bl(2, 3, 5.0);
+        assert_eq!(result, vec2(10.0, 15.0));
+    }
+
+    #[test]
+    fn position_to_coords_test() {
+        let pos = Vec2::new(12.0, 17.0);
+        let result = position_to_coords(pos, 5.0);
+        assert_eq!(result, GridCoords { x: 2, y: 3 });
+    }
+
+    #[test]
+    fn raycast_grid_test() {
+        //45 deg
+        {
+            let origin = Vec2::new(0.0, 0.0);
+            let theta = std::f32::consts::FRAC_PI_4;
+
+            let tile_size = 5.0;
+            let expect_coord_wall = coords(3, 3);
+            let result = raycast_grid(origin, theta, tile_size, |x, y| {
+                x == expect_coord_wall.x && y == expect_coord_wall.y
+            });
+
+            let expected_dist =
+                (vec2(expect_coord_wall.x as f32, expect_coord_wall.y as f32) * tile_size - origin)
+                    .length();
+            assert_eq!(result, expected_dist);
+        }
+
+        // //-90 deg
+        // {
+        //     let origin = Vec2::new(0.0, 0.0);
+        //     let theta = -std::f32::consts::FRAC_PI_2;
+
+        //     let tile_size = 5.0;
+        //     let expect_coord_wall = coords(0, -4);
+        //     let result = raycast_grid(origin, theta, tile_size, |x, y| {
+        //         x == expect_coord_wall.x && y == expect_coord_wall.y
+        //     });
+
+        //     let expected_dist =
+        //         (vec2(expect_coord_wall.x as f32, expect_coord_wall.y as f32) * tile_size - origin)
+        //             .length();
+        //     assert_eq!(result, expected_dist);
+        // }
     }
 }
