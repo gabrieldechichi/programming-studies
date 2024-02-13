@@ -6,6 +6,7 @@ use crate::graphics::Viewport2D;
 pub async fn run() {
     let clear_color = Color::from_hex(0x333333);
     let map_viewport = Viewport2D::new(Vec2::ZERO, vec2(screen_width(), screen_height()), 1.);
+
     loop {
         let dt = get_frame_time();
 
