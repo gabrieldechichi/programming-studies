@@ -1,0 +1,9 @@
+[submodule "vendor/klib"]
+	path = vendor/klib
+	url = https://github.com/attractivechaos/klib.git
+[submodule "vendor/SDL"]
+	path = vendor/SDL
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "vendor/linmath.h"]
+	path = vendor/linmath.h
+	url = https://github.com/datenwolf/linmath.h.git

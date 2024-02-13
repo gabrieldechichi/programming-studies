@@ -1,0 +1,237 @@
+(
+  resources: {
+    "bevy_core_pipeline::clear_color::ClearColor": (Rgba(
+      red: 0.37254903,
+      green: 0.6627451,
+      blue: 0.95686275,
+      alpha: 1.0,
+    )),
+  },
+  entities: {
+    8: (
+      components: {
+        "bevy_transform::components::transform::Transform": (
+          translation: (
+            x: -0.6866518,
+            y: 0.37885672,
+            z: -50.0,
+          ),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (
+            x: 0.0065016323,
+            y: 0.0065016323,
+            z: 0.00390625,
+          ),
+        ),
+        "bevy_transform::components::global_transform::GlobalTransform": ((
+          matrix3: (
+            x_axis: (
+              x: 0.0065016323,
+              y: 0.0,
+              z: 0.0,
+            ),
+            y_axis: (
+              x: 0.0,
+              y: 0.0065016323,
+              z: 0.0,
+            ),
+            z_axis: (
+              x: 0.0,
+              y: 0.0,
+              z: 0.00390625,
+            ),
+          ),
+          translation: (
+            x: -0.6866518,
+            y: 0.37885672,
+            z: -50.0,
+          ),
+        )),
+        "bevy_core::name::Name": (
+          hash: 9623658138559749641,
+          name: "mossy reference.png",
+        ),
+        "bevy_render::view::visibility::Visibility": Inherited,
+        "lib::common::SpriteLayer": Midground,
+        "bevy_render::primitives::Aabb": (
+          center: (
+            x: -0.0,
+            y: -0.0,
+            z: 0.0,
+          ),
+          half_extents: (
+            x: 1216.0,
+            y: 416.0,
+            z: 0.0,
+          ),
+        ),
+        "bevy_sprite::sprite::Sprite": (
+          color: Rgba(
+            red: 0.80784315,
+            green: 0.80784315,
+            blue: 0.80784315,
+            alpha: 0.6156863,
+          ),
+          flip_x: false,
+          flip_y: false,
+          custom_size: None,
+          rect: None,
+          anchor: Center,
+        ),
+        "bevy_asset::handle::Handle<bevy_render::texture::image::Image>": (
+          id: AssetPathId(((15237566245276901076), (8823233378563626002))),
+        ),
+      },
+    ),
+    4294967300: (
+      components: {
+        "bevy_transform::components::transform::Transform": (
+          translation: (
+            x: -0.54138166,
+            y: -0.7146285,
+            z: -10.0,
+          ),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (
+            x: 0.0032819554,
+            y: 0.0032819554,
+            z: 0.00390625,
+          ),
+        ),
+        "bevy_transform::components::global_transform::GlobalTransform": ((
+          matrix3: (
+            x_axis: (
+              x: 0.0032819554,
+              y: 0.0,
+              z: 0.0,
+            ),
+            y_axis: (
+              x: 0.0,
+              y: 0.0032819554,
+              z: 0.0,
+            ),
+            z_axis: (
+              x: 0.0,
+              y: 0.0,
+              z: 0.00390625,
+            ),
+          ),
+          translation: (
+            x: -0.54138166,
+            y: -0.7146285,
+            z: -10.0,
+          ),
+        )),
+        "bevy_core::name::Name": (
+          hash: 343997840867288982,
+          name: "FloatingPlatforms_2.png",
+        ),
+        "bevy_render::view::visibility::Visibility": Inherited,
+        "lib::common::SpriteLayer": Foreground,
+        "bevy_render::primitives::Aabb": (
+          center: (
+            x: -0.0,
+            y: -0.0,
+            z: 0.0,
+          ),
+          half_extents: (
+            x: 524.5,
+            y: 225.5,
+            z: 0.0,
+          ),
+        ),
+        "bevy_sprite::sprite::Sprite": (
+          color: Rgba(
+            red: 1.0,
+            green: 1.0,
+            blue: 1.0,
+            alpha: 1.0,
+          ),
+          flip_x: false,
+          flip_y: false,
+          custom_size: None,
+          rect: None,
+          anchor: Center,
+        ),
+        "bevy_asset::handle::Handle<bevy_render::texture::image::Image>": (
+          id: AssetPathId(((8444460469472776983), (8823233378563626002))),
+        ),
+      },
+    ),
+    4294967303: (
+      components: {
+        "bevy_transform::components::transform::Transform": (
+          translation: (
+            x: -0.67672765,
+            y: 0.30902892,
+            z: -25.0,
+          ),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (
+            x: 0.00390625,
+            y: 0.00390625,
+            z: 0.00390625,
+          ),
+        ),
+        "bevy_transform::components::global_transform::GlobalTransform": ((
+          matrix3: (
+            x_axis: (
+              x: 0.00390625,
+              y: 0.0,
+              z: 0.0,
+            ),
+            y_axis: (
+              x: 0.0,
+              y: 0.00390625,
+              z: 0.0,
+            ),
+            z_axis: (
+              x: 0.0,
+              y: 0.0,
+              z: 0.00390625,
+            ),
+          ),
+          translation: (
+            x: -0.67672765,
+            y: 0.30902892,
+            z: -25.0,
+          ),
+        )),
+        "bevy_core::name::Name": (
+          hash: 9882289256983304200,
+          name: "Chara.png",
+        ),
+        "bevy_render::view::visibility::Visibility": Inherited,
+        "lib::common::SpriteLayer": Player,
+        "bevy_render::primitives::Aabb": (
+          center: (
+            x: -0.0,
+            y: -0.0,
+            z: 0.0,
+          ),
+          half_extents: (
+            x: 256.0,
+            y: 256.0,
+            z: 0.0,
+          ),
+        ),
+        "bevy_sprite::sprite::Sprite": (
+          color: Rgba(
+            red: 1.0,
+            green: 1.0,
+            blue: 1.0,
+            alpha: 1.0,
+          ),
+          flip_x: false,
+          flip_y: false,
+          custom_size: None,
+          rect: None,
+          anchor: Center,
+        ),
+        "bevy_asset::handle::Handle<bevy_render::texture::image::Image>": (
+          id: AssetPathId(((17530234554164459615), (8823233378563626002))),
+        ),
+      },
+    ),
+  },
+)

@@ -1,0 +1,4 @@
+[alias]
+dev = "run --features dev"
+release = "run --release"
+

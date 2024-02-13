@@ -1,0 +1,9 @@
+[package]
+name = "yew-tut"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.12.1"
+# this is the development version of Yew
+yew = { git = "https://github.com/yewstack/yew/", features = ["csr"] }

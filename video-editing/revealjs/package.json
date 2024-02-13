@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "live-server": "^1.2.2",
+    "reveal.js": "^4.6.1"
+  }
+}

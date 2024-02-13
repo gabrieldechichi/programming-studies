@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <link rel="stylesheet" href="node_modules/reveal.js/dist/reveal.css" />
+        <link
+            rel="stylesheet"
+            href="node_modules/reveal.js/dist/theme/black.css"
+        />
+    </head>
+    <body>
+        <div class="reveal">
+            <div class="slides">
+                <section
+                    data-markdown="2_markdown.md"
+                    data-separator="---"
+                    data-separator-vertical="^\n\n"
+                    data-separator-notes="^Note:"
+                    data-charset="iso-8859-15"
+                >
+                    <!--
+        Note that Windows uses `\r\n` instead of `\n` as its linefeed character.
+        For a regex that supports all operating systems, use `\r?\n` instead of `\n`.
+    -->
+                </section>
+            </div>
+        </div>
+        <script src="node_modules/reveal.js/dist/reveal.js"></script>
+        <script src="node_modules/reveal.js/plugin/markdown/markdown.js"></script>
+        <link
+            rel="stylesheet"
+            href="node_modules/reveal.js/plugin/highlight/monokai.css"
+        />
+        <script src="node_modules/reveal.js/plugin/highlight/highlight.js"></script>
+        <script src="node_modules/reveal.js/plugin/math/math.js"></script>
+        <script>
+            Reveal.initialize({
+                plugins: [RevealMarkdown, RevealHighlight, RevealMath.KaTeX],
+                history: true,
+                controls: false,
+                markdown: {
+                    highlightLanguage: "rust",
+                    smartypants: true,
+                    gmf: true,
+                },
+            });
+        </script>
+    </body>
+</html>

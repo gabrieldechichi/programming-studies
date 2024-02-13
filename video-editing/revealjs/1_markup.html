@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+    <style>
+        .make-it-pop {
+            filter: drop-shadow(0 0 10px purple);
+        }
+    </style>
+    <head>
+        <link rel="stylesheet" href="node_modules/reveal.js/dist/reveal.css" />
+        <link
+            rel="stylesheet"
+            href="node_modules/reveal.js/dist/theme/black.css"
+        />
+    </head>
+    <body>
+        <div class="reveal">
+            <div class="slides">
+                <section>Horizontal Slide</section>
+                <section>
+                    <section>Vertical Slide 1</section>
+                    <section>Vertical Slide 2</section>
+                </section>
+                <section data-state="make-it-pop">
+                    <h1>Hello</h1>
+                </section>
+            </div>
+        </div>
+        <script src="node_modules/reveal.js/dist/reveal.js"></script>
+        <script>
+            Reveal.initialize();
+        </script>
+    </body>
+</html>

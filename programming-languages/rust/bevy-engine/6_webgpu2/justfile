@@ -1,0 +1,24 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+dev:
+    rustup default nightly; cargo run --profile devnative --features dyn
+
+dev-watch:
+    rustup default nightly; cargo watch -w src -x 'run --profile devnative --features dyn'
+    
+dev-hot:
+    rustup default nightly; dexterous_developer_cli run
+    
+dev-web:
+    $env:RUSTFLAGS="--cfg=web_sys_unstable_apis"; rustup default stable; trunk serve --open --filehash false
+
+build-web:
+    $env:RUSTFLAGS="--cfg=web_sys_unstable_apis"; rustup default stable; trunk build
+
+release-web:
+    # Building wsm release
+    $env:RUSTFLAGS="--cfg=web_sys_unstable_apis"; rustup default stable; cargo build --profile web-release --target wasm32-unknown-unknown
+    # Running wasm-bindgen
+    wasm-bindgen --out-dir .\target\web-dist --target web .\target\wasm32-unknown-unknown\web-release\webgpu.wasm
+    # Running wasm-opt
+    wasm-opt -Os .\target\web-dist\webgpu_bg.wasm

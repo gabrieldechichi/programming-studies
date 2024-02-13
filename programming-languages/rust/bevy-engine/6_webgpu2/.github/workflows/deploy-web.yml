@@ -1,0 +1,74 @@
+name: deploy-github-page
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  NIGHTLY_TOOLCHAIN: nightly
+  # Sparse cargo registry for faster updates
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  RUSTFLAGS: "--cfg=web_sys_unstable_apis"
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Cache Rust toolchain and build artifacts
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/
+            ~/.rustup/toolchains/
+            ./target
+          key: ${{ runner.os }}-rust-v2-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-v2-
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen
+        run: |
+          if ! command -v wasm-bindgen >/dev/null; then
+            cargo install wasm-bindgen-cli --locked
+          else
+            echo "wasm-bindgen is already installed"
+          fi
+
+      - name: Install wasm-opt
+        run: |
+          if ! command -v wasm-opt >/dev/null; then
+            cargo install wasm-opt --locked 
+          else
+            echo "wasm-opt is already installed"
+          fi
+
+      - name: Build Release
+        run: cargo build --profile web-release --target wasm32-unknown-unknown
+
+      - name: Run wasm-bindgen
+        run: wasm-bindgen --out-dir './target/web-dist' --target web './target/wasm32-unknown-unknown/web-release/webgpu.wasm'
+
+      - name: Optimize Wasm
+        run: wasm-opt -Os -o './target/web-dist/webgpu_bg.wasm' './target/web-dist/webgpu_bg.wasm'
+
+      - name: Log
+        run: |
+          ls -l './target/web-dist'
+
+      - name: Upload Wasm Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: wasm-artifact
+          path: ./target/web-dist

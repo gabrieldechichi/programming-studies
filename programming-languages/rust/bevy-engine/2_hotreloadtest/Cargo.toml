@@ -1,0 +1,21 @@
+[package]
+name = "dexterous_developer_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "lib_dexterous_developer_example"
+path = "src/lib.rs"
+crate-type = ["rlib", "dylib"]
+
+[dependencies]
+bevy = "0.11.2"
+bevy-inspector-egui = "0.19.0"
+dexterous_developer = "0.0.10"
+serde = "1.0.188"
+
+[features]
+orange = []
+
+[workspace]
