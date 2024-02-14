@@ -6,6 +6,7 @@ mod grid {
     use macroquad::prelude::*;
     use std::ops::Add;
 
+    #[derive(Copy, Clone, Debug)]
     pub struct GridCoords {
         pub x: i32,
         pub y: i32,
@@ -41,11 +42,36 @@ mod grid {
     }
 }
 
+mod collision {
+    use macroquad::math::{vec2, Vec2};
+
+    pub fn circle_aabb_penetration(
+        circle_center: Vec2,
+        circle_radius: f32,
+        aabb_center: Vec2,
+        aabb_extents: Vec2,
+    ) -> Vec2 {
+        let diff = circle_center - aabb_center;
+        let clamped = vec2(
+            diff.x.clamp(-aabb_extents.x, aabb_extents.x),
+            diff.y.clamp(-aabb_extents.y, aabb_extents.y),
+        );
+
+        let p = clamped - diff;
+        let distance = p.length();
+        if distance > 0. && distance < circle_radius {
+            p.normalize_or_zero() * (circle_radius - distance)
+        } else{
+            Vec2::ZERO
+        }
+    }
+}
+
 mod level {
     use crate::graphics::Viewport2D;
     use macroquad::prelude::*;
 
-    use super::grid;
+    use super::grid::{self, GridCoords};
 
     #[derive(PartialEq, Clone, Copy, Debug)]
     pub enum LevelBlock {
@@ -104,6 +130,29 @@ mod level {
         pub fn tile_center(&self, x: i32, y: i32) -> Vec2 {
             grid::tile_center(x, y, self.tile_size) - self.extents()
         }
+
+        pub fn pos_to_coords(&self, pos: Vec2) -> GridCoords {
+            grid::pos_to_coords(pos + self.extents(), self.tile_size)
+        }
+
+        pub fn get_tile(&self, x: i32, y: i32) -> Option<LevelBlock> {
+            if x >= 0 && x < self.column_count() as i32 && y >= 0 && y < self.row_count() as i32 {
+                Some(self.grid[y as usize][x as usize])
+            } else {
+                None
+            }
+        }
+
+        pub fn is_wall(&self, x: i32, y: i32) -> bool {
+            if let Some(t) = self.get_tile(x, y) {
+                match t {
+                    LevelBlock::Free => false,
+                    _ => true,
+                }
+            } else {
+                true
+            }
+        }
     }
 
     pub fn create_level() -> Level {
@@ -149,18 +198,14 @@ mod level {
     }
 }
 
-mod math {
-    use macroquad::prelude::*;
-
-    pub fn polar_to_cartesian(r: f32, theta_radians: f32) -> Vec2 {
-        vec2(theta_radians.cos() * r, theta_radians.sin() * r)
-    }
-}
-
 mod player {
     use macroquad::{math, prelude::*};
 
-    use crate::graphics::Viewport2D;
+    use crate::game::collision;
+    use crate::*;
+
+    use super::grid::coords;
+    use super::level::Level;
 
     pub struct PlayerBundle {
         pub transform: PlayerTransform,
@@ -176,11 +221,11 @@ mod player {
     pub struct PlayerTransform {
         pub pos: Vec2,
         pub rot: f32,
+        pub radius: f32,
     }
 
     pub struct PlayerMinimapGraphics {
         pub color: Color,
-        pub radius: f32,
         pub arrow_length: f32,
     }
 
@@ -189,6 +234,7 @@ mod player {
             transform: PlayerTransform {
                 pos: Vec2::ZERO,
                 rot: 0.0,
+                radius: 10.,
             },
             movement: PlayerMovement {
                 v: 60.0,
@@ -196,7 +242,6 @@ mod player {
             },
             minimap_graphics: PlayerMinimapGraphics {
                 color: PURPLE,
-                radius: 10.,
                 arrow_length: 20.,
             },
         }
@@ -226,7 +271,32 @@ mod player {
         player.transform.rot = new_rot;
     }
 
-    pub fn draw_player_minimap(player: &PlayerBundle, viewport: &Viewport2D) {
+    pub fn player_map_collision(transform: &mut PlayerTransform, level: &Level, viewport: &graphics::Viewport2D) {
+        let neighbors = [
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+            (-1, 1),
+            (-1, -1),
+            (1, 1),
+            (1, -1),
+        ];
+
+        let player_coord = level.pos_to_coords(transform.pos);
+        let tile_extents = vec2(level.tile_size, level.tile_size) * 0.5;
+
+        for (dx, dy) in neighbors {
+            let coord = player_coord + coords(dx, dy);
+            if level.is_wall(coord.x, coord.y) {
+                let center = level.tile_center(coord.x, coord.y);
+                let p = collision::circle_aabb_penetration(transform.pos, transform.radius, center, tile_extents);
+                transform.pos -= p;
+            }
+        }
+    }
+
+    pub fn draw_player_minimap(player: &PlayerBundle, viewport: &graphics::Viewport2D) {
         viewport.draw_line(
             player.transform.pos,
             player.transform.pos
@@ -239,7 +309,7 @@ mod player {
         );
         viewport.draw_circle(
             player.transform.pos,
-            player.minimap_graphics.radius,
+            player.transform.radius,
             player.minimap_graphics.color,
         );
     }
@@ -264,6 +334,7 @@ pub async fn run() {
             clear_background(clear_color);
             level::draw_mini_map(&map_viewport, &level);
             player::draw_player_minimap(&player, &map_viewport);
+            player::player_map_collision(&mut player.transform, &level, &map_viewport);
         }
         next_frame().await;
     }
