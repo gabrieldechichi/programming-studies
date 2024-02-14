@@ -1,46 +1,29 @@
-use macroquad::color::Color;
-use macroquad::math::{vec2, Vec2};
 use macroquad::prelude::*;
 
 pub struct Viewport2D {
-    pub pivot: Vec2,
     pub size: Vec2,
+    pub pivot: Vec2,
     pub scale: f32,
 }
 
 impl Viewport2D {
     pub fn new(pivot: Vec2, size: Vec2, scale: f32) -> Self {
-        Self {
-            pivot,
-            size,
-            scale,
-        }
+        Self { pivot, size, scale }
     }
-
-    fn calculted_scale(&self) -> Vec2 {
-        let aspect_ratio = self.size.x / self.size.y;
-        let resolution = vec2(screen_height() * aspect_ratio, screen_height());
-        self.scale * resolution/self.size
-    }
-
     pub fn world_to_viewport(&self, pos: Vec2) -> Vec2 {
-        let scale = self.calculted_scale();
-        let scaled_size = self.size * scale;
-        let resolution = vec2(screen_width(), screen_height());
         vec2(
-            (self.pivot.x + (resolution.x - scaled_size.x)*0.5) + pos.x * scale.x + self.size.x * scale.x* 0.5,
-            (self.pivot.y + (resolution.y - scaled_size.y)*0.5) - pos.y * scale.y + self.size.y * scale.y *0.5,
+            self.pivot.x + pos.x * self.scale + self.size.x * 0.5,
+            self.pivot.y - pos.y * self.scale + self.size.y * 0.5,
         )
     }
 
     pub fn draw_rectangle(&self, center: Vec2, size: Vec2, color: Color) {
-        let scale = self.calculted_scale();
         let draw_pos = self.world_to_viewport(Viewport2D::rect_top_left(center, size));
         draw_rectangle(
             draw_pos.x,
             draw_pos.y,
-            size.x * scale.x,
-            size.y * scale.y,
+            size.x * self.scale,
+            size.y * self.scale,
             color,
         );
     }
