@@ -61,7 +61,7 @@ mod collision {
         let distance = p.length();
         if distance > 0. && distance < circle_radius {
             p.normalize_or_zero() * (circle_radius - distance)
-        } else{
+        } else {
             Vec2::ZERO
         }
     }
@@ -210,6 +210,7 @@ mod player {
     pub struct PlayerBundle {
         pub transform: PlayerTransform,
         pub movement: PlayerMovement,
+        pub fov: PlayerFov,
         pub minimap_graphics: PlayerMinimapGraphics,
     }
 
@@ -229,6 +230,17 @@ mod player {
         pub arrow_length: f32,
     }
 
+    pub struct PlayerFov {
+        pub half_fov_rad: f32,
+        pub ray_count: usize,
+    }
+
+    impl PlayerFov {
+        pub fn dtheta(&self) -> f32 {
+            self.half_fov_rad * 2. / self.ray_count as f32
+        }
+    }
+
     pub fn create_player() -> PlayerBundle {
         PlayerBundle {
             transform: PlayerTransform {
@@ -239,6 +251,10 @@ mod player {
             movement: PlayerMovement {
                 v: 60.0,
                 w: 90_f32.to_radians(),
+            },
+            fov: PlayerFov {
+                half_fov_rad: 60_f32.to_radians() * 0.5,
+                ray_count: 40,
             },
             minimap_graphics: PlayerMinimapGraphics {
                 color: PURPLE,
@@ -271,7 +287,11 @@ mod player {
         player.transform.rot = new_rot;
     }
 
-    pub fn player_map_collision(transform: &mut PlayerTransform, level: &Level, viewport: &graphics::Viewport2D) {
+    pub fn player_map_collision(
+        transform: &mut PlayerTransform,
+        level: &Level,
+        viewport: &graphics::Viewport2D,
+    ) {
         let neighbors = [
             (-1, 0),
             (1, 0),
@@ -290,23 +310,46 @@ mod player {
             let coord = player_coord + coords(dx, dy);
             if level.is_wall(coord.x, coord.y) {
                 let center = level.tile_center(coord.x, coord.y);
-                let p = collision::circle_aabb_penetration(transform.pos, transform.radius, center, tile_extents);
+                let p = collision::circle_aabb_penetration(
+                    transform.pos,
+                    transform.radius,
+                    center,
+                    tile_extents,
+                );
                 transform.pos -= p;
             }
         }
     }
 
     pub fn draw_player_minimap(player: &PlayerBundle, viewport: &graphics::Viewport2D) {
-        viewport.draw_line(
-            player.transform.pos,
-            player.transform.pos
-                + math::polar_to_cartesian(
-                    player.minimap_graphics.arrow_length,
-                    player.transform.rot,
-                ),
-            2.,
-            BLACK,
-        );
+        //draw fov
+        {
+            let dtheta = player.fov.dtheta();
+            let mut c = PURPLE;
+            c.a = 0.5;
+
+            for i in 0..player.fov.ray_count {
+                let theta = player.transform.rot - player.fov.half_fov_rad + i as f32 * dtheta;
+                viewport.draw_line(
+                    player.transform.pos,
+                    player.transform.pos + math::polar_to_cartesian(80., theta),
+                    1.,
+                    c,
+                );
+            }
+
+            viewport.draw_line(
+                player.transform.pos,
+                player.transform.pos
+                    + math::polar_to_cartesian(
+                        player.minimap_graphics.arrow_length,
+                        player.transform.rot,
+                    ),
+                2.,
+                BLACK,
+            );
+        }
+
         viewport.draw_circle(
             player.transform.pos,
             player.transform.radius,
@@ -323,6 +366,11 @@ pub async fn run() {
         graphics::Viewport2D::new(Vec2::ZERO, vec2(screen_width(), screen_height()), 1.);
 
     loop {
+        #[cfg(debug_assertions)]
+        if is_key_pressed(KeyCode::Escape) {
+            break;
+        }
+
         let dt = get_frame_time();
 
         //simulate
