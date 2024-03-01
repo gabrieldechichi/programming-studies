@@ -2,13 +2,11 @@ use crate::*;
 use macroquad::color::Color;
 use macroquad::prelude::*;
 
+use self::level::draw_3d_level;
+
 mod grid {
     use macroquad::prelude::*;
     use std::ops::{Add, Sub};
-
-    
-
-    
 
     #[derive(Copy, Clone, Debug)]
     pub struct GridCoords {
@@ -115,6 +113,7 @@ mod level {
 
     use super::grid::{self, GridCoords};
     use super::math;
+    use super::player::{PlayerBundle, PlayerTransform};
 
     #[derive(PartialEq, Clone, Copy, Debug)]
     pub enum LevelBlock {
@@ -201,11 +200,7 @@ mod level {
             }
         }
 
-        pub fn raycast(
-            &self,
-            pos: Vec2,
-            theta: f32,
-        ) -> grid::RaycastGridResult {
+        pub fn raycast(&self, pos: Vec2, theta: f32) -> grid::RaycastGridResult {
             let origin_coord = self.pos_to_coords(pos);
             let theta_tan = theta.tan();
             let theta_normalized = math::normalize_angle(theta);
@@ -348,6 +343,40 @@ mod level {
             }
         }
     }
+
+    pub fn draw_3d_level(viewport: &Viewport2D, level: &Level, player: &PlayerBundle) {
+        let screen_width = screen_width();
+        let screen_height = screen_height();
+        let wall_height = level.tile_size;
+
+        let half_fov = player.fov.half_fov_rad;
+        let nc = screen_width * 0.5 / half_fov.tan();
+
+        let strip_width = 1.0; //1 pixel per strip
+        let ray_count = (screen_width / strip_width).ceil() as u32;
+        let dtheta = half_fov * 2. / ray_count as f32;
+        let start_theta = player.transform.rot - half_fov;
+        let pos = player.transform.pos;
+
+        for i in 0..ray_count {
+            let theta = start_theta + i as f32 * dtheta;
+            let hit = level.raycast(pos, theta);
+
+            let corrected_distance = hit.distance;
+            let strip_height = nc * wall_height / corrected_distance;
+
+            let color = WHITE;
+
+            viewport.draw_rectangle(
+                vec2(
+                    i as f32 * strip_width + strip_width * 0.5 - screen_width * 0.5,
+                    0.,
+                ),
+                vec2(strip_width, strip_height),
+                color,
+            );
+        }
+    }
 }
 
 mod player {
@@ -418,10 +447,10 @@ mod player {
     pub fn update_player(player: &mut PlayerBundle, dt: f32) {
         let mut rot_input = 0.;
         if is_key_down(KeyCode::A) {
-            rot_input += 1.;
+            rot_input -= 1.;
         }
         if is_key_down(KeyCode::D) {
-            rot_input -= 1.;
+            rot_input += 1.;
         }
 
         let mut move_input = 0.;
@@ -439,11 +468,7 @@ mod player {
         player.transform.rot = new_rot;
     }
 
-    pub fn player_map_collision(
-        transform: &mut PlayerTransform,
-        level: &level::Level,
-        _viewport: &graphics::Viewport2D,
-    ) {
+    pub fn player_map_collision(transform: &mut PlayerTransform, level: &level::Level) {
         let neighbors = [
             (-1, 0),
             (1, 0),
@@ -519,8 +544,9 @@ pub async fn run() {
     let level = level::create_level();
     let mut player = player::create_player();
     let clear_color = Color::from_hex(0x333333);
-    let map_viewport =
-        graphics::Viewport2D::new(Vec2::ZERO, vec2(screen_width(), screen_height()), 1.);
+    // let map_viewport =
+    //     graphics::Viewport2D::new(Vec2::ZERO, vec2(screen_width(), screen_height()), 1.);
+    let viewport = graphics::Viewport2D::new(Vec2::ZERO, vec2(screen_width(), screen_height()), 1.);
 
     loop {
         #[cfg(debug_assertions)]
@@ -537,9 +563,10 @@ pub async fn run() {
         //draw
         {
             clear_background(clear_color);
-            level::draw_mini_map(&map_viewport, &level);
-            player::draw_player_minimap(&player, &level, &map_viewport);
-            player::player_map_collision(&mut player.transform, &level, &map_viewport);
+            // level::draw_mini_map(&map_viewport, &level);
+            // player::draw_player_minimap(&player, &level, &map_viewport);
+            draw_3d_level(&viewport, &level, &player);
+            player::player_map_collision(&mut player.transform, &level);
         }
         next_frame().await;
     }
