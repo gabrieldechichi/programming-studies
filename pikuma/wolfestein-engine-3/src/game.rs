@@ -113,7 +113,7 @@ mod level {
 
     use super::grid::{self, GridCoords};
     use super::math;
-    use super::player::{PlayerBundle, PlayerTransform};
+    use super::player::PlayerBundle;
 
     #[derive(PartialEq, Clone, Copy, Debug)]
     pub enum LevelBlock {
@@ -554,8 +554,11 @@ pub async fn run() {
     let level = level::create_level();
     let mut player = player::create_player();
     let clear_color = Color::from_hex(0x333333);
-    // let map_viewport =
-    //     graphics::Viewport2D::new(Vec2::ZERO, vec2(screen_width(), screen_height()), 1.);
+    let map_viewport = {
+        let minimap_size = vec2(screen_width(), screen_height());
+        let map_scale = 0.4;
+        graphics::Viewport2D::new(-minimap_size*0.5 + level.extents()*map_scale, minimap_size, map_scale)
+    };
     let viewport = graphics::Viewport2D::new(Vec2::ZERO, vec2(screen_width(), screen_height()), 1.);
 
     loop {
@@ -573,9 +576,9 @@ pub async fn run() {
         //draw
         {
             clear_background(clear_color);
-            // level::draw_mini_map(&map_viewport, &level);
-            // player::draw_player_minimap(&player, &level, &map_viewport);
             draw_3d_level(&viewport, &level, &player);
+            level::draw_mini_map(&map_viewport, &level);
+            player::draw_player_minimap(&player, &level, &map_viewport);
             player::player_map_collision(&mut player.transform, &level);
         }
         next_frame().await;
