@@ -373,7 +373,8 @@ mod level {
                 .get_tile(hit.coord.x, hit.coord.y)
                 .map_or_else(|| WHITE, |t| t.color());
 
-            let color = Color::from_vec(tile_color.to_vec() * color_factor);
+            let mut color = Color::from_vec(tile_color.to_vec() * color_factor);
+            color.a = 1.;
 
             viewport.draw_rectangle(
                 vec2(
@@ -552,10 +553,14 @@ pub async fn run() {
     let level = level::create_level();
     let mut player = player::create_player();
     let clear_color = Color::from_hex(0x333333);
+    let screen_size = vec2(screen_width(), screen_height());
     let map_viewport = {
-        let minimap_size = vec2(screen_width(), screen_height());
         let map_scale = 0.4;
-        graphics::Viewport2D::new(-minimap_size*0.5 + level.extents()*map_scale, minimap_size, map_scale)
+        graphics::Viewport2D::new(
+            -screen_size * 0.5 + level.extents() * map_scale,
+            screen_size,
+            map_scale,
+        )
     };
     let viewport = graphics::Viewport2D::new(Vec2::ZERO, vec2(screen_width(), screen_height()), 1.);
 
@@ -574,6 +579,11 @@ pub async fn run() {
         //draw
         {
             clear_background(clear_color);
+            viewport.draw_rectangle(
+                vec2(0., screen_size.y * 0.5),
+                vec2(screen_size.x, screen_size.y),
+                Color::from_vec(vec4(0.1, 0.1, 0.1, 1.)),
+            );
             level::draw_3d_level(&viewport, &level, &player);
             level::draw_mini_map(&map_viewport, &level);
             player::draw_player_minimap(&player, &level, &map_viewport);
