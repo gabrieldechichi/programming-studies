@@ -357,6 +357,8 @@ mod level {
         let view_rot = player.transform.rot;
         let pos = player.transform.pos;
 
+        let shadow_decay_factor = 120.;
+
         for i in 0..ray_count {
             let theta = view_rot - half_fov + i as f32 * dtheta;
             let hit = level.raycast(pos, theta);
@@ -367,7 +369,9 @@ mod level {
             let corrected_distance = hit.distance * (view_rot - theta).cos();
             let strip_height = nc * wall_height / corrected_distance;
 
-            let color = WHITE;
+            let mut color_factor = (shadow_decay_factor / corrected_distance).min(1.);
+            color_factor *= if hit.is_horizontal_hit { 0.8 } else { 1.0 };
+            let color = Color::from_vec(WHITE.to_vec() * color_factor);
 
             viewport.draw_rectangle(
                 vec2(
