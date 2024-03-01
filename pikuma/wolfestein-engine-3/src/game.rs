@@ -371,7 +371,11 @@ mod level {
 
             let mut color_factor = (shadow_decay_factor / corrected_distance).min(1.);
             color_factor *= if hit.is_horizontal_hit { 0.8 } else { 1.0 };
-            let color = Color::from_vec(WHITE.to_vec() * color_factor);
+            let tile_color = level
+                .get_tile(hit.coord.x, hit.coord.y)
+                .map_or_else(|| WHITE, |t| t.color());
+
+            let color = Color::from_vec(tile_color.to_vec() * color_factor);
 
             viewport.draw_rectangle(
                 vec2(
