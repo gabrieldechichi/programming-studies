@@ -346,7 +346,6 @@ mod level {
 
     pub fn draw_3d_level(viewport: &Viewport2D, level: &Level, player: &PlayerBundle) {
         let screen_width = screen_width();
-        let screen_height = screen_height();
         let wall_height = level.tile_size;
 
         let half_fov = player.fov.half_fov_rad;
@@ -355,14 +354,17 @@ mod level {
         let strip_width = 1.0; //1 pixel per strip
         let ray_count = (screen_width / strip_width).ceil() as u32;
         let dtheta = half_fov * 2. / ray_count as f32;
-        let start_theta = player.transform.rot - half_fov;
+        let view_rot = player.transform.rot;
         let pos = player.transform.pos;
 
         for i in 0..ray_count {
-            let theta = start_theta + i as f32 * dtheta;
+            let theta = view_rot - half_fov + i as f32 * dtheta;
             let hit = level.raycast(pos, theta);
 
-            let corrected_distance = hit.distance;
+            //fish-eye correction. Imagine a circle where the radius is the distance the hi would
+            //be if the player was looking directly at the wall (view_rot - theta = 0)
+            //the radius of this sphere is hit.distance * cos(view_rot - theta)
+            let corrected_distance = hit.distance * (view_rot - theta).cos();
             let strip_height = nc * wall_height / corrected_distance;
 
             let color = WHITE;
