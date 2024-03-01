@@ -2,8 +2,6 @@ use crate::*;
 use macroquad::color::Color;
 use macroquad::prelude::*;
 
-use self::level::draw_3d_level;
-
 mod grid {
     use macroquad::prelude::*;
     use std::ops::{Add, Sub};
@@ -360,7 +358,7 @@ mod level {
         let shadow_decay_factor = 120.;
 
         for i in 0..ray_count {
-            let theta = view_rot - half_fov + i as f32 * dtheta;
+            let theta = view_rot + half_fov - i as f32 * dtheta;
             let hit = level.raycast(pos, theta);
 
             //fish-eye correction. Imagine a circle where the radius is the distance the hi would
@@ -435,8 +433,8 @@ mod player {
     pub fn create_player() -> PlayerBundle {
         PlayerBundle {
             transform: PlayerTransform {
-                pos: vec2(0., -32.),
-                rot: 90_f32.to_radians(),
+                pos: vec2(0., 0.),
+                rot: 30_f32.to_radians(),
                 radius: 10.,
             },
             movement: PlayerMovement {
@@ -457,10 +455,10 @@ mod player {
     pub fn update_player(player: &mut PlayerBundle, dt: f32) {
         let mut rot_input = 0.;
         if is_key_down(KeyCode::A) {
-            rot_input -= 1.;
+            rot_input += 1.;
         }
         if is_key_down(KeyCode::D) {
-            rot_input += 1.;
+            rot_input -= 1.;
         }
 
         let mut move_input = 0.;
@@ -576,7 +574,7 @@ pub async fn run() {
         //draw
         {
             clear_background(clear_color);
-            draw_3d_level(&viewport, &level, &player);
+            level::draw_3d_level(&viewport, &level, &player);
             level::draw_mini_map(&map_viewport, &level);
             player::draw_player_minimap(&player, &level, &map_viewport);
             player::player_map_collision(&mut player.transform, &level);
