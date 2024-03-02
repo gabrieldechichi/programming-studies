@@ -1,5 +1,62 @@
 use macroquad::prelude::*;
 
+pub struct ScreenBuffer {
+    pub image: Image,
+    pub tex: Texture2D,
+}
+
+impl ScreenBuffer {
+    pub fn new(width: usize, height: usize) -> Self {
+        let image = {
+            let buffer_size = width * height * 4;
+            let mut buf = Vec::with_capacity(buffer_size);
+            buf.resize(buffer_size, 0);
+            Image {
+                bytes: buf,
+                width: width as u16,
+                height: height as u16,
+            }
+        };
+
+        let tex = Texture2D::from_image(&image);
+        Self { image, tex }
+    }
+
+    pub fn fill(&mut self, x_start: u16, y_start: u16, x_end: u16, y_end: u16, color: Color) {
+        let start_i = self.xy_to_index_safe(x_start, y_start);
+        let end_i = self.xy_to_index_safe(x_end, y_end);
+        for i in (start_i..end_i).step_by(4) {
+            self.image.bytes[i] = (color.r * 255.) as u8;
+            self.image.bytes[i + 1] = (color.g * 255.) as u8;
+            self.image.bytes[i + 2] = (color.b * 255.) as u8;
+            self.image.bytes[i + 3] = (color.a * 255.) as u8;
+        }
+    }
+
+    pub fn xy_to_index(&self, x: u16, y: u16) -> usize {
+        x as usize + (y as usize * self.width() as usize * 4)
+    }
+    pub fn xy_to_index_safe(&self, x: u16, y: u16) -> usize {
+        self.xy_to_index(x, y).min(self.image.bytes.len())
+    }
+
+    pub fn width(&self) -> u16 {
+        self.image.width
+    }
+    pub fn height(&self) -> u16 {
+        self.image.height
+    }
+
+    pub fn set_pixel(&mut self, x: u32, y: u32, color: Color) {
+        self.image.set_pixel(x, y, color)
+    }
+
+    pub fn draw(&self) {
+        self.tex.update(&self.image);
+        draw_texture(&self.tex, 0., 0., WHITE);
+    }
+}
+
 pub struct Viewport2D {
     pub size: Vec2,
     pub pivot: Vec2,

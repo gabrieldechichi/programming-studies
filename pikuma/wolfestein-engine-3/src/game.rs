@@ -1,6 +1,11 @@
+use std::borrow::BorrowMut;
+
 use crate::*;
 use macroquad::color::Color;
+use macroquad::miniquad::window::screen_size;
 use macroquad::prelude::*;
+
+use self::graphics::ScreenBuffer;
 
 mod grid {
     use macroquad::prelude::*;
@@ -106,7 +111,7 @@ mod collision {
 }
 
 mod level {
-    use crate::graphics::Viewport2D;
+    use crate::graphics::{ScreenBuffer, Viewport2D};
     use macroquad::prelude::*;
 
     use super::grid::{self, GridCoords};
@@ -342,15 +347,16 @@ mod level {
         }
     }
 
-    pub fn draw_3d_level(viewport: &Viewport2D, level: &Level, player: &PlayerBundle) {
-        let screen_width = screen_width();
+    pub fn draw_3d_level(screen_buf: &mut ScreenBuffer, level: &Level, player: &PlayerBundle) {
+        let screen_width = screen_buf.width();
+        let screen_height = screen_buf.height();
         let wall_height = level.tile_size;
 
         let half_fov = player.fov.half_fov_rad;
-        let nc = screen_width * 0.5 / half_fov.tan();
+        let nc = screen_width as f32 * 0.5 / half_fov.tan();
 
-        let strip_width = 1.0; //1 pixel per strip
-        let ray_count = (screen_width / strip_width).ceil() as u32;
+        let strip_width = 1; //1 pixel per strip
+        let ray_count = screen_width / strip_width;
         let dtheta = half_fov * 2. / ray_count as f32;
         let view_rot = player.transform.rot;
         let pos = player.transform.pos;
@@ -376,14 +382,16 @@ mod level {
             let mut color = Color::from_vec(tile_color.to_vec() * color_factor);
             color.a = 1.;
 
-            viewport.draw_rectangle(
-                vec2(
-                    i as f32 * strip_width + strip_width * 0.5 - screen_width * 0.5,
-                    0.,
-                ),
-                vec2(strip_width, strip_height),
-                color,
-            );
+            let start_x = (i * strip_width).min(screen_width) as u32;
+            let end_x = (start_x + strip_width as u32).min(screen_width as u32);
+            for x in start_x..end_x {
+                let start_y =
+                    ((screen_height as f32 - strip_height) * 0.5).min(screen_height as f32) as u32;
+                let end_y = (start_y as f32 + strip_height).min(screen_height as f32) as u32;
+                for y in start_y..end_y {
+                    screen_buf.set_pixel(x as u32, y, color);
+                }
+            }
         }
     }
 }
@@ -552,17 +560,20 @@ mod player {
 pub async fn run() {
     let level = level::create_level();
     let mut player = player::create_player();
-    let clear_color = Color::from_hex(0x333333);
-    let screen_size = vec2(screen_width(), screen_height());
+    let ceiling_color = Color::from_hex(0x111111);
+    let floor_color = Color::from_hex(0x333333);
+
     let map_viewport = {
         let map_scale = 0.4;
+        let screen_size = vec2(screen_width(), screen_height());
         graphics::Viewport2D::new(
             -screen_size * 0.5 + level.extents() * map_scale,
             screen_size,
             map_scale,
         )
     };
-    let viewport = graphics::Viewport2D::new(Vec2::ZERO, vec2(screen_width(), screen_height()), 1.);
+
+    let mut screen_buff = ScreenBuffer::new(screen_width() as usize, screen_height() as usize);
 
     loop {
         #[cfg(debug_assertions)]
@@ -578,13 +589,24 @@ pub async fn run() {
         }
         //draw
         {
-            clear_background(clear_color);
-            viewport.draw_rectangle(
-                vec2(0., screen_size.y * 0.5),
-                vec2(screen_size.x, screen_size.y),
-                Color::from_vec(vec4(0.1, 0.1, 0.1, 1.)),
+            screen_buff.fill(
+                0,
+                0,
+                screen_buff.width(),
+                screen_buff.height() / 2,
+                ceiling_color,
             );
-            level::draw_3d_level(&viewport, &level, &player);
+            screen_buff.fill(
+                0,
+                screen_buff.height() / 2,
+                screen_buff.width(),
+                screen_buff.height(),
+                floor_color,
+            );
+
+            level::draw_3d_level(&mut screen_buff, &level, &player);
+            screen_buff.draw();
+
             level::draw_mini_map(&map_viewport, &level);
             player::draw_player_minimap(&player, &level, &map_viewport);
             player::player_map_collision(&mut player.transform, &level);
