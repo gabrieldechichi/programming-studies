@@ -1,4 +1,3 @@
-
 use crate::*;
 use macroquad::color::Color;
 use macroquad::prelude::*;
@@ -58,6 +57,7 @@ mod grid {
     pub struct RaycastGridResult {
         pub coord: GridCoords,
         pub distance: f32,
+        pub point: Vec2,
         pub is_horizontal_hit: bool,
     }
 }
@@ -116,37 +116,11 @@ mod level {
     use super::math;
     use super::player::PlayerBundle;
 
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Debug)]
     pub struct LevelBlock {
         is_wall: bool,
         color: Color,
-    }
-
-    impl From<&u8> for LevelBlock {
-        fn from(value: &u8) -> Self {
-            match value {
-                0 => LevelBlock {
-                    color: WHITE,
-                    is_wall: false,
-                },
-                1 => LevelBlock {
-                    color: RED,
-                    is_wall: true,
-                },
-                2 => LevelBlock {
-                    color: BLUE,
-                    is_wall: true,
-                },
-                3 => LevelBlock {
-                    color: GREEN,
-                    is_wall: true,
-                },
-                _ => LevelBlock {
-                    color: BLACK,
-                    is_wall: true,
-                },
-            }
-        }
+        tex: Option<Image>,
     }
 
     pub struct Level {
@@ -184,7 +158,7 @@ mod level {
 
         pub fn get_tile(&self, x: i32, y: i32) -> Option<LevelBlock> {
             if x >= 0 && x < self.column_count() as i32 && y >= 0 && y < self.row_count() as i32 {
-                Some(self.grid[y as usize][x as usize])
+                Some(self.grid[y as usize][x as usize].clone())
             } else {
                 None
             }
@@ -240,9 +214,12 @@ mod level {
                     coord = self.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
                 }
 
+                let point = vec2(x_intersect, y_intersect);
+
                 grid::RaycastGridResult {
                     coord,
-                    distance: (vec2(x_intersect, y_intersect) - pos).length(),
+                    distance: (point - pos).length(),
+                    point,
                     is_horizontal_hit: true,
                 }
             };
@@ -283,9 +260,11 @@ mod level {
                     coord = self.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
                 }
 
+                let point = vec2(x_intersect, y_intersect);
                 grid::RaycastGridResult {
                     coord,
-                    distance: (vec2(x_intersect, y_intersect) - pos).length(),
+                    distance: (point - pos).length(),
+                    point,
                     is_horizontal_hit: false,
                 }
             };
@@ -312,9 +291,54 @@ mod level {
             vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
+
+        let tex_size: u16 = 64;
+        let bytes_len = tex_size as usize * tex_size as usize * 4;
+        let mut temp_wall_tex = Image {
+            bytes: Vec::with_capacity(bytes_len),
+            width: tex_size,
+            height: tex_size,
+        };
+        temp_wall_tex.bytes.resize(bytes_len, 0);
+        for x in 0..tex_size {
+            for y in 0..tex_size {
+                let c = if x % 8 > 0 && y % 8 > 0 { WHITE } else { BLACK };
+                temp_wall_tex.set_pixel(x.into(), y.into(), c);
+            }
+        }
+
         let mut level_grid = Vec::new();
         for row in grid {
-            let level_row = row.iter().map(|i| LevelBlock::from(i)).collect();
+            let level_row = row
+                .iter()
+                .map(|i| match i {
+                    0 => LevelBlock {
+                        color: WHITE,
+                        is_wall: false,
+                        tex: None,
+                    },
+                    1 => LevelBlock {
+                        color: RED,
+                        is_wall: true,
+                        tex: Some(temp_wall_tex.clone()),
+                    },
+                    2 => LevelBlock {
+                        color: BLUE,
+                        is_wall: true,
+                        tex: Some(temp_wall_tex.clone()),
+                    },
+                    3 => LevelBlock {
+                        color: GREEN,
+                        is_wall: true,
+                        tex: Some(temp_wall_tex.clone()),
+                    },
+                    _ => LevelBlock {
+                        color: BLACK,
+                        is_wall: true,
+                        tex: None,
+                    },
+                })
+                .collect();
             level_grid.push(level_row);
         }
 
@@ -365,21 +389,44 @@ mod level {
 
             let mut color_factor = (shadow_decay_factor / corrected_distance).min(1.);
             color_factor *= if hit.is_horizontal_hit { 0.8 } else { 1.0 };
-            let tile_color = level
-                .get_tile(hit.coord.x, hit.coord.y)
-                .map_or_else(|| WHITE, |t| t.color);
-
-            let mut color = Color::from_vec(tile_color.to_vec() * color_factor);
-            color.a = 1.;
+            let tile = level.get_tile(hit.coord.x, hit.coord.y).unwrap();
 
             let start_x = (i * strip_width).min(screen_width) as u32;
             let end_x = (start_x + strip_width as u32).min(screen_width as u32);
             for x in start_x..end_x {
-                let start_y =
-                    ((screen_height as f32 - strip_height) * 0.5).min(screen_height as f32) as u32;
-                let end_y = (start_y as f32 + strip_height).min(screen_height as f32) as u32;
-                for y in start_y..end_y {
-                    screen_buf.set_pixel(x as u32, y, color);
+                let start_y = ((screen_height as f32 - strip_height) * 0.5) as i32;
+                let end_y = (start_y as f32 + strip_height) as i32;
+                for y in start_y.max(0)..end_y.min(screen_height as i32) {
+                    let base_col = {
+                        match tile.tex {
+                            Some(ref tex) => {
+                                let v = { (y - start_y) as f32 / (end_y - start_y) as f32 };
+                                let u = {
+                                    if hit.is_horizontal_hit {
+                                        (hit.point.x % level.tile_size as f32).abs()
+                                            / level.tile_size
+                                    } else {
+                                        (hit.point.y % level.tile_size as f32).abs()
+                                            / level.tile_size
+                                    }
+                                };
+                                debug_assert!(
+                                    u >= 0. && u <= 1. && v >= 0. && v <= 1.,
+                                    "Wrong uv calculation ({}, {})",
+                                    u,
+                                    v
+                                );
+                                tex.get_pixel(
+                                    (u * tex.width as f32) as u32,
+                                    (v * tex.height as f32) as u32,
+                                )
+                            }
+                            None => WHITE,
+                        }
+                    };
+                    let color =
+                        Color::from_vec(base_col.to_vec() * tile.color.to_vec() * color_factor);
+                    screen_buf.set_pixel(x as u32, y as u32, color);
                 }
             }
         }
