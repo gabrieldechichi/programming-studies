@@ -1,8 +1,6 @@
-use std::borrow::BorrowMut;
 
 use crate::*;
 use macroquad::color::Color;
-use macroquad::miniquad::window::screen_size;
 use macroquad::prelude::*;
 
 use self::graphics::ScreenBuffer;
@@ -118,35 +116,35 @@ mod level {
     use super::math;
     use super::player::PlayerBundle;
 
-    #[derive(PartialEq, Clone, Copy, Debug)]
-    pub enum LevelBlock {
-        Free = 0,
-        Red = 1,
-        Blue = 2,
-        Green = 3,
-        MAX,
-    }
-
-    impl LevelBlock {
-        pub fn color(&self) -> Color {
-            match self {
-                LevelBlock::Free => WHITE,
-                LevelBlock::Red => RED,
-                LevelBlock::Blue => BLUE,
-                LevelBlock::Green => GREEN,
-                LevelBlock::MAX => RED,
-            }
-        }
+    #[derive(Clone, Copy, Debug)]
+    pub struct LevelBlock {
+        is_wall: bool,
+        color: Color,
     }
 
     impl From<&u8> for LevelBlock {
         fn from(value: &u8) -> Self {
             match value {
-                0 => LevelBlock::Free,
-                1 => LevelBlock::Red,
-                2 => LevelBlock::Blue,
-                3 => LevelBlock::Green,
-                _ => LevelBlock::MAX,
+                0 => LevelBlock {
+                    color: WHITE,
+                    is_wall: false,
+                },
+                1 => LevelBlock {
+                    color: RED,
+                    is_wall: true,
+                },
+                2 => LevelBlock {
+                    color: BLUE,
+                    is_wall: true,
+                },
+                3 => LevelBlock {
+                    color: GREEN,
+                    is_wall: true,
+                },
+                _ => LevelBlock {
+                    color: BLACK,
+                    is_wall: true,
+                },
             }
         }
     }
@@ -194,10 +192,7 @@ mod level {
 
         pub fn is_wall(&self, x: i32, y: i32) -> bool {
             if let Some(t) = self.get_tile(x, y) {
-                match t {
-                    LevelBlock::Free => false,
-                    _ => true,
-                }
+                t.is_wall
             } else {
                 true
             }
@@ -239,10 +234,9 @@ mod level {
                 loop {
                     if self.is_wall(coord.x, coord.y) {
                         break;
-                    } else {
-                        x_intersect += x_step;
-                        y_intersect += y_step;
                     }
+                    x_intersect += x_step;
+                    y_intersect += y_step;
                     coord = self.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
                 }
 
@@ -283,10 +277,9 @@ mod level {
                 loop {
                     if self.is_wall(coord.x, coord.y) {
                         break;
-                    } else {
-                        x_intersect += x_step;
-                        y_intersect += y_step;
                     }
+                    x_intersect += x_step;
+                    y_intersect += y_step;
                     coord = self.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
                 }
 
@@ -336,12 +329,9 @@ mod level {
         for (y, row) in level.grid.iter().enumerate() {
             for (x, cell) in row.iter().enumerate() {
                 let pos = level.tile_center(x as i32, y as i32);
-                viewport.draw_rectangle(pos, tile_size, cell.color());
-                match cell {
-                    LevelBlock::Free => {
-                        viewport.draw_rectangle_lines(pos, tile_size, 2.0, BLACK);
-                    }
-                    _ => {}
+                viewport.draw_rectangle(pos, tile_size, cell.color);
+                if !cell.is_wall {
+                    viewport.draw_rectangle_lines(pos, tile_size, 2.0, BLACK);
                 }
             }
         }
@@ -377,7 +367,7 @@ mod level {
             color_factor *= if hit.is_horizontal_hit { 0.8 } else { 1.0 };
             let tile_color = level
                 .get_tile(hit.coord.x, hit.coord.y)
-                .map_or_else(|| WHITE, |t| t.color());
+                .map_or_else(|| WHITE, |t| t.color);
 
             let mut color = Color::from_vec(tile_color.to_vec() * color_factor);
             color.a = 1.;
