@@ -1,14 +1,17 @@
+use std::collections::HashSet;
+
 use crate::*;
 use macroquad::color::Color;
 use macroquad::prelude::*;
 
 use self::graphics::ScreenBuffer;
+use self::level::LevelRaycaster;
 
 mod grid {
     use macroquad::prelude::*;
     use std::ops::{Add, Sub};
 
-    #[derive(Copy, Clone, Debug)]
+    #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
     pub struct GridCoords {
         pub x: i32,
         pub y: i32,
@@ -63,6 +66,7 @@ mod grid {
 }
 
 mod math {
+    pub use macroquad::math::*;
     /// Re-export of std::f32::consts::PI
     pub const PI: f32 = std::f32::consts::PI;
 
@@ -109,12 +113,13 @@ mod collision {
 }
 
 mod level {
+    use std::collections::HashSet;
     use std::rc::Rc;
 
     use crate::graphics::{ScreenBuffer, Viewport2D};
     use macroquad::prelude::*;
 
-    use super::grid::{self, GridCoords};
+    use super::grid::{self, GridCoords, RaycastGridResult};
     use super::math;
     use super::player::PlayerBundle;
 
@@ -124,9 +129,157 @@ mod level {
         tex: Option<Rc<Image>>,
     }
 
+    #[derive(Clone, Debug)]
+    pub struct LevelSprite {
+        pos: Vec2,
+        distance_to_player: f32,
+        coords: GridCoords,
+        is_static: bool,
+        sprite: Rc<Image>,
+    }
+
+    impl LevelSprite {
+        pub fn new(x: f32, y: f32, sprite: &Rc<Image>, is_static: bool, level: &Level) -> Self {
+            let pos = vec2(x, y);
+            Self {
+                pos,
+                sprite: sprite.clone(),
+                distance_to_player: 0.,
+                is_static,
+                coords: level.pos_to_coords(pos),
+            }
+        }
+
+        pub fn update_cell(&mut self, level: &Level, force: bool) {
+            if !self.is_static || force {
+                self.coords = level.pos_to_coords(self.pos);
+            }
+        }
+    }
+
     pub struct Level {
         pub grid: Vec<Vec<LevelBlock>>,
         pub tile_size: f32,
+        pub sprites: Vec<LevelSprite>,
+    }
+
+    pub struct LevelRaycaster<'a> {
+        pub level: &'a Level,
+        pub visited: HashSet<GridCoords>,
+        pub hits: Vec<RaycastGridResult>,
+    }
+
+    pub fn raycast_level(
+        raycaster: &mut LevelRaycaster,
+        level: &Level,
+        pos: Vec2,
+        theta: f32,
+    ) -> grid::RaycastGridResult {
+        let origin_coord = level.pos_to_coords(pos);
+        let theta_tan = theta.tan();
+        let theta_normalized = math::normalize_angle(theta);
+
+        let horizontal_hit = {
+            let y_sign = theta_normalized < math::PI;
+
+            let start_coord = if y_sign {
+                origin_coord + grid::coords(0, 1)
+            } else {
+                origin_coord
+            };
+
+            let extra_d = if y_sign {
+                vec2(0.0001, 0.0001)
+            } else {
+                -vec2(0.0001, 0.0001)
+            };
+
+            let mut y_intersect = level.tile_bl(start_coord.x, start_coord.y).y;
+            let mut x_intersect = pos.x + (y_intersect - pos.y) / theta_tan;
+
+            let y_step = if y_sign {
+                level.tile_size
+            } else {
+                -level.tile_size
+            };
+
+            let x_step = y_step / theta_tan;
+
+            let mut coord = level.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
+            raycaster.visited.insert(coord);
+
+            loop {
+                if level.is_wall(coord.x, coord.y) {
+                    break;
+                }
+                x_intersect += x_step;
+                y_intersect += y_step;
+                coord = level.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
+                raycaster.visited.insert(coord);
+            }
+
+            let point = vec2(x_intersect, y_intersect);
+
+            grid::RaycastGridResult {
+                coord,
+                distance: (point - pos).length(),
+                point,
+                is_horizontal_hit: true,
+            }
+        };
+
+        let vertical_hit = {
+            let x_sign = theta_normalized < math::PI * 0.5 || theta_normalized > math::PI * 1.5;
+
+            let start_coord = if x_sign {
+                origin_coord + grid::coords(1, 0)
+            } else {
+                origin_coord
+            };
+
+            let extra_d = if x_sign {
+                vec2(0.0001, 0.0001)
+            } else {
+                -vec2(0.0001, 0.0001)
+            };
+
+            let x_step = if x_sign {
+                level.tile_size
+            } else {
+                -level.tile_size
+            };
+            let y_step = x_step * theta_tan;
+
+            let mut x_intersect = level.tile_bl(start_coord.x, start_coord.y).x;
+            let mut y_intersect = pos.y + (x_intersect - pos.x) * theta_tan;
+
+            let mut coord = level.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
+            raycaster.visited.insert(coord);
+
+            loop {
+                if level.is_wall(coord.x, coord.y) {
+                    break;
+                }
+                x_intersect += x_step;
+                y_intersect += y_step;
+                coord = level.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
+                raycaster.visited.insert(coord);
+            }
+
+            let point = vec2(x_intersect, y_intersect);
+            grid::RaycastGridResult {
+                coord,
+                distance: (point - pos).length(),
+                point,
+                is_horizontal_hit: false,
+            }
+        };
+
+        if vertical_hit.distance < horizontal_hit.distance {
+            vertical_hit
+        } else {
+            horizontal_hit
+        }
     }
 
     impl Level {
@@ -172,127 +325,9 @@ mod level {
                 true
             }
         }
-
-        pub fn raycast(&self, pos: Vec2, theta: f32) -> grid::RaycastGridResult {
-            let origin_coord = self.pos_to_coords(pos);
-            let theta_tan = theta.tan();
-            let theta_normalized = math::normalize_angle(theta);
-
-            let horizontal_hit = {
-                let y_sign = theta_normalized < math::PI;
-
-                let start_coord = if y_sign {
-                    origin_coord + grid::coords(0, 1)
-                } else {
-                    origin_coord
-                };
-
-                let extra_d = if y_sign {
-                    vec2(0.0001, 0.0001)
-                } else {
-                    -vec2(0.0001, 0.0001)
-                };
-
-                let mut y_intersect = self.tile_bl(start_coord.x, start_coord.y).y;
-                let mut x_intersect = pos.x + (y_intersect - pos.y) / theta_tan;
-
-                let y_step = if y_sign {
-                    self.tile_size
-                } else {
-                    -self.tile_size
-                };
-
-                let x_step = y_step / theta_tan;
-
-                let mut coord = self.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
-
-                loop {
-                    if self.is_wall(coord.x, coord.y) {
-                        break;
-                    }
-                    x_intersect += x_step;
-                    y_intersect += y_step;
-                    coord = self.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
-                }
-
-                let point = vec2(x_intersect, y_intersect);
-
-                grid::RaycastGridResult {
-                    coord,
-                    distance: (point - pos).length(),
-                    point,
-                    is_horizontal_hit: true,
-                }
-            };
-
-            let vertical_hit = {
-                let x_sign = theta_normalized < math::PI * 0.5 || theta_normalized > math::PI * 1.5;
-
-                let start_coord = if x_sign {
-                    origin_coord + grid::coords(1, 0)
-                } else {
-                    origin_coord
-                };
-
-                let extra_d = if x_sign {
-                    vec2(0.0001, 0.0001)
-                } else {
-                    -vec2(0.0001, 0.0001)
-                };
-
-                let x_step = if x_sign {
-                    self.tile_size
-                } else {
-                    -self.tile_size
-                };
-                let y_step = x_step * theta_tan;
-
-                let mut x_intersect = self.tile_bl(start_coord.x, start_coord.y).x;
-                let mut y_intersect = pos.y + (x_intersect - pos.x) * theta_tan;
-
-                let mut coord = self.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
-
-                loop {
-                    if self.is_wall(coord.x, coord.y) {
-                        break;
-                    }
-                    x_intersect += x_step;
-                    y_intersect += y_step;
-                    coord = self.pos_to_coords(vec2(x_intersect, y_intersect) + extra_d);
-                }
-
-                let point = vec2(x_intersect, y_intersect);
-                grid::RaycastGridResult {
-                    coord,
-                    distance: (point - pos).length(),
-                    point,
-                    is_horizontal_hit: false,
-                }
-            };
-
-            if vertical_hit.distance < horizontal_hit.distance {
-                vertical_hit
-            } else {
-                horizontal_hit
-            }
-        }
     }
 
     pub fn create_level() -> Level {
-        let grid: Vec<Vec<u8>> = vec![
-            vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            vec![1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            vec![1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            vec![1, 0, 0, 1, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 1],
-            vec![1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 1],
-            vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 1],
-            vec![1, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 1],
-            vec![1, 0, 3, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1],
-            vec![1, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 3, 3, 1],
-            vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        ];
-
         macro_rules! define_tex {
             ($const_name:ident, $name:ident, $path:expr) => {
                 const $const_name: &[u8] = include_bytes!($path);
@@ -318,6 +353,12 @@ mod level {
             "../data/textures/graystone.png"
         );
 
+        define_tex!(SPRITE_ARMOR, sprite_armor, "../data/sprites/armor.png");
+        define_tex!(SPRITE_GUARD, sprite_guard, "../data/sprites/guard.png");
+        define_tex!(SPRITE_LIGHT, sprite_light, "../data/sprites/light.png");
+        define_tex!(SPRITE_TABLE, sprite_table, "../data/sprites/table.png");
+        define_tex!(SPRITE_BARREL, sprite_barrel, "../data/sprites/barrel.png");
+
         let textures = vec![
             None,
             Some(tex_red_brick),
@@ -325,6 +366,19 @@ mod level {
             Some(tex_gray_stone),
         ];
 
+        let grid: Vec<Vec<u8>> = vec![
+            vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            vec![1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            vec![1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            vec![1, 0, 0, 1, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 1],
+            vec![1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 1],
+            vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 1],
+            vec![1, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 1],
+            vec![1, 0, 3, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1],
+            vec![1, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 3, 3, 1],
+            vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        ];
         let mut level_grid = Vec::new();
         for row in grid {
             let level_row = row
@@ -340,13 +394,34 @@ mod level {
             level_grid.push(level_row);
         }
 
-        Level {
+        let sprites = vec![
+            (640., 630., sprite_barrel.clone()),
+            (660., 690., sprite_barrel.clone()),
+            (250., 600., sprite_table),
+            (300., 400., sprite_guard),
+            (90., 100., sprite_armor),
+        ];
+
+        let mut level = Level {
             grid: level_grid,
             tile_size: 32.,
-        }
+            sprites: vec![],
+        };
+
+        level.sprites = sprites
+            .iter()
+            .map(|(x, y, sprite)| LevelSprite::new(*x, *y, sprite, true, &level))
+            .collect();
+
+        level
     }
 
-    pub fn draw_mini_map(viewport: &Viewport2D, level: &Level) {
+    pub fn draw_mini_map(
+        player: &PlayerBundle,
+        level: &Level,
+        raycaster: &mut LevelRaycaster,
+        viewport: &Viewport2D,
+    ) {
         let tile_size = vec2(level.tile_size, level.tile_size);
         for (y, row) in level.grid.iter().enumerate() {
             for (x, cell) in row.iter().enumerate() {
@@ -358,9 +433,50 @@ mod level {
                 }
             }
         }
+
+        raycaster.visited.clear();
+        //draw fov
+        {
+            let dtheta = player.fov.dtheta();
+            let mut c = PURPLE;
+            c.a = 0.5;
+
+            for i in 0..player.fov.ray_count {
+                let theta = player.transform.rot - player.fov.half_fov_rad + i as f32 * dtheta;
+                let hit = raycast_level(raycaster, level, player.transform.pos, theta);
+                viewport.draw_line(
+                    player.transform.pos,
+                    player.transform.pos + math::polar_to_cartesian(hit.distance, theta),
+                    1.,
+                    c,
+                );
+            }
+
+            viewport.draw_line(
+                player.transform.pos,
+                player.transform.pos
+                    + math::polar_to_cartesian(
+                        player.minimap_graphics.arrow_length,
+                        player.transform.rot,
+                    ),
+                2.,
+                BLACK,
+            );
+        }
+
+        viewport.draw_circle(
+            player.transform.pos,
+            player.transform.radius,
+            player.minimap_graphics.color,
+        );
     }
 
-    pub fn draw_3d_level(screen_buf: &mut ScreenBuffer, level: &Level, player: &PlayerBundle) {
+    pub fn draw_3d_level(
+        screen_buf: &mut ScreenBuffer,
+        level: &Level,
+        raycaster: &mut LevelRaycaster,
+        player: &PlayerBundle,
+    ) {
         let screen_width = screen_buf.width();
         let screen_height = screen_buf.height();
         let wall_height = level.tile_size;
@@ -375,9 +491,11 @@ mod level {
 
         let shadow_decay_factor = 120.;
 
+        raycaster.visited.clear();
+
         for i in 0..ray_count {
             let theta = view_rot - ((i as f32 - ray_count as f32 * 0.5) / nc).atan();
-            let hit = level.raycast(pos, theta);
+            let hit = raycast_level(raycaster, level, pos, theta);
 
             //fish-eye correction. Imagine a circle where the radius is the distance the hi would
             //be if the player was looking directly at the wall (view_rot - theta = 0)
@@ -437,7 +555,7 @@ mod player {
     use crate::*;
 
     use super::grid::coords;
-    use super::level;
+    use super::level::{self, raycast_level, LevelRaycaster};
 
     pub struct PlayerBundle {
         pub transform: PlayerTransform,
@@ -552,47 +670,20 @@ mod player {
     pub fn draw_player_minimap(
         player: &PlayerBundle,
         level: &level::Level,
+        raycaster: &mut LevelRaycaster,
         viewport: &graphics::Viewport2D,
     ) {
-        //draw fov
-        {
-            let dtheta = player.fov.dtheta();
-            let mut c = PURPLE;
-            c.a = 0.5;
-
-            for i in 0..player.fov.ray_count {
-                let theta = player.transform.rot - player.fov.half_fov_rad + i as f32 * dtheta;
-                let hit = level.raycast(player.transform.pos, theta);
-                viewport.draw_line(
-                    player.transform.pos,
-                    player.transform.pos + math::polar_to_cartesian(hit.distance, theta),
-                    1.,
-                    c,
-                );
-            }
-
-            viewport.draw_line(
-                player.transform.pos,
-                player.transform.pos
-                    + math::polar_to_cartesian(
-                        player.minimap_graphics.arrow_length,
-                        player.transform.rot,
-                    ),
-                2.,
-                BLACK,
-            );
-        }
-
-        viewport.draw_circle(
-            player.transform.pos,
-            player.transform.radius,
-            player.minimap_graphics.color,
-        );
     }
 }
 
 pub async fn run() {
     let level = level::create_level();
+    let mut level_raycaster = LevelRaycaster {
+        level: &level,
+        visited: HashSet::new(),
+        hits: vec![],
+    };
+
     let mut player = player::create_player();
     let ceiling_color = Color::from_hex(0x111111);
     let floor_color = Color::from_hex(0x333333);
@@ -638,11 +729,10 @@ pub async fn run() {
                 floor_color,
             );
 
-            level::draw_3d_level(&mut screen_buff, &level, &player);
+            level::draw_3d_level(&mut screen_buff, &level, &mut level_raycaster, &player);
             screen_buff.draw();
 
-            level::draw_mini_map(&map_viewport, &level);
-            player::draw_player_minimap(&player, &level, &map_viewport);
+            level::draw_mini_map(&player, &level, &mut level_raycaster, &map_viewport);
             player::player_map_collision(&mut player.transform, &level);
         }
         next_frame().await;
