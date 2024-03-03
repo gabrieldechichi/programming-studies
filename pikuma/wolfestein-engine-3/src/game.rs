@@ -292,20 +292,15 @@ mod level {
             vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
 
-        let tex_size: u16 = 64;
-        let bytes_len = tex_size as usize * tex_size as usize * 4;
-        let mut temp_wall_tex = Image {
-            bytes: Vec::with_capacity(bytes_len),
-            width: tex_size,
-            height: tex_size,
-        };
-        temp_wall_tex.bytes.resize(bytes_len, 0);
-        for x in 0..tex_size {
-            for y in 0..tex_size {
-                let c = if x % 8 > 0 && y % 8 > 0 { WHITE } else { BLACK };
-                temp_wall_tex.set_pixel(x.into(), y.into(), c);
-            }
-        }
+        // const TEX_PURPLE_STONE : &[u8] = include_bytes!("../data/textures/purplestone.png");
+        const TEX_RED_BRICK : &[u8] = include_bytes!("../data/textures/redbrick.png");
+        const TEX_BLUE_STONE : &[u8] = include_bytes!("../data/textures/bluestone.png");
+        const TEX_GRAY_STONE : &[u8] = include_bytes!("../data/textures/graystone.png");
+
+        // let tex_purple_stone = Image::from_file_with_format(TEX_PURPLE_STONE, Some(ImageFormat::Png)).unwrap();
+        let tex_red_brick = Image::from_file_with_format(TEX_RED_BRICK, Some(ImageFormat::Png)).unwrap();
+        let tex_blue_stone = Image::from_file_with_format(TEX_BLUE_STONE, Some(ImageFormat::Png)).unwrap();
+        let tex_gray_stone = Image::from_file_with_format(TEX_GRAY_STONE, Some(ImageFormat::Png)).unwrap();
 
         let mut level_grid = Vec::new();
         for row in grid {
@@ -320,17 +315,17 @@ mod level {
                     1 => LevelBlock {
                         color: RED,
                         is_wall: true,
-                        tex: Some(temp_wall_tex.clone()),
+                        tex: Some(tex_red_brick.clone()),
                     },
                     2 => LevelBlock {
                         color: BLUE,
                         is_wall: true,
-                        tex: Some(temp_wall_tex.clone()),
+                        tex: Some(tex_blue_stone.clone()),
                     },
                     3 => LevelBlock {
                         color: GREEN,
                         is_wall: true,
-                        tex: Some(temp_wall_tex.clone()),
+                        tex: Some(tex_gray_stone.clone()),
                     },
                     _ => LevelBlock {
                         color: BLACK,
