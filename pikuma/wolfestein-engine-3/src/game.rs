@@ -500,7 +500,7 @@ mod level {
 
     pub fn draw_3d_level(
         screen_buf: &mut ScreenBuffer,
-        level: &Level,
+        level: &mut Level,
         raycaster: &mut LevelRaycastResults,
         player: &PlayerBundle,
     ) {
@@ -520,6 +520,7 @@ mod level {
 
         raycaster.clear();
 
+        //draw walls
         for i in 0..ray_count {
             let theta = view_rot - ((i as f32 - ray_count as f32 * 0.5) / nc).atan();
             let hit = raycast_level(raycaster, level, pos, theta);
@@ -569,6 +570,50 @@ mod level {
                     };
                     let color = Color::from_vec(base_col.to_vec() * color_factor);
                     screen_buf.set_pixel(x as u32, y as u32, color);
+                }
+            }
+        }
+
+        //draw sprites
+        {
+            let player_pos = player.transform.pos;
+            //update distances to player
+            for sprite in &mut level.sprites {
+                let to_sprite = sprite.pos - player_pos;
+                sprite.distance_to_player = to_sprite.length();
+            }
+            level.sprites.sort_by_key(|s| s.distance_to_player as u32);
+            for sprite in &level.sprites {
+                if !is_sprite_visible(sprite, raycaster) {
+                    continue;
+                }
+
+                let corrected_distance = sprite.distance_to_player;
+                let sprite_height = nc * wall_height / corrected_distance;
+                let sprite_width = sprite_height;
+                let sprite_angle = ((sprite.pos.y - player_pos.y) / (sprite.pos.x - player_pos.x))
+                    .atan()
+                    - player.transform.rot;
+                let sprite_screen_x = (screen_width / 2) as f32 - sprite_angle.tan() * nc;
+                let start_i =
+                    ((sprite_screen_x - sprite_width*0.5) / strip_width as f32).floor() as i32;
+                let end_i = start_i + sprite_width as i32;
+
+                for i in start_i.max(0)..end_i.min(ray_count as i32) {
+                    let hit = raycaster.hits[i as usize];
+                    if hit.distance < sprite.distance_to_player {
+                        continue;
+                    }
+                    let start_x = i * strip_width as i32;
+                    let end_x = start_x + strip_width as i32;
+                    for x in start_x..end_x {
+                        let start_y = ((screen_height as f32 - sprite_height) * 0.5) as i32;
+                        let end_y = (start_y as f32 + sprite_height) as i32;
+                        for y in start_y.max(0)..end_y.min(screen_height as i32) {
+                            let c = BLUE;
+                            screen_buf.set_pixel(x as u32, y as u32, c);
+                        }
+                    }
                 }
             }
         }
@@ -695,8 +740,8 @@ mod player {
 }
 
 pub async fn run() {
-    let level = level::create_level();
-    let mut level_raycaster = LevelRaycastResults {
+    let mut level = level::create_level();
+    let mut raycast_results = LevelRaycastResults {
         visited: HashSet::new(),
         hits: vec![],
     };
@@ -746,10 +791,10 @@ pub async fn run() {
                 floor_color,
             );
 
-            level::draw_3d_level(&mut screen_buff, &level, &mut level_raycaster, &player);
+            level::draw_3d_level(&mut screen_buff, &mut level, &mut raycast_results, &player);
             screen_buff.draw();
 
-            level::draw_mini_map(&player, &level, &mut level_raycaster, &map_viewport);
+            level::draw_mini_map(&player, &level, &mut raycast_results, &map_viewport);
             player::player_map_collision(&mut player.transform, &level);
         }
         next_frame().await;
