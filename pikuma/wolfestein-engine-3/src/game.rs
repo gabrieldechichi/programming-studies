@@ -121,7 +121,6 @@ mod level {
     #[derive(Clone, Debug)]
     pub struct LevelBlock {
         is_wall: bool,
-        color: Color,
         tex: Option<Rc<Image>>,
     }
 
@@ -297,45 +296,45 @@ mod level {
         macro_rules! define_tex {
             ($const_name:ident, $name:ident, $path:expr) => {
                 const $const_name: &[u8] = include_bytes!($path);
-                let $name =
-                    Rc::new(Image::from_file_with_format($const_name, Some(ImageFormat::Png)).unwrap());
+                let $name = Rc::new(
+                    Image::from_file_with_format($const_name, Some(ImageFormat::Png)).unwrap(),
+                );
             };
         }
 
-        define_tex!(TEX_RED_BRICK, tex_red_brick, "../data/textures/redbrick.png");
-        define_tex!(TEX_BLUE_STONE, tex_blue_stone, "../data/textures/bluestone.png");
-        define_tex!(TEX_GRAY_STONE, tex_gray_stone, "../data/textures/graystone.png");
+        define_tex!(
+            TEX_RED_BRICK,
+            tex_red_brick,
+            "../data/textures/redbrick.png"
+        );
+        define_tex!(
+            TEX_BLUE_STONE,
+            tex_blue_stone,
+            "../data/textures/bluestone.png"
+        );
+        define_tex!(
+            TEX_GRAY_STONE,
+            tex_gray_stone,
+            "../data/textures/graystone.png"
+        );
+
+        let textures = vec![
+            None,
+            Some(tex_red_brick),
+            Some(tex_blue_stone),
+            Some(tex_gray_stone),
+        ];
 
         let mut level_grid = Vec::new();
         for row in grid {
             let level_row = row
                 .iter()
-                .map(|i| match i {
-                    0 => LevelBlock {
-                        color: WHITE,
-                        is_wall: false,
-                        tex: None,
-                    },
-                    1 => LevelBlock {
-                        color: RED,
-                        is_wall: true,
-                        tex: Some(tex_red_brick.clone()),
-                    },
-                    2 => LevelBlock {
-                        color: BLUE,
-                        is_wall: true,
-                        tex: Some(tex_blue_stone.clone()),
-                    },
-                    3 => LevelBlock {
-                        color: GREEN,
-                        is_wall: true,
-                        tex: Some(tex_gray_stone.clone()),
-                    },
-                    _ => LevelBlock {
-                        color: BLACK,
-                        is_wall: true,
-                        tex: None,
-                    },
+                .map(|i| {
+                    let is_wall = *i != 0;
+                    LevelBlock {
+                        is_wall,
+                        tex: textures[*i as usize].clone(),
+                    }
                 })
                 .collect();
             level_grid.push(level_row);
@@ -352,7 +351,8 @@ mod level {
         for (y, row) in level.grid.iter().enumerate() {
             for (x, cell) in row.iter().enumerate() {
                 let pos = level.tile_center(x as i32, y as i32);
-                viewport.draw_rectangle(pos, tile_size, cell.color);
+                let color = if cell.is_wall { BLACK } else { WHITE };
+                viewport.draw_rectangle(pos, tile_size, color);
                 if !cell.is_wall {
                     viewport.draw_rectangle_lines(pos, tile_size, 2.0, BLACK);
                 }
@@ -424,7 +424,7 @@ mod level {
                         }
                     };
                     let color =
-                        Color::from_vec(base_col.to_vec() * tile.color.to_vec() * color_factor);
+                        Color::from_vec(base_col.to_vec() * color_factor);
                     screen_buf.set_pixel(x as u32, y as u32, color);
                 }
             }
