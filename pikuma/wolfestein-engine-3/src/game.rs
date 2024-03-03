@@ -294,15 +294,17 @@ mod level {
             vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
 
-        // const TEX_PURPLE_STONE : &[u8] = include_bytes!("../data/textures/purplestone.png");
-        const TEX_RED_BRICK : &[u8] = include_bytes!("../data/textures/redbrick.png");
-        const TEX_BLUE_STONE : &[u8] = include_bytes!("../data/textures/bluestone.png");
-        const TEX_GRAY_STONE : &[u8] = include_bytes!("../data/textures/graystone.png");
+        macro_rules! define_tex {
+            ($const_name:ident, $name:ident, $path:expr) => {
+                const $const_name: &[u8] = include_bytes!($path);
+                let $name =
+                    Rc::new(Image::from_file_with_format($const_name, Some(ImageFormat::Png)).unwrap());
+            };
+        }
 
-        // let tex_purple_stone = Image::from_file_with_format(TEX_PURPLE_STONE, Some(ImageFormat::Png)).unwrap();
-        let tex_red_brick = Rc::new(Image::from_file_with_format(TEX_RED_BRICK, Some(ImageFormat::Png)).unwrap());
-        let tex_blue_stone = Rc::new(Image::from_file_with_format(TEX_BLUE_STONE, Some(ImageFormat::Png)).unwrap());
-        let tex_gray_stone = Rc::new(Image::from_file_with_format(TEX_GRAY_STONE, Some(ImageFormat::Png)).unwrap());
+        define_tex!(TEX_RED_BRICK, tex_red_brick, "../data/textures/redbrick.png");
+        define_tex!(TEX_BLUE_STONE, tex_blue_stone, "../data/textures/bluestone.png");
+        define_tex!(TEX_GRAY_STONE, tex_gray_stone, "../data/textures/graystone.png");
 
         let mut level_grid = Vec::new();
         for row in grid {
