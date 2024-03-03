@@ -5,7 +5,7 @@ use macroquad::color::Color;
 use macroquad::prelude::*;
 
 use self::graphics::ScreenBuffer;
-use self::level::LevelRaycaster;
+use self::level::LevelRaycastResults;
 
 mod grid {
     use macroquad::prelude::*;
@@ -57,6 +57,7 @@ mod grid {
         coords(x, y)
     }
 
+    #[derive(Clone, Copy, Debug)]
     pub struct RaycastGridResult {
         pub coord: GridCoords,
         pub distance: f32,
@@ -163,14 +164,20 @@ mod level {
         pub sprites: Vec<LevelSprite>,
     }
 
-    pub struct LevelRaycaster<'a> {
-        pub level: &'a Level,
+    pub struct LevelRaycastResults {
         pub visited: HashSet<GridCoords>,
         pub hits: Vec<RaycastGridResult>,
     }
 
+    impl LevelRaycastResults {
+        pub fn clear(&mut self) {
+            self.visited.clear();
+            self.hits.clear();
+        }
+    }
+
     pub fn raycast_level(
-        raycaster: &mut LevelRaycaster,
+        raycaster: &mut LevelRaycastResults,
         level: &Level,
         pos: Vec2,
         theta: f32,
@@ -275,11 +282,22 @@ mod level {
             }
         };
 
-        if vertical_hit.distance < horizontal_hit.distance {
+        let hit = if vertical_hit.distance < horizontal_hit.distance {
             vertical_hit
         } else {
             horizontal_hit
+        };
+        raycaster.hits.push(hit);
+        hit
+    }
+
+    pub fn is_sprite_visible(sprite: &LevelSprite, raycasts: &LevelRaycastResults) -> bool {
+        for coord in &raycasts.visited {
+            if *coord == sprite.coords {
+                return true;
+            }
         }
+        false
     }
 
     impl Level {
@@ -395,11 +413,11 @@ mod level {
         }
 
         let sprites = vec![
-            (640., 630., sprite_barrel.clone()),
-            (660., 690., sprite_barrel.clone()),
-            (250., 600., sprite_table),
-            (300., 400., sprite_guard),
-            (90., 100., sprite_armor),
+            (60., 33., sprite_barrel.clone()),
+            (-80., -78., sprite_barrel.clone()),
+            (-180., 0., sprite_table),
+            (-120., 95., sprite_guard),
+            (134., -50., sprite_armor),
         ];
 
         let mut level = Level {
@@ -419,7 +437,7 @@ mod level {
     pub fn draw_mini_map(
         player: &PlayerBundle,
         level: &Level,
-        raycaster: &mut LevelRaycaster,
+        raycaster: &mut LevelRaycastResults,
         viewport: &Viewport2D,
     ) {
         let tile_size = vec2(level.tile_size, level.tile_size);
@@ -434,7 +452,7 @@ mod level {
             }
         }
 
-        raycaster.visited.clear();
+        raycaster.clear();
         //draw fov
         {
             let dtheta = player.fov.dtheta();
@@ -469,12 +487,21 @@ mod level {
             player.transform.radius,
             player.minimap_graphics.color,
         );
+
+        //draw sprites
+        for sprite in &level.sprites {
+            let mut c = RED;
+            if !is_sprite_visible(sprite, raycaster) {
+                c.a = 0.5;
+            }
+            viewport.draw_circle(sprite.pos, 7., c);
+        }
     }
 
     pub fn draw_3d_level(
         screen_buf: &mut ScreenBuffer,
         level: &Level,
-        raycaster: &mut LevelRaycaster,
+        raycaster: &mut LevelRaycastResults,
         player: &PlayerBundle,
     ) {
         let screen_width = screen_buf.width();
@@ -491,7 +518,7 @@ mod level {
 
         let shadow_decay_factor = 120.;
 
-        raycaster.visited.clear();
+        raycaster.clear();
 
         for i in 0..ray_count {
             let theta = view_rot - ((i as f32 - ray_count as f32 * 0.5) / nc).atan();
@@ -552,10 +579,9 @@ mod player {
     use macroquad::{math, prelude::*};
 
     use crate::game::collision;
-    use crate::*;
 
     use super::grid::coords;
-    use super::level::{self, raycast_level, LevelRaycaster};
+    use super::level::{self};
 
     pub struct PlayerBundle {
         pub transform: PlayerTransform,
@@ -666,20 +692,11 @@ mod player {
             }
         }
     }
-
-    pub fn draw_player_minimap(
-        player: &PlayerBundle,
-        level: &level::Level,
-        raycaster: &mut LevelRaycaster,
-        viewport: &graphics::Viewport2D,
-    ) {
-    }
 }
 
 pub async fn run() {
     let level = level::create_level();
-    let mut level_raycaster = LevelRaycaster {
-        level: &level,
+    let mut level_raycaster = LevelRaycastResults {
         visited: HashSet::new(),
         hits: vec![],
     };
