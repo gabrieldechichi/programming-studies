@@ -370,14 +370,13 @@ mod level {
 
         let strip_width = 1; //1 pixel per strip
         let ray_count = screen_width / strip_width;
-        let dtheta = half_fov * 2. / ray_count as f32;
         let view_rot = player.transform.rot;
         let pos = player.transform.pos;
 
         let shadow_decay_factor = 120.;
 
         for i in 0..ray_count {
-            let theta = view_rot + half_fov - i as f32 * dtheta;
+            let theta = view_rot - ((i as f32 - ray_count as f32 * 0.5) / nc).atan();
             let hit = level.raycast(pos, theta);
 
             //fish-eye correction. Imagine a circle where the radius is the distance the hi would
@@ -423,8 +422,7 @@ mod level {
                             None => WHITE,
                         }
                     };
-                    let color =
-                        Color::from_vec(base_col.to_vec() * color_factor);
+                    let color = Color::from_vec(base_col.to_vec() * color_factor);
                     screen_buf.set_pixel(x as u32, y as u32, color);
                 }
             }
