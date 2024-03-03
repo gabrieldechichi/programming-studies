@@ -135,7 +135,7 @@ mod level {
         pos: Vec2,
         distance_to_player: f32,
         coords: GridCoords,
-        is_static: bool,
+        _is_static: bool,
         sprite: Rc<Image>,
     }
 
@@ -146,13 +146,13 @@ mod level {
                 pos,
                 sprite: sprite.clone(),
                 distance_to_player: 0.,
-                is_static,
+                _is_static: is_static,
                 coords: level.pos_to_coords(pos),
             }
         }
 
-        pub fn update_cell(&mut self, level: &Level, force: bool) {
-            if !self.is_static || force {
+        pub fn _update_cell(&mut self, level: &Level, force: bool) {
+            if !self._is_static || force {
                 self.coords = level.pos_to_coords(self.pos);
             }
         }
@@ -373,7 +373,7 @@ mod level {
 
         define_tex!(SPRITE_ARMOR, sprite_armor, "../data/sprites/armor.png");
         define_tex!(SPRITE_GUARD, sprite_guard, "../data/sprites/guard.png");
-        define_tex!(SPRITE_LIGHT, sprite_light, "../data/sprites/light.png");
+        // define_tex!(SPRITE_LIGHT, sprite_light, "../data/sprites/light.png");
         define_tex!(SPRITE_TABLE, sprite_table, "../data/sprites/table.png");
         define_tex!(SPRITE_BARREL, sprite_barrel, "../data/sprites/barrel.png");
 
@@ -591,12 +591,11 @@ mod level {
                 let corrected_distance = sprite.distance_to_player;
                 let sprite_height = nc * wall_height / corrected_distance;
                 let sprite_width = sprite_height;
-                let sprite_angle = ((sprite.pos.y - player_pos.y) / (sprite.pos.x - player_pos.x))
-                    .atan()
-                    - player.transform.rot;
-                let sprite_screen_x = (screen_width / 2) as f32 - sprite_angle.tan() * nc;
+                let sprite_angle = player.transform.rot
+                    - ((sprite.pos.y - player_pos.y) / (sprite.pos.x - player_pos.x)).atan();
+                let sprite_screen_x = (screen_width / 2) as f32 + sprite_angle.tan() * nc;
                 let start_i =
-                    ((sprite_screen_x - sprite_width*0.5) / strip_width as f32).floor() as i32;
+                    ((sprite_screen_x - sprite_width * 0.5) / strip_width as f32).floor() as i32;
                 let end_i = start_i + sprite_width as i32;
 
                 for i in start_i.max(0)..end_i.min(ray_count as i32) {
@@ -604,14 +603,22 @@ mod level {
                     if hit.distance < sprite.distance_to_player {
                         continue;
                     }
+                    let u = { (i - start_i) as f32 / (end_i - start_i) as f32 };
                     let start_x = i * strip_width as i32;
                     let end_x = start_x + strip_width as i32;
                     for x in start_x..end_x {
                         let start_y = ((screen_height as f32 - sprite_height) * 0.5) as i32;
                         let end_y = (start_y as f32 + sprite_height) as i32;
                         for y in start_y.max(0)..end_y.min(screen_height as i32) {
-                            let c = BLUE;
-                            screen_buf.set_pixel(x as u32, y as u32, c);
+                            let v = { (y - start_y) as f32 / (end_y - start_y) as f32 };
+                            let tex = &sprite.sprite;
+                            let c = tex.get_pixel(
+                                (u * tex.width as f32) as u32,
+                                (v * tex.height as f32) as u32,
+                            );
+                            if c != MAGENTA {
+                                screen_buf.set_pixel(x as u32, y as u32, c);
+                            }
                         }
                     }
                 }
