@@ -109,6 +109,8 @@ mod collision {
 }
 
 mod level {
+    use std::rc::Rc;
+
     use crate::graphics::{ScreenBuffer, Viewport2D};
     use macroquad::prelude::*;
 
@@ -120,7 +122,7 @@ mod level {
     pub struct LevelBlock {
         is_wall: bool,
         color: Color,
-        tex: Option<Image>,
+        tex: Option<Rc<Image>>,
     }
 
     pub struct Level {
@@ -298,9 +300,9 @@ mod level {
         const TEX_GRAY_STONE : &[u8] = include_bytes!("../data/textures/graystone.png");
 
         // let tex_purple_stone = Image::from_file_with_format(TEX_PURPLE_STONE, Some(ImageFormat::Png)).unwrap();
-        let tex_red_brick = Image::from_file_with_format(TEX_RED_BRICK, Some(ImageFormat::Png)).unwrap();
-        let tex_blue_stone = Image::from_file_with_format(TEX_BLUE_STONE, Some(ImageFormat::Png)).unwrap();
-        let tex_gray_stone = Image::from_file_with_format(TEX_GRAY_STONE, Some(ImageFormat::Png)).unwrap();
+        let tex_red_brick = Rc::new(Image::from_file_with_format(TEX_RED_BRICK, Some(ImageFormat::Png)).unwrap());
+        let tex_blue_stone = Rc::new(Image::from_file_with_format(TEX_BLUE_STONE, Some(ImageFormat::Png)).unwrap());
+        let tex_gray_stone = Rc::new(Image::from_file_with_format(TEX_GRAY_STONE, Some(ImageFormat::Png)).unwrap());
 
         let mut level_grid = Vec::new();
         for row in grid {
