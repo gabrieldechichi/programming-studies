@@ -15,7 +15,9 @@ pub fn main() !void {
 
     // comptime_fun.comptime_fibbonnaci();
     // comptime_fun.generic_nodes_test();
-    try comptime_fun.simple_print();
+    // try comptime_fun.simple_print();
+
+    localFunctionsHack(10.0);
 }
 
 pub fn writeToStdout() !void {
@@ -91,7 +93,6 @@ fn slices() void {
         print("element {}, ", .{elem});
     }
 
-
     //when size can't be known at compile time
     var xoshiro = std.rand.DefaultPrng.init(1234);
     var rand = xoshiro.random();
@@ -123,7 +124,7 @@ fn forLoops() void {
 
     //iterate with index
     for (0.., array) |i, elem| {
-        print("{}, {}\n", .{i, elem});
+        print("{}, {}\n", .{ i, elem });
     }
 }
 
@@ -137,12 +138,20 @@ fn arrayLists() !void {
     try list.append(5);
     try list.append(5);
     try list.append(5);
-    print("{}\n", .{list});//prints the pointer
+    print("{}\n", .{list}); //prints the pointer
     for (list.items) |e| {
         print("{}\n", .{e});
     }
 }
 
-test "always succeed" {
-    try expect(true);
+fn localFunctionsHack(n : f32) void {
+    var x : u32 = 10;
+    //syntax sucks
+    const utils = struct {
+        pub fn testfn(_x: u32, _n: f32) void {
+            print("I'm a local function {}, {}", .{_x, _n});
+        }
+    };
+    x = 11;
+    utils.testfn(x,n);
 }
