@@ -1,4 +1,5 @@
 const std = @import("std");
+const comptime_fun = @import("comptime_print.zig");
 const expect = std.testing.expect;
 const print = std.debug.print;
 
@@ -8,9 +9,13 @@ pub fn main() !void {
     // comptimeStuff();
     // arrays();
     // pointers();
-    slices();
+    // slices();
     // forLoops();
     // try arrayLists();
+
+    // comptime_fun.comptime_fibbonnaci();
+    // comptime_fun.generic_nodes_test();
+    try comptime_fun.simple_print();
 }
 
 pub fn writeToStdout() !void {
