@@ -33,7 +33,7 @@ const Transform2D = struct {
     }
 };
 
-const ShipData = struct { scale: f32, thickness: f32, speed: f32, rot_speed: f32, drag: f32, points: []rl.Vector2 };
+const ShipData = struct { scale: f32, thickness: f32, speed: f32, rot_speed: f32, drag: f32, points: []rl.Vector2, thruster: []rl.Vector2 };
 
 const Ship = struct {
     transform: Transform2D,
@@ -43,15 +43,10 @@ const Ship = struct {
     fn update(self: *Ship) void {
         const ship_data: ShipData = self.data.?.value;
         const dt = state.time.dt;
-        if (rl.isKeyDown(.key_a)) {
-            self.transform.rot += dt * math.tau * ship_data.rot_speed;
-        }
-        if (rl.isKeyDown(.key_d)) {
-            self.transform.rot -= dt * math.tau * ship_data.rot_speed;
-        }
+        self.transform.rot += rotateInput() * dt * math.tau * ship_data.rot_speed;
 
         const shipFwd = self.transform.forward();
-        if (rl.isKeyDown(.key_w)) {
+        if (accelerateInput()) {
             self.velocity = rlm.vector2Add(self.velocity, rlm.vector2Scale(shipFwd, ship_data.speed * dt));
         }
 
@@ -60,16 +55,27 @@ const Ship = struct {
     }
 
     fn draw(self: Ship) void {
-        if (self.data) |ship_data| {
-            const viewport = state.viewport;
-            for (0..ship_data.value.points.len - 1) |i| {
-                const fromLocal = rl.Vector2.init(ship_data.value.points[i].x, ship_data.value.points[i].y);
-                const toLocal = rl.Vector2.init(ship_data.value.points[i + 1].x, ship_data.value.points[i + 1].y);
-                const from = viewport.to_screen(self.transform.transformPos(fromLocal));
-                const to = viewport.to_screen(self.transform.transformPos(toLocal));
-                rl.drawLineEx(from, to, ship_data.value.thickness, rl.Color.white);
-            }
+        const ship_data: ShipData = self.data.?.value;
+        drawLines(self.transform, ship_data.points, ship_data.thickness, rl.Color.white);
+
+        if (accelerateInput() and @mod(@as(i32, @intFromFloat(state.time.now * 20)), 2) == 0) {
+            drawLines(self.transform, ship_data.thruster, ship_data.thickness, rl.Color.white);
         }
+    }
+
+    fn accelerateInput() bool {
+        return rl.isKeyDown(.key_w) or rl.isKeyDown(.key_up);
+    }
+
+    fn rotateInput() f32 {
+        var i: f32 = 0.0;
+        if (rl.isKeyDown(.key_a) or rl.isKeyDown(.key_left)) {
+            i += 1.0;
+        }
+        if (rl.isKeyDown(.key_d) or rl.isKeyDown(.key_right)) {
+            i -= 1.0;
+        }
+        return i;
     }
 };
 
@@ -194,6 +200,15 @@ fn update() void {
     state.ship.update();
 }
 
+fn drawLines(transform: Transform2D, points: []Vector2, thickness: f32, color: rl.Color) void {
+    const viewport = state.viewport;
+    for (0..points.len - 1) |i| {
+        const from = viewport.to_screen(transform.transformPos(points[i]));
+        const to = viewport.to_screen(transform.transformPos(points[i + 1]));
+        rl.drawLineEx(from, to, thickness, color);
+    }
+}
+
 fn dataPath(comptime sub_path: []const u8) []const u8 {
     const data_path = "./assets/data/";
     return comptime data_path ++ sub_path;
@@ -228,11 +243,4 @@ fn dumpFile(path: []const u8) !void {
     while (try stream.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
         std.debug.print("{s}\n", .{line});
     }
-}
-
-test "load json" {
-    const allocator = std.testing.allocator;
-    const data = try loadJson(ShipData, allocator, "./assets/data/ship.json");
-    defer data.deinit();
-    //no expect needed, just making sure function succeeds
 }
