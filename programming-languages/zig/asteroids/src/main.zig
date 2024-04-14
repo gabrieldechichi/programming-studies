@@ -3,6 +3,9 @@ const rl = @import("raylib");
 const rlm = @import("raylib-math");
 const Allocator = std.mem.Allocator;
 
+//TODO: use leaky version and own allocator
+const Managed = std.json.Parsed;
+
 //TODO:
 // Ship + movement
 // Asteroids + movement
@@ -21,29 +24,22 @@ const Transform2D = struct {
     }
 };
 
-const SHIP_WIDTH = 1.0;
-const SHIP_HEIGHT = 1.3;
-const SHIP_TICKNESS = 2.5;
-
-const SHIP_POINTS = [_]rl.Vector2{
-    rl.Vector2.init(-SHIP_WIDTH, -SHIP_HEIGHT),
-    rl.Vector2.init(0, SHIP_HEIGHT),
-    rl.Vector2.init(SHIP_WIDTH, -SHIP_HEIGHT),
-    rl.Vector2.init(-SHIP_WIDTH, -SHIP_HEIGHT),
-};
-
-const ShipData = struct { scale: f32 };
+const ShipData = struct { scale: f32, thickness: f32, points: []rl.Vector2 };
 
 const Ship = struct {
     transform: Transform2D,
-    data: ShipData,
+    data: ?Managed(ShipData),
 
     fn draw(self: Ship) void {
-        const viewport = state.viewport;
-        for (0..SHIP_POINTS.len - 1) |i| {
-            const from = viewport.to_screen(self.transform.transformPos(SHIP_POINTS[i]));
-            const to = viewport.to_screen(self.transform.transformPos(SHIP_POINTS[i + 1]));
-            rl.drawLineEx(from, to, SHIP_TICKNESS, rl.Color.white);
+        if (self.data) |ship_data| {
+            const viewport = state.viewport;
+            for (0..ship_data.value.points.len - 1) |i| {
+                const fromLocal = rl.Vector2.init(ship_data.value.points[i].x, ship_data.value.points[i].y);
+                const toLocal = rl.Vector2.init(ship_data.value.points[i + 1].x, ship_data.value.points[i + 1].y);
+                const from = viewport.to_screen(self.transform.transformPos(fromLocal));
+                const to = viewport.to_screen(self.transform.transformPos(toLocal));
+                rl.drawLineEx(from, to, ship_data.value.thickness, rl.Color.white);
+            }
         }
     }
 };
@@ -63,6 +59,50 @@ const State = struct {
 };
 
 var state: State = undefined;
+var assets: AssetDatabase = undefined;
+
+const AssetDatabase = struct {
+    dir: std.fs.IterableDir,
+    allocator: Allocator,
+    last_update: i128,
+    update_delay_ns: i128,
+
+    fn init(allocator: Allocator) !AssetDatabase {
+        const update_rate_s = 10;
+        const update_delay_ns = 1_000_000_000 / update_rate_s;
+        return AssetDatabase{ .dir = try std.fs.cwd().openIterableDir("./assets/data", .{}), .allocator = allocator, .last_update = std.time.nanoTimestamp(), .update_delay_ns = update_delay_ns };
+    }
+
+    fn deinit(self: AssetDatabase) void {
+        self.dir.close();
+    }
+
+    fn shouldRefresh(self: *AssetDatabase) !bool {
+        var dirWalker = try self.dir.walk(state.allocator);
+        defer dirWalker.deinit();
+
+        const now = std.time.nanoTimestamp();
+
+        if (now - self.last_update < self.update_delay_ns) {
+            return false;
+        }
+
+        defer self.last_update = now;
+
+        while (try dirWalker.next()) |entry| {
+            switch (entry.kind) {
+                .file => {
+                    const stat = try entry.dir.statFile(entry.path);
+                    if (stat.mtime > self.last_update) {
+                        return true;
+                    }
+                },
+                else => {},
+            }
+        }
+        return false;
+    }
+};
 
 pub fn main() !void {
     rl.initWindow(1280, 720, "ZIGSTEROIDS");
@@ -75,11 +115,13 @@ pub fn main() !void {
             .transform = Transform2D{
                 .pos = rlm.vector2Zero(),
                 .rot = 0.0,
-                .uniform_scale = 0.0,
+                .uniform_scale = undefined,
             },
-            .data = ShipData{ .scale = 0.0 },
+            .data = null,
         },
     };
+
+    assets = try AssetDatabase.init(std.heap.page_allocator);
 
     try reload_data();
 
@@ -87,11 +129,25 @@ pub fn main() !void {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        try update();
+        //update
+        {
+            try update();
+        }
 
-        rl.clearBackground(rl.Color.black);
+        //render
+        {
+            rl.clearBackground(rl.Color.black);
+            state.ship.draw();
+        }
 
-        state.ship.draw();
+        //asset update
+        {
+            if (try assets.shouldRefresh()) {
+                reload_data() catch |err| {
+                    std.debug.print("Failed to reload data: {}", .{err});
+                };
+            }
+        }
     }
 }
 
@@ -107,20 +163,21 @@ fn dataPath(comptime sub_path: []const u8) []const u8 {
 }
 
 fn reload_data() !void {
-    const ship_data = try loadJson(ShipData, state.allocator, dataPath("ship.json"));
-    defer ship_data.deinit();
-    state.ship.data = ship_data.value;
-    state.ship.transform.uniform_scale = ship_data.value.scale;
+    const new_ship_data = try loadJson(ShipData, state.allocator, dataPath("ship.json"));
+    if (state.ship.data) |ship_data| {
+        ship_data.deinit();
+    }
+    state.ship.data = new_ship_data;
+    state.ship.transform.uniform_scale = state.ship.data.?.value.scale;
 }
 
-fn loadJson(comptime T: type, allocator: std.mem.Allocator, path: []const u8) !std.json.Parsed(T) {
+fn loadJson(comptime T: type, allocator: std.mem.Allocator, path: []const u8) !Managed(T) {
     var file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
     var buffered = std.io.bufferedReader(file.reader());
     var reader = std.json.reader(allocator, buffered.reader());
     defer reader.deinit();
-    const parsed = try std.json.parseFromTokenSource(T, allocator, &reader, std.json.ParseOptions{ .allocate = std.json.AllocWhen.alloc_always });
-    return parsed;
+    return try std.json.parseFromTokenSource(T, allocator, &reader, std.json.ParseOptions{ .allocate = std.json.AllocWhen.alloc_always });
 }
 
 fn dumpFile(path: []const u8) !void {
