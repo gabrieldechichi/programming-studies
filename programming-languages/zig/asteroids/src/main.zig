@@ -1,7 +1,9 @@
 const std = @import("std");
 const rl = @import("raylib");
 const rlm = @import("raylib-math");
+const math = std.math;
 const Allocator = std.mem.Allocator;
+const Vector2 = rl.Vector2;
 
 //TODO: use leaky version and own allocator
 const Managed = std.json.Parsed;
@@ -22,13 +24,40 @@ const Transform2D = struct {
     fn transformPos(self: Transform2D, pos: rl.Vector2) rl.Vector2 {
         return rlm.vector2Add(rlm.vector2Scale(rlm.vector2Rotate(pos, self.rot), self.uniform_scale), self.pos);
     }
+
+    fn right(self: Transform2D) Vector2 {
+        return Vector2.init(math.cos(self.rot), math.sin(self.rot));
+    }
+    fn forward(self: Transform2D) Vector2 {
+        return Vector2.init(math.cos(self.rot + math.pi / 2.0), math.sin(self.rot + math.pi / 2.0));
+    }
 };
 
-const ShipData = struct { scale: f32, thickness: f32, points: []rl.Vector2 };
+const ShipData = struct { scale: f32, thickness: f32, speed: f32, rot_speed: f32, drag: f32, points: []rl.Vector2 };
 
 const Ship = struct {
     transform: Transform2D,
+    velocity: Vector2,
     data: ?Managed(ShipData),
+
+    fn update(self: *Ship) void {
+        const ship_data: ShipData = self.data.?.value;
+        const dt = state.time.dt;
+        if (rl.isKeyDown(.key_a)) {
+            self.transform.rot += dt * math.tau * ship_data.rot_speed;
+        }
+        if (rl.isKeyDown(.key_d)) {
+            self.transform.rot -= dt * math.tau * ship_data.rot_speed;
+        }
+
+        const shipFwd = self.transform.forward();
+        if (rl.isKeyDown(.key_w)) {
+            self.velocity = rlm.vector2Add(self.velocity, rlm.vector2Scale(shipFwd, ship_data.speed * dt));
+        }
+
+        self.velocity = rlm.vector2Scale(self.velocity, 1.0 - ship_data.drag);
+        self.transform.pos = rlm.vector2Add(self.transform.pos, rlm.vector2Scale(self.velocity, dt));
+    }
 
     fn draw(self: Ship) void {
         if (self.data) |ship_data| {
@@ -52,8 +81,14 @@ const Viewport = struct {
     }
 };
 
+const Time = struct {
+    dt: f32,
+    now: f32,
+};
+
 const State = struct {
     allocator: std.mem.Allocator,
+    time: Time,
     viewport: Viewport,
     ship: Ship,
 };
@@ -110,6 +145,7 @@ pub fn main() !void {
 
     state = State{
         .allocator = std.heap.page_allocator,
+        .time = undefined,
         .viewport = Viewport{ .screen_size = rl.Vector2.init(@floatFromInt(rl.getScreenWidth()), @floatFromInt(rl.getScreenHeight())) },
         .ship = Ship{
             .transform = Transform2D{
@@ -117,6 +153,7 @@ pub fn main() !void {
                 .rot = 0.0,
                 .uniform_scale = undefined,
             },
+            .velocity = rlm.vector2Zero(),
             .data = null,
         },
     };
@@ -126,16 +163,16 @@ pub fn main() !void {
     try reload_data();
 
     while (!rl.windowShouldClose()) {
-        rl.beginDrawing();
-        defer rl.endDrawing();
 
         //update
         {
-            try update();
+            update();
         }
 
         //render
         {
+            rl.beginDrawing();
+            defer rl.endDrawing();
             rl.clearBackground(rl.Color.black);
             state.ship.draw();
         }
@@ -151,10 +188,10 @@ pub fn main() !void {
     }
 }
 
-fn update() !void {
-    if (rl.isKeyPressed(rl.KeyboardKey.key_f1)) {
-        try reload_data();
-    }
+fn update() void {
+    state.time.dt = rl.getFrameTime();
+    state.time.now += state.time.dt;
+    state.ship.update();
 }
 
 fn dataPath(comptime sub_path: []const u8) []const u8 {
