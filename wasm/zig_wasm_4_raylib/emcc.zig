@@ -82,6 +82,8 @@ pub fn linkForEmscripten(b: *std.Build, itemsToLink: []const *std.Build.Step.Com
         "-sUSE_GLFW=3",
         "-sASYNCIFY",
         opt_flag,
+        "--shell-file",
+        "www/minshell.html",
         "--emrun",
     });
     return link_step;
