@@ -9,6 +9,7 @@ pub fn main() !void {
     while (!rl.WindowShouldClose()){
         rl.BeginDrawing();
         defer rl.EndDrawing();
+        rl.DrawText("Hello World", 12, 12, 40, rl.RED);
         rl.ClearBackground(rl.BLACK);
     }
 }
