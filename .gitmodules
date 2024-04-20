@@ -1,0 +1,6 @@
+[submodule "wasm/zig_wasm_3_raylib/raylib-zig"]
+	path = wasm/zig_wasm_3_raylib/raylib-zig
+	url = https://github.com/Not-Nik/raylib-zig.git
+[submodule "wasm/zig_wasm_4_raylib/raylib"]
+	path = wasm/zig_wasm_4_raylib/raylib
+	url = https://github.com/raysan5/raylib.git

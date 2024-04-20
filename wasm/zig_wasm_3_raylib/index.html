@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WASM Game Test</title>
+  </head>
+  <body>
+    <!-- Your game's canvas or container here -->
+    <script>
+      // This is a basic example. You may need to handle imports and memory initialization depending on your module.
+
+      WebAssembly.instantiateStreaming(
+        fetch("./zig-out/lib/zig_wasm_3_raylib.wasm"),
+        {},
+      )
+        .then((wasm_binary) => {
+          wasm_binary.instance.exports.main();
+        })
+        .catch(console.error);
+    </script>
+  </body>
+</html>
