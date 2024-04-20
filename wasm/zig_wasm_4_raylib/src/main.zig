@@ -1,6 +1,7 @@
 const std = @import("std");
 const rl = @cImport(@cInclude("raylib.h"));
-const Vector2 = rl.Vector2;
+const rlmath = @cImport(@cInclude("raymath.h"));
+const Vector2 = rlmath.Vector2;
 
 const ScreenSize = struct {
     width: f32,
@@ -13,7 +14,7 @@ fn sqred(n: anytype) @TypeOf(n) {
     return n * n;
 }
 
-const ScreenPos = struct { x: c_int, y: c_int };
+const ScreenPos = struct { x: i32, y: i32 };
 
 pub fn main() !void {
     rl.InitWindow(960, 540, "My Window Name");
@@ -33,8 +34,7 @@ pub fn main() !void {
             if (sqred(ball.pos.y) >= sqred((screen_size.height - ball.radius) / 2)) {
                 ball.velocity.y *= -1;
             }
-            ball.pos.x += ball.velocity.x * dt;
-            ball.pos.y += ball.velocity.y * dt;
+            ball.pos = rlmath.Vector2Add(ball.pos, rlmath.Vector2Scale(ball.velocity, dt));
         }
 
         //render
