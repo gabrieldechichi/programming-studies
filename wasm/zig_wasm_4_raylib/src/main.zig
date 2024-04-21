@@ -15,7 +15,8 @@ const ScreenSize = struct {
     }
 };
 
-const Ball = struct { pos: Vector2, velocity: Vector2, radius: f32, color: rl.Color };
+// const Ball = struct { pos: Vector2, velocity: Vector2, radius: f32, color: rl.Color };
+const Ball = struct { x: f32, y: f32, vx: f32, vy: f32, radius: f32, color: rl.Color };
 
 const ScreenPos = struct { x: i32, y: i32 };
 
@@ -38,7 +39,7 @@ pub fn main() !void {
         const color = rl.Color{ .r = rnd.random().uintLessThan(u8, 255), .g = rnd.random().uintLessThan(u8, 255), .b = rnd.random().uintLessThan(u8, 255), .a = 254 };
         const vx: f32 = @floatFromInt(std.math.sign(rnd.random().int(u16)) * (rnd.random().uintAtMost(u16, 100) + 200));
         const vy: f32 = @floatFromInt(std.math.sign(rnd.random().int(u16)) * (rnd.random().uintAtMost(u16, 100) + 200));
-        var ball = Ball{ .color = color, .radius = 20.0, .pos = Vector2{ .x = 0, .y = 0 }, .velocity = Vector2{ .x = vx, .y = vy } };
+        var ball = Ball{ .color = color, .radius = 20.0, .x = 0, .y = 0, .vx = vx, .vy = vy };
         try balls.append(ball);
     }
 
@@ -47,13 +48,14 @@ pub fn main() !void {
         {
             const dt = rl.GetFrameTime();
             for (balls.items) |*ball| {
-                if (ball.pos.x - ball.radius < -screen_size.width_f() / 2 or ball.pos.x + ball.radius > screen_size.width_f() / 2) {
-                    ball.velocity.x *= -1;
+                if (ball.x - ball.radius < -screen_size.width_f() / 2 or ball.x + ball.radius > screen_size.width_f() / 2) {
+                    ball.vx *= -1;
                 }
-                if (ball.pos.y - ball.radius < -screen_size.height_f() / 2 or ball.pos.y + ball.radius > screen_size.height_f() / 2) {
-                    ball.velocity.y *= -1;
+                if (ball.y - ball.radius < -screen_size.height_f() / 2 or ball.y + ball.radius > screen_size.height_f() / 2) {
+                    ball.vy *= -1;
                 }
-                ball.pos = rlmath.Vector2Add(ball.pos, rlmath.Vector2Scale(ball.velocity, dt));
+                ball.x += ball.vx * dt;
+                ball.y += ball.vy * dt;
             }
         }
 
@@ -64,11 +66,10 @@ pub fn main() !void {
             {
                 rl.ClearBackground(rl.BLACK);
                 for (balls.items) |ball| {
-                    var ball_screen_pos = ScreenPos{ .x = @intFromFloat(ball.pos.x + screen_size.width_f() / 2), .y = @intFromFloat(ball.pos.y + screen_size.height_f() / 2) };
-                    rl.DrawCircle(ball_screen_pos.x, ball_screen_pos.y, ball.radius, ball.color);
+                    rl.DrawCircle(@intFromFloat(ball.x + screen_size.width_f()/2), @intFromFloat(ball.y + screen_size.height_f()/2), ball.radius, ball.color);
                 }
                 const stats = try std.fmt.bufPrint(&perf_stats_buffer, "Dt: {d:.2}ms", .{rl.GetFrameTime() * 1000});
-                rl.DrawText(@as([*c]const u8, @ptrCast(stats)), 12, 12, 20, rl.ORANGE);
+                rl.DrawText(stats.ptr, 12, 12, 20, rl.ORANGE);
 
                 rl.EndTextureMode();
             }
