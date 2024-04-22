@@ -25,6 +25,9 @@ fn buildWeb(b: *std.Build, target: anytype, optimize: std.builtin.OptimizeMode) 
     //linking
     var link_step = try emcc.linkForEmscripten(b, &[_]*std.build.CompileStep{ exe_lib, raylib_lib }, optimize);
 
+    link_step.addArg("--embed-file");
+    link_step.addArg("resources/");
+
     //build step
     const build_step = b.step("build", "Build game");
     build_step.dependOn(&link_step.step);

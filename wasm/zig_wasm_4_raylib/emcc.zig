@@ -84,6 +84,8 @@ pub fn linkForEmscripten(b: *std.Build, itemsToLink: []const *std.Build.Step.Com
         opt_flag,
         "--shell-file",
         "www/minshell.html",
+        //TODO: enable when debug
+        // "--profiling",
         "--emrun",
     });
     return link_step;
