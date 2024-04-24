@@ -4,3 +4,9 @@
 [submodule "wasm/zig_wasm_4_raylib/raylib"]
 	path = wasm/zig_wasm_4_raylib/raylib
 	url = https://github.com/raysan5/raylib.git
+[submodule "gamedev/zig-flecs/flecs"]
+	path = gamedev/zig-flecs/flecs
+	url = https://github.com/SanderMertens/flecs.git
+[submodule "gamedev/zig-flecs/vendor/zig-gamedev"]
+	path = gamedev/zig-flecs/vendor/zig-gamedev
+	url = https://github.com/zig-gamedev/zig-gamedev.git
