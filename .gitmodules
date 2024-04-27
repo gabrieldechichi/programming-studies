@@ -10,3 +10,8 @@
 [submodule "gamedev/zig-flecs/vendor/zig-gamedev"]
 	path = gamedev/zig-flecs/vendor/zig-gamedev
 	url = https://github.com/zig-gamedev/zig-gamedev.git
+[submodule ".\\vendor\\zig-gamedev\\"]
+	url = https://github.com/gabrieldechichi/zig-gamedev.git
+[submodule "gamedev/zig-sokol/sokol-zig"]
+	path = gamedev/zig-sokol/sokol-zig
+	url = https://github.com/floooh/sokol-zig.git
