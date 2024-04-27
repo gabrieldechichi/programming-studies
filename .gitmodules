@@ -15,3 +15,6 @@
 [submodule "gamedev/zig-sokol/sokol-zig"]
 	path = gamedev/zig-sokol/sokol-zig
 	url = https://github.com/floooh/sokol-zig.git
+[submodule "gamedev/love2d/vendor/LICK"]
+	path = gamedev/love2d/vendor/LICK
+	url = https://github.com/usysrc/LICK.git
