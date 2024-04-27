@@ -1,5 +1,4 @@
 const std = @import("std");
-const sokol = @import("./sokol-zig/build.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -15,9 +14,12 @@ pub fn build(b: *std.Build) void {
 
     //sokol
     {
-        const sokol_lib = sokol.buildSokol(b, target, optimize, .{}, "./sokol-zig/");
-        exe.addAnonymousModule("sokol", .{ .source_file = .{ .path = "./sokol-zig/src/sokol/sokol.zig" } });
-        exe.linkLibrary(sokol_lib);
+        const dep_sokol = b.dependency("sokol", .{
+            .target = target,
+            .optimize = optimize,
+        });
+
+        exe.root_module.addImport("sokol", dep_sokol.module("sokol"));
     }
 
     //run

@@ -45,6 +45,7 @@ export fn onFrame() void {
     sg.endPass();
     sg.commit();
 }
+
 export fn cleanup() void {
     sg.shutdown();
 }

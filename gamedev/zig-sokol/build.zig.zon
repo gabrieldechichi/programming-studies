@@ -1,0 +1,14 @@
+.{
+    .name = "zig-sokol",
+    .version = "0.1.0",
+    .paths = .{
+        "src",
+        "build.zig",
+        "build.zig.zon",
+    },
+    .dependencies = .{
+        .sokol = .{
+            .path = "./sokol-zig/",
+        },
+    },
+}
