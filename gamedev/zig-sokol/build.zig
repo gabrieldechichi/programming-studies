@@ -1,39 +1,52 @@
 const std = @import("std");
 
+const Project = struct { name: []const u8, path: []const u8 };
+
 pub fn build(b: *std.Build) void {
+
+    // const opt_use_gl = b.option(bool, "gl", "Force OpenGL (default: false)") orelse false;
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{
-        .name = "zig-sokol",
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(exe);
+    const projects = [_]Project{
+        .{ .name = "main", .path = "src/main.zig" },
+        .{ .name = "opengl-1-helloworld", .path = "./src/learnopengl/1_hello.zig" },
+        .{ .name = "opengl-2-hellotriangle", .path = "./src/learnopengl/2_hello_triangle/2_hello_triangle.zig" },
+    };
 
-    //sokol
-    {
-        const dep_sokol = b.dependency("sokol", .{
+    inline for (projects) |p| {
+        const exe = b.addExecutable(.{
+            .name = p.name,
+            .root_source_file = .{ .path = p.path },
             .target = target,
             .optimize = optimize,
         });
+        b.installArtifact(exe);
 
-        exe.root_module.addImport("sokol", dep_sokol.module("sokol"));
-    }
+        //sokol
+        {
+            const dep_sokol = b.dependency("sokol", .{
+                .target = target,
+                .optimize = optimize,
+                .gl = true
+            });
 
-    //run
-    {
-        const run_cmd = b.addRunArtifact(exe);
-
-        run_cmd.step.dependOn(b.getInstallStep());
-
-        if (b.args) |args| {
-            run_cmd.addArgs(args);
+            exe.root_module.addImport("sokol", dep_sokol.module("sokol"));
         }
 
-        const run_step = b.step("run", "Run the app");
-        run_step.dependOn(&run_cmd.step);
+        //run
+        {
+            const run_cmd = b.addRunArtifact(exe);
+
+            run_cmd.step.dependOn(b.getInstallStep());
+
+            if (b.args) |args| {
+                run_cmd.addArgs(args);
+            }
+
+            const run_step = b.step(exe.name, "Run " ++ p.name);
+            run_step.dependOn(&run_cmd.step);
+        }
     }
 
     //tests
