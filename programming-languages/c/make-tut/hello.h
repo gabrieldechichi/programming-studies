@@ -3,8 +3,6 @@
 
 #include <stdio.h>
 
-static void hello(void){
-    printf("Hello World\n");
-}
+void hello4(void);
 
 #endif // HELLO_H

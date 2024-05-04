@@ -1,10 +1,15 @@
-CFLAGS = -Wall
+OPT=-O0
+CFLAGS = -Wall -Wextra -Wpedantic -Werror $(OPT)
+CC = gcc
 
-output.exe: main.o
-	gcc $(CFLAGS) main.o -o output.exe
+OBJECTS=main.o hello.o
+BINARY=output.exe
 
-main.o: main.c hello.h
-	gcc $(CFLAGS) -c main.c
+$(BINARY): $(OBJECTS)
+	$(CC) $(CFLAGS) -o $@ $^
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
 	del /Q *.o preferred-name.exe
