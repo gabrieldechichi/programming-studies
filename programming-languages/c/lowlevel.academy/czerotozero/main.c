@@ -1,9 +1,12 @@
 #include <stdio.h>
+#include <string.h>
 
-#define MAX_N 10
-int main(int argc, char **argv) {
-    int arr[MAX_N];
-    arr[3] = 2;
-    printf("%d\n", arr[3]);
-    return 0;
+int main() {
+    char *str = "hehe";
+    char other_str[] = {'h', 'e', 'h', 'e', 0};
+    if (!strcmp(str, other_str)){
+        printf("Yay!\n");
+    } else{
+        printf("Nay!\n");
+    }
 }
