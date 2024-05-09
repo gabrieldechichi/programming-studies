@@ -12,9 +12,10 @@ typedef struct {
 } __attribute((__packed__)) employee_t;
 
 void init_employee(employee_t *employee) {
+    static int id_count = 0;
     memset(employee, 0, sizeof(employee_t));
-    employee->id = 1;
-    strcpy(employee->firstname, "Fred");
+    employee->id = id_count++;
+    sprintf(employee->firstname, "Employee %d", employee->id);
     employee->ismanager = false;
 }
 
@@ -41,4 +42,7 @@ int main() {
         init_employee(&employees[i]);
         print_employee(&employees[i]);
     }
+
+    free(employees);
+    employees = NULL;
 }
