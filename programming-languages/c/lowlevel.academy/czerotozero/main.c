@@ -1,12 +1,12 @@
+#include <stdbool.h>
 #include <stdio.h>
-typedef union {
-    int x;
-    char c;
-    short s;
-} myunion_n;
 
-int main() {
-    myunion_n n;
-    n.c = 'h';
-    printf("%#x, %c\n", n.x, n.c);
-}
+typedef struct {
+    int id;
+    char firstname[64];
+    char lastname[64];
+    float income;
+    bool ismanager;
+} __attribute((__packed__)) employee_t;
+
+int main() { printf("Size of struct %d \n", (int)sizeof(employee_t)); }
