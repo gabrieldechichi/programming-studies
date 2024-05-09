@@ -1,9 +1,9 @@
 #include <stdio.h>
 
-
-int main() {
-    printf("heyo\n");
-    #if DEBUG
-    printf("We are in debug mode: %s/%d\n\n", __FILE__, __LINE__); 
-    #endif
+#define MAX_N 10
+int main(int argc, char **argv) {
+    int arr[MAX_N];
+    arr[3] = 2;
+    printf("%d\n", arr[3]);
+    return 0;
 }
