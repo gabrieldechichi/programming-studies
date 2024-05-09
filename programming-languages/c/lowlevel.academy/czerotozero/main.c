@@ -1,19 +1,12 @@
-#include <stdbool.h>
 #include <stdio.h>
-#include <string.h>
-
-typedef struct {
-    int id;
-    char firstname[64];
-    char lastname[64];
-    float income;
-    bool ismanager;
-} employee_t;
+typedef union {
+    int x;
+    char c;
+    short s;
+} myunion_n;
 
 int main() {
-    employee_t fred = {};
-    fred.id = 0;
-    fred.ismanager = true;
-    strcpy(fred.firstname, "Fred");
-    printf("Employee name: %s (%d)\n", fred.firstname, (int) strlen(fred.firstname));
+    myunion_n n;
+    n.c = 'h';
+    printf("%#x, %c\n", n.x, n.c);
 }
