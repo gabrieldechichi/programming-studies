@@ -1,5 +1,7 @@
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 typedef unsigned short ushort;
 typedef unsigned int uint;
@@ -9,6 +11,8 @@ typedef struct {
     ushort employees;
     uint filesize;
 } db_header_t;
+
+typedef struct stat file_stat;
 
 int write_sample_header(char *file_name) {
     db_header_t header = {0};
@@ -23,7 +27,7 @@ int write_sample_header(char *file_name) {
     }
 
     size_t size = fwrite(&header, sizeof(header), 1, file);
-    if (size != 1){
+    if (size != 1) {
         perror("Error writing to file");
         return -1;
     }
@@ -40,7 +44,27 @@ int read_header(char *file_name) {
     db_header_t header = {0};
     size_t size = fread(&header, sizeof(db_header_t), 1, file);
     if (size != 1) {
-        perror("Error reading file");
+        perror("Error reading file: mismatch size");
+        fclose(file);
+        return -1;
+    }
+
+    int fd = fileno(file);
+    if (fd == -1) {
+        perror("Error getting file descriptor from FILE*");
+        fclose(file);
+        return 1;
+    }
+
+    file_stat file_stat = {0};
+    if (fstat(fd, &file_stat) < 0) {
+        perror("fstat");
+        fclose(file);
+        return -1;
+    }
+
+    if (file_stat.st_size != header.filesize) {
+        printf("Get out of here hacker!\n");
         return -1;
     }
 
