@@ -1,18 +1,16 @@
-#include <stdbool.h>
 #include <stdio.h>
 
-typedef struct {
-    int id;
-    char firstname[64];
-    char lastname[64];
-    float income;
-    bool ismanager;
-} __attribute((__packed__)) employee_t;
+void swap(int *a, int *b) {
+    int temp;
+    temp = *a;
+    *a = *b;
+    *b = temp;
+}
 
 int main() {
-    int x = 2;
-    int y = 2;
-    bool b = true;
-    printf("&x: %p\n&y: %p\n&b: %p\n", &x, &y, &b);
-    printf("&x - &y: %ld\n", (long)((char *)&y - (char *)&x));
+    int x = 10, y = 20;
+    printf("%d %d\n", x, y);
+    swap(&x, &y);
+    printf("%d %d\n", x, y);
+    return 0;
 }
