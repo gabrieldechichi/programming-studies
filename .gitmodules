@@ -18,3 +18,6 @@
 [submodule "gamedev/love2d/vendor/LICK"]
 	path = gamedev/love2d/vendor/LICK
 	url = https://github.com/usysrc/LICK.git
+[submodule "programming-languages/c/lowlevel.academy/czerotozero/vendor/Unity"]
+	path = programming-languages/c/lowlevel.academy/czerotozero/vendor/Unity
+	url = https://github.com/ThrowTheSwitch/Unity.git
