@@ -3,6 +3,7 @@ SRC = $(wildcard src/*.c)
 OBJ = $(patsubst src/%.c, obj/%.o, $(SRC))
 INCDIRS = . include
 CC = gcc
+# CC = tcc
 OPT=-O0
 CFLAGS=-Wall -Wextra $(OPT) $(foreach D,$(INCDIRS),-I$(D)) -g
 

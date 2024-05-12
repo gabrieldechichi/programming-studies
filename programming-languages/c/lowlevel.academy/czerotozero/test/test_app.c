@@ -1,5 +1,6 @@
 #include "app.h"
 #include "common.h"
+#include "file.h"
 #include "unity.h"
 #include <stdbool.h>
 
@@ -34,9 +35,9 @@ void test_create_db_file() {
     remove(p.filepath);
 }
 
-void test_open_db_file() {
+void test_new_db_file_alredy_exists() {
     app_run_params_t p = default_run_params();
-    p.newfile = false;
+    p.newfile = true;
     p.filepath = "test.db";
 
     {
@@ -46,7 +47,41 @@ void test_open_db_file() {
     }
 
     int r = run(p);
-    TEST_ASSERT_EQUAL_INT(STATUS_SUCCESS, r);
+    TEST_ASSERT_EQUAL_INT(STATUS_ERROR, r);
+
+    remove(p.filepath);
+}
+
+void test_open_db_file() {
+    app_run_params_t p = default_run_params();
+    p.newfile = true;
+    p.filepath = "test.db";
+
+    // create file first
+    {
+        p.newfile = true;
+        int r = run(p);
+        TEST_ASSERT_EQUAL_INT(STATUS_SUCCESS, r);
+    }
+
+    // now try to open it
+    {
+        p.newfile = false;
+        int r = run(p);
+        TEST_ASSERT_EQUAL_INT(STATUS_SUCCESS, r);
+    }
+
+    remove(p.filepath);
+}
+
+void test_open_not_exists() {
+    app_run_params_t p = default_run_params();
+    p.newfile = false;
+    p.filepath = "test.db";
+
+    remove(p.filepath);
+    int r = run(p);
+    TEST_ASSERT_EQUAL_INT(STATUS_ERROR, r);
 
     remove(p.filepath);
 }
@@ -55,6 +90,8 @@ void test_open_db_file() {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_create_db_file);
+    RUN_TEST(test_new_db_file_alredy_exists);
     RUN_TEST(test_open_db_file);
+    RUN_TEST(test_open_not_exists);
     return UNITY_END();
 }

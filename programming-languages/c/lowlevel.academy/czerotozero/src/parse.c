@@ -1,68 +1,57 @@
 #include "parse.h"
+#include "common.h"
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 
-int write_header(db_header_t *header, char *file_name) {
-    FILE *file = fopen(file_name, "w+");
-    if (!file) {
-        printf("Error write_header:%d", __LINE__);
-        perror(file_name);
-        return -1;
-    }
-    if (fwrite(header, sizeof(*header), 1, file) != 1) {
-        printf("Error writing to file %s. (write_header:%d)", file_name,
-               __LINE__);
-        perror(file_name);
-        fclose(file);
-        return -1;
-    }
-    fclose(file);
-    return 0;
+void header_hton(db_header_t* header){
+    header->magic = htonl(header->magic);
+    header->version = htons(header->version);
+    header->count = htons(header->count);
+    header->file_size = htonl(header->file_size);
+}
+void header_ntoh(db_header_t* header){
+    header->magic = ntohl(header->magic);
+    header->version = ntohs(header->version);
+    header->count = ntohs(header->count);
+    header->file_size = ntohl(header->file_size);
 }
 
-int read_header(db_header_t *header, char *file_name) {
-    if (!header) {
-        printf("invalid header pointer");
-        return -1;
+int new_db_header_alloc(db_header_t** header_out){
+    db_header_t* header = malloc(sizeof(db_header_t));
+    header->magic = HEADER_MAGIC;
+    header->version = 0x1;
+    header->count = 0;
+    header->file_size = sizeof(*header);
+    *header_out = header;
+    return STATUS_SUCCESS;
+}
+
+int read_header_alloc(FILE *f, db_header_t **header_out){
+    fseek(f, 0, SEEK_SET);
+    db_header_t* header = malloc(sizeof(db_header_t));
+    if (fread(header, sizeof(db_header_t), 1, f) != 1){
+        perror("fread");
+        return STATUS_ERROR;
     }
 
-    FILE *file = fopen(file_name, "r");
-    if (!file) {
-        printf("Error read_header:%d", __LINE__);
-        perror(file_name);
-        return -1;
-    }
-    if (fread(header, sizeof(*header), 1, file) != 1) {
-        printf("Error reading header %s. (write_header:%d)", file_name,
-               __LINE__);
-        perror(file_name);
-        fclose(file);
-        return -1;
-    }
+    //read network compliant data
+    header_ntoh(header);
+    *header_out = header;
+    return STATUS_SUCCESS;
+}
 
-    int fd = fileno(file);
-    if (fd == -1) {
-        perror("Error getting file descriptor from file");
-        fclose(file);
-        return -1;
-    }
+int write_db_file(FILE *f, db_header_t *header){
+    //write network compliant data
+    header_hton(header);
 
-    struct stat file_stat = {0};
-    if (fstat(fd, &file_stat) < 0) {
-        printf("{%s}:{%d}", __FILE__, __LINE__);
-        perror("fstat");
-        fclose(file);
-        return -1;
+    fseek(f, 0, SEEK_SET);
+    if (fwrite(header, sizeof(*header), 1, f) != 1){
+        perror("fwrite");
+        return STATUS_ERROR;
     }
-
-    if (file_stat.st_size != header->file_size) {
-        printf("Get out of here hacker! %ld, %d", file_stat.st_size,
-               header->file_size);
-        fclose(file);
-        return -1;
-    }
-
-    fclose(file);
-    return 0;
+    header_ntoh(header);
+    return STATUS_SUCCESS;
 }
