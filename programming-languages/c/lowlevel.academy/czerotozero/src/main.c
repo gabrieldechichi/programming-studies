@@ -1,24 +1,19 @@
-#include <stdbool.h>
+#include "app.h"
 #include <stdio.h>
 #include <unistd.h>
 
-void print_usage(char* args[]){
-    printf("Usage: %s <flags>\n", args[0]);
-    printf("\t -n: new file\n");
-    printf("\t -f: file path\n");
-}
-
 int main(int argc, char *args[]) {
-    bool newfile = false;
-    char *filepath = NULL;
+    app_run_params_t app_run_params = {0};
+    app_run_params.argc = argc;
+    app_run_params.args = args;
     int f = -1;
     while ((f = getopt(argc, args, "nf:")) != -1) {
         switch (f) {
         case 'n':
-            newfile = true;
+            app_run_params.newfile = true;
             break;
         case 'f':
-            filepath = optarg;
+            app_run_params.filepath = optarg;
             break;
         case '?':
             printf("Unknown option: %c", f);
@@ -26,13 +21,5 @@ int main(int argc, char *args[]) {
         }
     }
 
-    if (!filepath){
-        printf("Missing file path. Use the -f flag\n");
-        print_usage(args);
-        return -1;
-    }
-
-    printf("New file: %b\n", newfile);
-    printf("Filepath: %s\n", filepath);
-
+    return run(app_run_params);
 }

@@ -4,7 +4,7 @@ OBJ = $(patsubst src/%.c, obj/%.o, $(SRC))
 INCDIRS = . include
 CC = gcc
 OPT=-O0
-CFLAGS=-Wall -Wextra $(OPT) $(foreach D,$(INCDIRS),-I$(D)) 
+CFLAGS=-Wall -Wextra $(OPT) $(foreach D,$(INCDIRS),-I$(D)) -g
 
 .PHONY: all clean test
 
@@ -14,7 +14,7 @@ obj/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET): $(OBJ)
-	gcc -o $@ $?
+	$(CC) $(CFLAGS) -o $@ $?
 
 clean:
 	rm -f bin/*
@@ -30,12 +30,14 @@ TESTOBJ = $(filter-out obj/main.o,$(OBJ))
 UNITYSRC = ./vendor/Unity/src/unity.c
 UNITYOBJ = ./test/obj/unity.o
 
-test: $(TESTBIN)
+test: test-build
 	@echo Running tests...
 	@$(foreach t,$(TESTBIN),./$(t);)
 
+test-build: $(TESTBIN)
+
 test/bin/%: test/obj/%.o $(UNITYOBJ) $(TESTOBJ)
-	gcc -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^
 
 test/obj/%.o: test/%.c
 	$(CC) $(CFLAGS) -Ivendor/Unity/src -c ./vendor/Unity/src/unity.c  -o ./test/obj/unity.o
