@@ -1,3 +1,3 @@
 CompileFlags:
-  Add: ['-Iinclude', '-I../include']
+  Add: ['-Iinclude', '-I../include',  '-isystem',  '/usr/include',  '-isystem',  '/usr/include/x86_64-linux-gnu']
   Remove: ['-DNDEBUG']

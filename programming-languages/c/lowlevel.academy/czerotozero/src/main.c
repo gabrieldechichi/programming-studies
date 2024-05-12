@@ -1,29 +1,38 @@
+#include <stdbool.h>
 #include <stdio.h>
-#include "types.h"
-#include "parse.h"
+#include <unistd.h>
+
+void print_usage(char* args[]){
+    printf("Usage: %s <flags>\n", args[0]);
+    printf("\t -n: new file\n");
+    printf("\t -f: file path\n");
+}
 
 int main(int argc, char *args[]) {
-    if (argc != 2) {
-        printf("Usage: %s file\n", args[0]);
-        return -1;
-    }
-    char *file_name = args[1];
-    {
-        db_header_t header = {0};
-        header.version = 1;
-        header.employess = 64;
-        header.file_size = sizeof(header);
-        write_header(&header, file_name);
+    bool newfile = false;
+    char *filepath = NULL;
+    int f = -1;
+    while ((f = getopt(argc, args, "nf:")) != -1) {
+        switch (f) {
+        case 'n':
+            newfile = true;
+            break;
+        case 'f':
+            filepath = optarg;
+            break;
+        case '?':
+            printf("Unknown option: %c", f);
+            break;
+        }
     }
 
-    // test read
-    {
-        db_header_t header = {0};
-        if (read_header(&header, file_name) < 0) {
-            return -1;
-        }
-        printf("Version: %d\nEmployees: %d\nFile Size: %d\n", header.version,
-               header.employess, header.file_size);
+    if (!filepath){
+        printf("Missing file path. Use the -f flag\n");
+        print_usage(args);
+        return -1;
     }
-    return 0;
+
+    printf("New file: %b\n", newfile);
+    printf("Filepath: %s\n", filepath);
+
 }
