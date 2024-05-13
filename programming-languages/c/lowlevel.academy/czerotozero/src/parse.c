@@ -23,16 +23,16 @@ void db_header_ntoh(db_header_t *header) {
     header->file_size = ntohl(header->file_size);
 }
 
-void db_employess_hton(employee_t *employees, ushort employee_count) {
+void db_employess_hton(db_employee_t *employees, ushort employee_count) {
     for (int i = 0; i < employee_count; ++i) {
-        employee_t *employee = &employees[i];
+        db_employee_t *employee = &employees[i];
         employee->hours = htonl(employee->hours);
     }
 }
 
-void db_employess_ntoh(employee_t *employees, ushort employee_count) {
+void db_employess_ntoh(db_employee_t *employees, ushort employee_count) {
     for (int i = 0; i < employee_count; ++i) {
-        employee_t *employee = &employees[i];
+        db_employee_t *employee = &employees[i];
         employee->hours = ntohl(employee->hours);
     }
 }
@@ -48,7 +48,7 @@ void db_ntoh(db_t *db) {
 }
 
 uint calc_db_size(const db_t *db) {
-    return sizeof(db_header_t) + sizeof(employee_t) * db->header->count;
+    return sizeof(db_header_t) + sizeof(db_employee_t) * db->header->count;
 }
 
 int new_db_alloc(db_t **db_out) {
@@ -114,8 +114,8 @@ int read_db_file(FILE *f, db_t **db_out) {
         }
     }
 
-    db->employess = malloc(sizeof(employee_t) * db->header->count);
-    if (fread(db->employess, sizeof(employee_t), db->header->count, f) !=
+    db->employess = malloc(sizeof(db_employee_t) * db->header->count);
+    if (fread(db->employess, sizeof(db_employee_t), db->header->count, f) !=
         db->header->count) {
         perror("Error reading employees from file");
         free_db(&db);
@@ -148,8 +148,8 @@ int write_db_file(FILE *f, db_t *db) {
     return STATUS_SUCCESS;
 }
 
-int parse_employee(char *str, employee_t *out_employee) {
-    employee_t employee = {0};
+int parse_employee(char *str, db_employee_t *out_employee) {
+    db_employee_t employee = {0};
     char *name = strtok(str, ",");
     char *address = strtok(NULL, ",");
     char *hour = strtok(NULL, ",");
@@ -163,10 +163,10 @@ int parse_employee(char *str, employee_t *out_employee) {
     return STATUS_SUCCESS;
 }
 
-int add_employee(db_t *db, const employee_t *employee) {
+int add_employee(db_t *db, const db_employee_t *employee) {
     db->header->count++;
     db->employess =
-        realloc(db->employess, sizeof(employee_t) * db->header->count);
+        realloc(db->employess, sizeof(db_employee_t) * db->header->count);
     if (db->employess == NULL) {
         perror("realloc (add_employees)");
         return STATUS_ERROR;

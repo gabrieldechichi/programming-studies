@@ -38,7 +38,7 @@ int run(app_run_params_t app_run_params) {
     }
 
     if (app_run_params.employee_to_add) {
-        employee_t new_employee;
+        db_employee_t new_employee;
         if (parse_employee(app_run_params.employee_to_add, &new_employee) ==
             STATUS_ERROR) {
             return STATUS_ERROR;
@@ -50,7 +50,7 @@ int run(app_run_params_t app_run_params) {
 
     if (app_run_params.list_employees) {
         for (int i = 0; i < db->header->count; ++i) {
-            employee_t *employee = &db->employess[i];
+            db_employee_t *employee = &db->employess[i];
             printf("Employee %d:\n\tName: %s\n\tAddress: %s\n\tHours: %u\n",
                    i + 1, employee->name, employee->address, employee->hours);
         }
