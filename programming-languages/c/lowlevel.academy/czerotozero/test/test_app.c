@@ -43,10 +43,10 @@ void test_create_db_file() {
 
     // verify valid header
     {
-        db_header_t *header = NULL;
-        int r = read_header_alloc(f, &header);
+        db_t *db = NULL;
+        int r = read_db_file(f, &db);
         TEST_ASSERT_EQUAL_INT(r, STATUS_SUCCESS);
-        free(header);
+        free_db(&db);
     }
 
     fclose(f);
@@ -110,15 +110,15 @@ void test_corrupted_header() {
     p.newfile = false;
     p.filepath = "test.db";
 
-    db_header_t *header = NULL;
-    TEST_ASSERT_SUCCESS(new_db_header_alloc(&header));
+    db_t *db = NULL;
+    TEST_ASSERT_SUCCESS(new_db_alloc(&db));
 
     FILE *file = NULL;
     TEST_ASSERT_SUCCESS(create_db_file(p.filepath, &file));
 
     //corrupt header
-    header->magic = 123;
-    write_db_file(file, header);
+    db->header->magic = 123;
+    write_db_file(file, db);
 
     //test failure
     TEST_ASSERT_ERROR(run(p));
@@ -126,7 +126,7 @@ void test_corrupted_header() {
     //cleanup
     remove(p.filepath);
     fclose(file);
-    free(header);
+    free_db(&db);
 }
 
 // not needed when using generate_test_runner.rb

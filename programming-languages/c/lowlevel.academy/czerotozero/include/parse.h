@@ -17,7 +17,15 @@ typedef struct {
     uint hours;
 } employee_t;
 
-int new_db_header_alloc(db_header_t **header_out);
-int read_header_alloc(FILE *f, db_header_t **header_out);
-int write_db_file(FILE *f, db_header_t *header);
+typedef struct {
+    db_header_t* header;
+    employee_t* employess;
+} db_t;
+
+int new_db_alloc(db_t **db_out);
+int read_db_file(FILE *f, db_t **db_out);
+int write_db_file(FILE *f, db_t *db);
+int parse_employee(char* str, employee_t* out_employee);
+int add_employee(db_t* db, const employee_t* employee);
+void free_db(db_t** db);
 #endif

@@ -22,7 +22,7 @@ dap.configurations.c = {
         end,
         cwd = "${workspaceFolder}",
         stopOnEntry = false,
-        args = { '-f', 'file.db'}
+        args = { '-f', 'file.db', '-a', 'John,123,10'}
     },
     {
         name = "Test",
