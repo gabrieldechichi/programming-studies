@@ -1,7 +1,7 @@
 #include "app.h"
 #include "common.h"
 #include "file.h"
-#include "parse.h"
+#include "db.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>

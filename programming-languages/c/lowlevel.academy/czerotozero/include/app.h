@@ -1,7 +1,7 @@
 #ifndef APP_H
 #define APP_H
 
-#include "parse.h"
+#include "db.h"
 #include <stdbool.h>
 
 typedef struct {
