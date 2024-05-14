@@ -8,15 +8,23 @@ import (
 
 func main() {
 	input := `let five = 5;
-
 let ten = 10;
-let add = func(x, y) {
+let add = fn(x, y) {
 x + y;
 };
 let result = add(five, ten);
-`
+!-/*5;
+5 < 10 > 5;
+if (5 < 10) {
+return true;
+} else {
+return false;
+}
+10 == 10;
+10 != 9;
+    `
 	l := lexer.New(input)
-    fmt.Println(input)
+	fmt.Println(input)
 	for {
 		tok := l.NextToken()
 		if tok.Type == token.EOF {
@@ -24,5 +32,5 @@ let result = add(five, ten);
 		}
 		fmt.Println(tok.Type, tok.Literal)
 	}
-    fmt.Println("done")
+	fmt.Println("done")
 }

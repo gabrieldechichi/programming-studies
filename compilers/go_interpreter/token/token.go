@@ -17,8 +17,16 @@ const (
 	IDENT = "IDENT"
 	INT   = "INT"
 
-	ASSIGN = "="
-	PLUS   = "+"
+	ASSIGN   = "="
+	PLUS     = "+"
+	MINUS    = "-"
+	BANG     = "!"
+	ASTERISK = "*"
+	SLASH    = "/"
+	LT       = "<"
+	GT       = ">"
+	EQ       = "=="
+	NOT_EQ   = "!="
 
 	COMMA     = ","
 	SEMICOLON = ";"
@@ -28,8 +36,13 @@ const (
 	LBRACE = "{"
 	RBRACE = "}"
 
-	FUNC = "FUNC"
-	LET  = "LET"
+	FUNC   = "FUNC"
+	LET    = "LET"
+	TRUE   = "TRUE"
+	FALSE  = "FALSE"
+	IF     = "IF"
+	ELSE   = "ELSE"
+	RETURN = "RETURN"
 )
 
 func IdentifierToTokenType(str string) TokenType {
@@ -38,6 +51,16 @@ func IdentifierToTokenType(str string) TokenType {
 		return LET
 	case "func":
 		return FUNC
+	case "true":
+		return TRUE
+	case "false":
+		return FALSE
+	case "if":
+		return IF
+	case "else":
+		return ELSE
+	case "return":
+		return RETURN
 	}
 	return IDENT
 }
