@@ -3,10 +3,25 @@ package main
 import (
 	"fmt"
 	"go_interpreter/lexer"
+	"go_interpreter/repl"
 	"go_interpreter/token"
+	"os"
 )
 
 func main() {
+    runRepl()
+}
+
+func runRepl() {
+	fmt.Println("Welcome to Monkey REPL")
+	err := repl.Start(os.Stdin, os.Stdout)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Exitted Monkey REPL")
+}
+
+func uglyTest() {
 	input := `let five = 5;
 let ten = 10;
 let add = fn(x, y) {
@@ -33,4 +48,5 @@ return false;
 		fmt.Println(tok.Type, tok.Literal)
 	}
 	fmt.Println("done")
+
 }
