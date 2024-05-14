@@ -1,7 +1,8 @@
 package token
+
 //TODO: add file name, line number, etc
 
-//PERF: change to int or byte enum
+// PERF: change to int or byte enum
 type TokenType string
 
 type Token struct {
@@ -10,23 +11,33 @@ type Token struct {
 }
 
 const (
-    ILLEGAL = "ILLEGAL"
-    EOF = "EOF"
+	ILLEGAL = "ILLEGAL"
+	EOF     = "EOF"
 
-    IDENT = "IDENT"
-    INT = "INT"
+	IDENT = "IDENT"
+	INT   = "INT"
 
-    ASSIGN = "="
-    PLUS = "+"
+	ASSIGN = "="
+	PLUS   = "+"
 
-    COMMA = ","
-    SEMICOLON = ";"
+	COMMA     = ","
+	SEMICOLON = ";"
 
-    LPAREN = "("
-    RPAREN = ")"
-    LBRACE = "{"
-    RBRACE = "}"
+	LPAREN = "("
+	RPAREN = ")"
+	LBRACE = "{"
+	RBRACE = "}"
 
-    FUNC = "FUNC"
-    LET = "LET"
+	FUNC = "FUNC"
+	LET  = "LET"
 )
+
+func IdentifierToTokenType(str string) TokenType {
+	switch str {
+	case "let":
+		return LET
+	case "func":
+		return FUNC
+	}
+	return IDENT
+}

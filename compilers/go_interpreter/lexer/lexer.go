@@ -1,6 +1,8 @@
 package lexer
 
-import "go_interpreter/token"
+import (
+	"go_interpreter/token"
+)
 
 //TODO: support unicode
 
@@ -27,15 +29,42 @@ func (l *Lexer) readChar() {
 	l.readPosition++
 }
 
-func (l *Lexer) nextToken() token.Token {
+func (l *Lexer) goBack() {
+    if l.position >= 0{
+        l.readPosition = l.position
+        l.position--
+    }
+}
+
+func (l *Lexer) eatWhitespace() {
+	for l.c == ' ' || l.c == '\t' || l.c == '\n' || l.c == '\r' {
+		l.readChar()
+	}
+}
+
+func (l *Lexer) readIdentifier() string {
+	start := l.position
+	for isIdentifierChar(l.c) {
+		l.readChar()
+	}
+    identifier := string(l.input[start:l.position])
+    l.goBack()
+	return identifier
+}
+
+func isIdentifierChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+}
+
+func (l *Lexer) NextToken() token.Token {
 	var tok token.Token
 	l.readChar()
+	l.eatWhitespace()
 	switch l.c {
 	case '=':
 		tok = newToken(token.ASSIGN, l.c)
 	case '+':
 		tok = newToken(token.PLUS, l.c)
-
 	case ',':
 		tok = newToken(token.COMMA, l.c)
 	case ';':
@@ -52,6 +81,16 @@ func (l *Lexer) nextToken() token.Token {
 	case 0:
 		tok.Literal = ""
 		tok.Type = token.EOF
+	default:
+		{
+			if isIdentifierChar(l.c) {
+				tok.Literal = l.readIdentifier()
+				tok.Type = token.IdentifierToTokenType(tok.Literal)
+			} else {
+				tok.Literal = ""
+				tok.Type = token.ILLEGAL
+			}
+		}
 	}
 	return tok
 }
