@@ -30,10 +30,10 @@ func (l *Lexer) readChar() {
 }
 
 func (l *Lexer) goBack() {
-    if l.position >= 0{
-        l.readPosition = l.position
-        l.position--
-    }
+	if l.position >= 0 {
+		l.readPosition = l.position
+		l.position--
+	}
 }
 
 func (l *Lexer) eatWhitespace() {
@@ -44,16 +44,30 @@ func (l *Lexer) eatWhitespace() {
 
 func (l *Lexer) readIdentifier() string {
 	start := l.position
-	for isIdentifierChar(l.c) {
+	for isIdentifier(l.c) {
 		l.readChar()
 	}
-    identifier := string(l.input[start:l.position])
-    l.goBack()
+	identifier := string(l.input[start:l.position])
+	l.goBack()
 	return identifier
 }
 
-func isIdentifierChar(c byte) bool {
+func (l *Lexer) readDigits() string {
+	start := l.position
+	for isDigit(l.c) {
+		l.readChar()
+	}
+	digit := string(l.input[start:l.position])
+	l.goBack()
+	return digit
+}
+
+func isIdentifier(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
 }
 
 func (l *Lexer) NextToken() token.Token {
@@ -83,9 +97,13 @@ func (l *Lexer) NextToken() token.Token {
 		tok.Type = token.EOF
 	default:
 		{
-			if isIdentifierChar(l.c) {
+			if isIdentifier(l.c) {
 				tok.Literal = l.readIdentifier()
 				tok.Type = token.IdentifierToTokenType(tok.Literal)
+			} else if isDigit(l.c) {
+                //TODO: floats, hex, etc?
+				tok.Literal = l.readDigits()
+				tok.Type = token.INT
 			} else {
 				tok.Literal = ""
 				tok.Type = token.ILLEGAL
