@@ -75,8 +75,79 @@ func main() {
 			fmt.Printf("%d is NOT divisible by %d\n", a, b)
 		}
 	}
+
+	//arrays
+	{
+		// var arr [3]int;
+		arr := [...]int{1, 23, 0}
+		arr[0] = 2
+		arr[1] = 3
+		//compile error
+		// arr[5] = 0;
+		fmt.Println(arr[1], arr[0:2], arr[1:], arr[:2], &arr[1])
+	}
+
+	//slices (just like lists)
+	{
+		s := []int{1, 23}
+		s = append(s, 2)
+		s = append(s, 2)
+		s = append(s, 2)
+		fmt.Println(s[len(s)-1], len(s), cap(s))
+	}
+
+	//maps
+	{
+		myMap := make(map[string]uint8)
+		myMap["one"] = 1
+		myMap["two"] = 2
+
+		var myMap2 map[string]uint8 = map[string]uint8{"one": 1, "two": 2}
+		_ = myMap2
+		var n, ok = myMap["one"]
+		if ok {
+			fmt.Println(n)
+		}
+		// myMap := make(map[string]uint8)
+	}
+
+	//structs
+	{
+		myEngine := gasEngine{mpg: 2, gallons: 2, ownerInfo: owner{"Owner"}}
+		fmt.Println(myEngine)
+
+		//structs accept composition (allows for some polymorphism)
+		type gasEngine2 struct {
+			mpg     uint8
+			gallons uint8
+			owner
+		}
+		myEngine2 := gasEngine2{mpg: 2, gallons: 2, owner: owner{name: "Owner"}}
+		fmt.Println(myEngine2)
+		//works
+		myEngine2.sayHi()
+		//works
+		myEngine.ownerInfo.sayHi()
+		//doesn't work
+		// myEngine.sayHi();
+
+	}
+
+	//interfaces
+	{
+		myEngine := engine(gasEngine{mpg: 2, gallons: 2, ownerInfo: owner{"Owner"}})
+		fmt.Println(myEngine.milesLeft())
+	}
+
+	//generics
+	{
+		var arr []int = []int{1, 2, 3}
+		n := sum(arr)
+		fmt.Println(n == 6)
+	}
 }
 
+// START FUNCTIONS
 func printStuff() {
 	fmt.Println("stuff")
 }
@@ -92,3 +163,62 @@ func intDivSafe(a int, b int) (int, int, error) {
 	div, rmd := intDiv(a, b)
 	return div, rmd, nil
 }
+
+//END functions
+
+//START STRUCTS
+
+type owner struct {
+	name string
+}
+type gasEngine struct {
+	mpg       uint8
+	gallons   uint8
+	ownerInfo owner
+}
+
+func (o owner) sayHi() {
+	fmt.Printf("Owner %s says hi", o.name)
+}
+
+func (g gasEngine) milesLeft() uint8 {
+	fmt.Println(g.gallons)
+	return g.gallons
+}
+
+//END STRUATS
+
+// START INTERFACES
+type engine interface {
+	milesLeft() uint8
+}
+
+//END INTERFACES
+
+// START GENERIC
+func sum[T int | float32](arr []T) T {
+	var s T
+	for _, n := range arr {
+		s += n
+	}
+	return s
+}
+
+type hydrogenEngine struct {
+	mpg      uint8
+	explodes bool
+}
+
+type car[T engine] struct {
+	engine T
+}
+
+func (g hydrogenEngine) milesLeft() uint8 {
+	return 0
+}
+
+func (c car[T]) miles() {
+    c.engine.milesLeft()
+}
+
+// END GENERICS
