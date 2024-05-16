@@ -7,17 +7,42 @@ import (
 	"go_interpreter/token"
 )
 
+type (
+	prefixParseFn func() ast.Statement
+	infixParseFn  func(lhs ast.Statement) ast.Statement
+)
+
+// expression types (including operator precedence)
+const (
+	_ int = iota
+	LOWEST
+	EQUALS      // ==
+	LESSGREATER // > or <
+	SUM         // +
+	PRODUCT     // *
+	PREFIX      // -X or !X
+	CALL        // myFunction(X)
+)
+
 type Parser struct {
 	l         *lexer.Lexer
 	curToken  token.Token
 	peekToken token.Token
 	errors    []string
+
+	prefixParseFunctions map[token.TokenType]prefixParseFn
+	infixParseFunctions  map[token.TokenType]infixParseFn
 }
 
 func New(l *lexer.Lexer) *Parser {
 	p := Parser{l: l, errors: []string{}}
 	p.nextToken()
 	p.nextToken()
+
+	p.prefixParseFunctions = make(map[token.TokenType]prefixParseFn)
+	p.infixParseFunctions = make(map[token.TokenType]infixParseFn)
+
+	p.registerPrefixParseFn(token.IDENT, p.parseExprIdentifier)
 	return &p
 }
 
@@ -47,12 +72,35 @@ func (p *Parser) peekTokenIs(tokenType token.TokenType) bool {
 	return p.peekToken.Type == tokenType
 }
 
+func (p *Parser) registerPrefixParseFn(tokenType token.TokenType, parseFn prefixParseFn) {
+	//todo: validate?
+	p.prefixParseFunctions[tokenType] = parseFn
+}
+
+func (p *Parser) registerInfixParseFn(tokenType token.TokenType, parseFn infixParseFn) {
+	//todo: validate?
+	p.infixParseFunctions[tokenType] = parseFn
+}
+
+func (p *Parser) getPrefixParseFn(tokType token.TokenType) (prefixParseFn, bool) {
+	//todo: switch case faster?
+	fn, ok := p.prefixParseFunctions[tokType]
+	return fn, ok
+}
+func (p *Parser) getInfixParseFn(tokType token.TokenType) (infixParseFn, bool) {
+	//todo: switch case faster?
+	fn, ok := p.infixParseFunctions[tokType]
+	return fn, ok
+}
+
 func (p *Parser) parseStatement() ast.Statement {
 	switch p.curToken.Type {
 	case token.LET:
 		return p.parseLetStatement()
+	case token.RETURN:
+		return p.parseReturnStatemetn()
 	default:
-		return nil
+		return p.parseExpressionStatement()
 	}
 }
 
@@ -93,3 +141,41 @@ func (p *Parser) parseLetStatement() ast.Statement {
 	}
 	return &letStmt
 }
+
+func (p *Parser) parseReturnStatemetn() ast.Statement {
+	retStm := ast.ReturnStatement{}
+	retStm.Token = p.curToken
+	//TODO: actually support expressions
+	for !p.curTokenIs(token.SEMICOLON) {
+		p.nextToken()
+	}
+	return &retStm
+}
+
+func (p *Parser) parseExpressionStatement() ast.Statement {
+	exprStmt := ast.ExpressionStatement{}
+	exprStmt.Token = p.curToken
+	exprStmt.Expression = p.parseExpression(LOWEST)
+	//skip semicolon (optional)
+	if p.peekTokenIs(token.SEMICOLON) {
+		p.nextToken()
+	}
+	return &exprStmt
+}
+
+func (p *Parser) parseExpression(precedence int) ast.Statement {
+	_ = precedence
+	prefixFn, ok := p.getPrefixParseFn(p.curToken.Type)
+	if !ok {
+		return nil
+	}
+	leftExpr := prefixFn()
+	return leftExpr
+}
+
+// Prefix parsers
+func (p *Parser) parseExprIdentifier() ast.Statement {
+	return &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+}
+
+//

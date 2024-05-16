@@ -1,9 +1,14 @@
 package ast
 
-import "go_interpreter/token"
+import (
+	"bytes"
+	"fmt"
+	"go_interpreter/token"
+)
 
 type Node interface {
 	TokenLiteral() string
+	String() string
 }
 
 type Statement interface {
@@ -26,14 +31,28 @@ func (p *Program) TokenLiteral() string {
 	}
 }
 
+func (p* Program) String() string {
+    var out bytes.Buffer
+
+    for _, s := range p.Statements {
+        out.WriteString(s.String())
+    }
+    return out.String()
+}
+
 type LetStatement struct {
 	Token      token.Token
 	Identifier *Identifier
 	Value      Expression
 }
 
-func (l *LetStatement) TokenLiteral() string {
-	return l.Token.Literal
+func (s *LetStatement) TokenLiteral() string {
+	return s.Token.Literal
+}
+
+func (s *LetStatement) String() string {
+	//todo: expressions
+	return fmt.Sprintf("let %s = %s;", s.Identifier.String(), "TODO")
 }
 
 type Identifier struct {
@@ -41,6 +60,33 @@ type Identifier struct {
 	Value string
 }
 
-func (i *Identifier) TokenLiteral() string {
-	return i.Token.Literal
+func (s *Identifier) TokenLiteral() string {
+	return s.Token.Literal
+}
+
+func (s *Identifier) String() string {
+	return s.Value
+}
+
+type ReturnStatement struct {
+	Token      token.Token
+	Expression Expression
+}
+
+func (s *ReturnStatement) TokenLiteral() string { return s.Token.Literal }
+func (s *ReturnStatement) String() string {
+	//todo: expressions
+	return fmt.Sprintf("return %s;", "TODO")
+}
+
+type ExpressionStatement struct {
+	Token      token.Token
+	Expression Expression
+}
+
+func (s *ExpressionStatement) TokenLiteral() string { return s.Token.Literal }
+
+func (s *ExpressionStatement) String() string {
+	//todo: expressions
+	return fmt.Sprintf("%s;", "TODO")
 }
