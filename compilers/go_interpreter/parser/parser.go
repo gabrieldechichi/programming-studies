@@ -5,11 +5,12 @@ import (
 	"go_interpreter/ast"
 	"go_interpreter/lexer"
 	"go_interpreter/token"
+	"strconv"
 )
 
 type (
-	prefixParseFn func() ast.Statement
-	infixParseFn  func(lhs ast.Statement) ast.Statement
+	prefixParseFn func() ast.Expression
+	infixParseFn  func(lhs ast.Expression) ast.Expression
 )
 
 // expression types (including operator precedence)
@@ -43,6 +44,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.infixParseFunctions = make(map[token.TokenType]infixParseFn)
 
 	p.registerPrefixParseFn(token.IDENT, p.parseExprIdentifier)
+    p.registerPrefixParseFn(token.INT, p.parseExprIntegerLiteral)
 	return &p
 }
 
@@ -163,7 +165,7 @@ func (p *Parser) parseExpressionStatement() ast.Statement {
 	return &exprStmt
 }
 
-func (p *Parser) parseExpression(precedence int) ast.Statement {
+func (p *Parser) parseExpression(precedence int) ast.Expression {
 	_ = precedence
 	prefixFn, ok := p.getPrefixParseFn(p.curToken.Type)
 	if !ok {
@@ -174,8 +176,19 @@ func (p *Parser) parseExpression(precedence int) ast.Statement {
 }
 
 // Prefix parsers
-func (p *Parser) parseExprIdentifier() ast.Statement {
+func (p *Parser) parseExprIdentifier() ast.Expression {
 	return &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+}
+
+func (p *Parser) parseExprIntegerLiteral() ast.Expression {
+	i := &ast.IntegerLiteral{Token: p.curToken}
+    v, err := strconv.ParseInt(i.Token.Literal, 10, 64)
+    if err != nil {
+        p.addError("Failed to parse int: %s", i.Token.Literal)
+        return nil
+    }
+    i.Value = v
+    return i
 }
 
 //
