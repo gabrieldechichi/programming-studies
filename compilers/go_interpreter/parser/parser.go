@@ -44,7 +44,9 @@ func New(l *lexer.Lexer) *Parser {
 	p.infixParseFunctions = make(map[token.TokenType]infixParseFn)
 
 	p.registerPrefixParseFn(token.IDENT, p.parseExprIdentifier)
-    p.registerPrefixParseFn(token.INT, p.parseExprIntegerLiteral)
+	p.registerPrefixParseFn(token.INT, p.parseExprIntegerLiteral)
+	p.registerPrefixParseFn(token.BANG, p.parseExprPrefix)
+	p.registerPrefixParseFn(token.MINUS, p.parseExprPrefix)
 	return &p
 }
 
@@ -169,6 +171,7 @@ func (p *Parser) parseExpression(precedence int) ast.Expression {
 	_ = precedence
 	prefixFn, ok := p.getPrefixParseFn(p.curToken.Type)
 	if !ok {
+		p.addError("No prefixParseFn for %s", p.curToken.Type)
 		return nil
 	}
 	leftExpr := prefixFn()
@@ -182,13 +185,24 @@ func (p *Parser) parseExprIdentifier() ast.Expression {
 
 func (p *Parser) parseExprIntegerLiteral() ast.Expression {
 	i := &ast.IntegerLiteral{Token: p.curToken}
-    v, err := strconv.ParseInt(i.Token.Literal, 10, 64)
-    if err != nil {
-        p.addError("Failed to parse int: %s", i.Token.Literal)
-        return nil
-    }
-    i.Value = v
-    return i
+	v, err := strconv.ParseInt(i.Token.Literal, 10, 64)
+	if err != nil {
+		p.addError("Failed to parse int: %s", i.Token.Literal)
+		return nil
+	}
+	i.Value = v
+	return i
+}
+
+func (p *Parser) parseExprPrefix() ast.Expression {
+	e := &ast.PrefixExpression{Token: p.curToken, Operator: p.curToken.Literal}
+	if p.curToken.Type != token.BANG && p.curToken.Type != token.MINUS {
+		p.addError("Prefix operator can only be ! or -. Found %s", p.curToken.Type)
+		return e
+	}
+	p.nextToken()
+	e.Right = p.parseExpression(PREFIX)
+	return e
 }
 
 //

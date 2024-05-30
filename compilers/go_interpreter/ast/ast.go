@@ -109,3 +109,17 @@ func (s *IntegerLiteral) String() string {
 	return s.Token.Literal
 }
 func (s *IntegerLiteral) expressionNode() {}
+
+type PrefixExpression struct {
+	Token    token.Token
+	Operator string
+	Right    Expression
+}
+
+func (s *PrefixExpression) expressionNode()      {}
+
+func (s *PrefixExpression) TokenLiteral() string { return s.Token.Literal }
+
+func (s *PrefixExpression) String() string {
+	return fmt.Sprintf("%s%s", s.Operator, s.Right.String())
+}

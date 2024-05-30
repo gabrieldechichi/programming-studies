@@ -33,7 +33,7 @@ func testProgramParsing[T any](t *testing.T, input string, testCases []T, f func
 
 func castAssert[U any](t *testing.T, v interface{}) *U {
 	r, ok := v.(*U)
-	assert.True(t, ok, "Value not of correct type")
+	assert.True(t, ok, "Value %v not of correct type. Expected *%T. Found %T", v, *new(U), v)
 	return r
 }
 
@@ -78,11 +78,36 @@ let foobar = 838383;
 func TestIntegerExpressions(t *testing.T) {
 	input := "5"
 	testCases := []int64{5}
-    testProgramParsing(t, input, testCases, func(t*testing.T, testCase int64, s ast.Statement) {
-        exprStmt := castAssert[ast.ExpressionStatement](t, s)
-        intLiteral := castAssert[ast.IntegerLiteral](t, exprStmt.Expression)
-        assert.Equal(t, testCase, intLiteral.Value)
-    })
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase int64, s ast.Statement) {
+		exprStmt := castAssert[ast.ExpressionStatement](t, s)
+		intLiteral := castAssert[ast.IntegerLiteral](t, exprStmt.Expression)
+		assert.Equal(t, testCase, intLiteral.Value)
+	})
+}
+
+func TestPrefixExpressions(t *testing.T) {
+	input := `
+!5;
+-10;
+`
+	type TestCase struct {
+		operator string
+		number   int64
+	}
+
+	testCases := []TestCase{
+		{"!", 5},
+		{"-", 10},
+	}
+
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
+		expr := castAssert[ast.ExpressionStatement](t, s)
+		prefixExpr := castAssert[ast.PrefixExpression](t, expr.Expression)
+		assert.Equal(t, testCase.operator, prefixExpr.Operator)
+
+		intLit := castAssert[ast.IntegerLiteral](t, prefixExpr.Right)
+        assert.Equal(t, testCase.number, intLit.Value)
+	})
 }
 
 func TestLetStatementErrors(t *testing.T) {
