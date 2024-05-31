@@ -50,6 +50,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefixParseFnMulti([]token.TokenType{token.TRUE, token.FALSE}, p.parseExprBooleanLiteral)
 	p.registerPrefixParseFnMulti([]token.TokenType{token.BANG, token.MINUS}, p.parseExprPrefix)
 	p.registerPrefixParseFn(token.IF, p.parseExprIf)
+	p.registerPrefixParseFn(token.FUNC, p.parseExprFunction)
 
 	//infix
 	p.registerInfixParseFnMulti([]token.TokenType{
@@ -304,9 +305,35 @@ func (p *Parser) parseBlockStatement() *ast.BlockStatement {
 	p.nextToken()
 	for !p.curTokenIs(token.RBRACE) && !p.curTokenIs(token.EOF) {
 		block.Statements = append(block.Statements, p.parseStatement())
-        p.nextToken()
+		p.nextToken()
 	}
 	return block
+}
+
+func (p *Parser) parseExprFunction() ast.Expression {
+	e := &ast.FunctionExpression{Token: p.curToken, Parameters: []*ast.Identifier{}}
+	if !p.expectPeek(token.LPAREN) {
+		return nil
+	}
+
+	if !p.peekTokenIs(token.RPAREN) {
+		for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
+			p.nextToken()
+			parameter := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+			e.Parameters = append(e.Parameters, parameter)
+			if p.peekTokenIs(token.COMMA) || p.peekTokenIs(token.RPAREN) {
+				p.nextToken()
+			}
+		}
+	} else {
+		p.nextToken()
+	}
+
+	if !p.expectPeek(token.LBRACE) {
+		return nil
+	}
+	e.Body = p.parseBlockStatement()
+	return e
 }
 
 //
@@ -319,3 +346,5 @@ func (p *Parser) parseExprInfix(lhs ast.Expression) ast.Expression {
 	e.Right = p.parseExpression(precedence)
 	return e
 }
+
+//

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go_interpreter/token"
+	"strings"
 )
 
 type Node interface {
@@ -189,4 +190,22 @@ func (s *IfExpression) String() string {
 	}
 	out.WriteString("\n}")
 	return out.String()
+}
+
+type FunctionExpression struct {
+	Token      token.Token // fn
+	Parameters []*Identifier
+	Body       *BlockStatement
+}
+
+func (s *FunctionExpression) expressionNode() {}
+
+func (s *FunctionExpression) TokenLiteral() string { return s.Token.Literal }
+
+func (s *FunctionExpression) String() string {
+	parameters := []string{}
+	for _, p := range s.Parameters {
+		parameters = append(parameters, p.String())
+	}
+	return fmt.Sprintf("fn (%s) {\n\t%s\n}", strings.Join(parameters, ","), s.Body.String())
 }

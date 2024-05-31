@@ -49,7 +49,7 @@ func IdentifierToTokenType(str string) TokenType {
 	switch str {
 	case "let":
 		return LET
-	case "func":
+	case "fn":
 		return FUNC
 	case "true":
 		return TRUE

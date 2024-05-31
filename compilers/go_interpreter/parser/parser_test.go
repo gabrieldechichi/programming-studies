@@ -372,7 +372,7 @@ if (x < y) { x } else { y }
 		assert.Equal(t, "if", s.TokenLiteral())
 
 		exprStmt := castAssert[ast.ExpressionStatement](t, s)
-		ifExpr := castAssert[ast.IfExpression](t,exprStmt.Expression)
+		ifExpr := castAssert[ast.IfExpression](t, exprStmt.Expression)
 
 		assert.Equal(t, testCase.condition, ifExpr.Condition.String())
 		assert.Equal(t, testCase.consequence, ifExpr.Consequence.String())
@@ -380,5 +380,41 @@ if (x < y) { x } else { y }
 			assert.NotNil(t, ifExpr.Alternative)
 			assert.Equal(t, testCase.alternative, ifExpr.Alternative.String())
 		}
+	})
+}
+func TestFunctionExpression(t *testing.T) {
+	input := `
+fn() {};
+fn() { return 2 * 2; };
+fn(x) {};
+fn(x, y, z) {};
+fn(x, y, z) { return x + y + z; };
+`
+	type TestCase struct {
+		parameters []string
+		body       string
+	}
+
+	testCases := []TestCase{
+		{[]string{}, ""},
+		{[]string{}, "return (2 * 2);"},
+		{[]string{"x"}, ""},
+		{[]string{"x", "y", "z"}, ""},
+		{[]string{"x", "y", "z"}, "return ((x + y) + z);"},
+	}
+
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
+		assert.Equal(t, "fn", s.TokenLiteral())
+
+		exprStmt := castAssert[ast.ExpressionStatement](t, s)
+		fnExpr := castAssert[ast.FunctionExpression](t, exprStmt.Expression)
+
+		assert.Len(t, fnExpr.Parameters, len(testCase.parameters))
+		for i := range fnExpr.Parameters {
+			identifier := fnExpr.Parameters[i]
+			expected := testCase.parameters[i]
+			assert.Equal(t, expected, identifier.Value)
+		}
+		assert.Equal(t, testCase.body, fnExpr.Body.String())
 	})
 }
