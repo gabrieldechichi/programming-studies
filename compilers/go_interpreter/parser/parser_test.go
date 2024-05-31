@@ -109,7 +109,7 @@ func TestPrefixExpressions(t *testing.T) {
 `
 	type TestCase struct {
 		operator string
-		value   interface{}
+		value    interface{}
 	}
 
 	testCases := []TestCase{
@@ -249,6 +249,26 @@ func TestOperatorPrecedenceParsing(t *testing.T) {
 		{
 			"3 == 5 != false",
 			"((3 == 5) != false)",
+		},
+		{
+			"1 + (2 + 3) + 4",
+			"((1 + (2 + 3)) + 4)",
+		},
+		{
+			"(5 + 5) * 2",
+			"((5 + 5) * 2)",
+		},
+		{
+			"2 / (5 + 5)",
+			"(2 / (5 + 5))",
+		},
+		{
+			"-(5 + 5)",
+			"(-(5 + 5))",
+		},
+		{
+			"!(true == true)",
+			"(!(true == true))",
 		},
 	}
 
