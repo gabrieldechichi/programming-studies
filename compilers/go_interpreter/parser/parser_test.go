@@ -16,6 +16,9 @@ func parseProgramAndAssert(t *testing.T, input string) (*ast.Program, *Parser) {
 	program := p.ParseProgram()
 	assert.NotNil(t, program)
 	assertNoErrors(t, p)
+    if len(program.Statements) != lineCount{
+        fmt.Printf("%d, %s, %s, %v\n\n", lineCount, input, program.String(), program.Statements)
+    }
 	assert.Len(t, program.Statements, lineCount)
 	return program, p
 }
@@ -106,12 +109,117 @@ func TestPrefixExpressions(t *testing.T) {
 		assert.Equal(t, testCase.operator, prefixExpr.Operator)
 
 		intLit := castAssert[ast.IntegerLiteral](t, prefixExpr.Right)
-        assert.Equal(t, testCase.number, intLit.Value)
+		assert.Equal(t, testCase.number, intLit.Value)
 	})
 }
 
+func TestInfixExpressions(t *testing.T) {
+	input := `
+5+5;
+5-5;
+5*5;
+5/5;
+5>5;
+5<5;
+5==5;
+5!=5;
+`
+	type TestCase struct {
+		left     int64
+		right    int64
+		operator string
+	}
+
+	testCases := []TestCase{
+		{5, 5, "+"},
+		{5, 5, "-"},
+		{5, 5, "*"},
+		{5, 5, "/"},
+		{5, 5, ">"},
+		{5, 5, "<"},
+		{5, 5, "=="},
+		{5, 5, "!="},
+	}
+
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
+		expr := castAssert[ast.ExpressionStatement](t, s)
+		infixExpr := castAssert[ast.InfixExpression](t, expr.Expression)
+		assert.Equal(t, testCase.operator, infixExpr.Operator)
+
+		left := castAssert[ast.IntegerLiteral](t, infixExpr.Left)
+		right := castAssert[ast.IntegerLiteral](t, infixExpr.Right)
+		assert.Equal(t, testCase.left, left.Value)
+		assert.Equal(t, testCase.right, right.Value)
+	})
+}
+
+func TestOperatorPrecedenceParsing(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{
+			"-a * b",
+			"((-a) * b)",
+		},
+		{
+			"!-a",
+			"(!(-a))",
+		},
+		{
+			"a + b + c",
+			"((a + b) + c)",
+		},
+		{
+			"a + b - c",
+			"((a + b) - c)",
+		},
+		{
+			"a * b * c",
+			"((a * b) * c)",
+		},
+		{
+			"a * b / c",
+			"((a * b) / c)",
+		},
+		{
+			"a + b / c",
+			"(a + (b / c))",
+		},
+		{
+			"a + b * c + d / e - f",
+			"(((a + (b * c)) + (d / e)) - f)",
+		},
+		{
+			"3 + 4;\n-5 * 5",
+			"(3 + 4)((-5) * 5)",
+		},
+		{
+			"5 > 4 == 3 < 4",
+			"((5 > 4) == (3 < 4))",
+		},
+		{
+			"5 < 4 != 3 > 4",
+			"((5 < 4) != (3 > 4))",
+		},
+		{
+			"3 + 4 * 5 == 3 * 1 + 4 * 5",
+			"((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+		},
+		{
+			"3 + 4 * 5 == 3 * 1 + 4 * 5",
+			"((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+		},
+	}
+
+    for _, testCase := range tests {
+        program, _ := parseProgramAndAssert(t, testCase.input)
+        actual := program.String()
+        assert.Equal(t, testCase.expected, actual)
+    }
+}
+
 func TestLetStatementErrors(t *testing.T) {
-	t.Skip("Re-enable when expression parsing is added")
 	input := `
 let x  5;
 let  = 10;
@@ -120,10 +228,9 @@ let  = 10;
 	p := New(lexer.New(input))
 
 	program := p.ParseProgram()
-	fmt.Println(program.String())
 	assert.NotNil(t, program)
-	assert.Len(t, program.Statements, 0)
-	assert.Len(t, p.errors, 2)
+    fmt.Println(program.Statements)
+	assert.Len(t, p.errors, 3)
 	assert.Equal(t, "Expect next token to be =. Found INT", p.errors[0])
 	assert.Equal(t, "Expect next token to be IDENT. Found =", p.errors[1])
 }

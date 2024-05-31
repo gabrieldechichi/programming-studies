@@ -53,8 +53,7 @@ func (s *LetStatement) TokenLiteral() string {
 }
 
 func (s *LetStatement) String() string {
-	//todo: expressions
-	return fmt.Sprintf("let %s = %s;", s.Identifier.String(), "TODO")
+	return fmt.Sprintf("let %s = %s", s.Identifier.String(), s.Value.String())
 }
 
 func (s *LetStatement) statementNode() {}
@@ -80,8 +79,7 @@ type ReturnStatement struct {
 
 func (s *ReturnStatement) TokenLiteral() string { return s.Token.Literal }
 func (s *ReturnStatement) String() string {
-	//todo: expressions
-	return fmt.Sprintf("return %s;", "TODO")
+	return fmt.Sprintf("return %s;", s.Expression.String())
 }
 func (s *ReturnStatement) statementNode() {}
 
@@ -93,9 +91,12 @@ type ExpressionStatement struct {
 func (s *ExpressionStatement) TokenLiteral() string { return s.Token.Literal }
 
 func (s *ExpressionStatement) String() string {
-	//todo: expressions
-	return fmt.Sprintf("%s;", "TODO")
+    if s.Expression == nil {
+        return ""
+    }
+	return fmt.Sprintf("%s", s.Expression.String())
 }
+
 func (s *ExpressionStatement) statementNode() {}
 
 type IntegerLiteral struct {
@@ -121,5 +122,20 @@ func (s *PrefixExpression) expressionNode()      {}
 func (s *PrefixExpression) TokenLiteral() string { return s.Token.Literal }
 
 func (s *PrefixExpression) String() string {
-	return fmt.Sprintf("%s%s", s.Operator, s.Right.String())
+	return fmt.Sprintf("(%s%s)", s.Operator, s.Right.String())
+}
+
+type InfixExpression struct {
+	Token    token.Token
+    Left Expression
+	Operator string
+	Right    Expression
+}
+
+func (s *InfixExpression) expressionNode()      {}
+
+func (s *InfixExpression) TokenLiteral() string { return s.Token.Literal }
+
+func (s *InfixExpression) String() string {
+	return fmt.Sprintf("(%s %s %s)", s.Left.String(), s.Operator, s.Right.String())
 }

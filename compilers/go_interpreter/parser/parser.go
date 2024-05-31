@@ -43,10 +43,19 @@ func New(l *lexer.Lexer) *Parser {
 	p.prefixParseFunctions = make(map[token.TokenType]prefixParseFn)
 	p.infixParseFunctions = make(map[token.TokenType]infixParseFn)
 
+	//prefix
 	p.registerPrefixParseFn(token.IDENT, p.parseExprIdentifier)
 	p.registerPrefixParseFn(token.INT, p.parseExprIntegerLiteral)
-	p.registerPrefixParseFn(token.BANG, p.parseExprPrefix)
-	p.registerPrefixParseFn(token.MINUS, p.parseExprPrefix)
+	p.registerPrefixParseFnMulti([]token.TokenType{token.BANG, token.MINUS}, p.parseExprPrefix)
+
+	//infix
+	p.registerInfixParseFnMulti([]token.TokenType{
+		token.EQ,
+		token.NOT_EQ,
+		token.GT, token.LT,
+		token.PLUS, token.MINUS,
+		token.ASTERISK, token.SLASH,
+	}, p.parseExprInfix)
 	return &p
 }
 
@@ -84,6 +93,18 @@ func (p *Parser) registerPrefixParseFn(tokenType token.TokenType, parseFn prefix
 func (p *Parser) registerInfixParseFn(tokenType token.TokenType, parseFn infixParseFn) {
 	//todo: validate?
 	p.infixParseFunctions[tokenType] = parseFn
+}
+
+func (p *Parser) registerPrefixParseFnMulti(tokenTypes []token.TokenType, parseFn prefixParseFn) {
+	for _, tokenType := range tokenTypes {
+		p.registerPrefixParseFn(tokenType, parseFn)
+	}
+}
+
+func (p *Parser) registerInfixParseFnMulti(tokenTypes []token.TokenType, parseFn infixParseFn) {
+	for _, tokenType := range tokenTypes {
+		p.registerInfixParseFn(tokenType, parseFn)
+	}
 }
 
 func (p *Parser) getPrefixParseFn(tokType token.TokenType) (prefixParseFn, bool) {
@@ -138,10 +159,12 @@ func (p *Parser) parseLetStatement() ast.Statement {
 	if !p.expectPeek(token.ASSIGN) {
 		return nil
 	}
+	p.nextToken()
 
-	//TODO: actually support expressions
-	for !p.curTokenIs(token.SEMICOLON) {
-		p.nextToken()
+	letStmt.Value = p.parseExpression(LOWEST)
+
+	if !p.expectPeek(token.SEMICOLON) {
+		return nil
 	}
 	return &letStmt
 }
@@ -149,9 +172,11 @@ func (p *Parser) parseLetStatement() ast.Statement {
 func (p *Parser) parseReturnStatemetn() ast.Statement {
 	retStm := ast.ReturnStatement{}
 	retStm.Token = p.curToken
-	//TODO: actually support expressions
-	for !p.curTokenIs(token.SEMICOLON) {
-		p.nextToken()
+	p.nextToken()
+	retStm.Expression = p.parseExpression(LOWEST)
+
+	if !p.expectPeek(token.SEMICOLON) {
+		return nil
 	}
 	return &retStm
 }
@@ -168,14 +193,41 @@ func (p *Parser) parseExpressionStatement() ast.Statement {
 }
 
 func (p *Parser) parseExpression(precedence int) ast.Expression {
-	_ = precedence
 	prefixFn, ok := p.getPrefixParseFn(p.curToken.Type)
 	if !ok {
 		p.addError("No prefixParseFn for %s", p.curToken.Type)
 		return nil
 	}
 	leftExpr := prefixFn()
+	for !p.curTokenIs(token.SEMICOLON) && precedence < p.peekPrecedence() {
+		infixFn, ok := p.getInfixParseFn(p.peekToken.Type)
+		if !ok {
+			//todo: is error correct here?
+			p.addError("No infixParseFn for %s", p.peekToken.Type)
+			return nil
+		}
+		p.nextToken()
+		leftExpr = infixFn(leftExpr)
+	}
 	return leftExpr
+}
+
+func (p *Parser) currentPrecedence() int { return tokenPrecedence(p.curToken.Type) }
+
+func (p *Parser) peekPrecedence() int { return tokenPrecedence(p.peekToken.Type) }
+
+func tokenPrecedence(tokenType token.TokenType) int {
+	switch tokenType {
+	case token.EQ, token.NOT_EQ:
+		return EQUALS
+	case token.GT, token.LT:
+		return LESSGREATER
+	case token.PLUS, token.MINUS:
+		return SUM
+	case token.ASTERISK, token.SLASH:
+		return PRODUCT
+	}
+	return LOWEST
 }
 
 // Prefix parsers
@@ -202,6 +254,14 @@ func (p *Parser) parseExprPrefix() ast.Expression {
 	}
 	p.nextToken()
 	e.Right = p.parseExpression(PREFIX)
+	return e
+}
+
+func (p *Parser) parseExprInfix(lhs ast.Expression) ast.Expression {
+	e := &ast.InfixExpression{Token: p.curToken, Left: lhs, Operator: p.curToken.Literal}
+	precedence := p.currentPrecedence()
+	p.nextToken()
+	e.Right = p.parseExpression(precedence)
 	return e
 }
 
