@@ -117,8 +117,8 @@ type BooleanLiteral struct {
 }
 
 func (s *BooleanLiteral) TokenLiteral() string { return s.Token.Literal }
-func (s *BooleanLiteral) String() string  { return s.Token.Literal }
-func (s *BooleanLiteral) expressionNode() {}
+func (s *BooleanLiteral) String() string       { return s.Token.Literal }
+func (s *BooleanLiteral) expressionNode()      {}
 
 type PrefixExpression struct {
 	Token    token.Token
@@ -147,4 +147,46 @@ func (s *InfixExpression) TokenLiteral() string { return s.Token.Literal }
 
 func (s *InfixExpression) String() string {
 	return fmt.Sprintf("(%s %s %s)", s.Left.String(), s.Operator, s.Right.String())
+}
+
+type BlockStatement struct {
+	Token      token.Token // {
+	Statements []Statement
+}
+
+func (s *BlockStatement) statementNode()       {}
+func (s *BlockStatement) TokenLiteral() string { return s.Token.Literal }
+
+func (s *BlockStatement) String() string {
+	var out bytes.Buffer
+
+	for _, s := range s.Statements {
+		out.WriteString(s.String())
+	}
+
+	return out.String()
+}
+
+type IfExpression struct {
+	Token       token.Token
+	Condition   Expression
+	Consequence *BlockStatement
+	Alternative *BlockStatement
+}
+
+func (s *IfExpression) expressionNode() {}
+
+func (s *IfExpression) TokenLiteral() string { return s.Token.Literal }
+
+func (s *IfExpression) String() string {
+	var out bytes.Buffer
+	out.WriteString(fmt.Sprintf("if (%s) {\n", s.Condition.String()))
+	out.WriteString(s.Consequence.String())
+	if s.Alternative != nil {
+		out.WriteString("\n} else {\n")
+		out.WriteString(s.Alternative.String())
+		out.WriteString("\n}")
+	}
+	out.WriteString("\n}")
+	return out.String()
 }

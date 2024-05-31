@@ -46,9 +46,10 @@ func New(l *lexer.Lexer) *Parser {
 	//prefix
 	p.registerPrefixParseFn(token.IDENT, p.parseExprIdentifier)
 	p.registerPrefixParseFn(token.INT, p.parseExprIntegerLiteral)
-    p.registerPrefixParseFn(token.LPAREN, p.parseExprGroup)
+	p.registerPrefixParseFn(token.LPAREN, p.parseExprGroup)
 	p.registerPrefixParseFnMulti([]token.TokenType{token.TRUE, token.FALSE}, p.parseExprBooleanLiteral)
 	p.registerPrefixParseFnMulti([]token.TokenType{token.BANG, token.MINUS}, p.parseExprPrefix)
+	p.registerPrefixParseFn(token.IF, p.parseExprIf)
 
 	//infix
 	p.registerInfixParseFnMulti([]token.TokenType{
@@ -272,6 +273,45 @@ func (p *Parser) parseExprPrefix() ast.Expression {
 	return e
 }
 
+func (p *Parser) parseExprIf() ast.Expression {
+	e := &ast.IfExpression{Token: p.curToken}
+	if !p.expectPeek(token.LPAREN) {
+		return nil
+	}
+	p.nextToken()
+	e.Condition = p.parseExpression(LOWEST)
+	if !p.expectPeek(token.RPAREN) {
+		return nil
+	}
+	if !p.expectPeek(token.LBRACE) {
+		return nil
+	}
+	e.Consequence = p.parseBlockStatement()
+
+	if p.peekTokenIs(token.ELSE) {
+		p.nextToken()
+		if !p.expectPeek(token.LBRACE) {
+			return nil
+		}
+		e.Alternative = p.parseBlockStatement()
+	}
+
+	return e
+}
+
+func (p *Parser) parseBlockStatement() *ast.BlockStatement {
+	block := &ast.BlockStatement{Token: p.curToken, Statements: []ast.Statement{}}
+	p.nextToken()
+	for !p.curTokenIs(token.RBRACE) && !p.curTokenIs(token.EOF) {
+		block.Statements = append(block.Statements, p.parseStatement())
+        p.nextToken()
+	}
+	return block
+}
+
+//
+
+// Infix parsers
 func (p *Parser) parseExprInfix(lhs ast.Expression) ast.Expression {
 	e := &ast.InfixExpression{Token: p.curToken, Left: lhs, Operator: p.curToken.Literal}
 	precedence := p.currentPrecedence()
@@ -279,5 +319,3 @@ func (p *Parser) parseExprInfix(lhs ast.Expression) ast.Expression {
 	e.Right = p.parseExpression(precedence)
 	return e
 }
-
-//

@@ -350,3 +350,35 @@ func TestIdentifierExpression(t *testing.T) {
 
 	assert.Equal(t, "foobar", identifierExpr.Value)
 }
+
+func TestIfExpressions(t *testing.T) {
+	input := `
+if (x < y) { x }
+if (x < y) { x } else { y }
+`
+	type TestCase struct {
+		condition      string
+		consequence    string
+		hasAlternative bool
+		alternative    string
+	}
+
+	testCases := []TestCase{
+		{"(x < y)", "x", false, ""},
+		{"(x < y)", "x", true, "y"},
+	}
+
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
+		assert.Equal(t, "if", s.TokenLiteral())
+
+		exprStmt := castAssert[ast.ExpressionStatement](t, s)
+		ifExpr := castAssert[ast.IfExpression](t,exprStmt.Expression)
+
+		assert.Equal(t, testCase.condition, ifExpr.Condition.String())
+		assert.Equal(t, testCase.consequence, ifExpr.Consequence.String())
+		if testCase.hasAlternative {
+			assert.NotNil(t, ifExpr.Alternative)
+			assert.Equal(t, testCase.alternative, ifExpr.Alternative.String())
+		}
+	})
+}
