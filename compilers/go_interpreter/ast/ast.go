@@ -91,9 +91,9 @@ type ExpressionStatement struct {
 func (s *ExpressionStatement) TokenLiteral() string { return s.Token.Literal }
 
 func (s *ExpressionStatement) String() string {
-    if s.Expression == nil {
-        return ""
-    }
+	if s.Expression == nil {
+		return ""
+	}
 	return fmt.Sprintf("%s", s.Expression.String())
 }
 
@@ -111,13 +111,22 @@ func (s *IntegerLiteral) String() string {
 }
 func (s *IntegerLiteral) expressionNode() {}
 
+type BooleanLiteral struct {
+	Token token.Token
+	Value bool
+}
+
+func (s *BooleanLiteral) TokenLiteral() string { return s.Token.Literal }
+func (s *BooleanLiteral) String() string  { return s.Token.Literal }
+func (s *BooleanLiteral) expressionNode() {}
+
 type PrefixExpression struct {
 	Token    token.Token
 	Operator string
 	Right    Expression
 }
 
-func (s *PrefixExpression) expressionNode()      {}
+func (s *PrefixExpression) expressionNode() {}
 
 func (s *PrefixExpression) TokenLiteral() string { return s.Token.Literal }
 
@@ -127,12 +136,12 @@ func (s *PrefixExpression) String() string {
 
 type InfixExpression struct {
 	Token    token.Token
-    Left Expression
+	Left     Expression
 	Operator string
 	Right    Expression
 }
 
-func (s *InfixExpression) expressionNode()      {}
+func (s *InfixExpression) expressionNode() {}
 
 func (s *InfixExpression) TokenLiteral() string { return s.Token.Literal }
 

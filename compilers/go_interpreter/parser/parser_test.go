@@ -16,9 +16,9 @@ func parseProgramAndAssert(t *testing.T, input string) (*ast.Program, *Parser) {
 	program := p.ParseProgram()
 	assert.NotNil(t, program)
 	assertNoErrors(t, p)
-    if len(program.Statements) != lineCount{
-        fmt.Printf("%d, %s, %s, %v\n\n", lineCount, input, program.String(), program.Statements)
-    }
+	if len(program.Statements) != lineCount {
+		fmt.Printf("%d, %s, %s, %v\n\n", lineCount, input, program.String(), program.Statements)
+	}
 	assert.Len(t, program.Statements, lineCount)
 	return program, p
 }
@@ -88,19 +88,35 @@ func TestIntegerExpressions(t *testing.T) {
 	})
 }
 
+func TestBooleanExpressions(t *testing.T) {
+	input := `true;
+false;
+    `
+	testCases := []bool{true, false}
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase bool, s ast.Statement) {
+		exprStmt := castAssert[ast.ExpressionStatement](t, s)
+		boolLiteral := castAssert[ast.BooleanLiteral](t, exprStmt.Expression)
+		assert.Equal(t, testCase, boolLiteral.Value)
+	})
+}
+
 func TestPrefixExpressions(t *testing.T) {
 	input := `
 !5;
 -10;
+!true;
+!false;
 `
 	type TestCase struct {
 		operator string
-		number   int64
+		value   interface{}
 	}
 
 	testCases := []TestCase{
 		{"!", 5},
 		{"-", 10},
+		{"!", true},
+		{"!", false},
 	}
 
 	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
@@ -108,8 +124,7 @@ func TestPrefixExpressions(t *testing.T) {
 		prefixExpr := castAssert[ast.PrefixExpression](t, expr.Expression)
 		assert.Equal(t, testCase.operator, prefixExpr.Operator)
 
-		intLit := castAssert[ast.IntegerLiteral](t, prefixExpr.Right)
-		assert.Equal(t, testCase.number, intLit.Value)
+		testLiteralExpression(t, prefixExpr.Right, testCase.value)
 	})
 }
 
@@ -123,10 +138,12 @@ func TestInfixExpressions(t *testing.T) {
 5<5;
 5==5;
 5!=5;
+true == false;
+true != false;
 `
 	type TestCase struct {
-		left     int64
-		right    int64
+		left     interface{}
+		right    interface{}
 		operator string
 	}
 
@@ -139,6 +156,8 @@ func TestInfixExpressions(t *testing.T) {
 		{5, 5, "<"},
 		{5, 5, "=="},
 		{5, 5, "!="},
+		{true, false, "=="},
+		{true, false, "!="},
 	}
 
 	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
@@ -146,11 +165,20 @@ func TestInfixExpressions(t *testing.T) {
 		infixExpr := castAssert[ast.InfixExpression](t, expr.Expression)
 		assert.Equal(t, testCase.operator, infixExpr.Operator)
 
-		left := castAssert[ast.IntegerLiteral](t, infixExpr.Left)
-		right := castAssert[ast.IntegerLiteral](t, infixExpr.Right)
-		assert.Equal(t, testCase.left, left.Value)
-		assert.Equal(t, testCase.right, right.Value)
+		testLiteralExpression(t, infixExpr.Left, testCase.left)
+		testLiteralExpression(t, infixExpr.Right, testCase.right)
 	})
+}
+
+func testLiteralExpression(t *testing.T, expr ast.Expression, expected interface{}) {
+	switch v := expected.(type) {
+	case int:
+		intLit := castAssert[ast.IntegerLiteral](t, expr)
+		assert.Equal(t, int64(v), intLit.Value)
+	case bool:
+		boolLit := castAssert[ast.BooleanLiteral](t, expr)
+		assert.Equal(t, bool(v), boolLit.Value)
+	}
 }
 
 func TestOperatorPrecedenceParsing(t *testing.T) {
@@ -161,6 +189,10 @@ func TestOperatorPrecedenceParsing(t *testing.T) {
 		{
 			"-a * b",
 			"((-a) * b)",
+		},
+		{
+			"1 + 2 * 3",
+			"(1 + (2 * 3))",
 		},
 		{
 			"!-a",
@@ -210,13 +242,21 @@ func TestOperatorPrecedenceParsing(t *testing.T) {
 			"3 + 4 * 5 == 3 * 1 + 4 * 5",
 			"((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
 		},
+		{
+			"3 > 5 == true",
+			"((3 > 5) == true)",
+		},
+		{
+			"3 == 5 != false",
+			"((3 == 5) != false)",
+		},
 	}
 
-    for _, testCase := range tests {
-        program, _ := parseProgramAndAssert(t, testCase.input)
-        actual := program.String()
-        assert.Equal(t, testCase.expected, actual)
-    }
+	for _, testCase := range tests {
+		program, _ := parseProgramAndAssert(t, testCase.input)
+		actual := program.String()
+		assert.Equal(t, testCase.expected, actual)
+	}
 }
 
 func TestLetStatementErrors(t *testing.T) {
@@ -229,7 +269,6 @@ let  = 10;
 
 	program := p.ParseProgram()
 	assert.NotNil(t, program)
-    fmt.Println(program.Statements)
 	assert.Len(t, p.errors, 3)
 	assert.Equal(t, "Expect next token to be =. Found INT", p.errors[0])
 	assert.Equal(t, "Expect next token to be IDENT. Found =", p.errors[1])
