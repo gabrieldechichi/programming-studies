@@ -7,20 +7,33 @@ import rl "vendor:raylib"
 
 GROUND_LEVEL :: -20
 GRAVITY :: 2000
+TERMINA_VELOCITY :: 500
 
 World :: struct {
-	players: #soa[dynamic]Player,
+	debug_draw:     bool,
+	players:        #soa[dynamic]Player,
+	platforms:      #soa[dynamic]Platform,
+	debug_graphics: #soa[dynamic]DebugGraphics,
+}
+
+DebugGraphics :: struct {
+	position:       Position,
+	using graphics: Graphics,
 }
 
 Entity :: struct {
-	id:       u32,
-	position: rl.Vector2,
+	id: u32,
+}
+
+Position :: struct {
+	using value: rl.Vector2,
 }
 
 Graphics :: struct {
 	variant: union {
 		GraphicsNone,
 		GraphicsRect,
+		GraphicsWireRect,
 		game.SpriteAnimation,
 	},
 }
@@ -38,11 +51,56 @@ PlayerAnimations :: struct {
 Player :: struct {
 	using graphics: Graphics,
 	using entity:   Entity,
+	using position: Position,
 	velocity:       rl.Vector2,
 	movement_speed: f32,
 	jump_speed:     f32,
 	grounded:       bool,
+	collider:       Collider,
 	animations:     PlayerAnimations,
+}
+
+Collider :: struct {
+	variant: union {
+		RectCollider,
+	},
+}
+
+RectCollider :: struct {
+	using center:  rl.Vector2,
+	width, height: f32,
+}
+
+rect_center_to_leftcorner :: proc(x, y, width, height: f32) -> (f32, f32) {
+	return (x - width / 2), (y - height / 2)
+}
+rect_leftcorner_to_center :: proc(x, y, width, height: f32) -> (f32, f32) {
+	return (x + width / 2), (y + height / 2)
+}
+
+collider_get_raylib_rect :: proc(
+	pos: rl.Vector2,
+	rect_col: RectCollider,
+) -> rl.Rectangle {
+	x, y := rect_center_to_leftcorner(
+		pos.x - rect_col.center.x,
+		pos.y - rect_col.center.y,
+		rect_col.width,
+		rect_col.height,
+	)
+	return rl.Rectangle {
+		width = rect_col.width,
+		height = rect_col.height,
+		x = x,
+		y = y,
+	}
+}
+
+Platform :: struct {
+	using entity:   Entity,
+	using graphics: Graphics,
+	position:       Position,
+	collider:       Collider,
 }
 
 GraphicsNone :: struct {}
@@ -53,7 +111,18 @@ GraphicsRect :: struct {
 	color:  rl.Color,
 }
 
-player_update :: proc(players: #soa[]Player) {
+GraphicsWireRect :: struct {
+	width:          f32,
+	height:         f32,
+	color:          rl.Color,
+	line_thickness: f32,
+}
+
+player_update :: proc(
+	players: #soa[]Player,
+	platforms: #soa[]Platform,
+	debug_graphics: ^#soa[dynamic]DebugGraphics,
+) {
 	dt := rl.GetFrameTime()
 	for &player in players {
 		flip_x: Maybe(bool)
@@ -77,11 +146,49 @@ player_update :: proc(players: #soa[]Player) {
 
 		//"physics"
 		{
-			using player.entity
 			player.velocity.y -= GRAVITY * dt
-			position += player.velocity * dt
-			position.y = math.max(position.y, GROUND_LEVEL)
-			player.grounded = position.y <= GROUND_LEVEL
+			player.position.value += player.velocity * dt
+			player.velocity.y = math.max(player.velocity.y, -TERMINA_VELOCITY)
+			// position.y = math.max(position.y, GROUND_LEVEL)
+			player.grounded = false
+
+			player_rect_collider := player.collider.variant.(RectCollider)
+			for platform in platforms {
+				intersect := rl.GetCollisionRec(
+					collider_get_raylib_rect(
+						player.position,
+						player_rect_collider,
+					),
+					collider_get_raylib_rect(
+						platform.position,
+						platform.collider.variant.(RectCollider),
+					),
+				)
+				if intersect.height != 0 {
+					cx, cy := rect_leftcorner_to_center(
+						intersect.x,
+						intersect.y,
+						intersect.width,
+						intersect.height,
+					)
+					append_soa(
+						debug_graphics,
+						DebugGraphics {
+							position = {value = {cx, cy}},
+							graphics = {
+								GraphicsWireRect {
+									width = intersect.width,
+									height = intersect.height,
+									line_thickness = 3,
+									color = rl.MAGENTA,
+								},
+							},
+						},
+					)
+					player.grounded = true
+					player.position.y += intersect.height
+				}
+			}
 		}
 
 		//graphics
@@ -129,89 +236,151 @@ animation_update :: proc(animations: []Graphics) {
 }
 
 world_update :: proc(world: ^World) {
-	player_update(world.players[:])
+	player_update(world.players[:], world.platforms[:], &world.debug_graphics)
 	animation_update(world.players.graphics[:len(world.players)])
 }
 
 world_draw :: proc(viewport: game.Viewport2D, world: ^World) {
-	draw_entities_internal :: proc(
-		length: int,
-		graphics_ptr: [^]Graphics,
-		entity_ptr: [^]Entity,
-		viewport: game.Viewport2D,
-	) {
-		graphics_array := graphics_ptr[:length]
-		entitiy_array := entity_ptr[:length]
-		for &graphics_union, i in graphics_array {
-			position := entitiy_array[i].position
-			switch graphics in graphics_union.variant {
-			case GraphicsNone:
-			case GraphicsRect:
-				{
-					s := rl.Vector2{graphics.width, graphics.height}
-					p := game.rect_to_viewport(viewport, position, s)
-					rl.DrawRectangleV(p, s * viewport.scale, graphics.color)
-				}
-			case game.SpriteAnimation:
-				{
-					rect := game.sprite_sheet_get_rect(
-						graphics.sprite_sheet,
-						graphics.current,
-					)
-					p := game.rect_to_viewport(
-						viewport,
-						position,
-						graphics.size,
-					)
-					if graphics.flip_x {rect.width *= -1}
-					rl.DrawTexturePro(
-						graphics.sprite_sheet.texture,
-						rect,
-						rl.Rectangle {
-							x = p.x,
-							y = p.y,
-							width = graphics.size.x,
-							height = graphics.size.y,
-						},
-						0,
-						0,
-						rl.WHITE,
-					)
-				}
-			}
-		}
-	}
+	draw_entities(
+		len(world.platforms),
+		world.platforms.graphics,
+		world.platforms.position,
+		viewport,
+	)
 
-	draw_entities_internal(
+	draw_entities(
 		len(world.players),
 		world.players.graphics,
-		world.players.entity,
+		world.players.position,
 		viewport,
+	)
+
+	if world.debug_draw {
+		debug_draw_colliders(
+			viewport,
+			len(world.players),
+			world.players.collider,
+			world.players.position,
+		)
+
+		debug_draw_colliders(
+			viewport,
+			len(world.platforms),
+			world.platforms.collider,
+			world.platforms.position,
+		)
+
+		draw_entities(
+			len(world.debug_graphics),
+			world.debug_graphics.graphics,
+			world.debug_graphics.position,
+			viewport,
+		)
+		clear_soa(&world.debug_graphics)
+
+		rl.DrawFPS(10, 10)
+	}
+}
+
+graphics_draw_rect_wired :: proc(
+	viewport: game.Viewport2D,
+	position: rl.Vector2,
+	graphics: GraphicsWireRect,
+) {
+	s := rl.Vector2{graphics.width, graphics.height}
+	p := game.rect_to_viewport(viewport, position, s)
+	rl.DrawRectangleLinesEx(
+		rl.Rectangle {
+			x = p.x,
+			y = p.y,
+			width = s.x * viewport.scale,
+			height = s.y * viewport.scale,
+		},
+		graphics.line_thickness,
+		graphics.color,
 	)
 }
 
-new_entity :: proc(world: ^World, $T: typeid, entity: T) -> (u32, bool) {
-	entity := entity
-	@(static)
-	id: u32 = 0
-	id += 1
-	entity.id = id
-
-	switch typeid_of(T) {
-	case typeid_of(Player):
-		{
-			append_soa(&world.players, entity)
-			return id, true
-		}
-	case:
-		{
-			id -= 1
-			return id, false
+draw_entities :: proc(
+	length: int,
+	graphics: [^]Graphics,
+	positions: [^]Position,
+	viewport: game.Viewport2D,
+) {
+	for i := 0; i < length; i += 1 {
+		position := positions[i].value
+		switch graphics in graphics[i].variant {
+		case GraphicsNone:
+		case GraphicsRect:
+			{
+				s := rl.Vector2{graphics.width, graphics.height}
+				p := game.rect_to_viewport(viewport, position, s)
+				rl.DrawRectangleV(p, s * viewport.scale, graphics.color)
+			}
+		case GraphicsWireRect:
+			graphics_draw_rect_wired(viewport, position, graphics)
+		case game.SpriteAnimation:
+			{
+				rect := game.sprite_sheet_get_rect(
+					graphics.sprite_sheet,
+					graphics.current,
+				)
+				p := game.rect_to_viewport(viewport, position, graphics.size)
+				if graphics.flip_x {rect.width *= -1}
+				rl.DrawTexturePro(
+					graphics.sprite_sheet.texture,
+					rect,
+					rl.Rectangle {
+						x = p.x,
+						y = p.y,
+						width = graphics.size.x,
+						height = graphics.size.y,
+					},
+					0,
+					0,
+					rl.WHITE,
+				)
+			}
 		}
 	}
 }
 
+debug_draw_colliders :: proc(
+	viewport: game.Viewport2D,
+	len: int,
+	colliders: [^]Collider,
+	positions: [^]Position,
+) {
+	for i := 0; i < len; i += 1 {
+		pos := positions[i].value
+		collider := colliders[i]
+		switch col in collider.variant {
+		case RectCollider:
+			{
+				graphics_draw_rect_wired(
+					viewport,
+					pos - col.center,
+					GraphicsWireRect {
+						width = col.width,
+						height = col.height,
+						color = rl.GREEN,
+						line_thickness = 1,
+					},
+				)
+			}
+		}
+	}
+}
+
+get_entity_id :: proc() -> u32 {
+	@(static)
+	id: u32 = 0
+	id += 1
+	return id
+}
+
 create_player :: proc() -> Player {
+	PLAYER_SIZE :: rl.Vector2{16 * 4, 16 * 4}
 	create_anim :: proc(
 		name: PlayerAnimationName,
 		path: string,
@@ -220,7 +389,7 @@ create_player :: proc() -> Player {
 		end: u32 = 0,
 		fps: u8 = 12,
 	) -> game.SpriteAnimation {
-			end := end
+		end := end
 		if end == 0 {
 			end = rows * columns - 1
 		}
@@ -231,7 +400,7 @@ create_player :: proc() -> Player {
 				row_count = rows,
 				column_count = columns,
 			),
-			size = rl.Vector2{50, 50},
+			size = PLAYER_SIZE,
 			fps = fps,
 			start = start,
 			end = end,
@@ -258,14 +427,33 @@ create_player :: proc() -> Player {
 	}
 
 	return Player {
-		position = {0, GROUND_LEVEL},
+		id = get_entity_id(),
+		position = {GROUND_LEVEL},
 		movement_speed = 200,
 		jump_speed = 700,
 		grounded = true,
 		variant = player_animations.idle,
 		animations = player_animations,
+		collider = Collider {
+			RectCollider {
+				center = {0, 5},
+				width = PLAYER_SIZE.x - 10,
+				height = PLAYER_SIZE.y - 20,
+			},
+		},
 	}
+}
 
+create_platform :: proc(
+	pos: rl.Vector2 = {0, 0},
+	width, height: f32,
+) -> Platform {
+	return Platform {
+		id = get_entity_id(),
+		position = {pos},
+		variant = GraphicsRect{width = width, height = height, color = rl.RED},
+		collider = Collider{RectCollider{width = width, height = height}},
+	}
 }
 
 main :: proc() {
@@ -283,19 +471,60 @@ main :: proc() {
 	rl.SetTargetFPS(60)
 
 	world := new(World)
+	world.debug_graphics = make_soa(
+		#soa[dynamic]DebugGraphics,
+		context.temp_allocator,
+	)
+
 	defer free(world)
 
-	new_entity(world, Player, create_player())
+	append_soa(&world.players, create_player())
+	append_soa(
+		&world.platforms,
+		create_platform(
+			pos = {0, -viewport.height / 2 + 40},
+			width = 150,
+			height = 40,
+		),
+	)
+	append_soa(
+		&world.platforms,
+		create_platform(
+			pos = {200, -viewport.height / 2 + 40},
+			width = 150,
+			height = 40,
+		),
+	)
+	append_soa(
+		&world.platforms,
+		create_platform(
+			pos = {-200, -viewport.height / 2 + 40},
+			width = 150,
+			height = 40,
+		),
+	)
 
 	for !rl.WindowShouldClose() {
-		if rl.IsKeyPressed(rl.KeyboardKey.ESCAPE) {
-			break
+		defer free_all(context.temp_allocator)
+
+		//simulation
+		{
+			if rl.IsKeyPressed(rl.KeyboardKey.ESCAPE) {
+				break
+			}
+
+			if rl.IsKeyPressed(rl.KeyboardKey.F11) {
+				world.debug_draw = !world.debug_draw
+			}
+			world_update(world)
 		}
-		world_update(world)
-		world_draw(viewport, world)
-		rl.BeginDrawing()
-		rl.ClearBackground(rl.BLACK)
-		rl.EndDrawing()
-		free_all(context.temp_allocator)
+
+		//render
+		{
+			rl.BeginDrawing()
+			rl.ClearBackground(rl.BLACK)
+			world_draw(viewport, world)
+			rl.EndDrawing()
+		}
 	}
 }
