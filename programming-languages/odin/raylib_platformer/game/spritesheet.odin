@@ -1,30 +1,30 @@
 package game
+import "../lib"
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
 
+TextureHandle :: struct {
+	texture:   rl.Texture2D `json:ignore`,
+	file_path: lib.FixedString,
+}
+
 SpriteSheet :: struct {
-	texture:      rl.Texture2D,
+	using handle: TextureHandle,
 	rect_size:    rl.Vector2,
 	row_count:    u32,
 	column_count: u32,
 }
 
-sprite_sheet_new_path :: proc(
+sprite_sheet_new :: proc(
 	file_path: string,
 	row_count, column_count: u32,
 ) -> SpriteSheet {
 	cfile_path := strings.clone_to_cstring(file_path, context.temp_allocator)
 	tex := rl.LoadTexture(cfile_path)
-	return sprite_sheet_new_tex(tex, row_count, column_count)
-}
-
-sprite_sheet_new_tex :: proc(
-	tex: rl.Texture2D,
-	row_count, column_count: u32,
-) -> SpriteSheet {
 	return SpriteSheet {
 		texture = tex,
+		file_path = lib.fixedstring_from_string_copy(file_path),
 		row_count = row_count,
 		column_count = column_count,
 		rect_size = rl.Vector2 {
@@ -32,11 +32,6 @@ sprite_sheet_new_tex :: proc(
 			auto_cast (u32(tex.height) / row_count),
 		},
 	}
-}
-
-sprite_sheet_new :: proc {
-	sprite_sheet_new_tex,
-	sprite_sheet_new_path,
 }
 
 sprite_sheet_get_rect_row_column :: proc(
