@@ -21,6 +21,7 @@ Graphics :: struct {
 	variant: union {
 		GraphicsNone,
 		GraphicsRect,
+		SpriteAnimation,
 	},
 }
 
@@ -41,17 +42,29 @@ GraphicsRect :: struct {
 	color:  rl.Color,
 }
 
+SpriteAnimation :: struct {
+	sprite_sheet:        game.SpriteSheet,
+	size:                rl.Vector2,
+	flip_x:              bool,
+	fps:                 u8,
+	timer:               f32,
+	start, end, current: u32,
+}
+
 player_update :: proc(players: #soa[]Player) {
 	dt := rl.GetFrameTime()
 	for &player in players {
+		flip_x: Maybe(bool)
 		//input
 		{
 			player.velocity.x = 0
 			if rl.IsKeyDown(rl.KeyboardKey.A) {
 				player.velocity.x = -player.movement_speed
+				flip_x = true
 			}
 			if rl.IsKeyDown(rl.KeyboardKey.D) {
 				player.velocity.x = player.movement_speed
+				flip_x = false
 			}
 
 			if player.grounded && rl.IsKeyPressed(rl.KeyboardKey.SPACE) {
@@ -68,11 +81,38 @@ player_update :: proc(players: #soa[]Player) {
 			position.y = math.max(position.y, GROUND_LEVEL)
 			player.grounded = position.y <= GROUND_LEVEL
 		}
+
+		if f, ok := flip_x.?; ok {
+			#partial switch &graphics in player.graphics.variant {
+			case SpriteAnimation:
+				graphics.flip_x = f
+			}
+		}
+	}
+}
+
+animation_update :: proc(animations: []Graphics) {
+	dt := rl.GetFrameTime()
+	for &gu in animations {
+		#partial switch &anim in gu.variant {
+		case SpriteAnimation:
+			{
+				anim.timer += dt
+				if anim.timer > 1.0 / f32(anim.fps) {
+					anim.timer = 0
+					anim.current += 1
+					if anim.current > anim.end {
+						anim.current = anim.start
+					}
+				}
+			}
+		}
 	}
 }
 
 world_update :: proc(world: ^World) {
 	player_update(world.players[:])
+	animation_update(world.players.graphics[:len(world.players)])
 }
 
 world_draw :: proc(viewport: game.Viewport2D, world: ^World) {
@@ -93,6 +133,32 @@ world_draw :: proc(viewport: game.Viewport2D, world: ^World) {
 					s := rl.Vector2{graphics.width, graphics.height}
 					p := game.rect_to_viewport(viewport, position, s)
 					rl.DrawRectangleV(p, s * viewport.scale, graphics.color)
+				}
+			case SpriteAnimation:
+				{
+					rect := game.sprite_sheet_get_rect(
+						graphics.sprite_sheet,
+						graphics.current,
+					)
+					p := game.rect_to_viewport(
+						viewport,
+						position,
+						graphics.size,
+					)
+					if graphics.flip_x {rect.width *= -1}
+					rl.DrawTexturePro(
+						graphics.sprite_sheet.texture,
+						rect,
+						rl.Rectangle {
+							x = p.x,
+							y = p.y,
+							width = graphics.size.x,
+							height = graphics.size.y,
+						},
+						0,
+						0,
+						rl.WHITE,
+					)
 				}
 			}
 		}
@@ -134,20 +200,6 @@ main :: proc() {
 		scale  = 1,
 	}
 
-	world := World{}
-
-	player_id, _ := new_entity(
-		&world,
-		Player,
-		Player {
-			position = {0, GROUND_LEVEL},
-			movement_speed = 200,
-			jump_speed = 700,
-			grounded = true,
-			variant = GraphicsRect{width = 50, height = 50, color = rl.BLUE},
-		},
-	)
-
 	rl.InitWindow(
 		auto_cast viewport.width,
 		auto_cast viewport.height,
@@ -155,14 +207,42 @@ main :: proc() {
 	)
 	rl.SetTargetFPS(60)
 
+	world := new(World)
+	defer free(world)
+
+	player_id, _ := new_entity(
+		world,
+		Player,
+		Player {
+			position = {0, GROUND_LEVEL},
+			movement_speed = 200,
+			jump_speed = 700,
+			grounded = true,
+			variant = SpriteAnimation {
+				sprite_sheet = game.sprite_sheet_new(
+					"./assets/animations/cat_run.png",
+					row_count = 1,
+					column_count = 4,
+				),
+				size = rl.Vector2{50, 50},
+				fps = 12,
+				start = 0,
+				end = 3,
+				current = 0,
+			},
+		},
+	)
+
+
 	for !rl.WindowShouldClose() {
 		if rl.IsKeyPressed(rl.KeyboardKey.ESCAPE) {
 			break
 		}
-		world_update(&world)
-		world_draw(viewport, &world)
+		world_update(world)
+		world_draw(viewport, world)
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.BLACK)
 		rl.EndDrawing()
+		free_all(context.temp_allocator)
 	}
 }
