@@ -39,8 +39,9 @@ Graphics :: struct {
 }
 
 PlayerAnimationName :: enum u32 {
-	Idle = 0,
-	Run  = 1,
+	None = 0,
+	Idle = 1,
+	Run  = 2,
 }
 
 PlayerAnimations :: struct {
@@ -451,7 +452,17 @@ create_platform :: proc(
 	return Platform {
 		id = get_entity_id(),
 		position = {pos},
-		variant = GraphicsRect{width = width, height = height, color = rl.RED},
+		// variant = GraphicsRect{width = width, height = height, color = rl.RED},
+		variant = game.SpriteAnimation {
+			name = auto_cast PlayerAnimationName.None,
+			sprite_sheet = game.sprite_sheet_new_path(
+				"./assets/animations/platform.png",
+				row_count = 1,
+				column_count = 1,
+			),
+			size = {width, height},
+			fps = 1,
+		},
 		collider = Collider{RectCollider{width = width, height = height}},
 	}
 }
