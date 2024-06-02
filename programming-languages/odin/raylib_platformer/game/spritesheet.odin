@@ -10,14 +10,19 @@ SpriteSheet :: struct {
 	column_count: u32,
 }
 
-sprite_sheet_new :: proc(
+sprite_sheet_new_path :: proc(
 	file_path: string,
 	row_count, column_count: u32,
 ) -> SpriteSheet {
 	cfile_path := strings.clone_to_cstring(file_path, context.temp_allocator)
 	tex := rl.LoadTexture(cfile_path)
-	fmt.println(tex)
+	return sprite_sheet_new_tex(tex, row_count, column_count)
+}
 
+sprite_sheet_new_tex :: proc(
+	tex: rl.Texture2D,
+	row_count, column_count: u32,
+) -> SpriteSheet {
 	return SpriteSheet {
 		texture = tex,
 		row_count = row_count,
@@ -27,6 +32,11 @@ sprite_sheet_new :: proc(
 			auto_cast (u32(tex.height) / row_count),
 		},
 	}
+}
+
+sprite_sheet_new :: proc {
+	sprite_sheet_new_tex,
+	sprite_sheet_new_path,
 }
 
 sprite_sheet_get_rect_row_column :: proc(
@@ -56,4 +66,14 @@ sprite_sheet_get_rect_index :: proc(
 sprite_sheet_get_rect :: proc {
 	sprite_sheet_get_rect_index,
 	sprite_sheet_get_rect_row_column,
+}
+
+SpriteAnimation :: struct {
+	name:                u32,
+	sprite_sheet:        SpriteSheet,
+	size:                rl.Vector2,
+	flip_x:              bool,
+	fps:                 u8,
+	timer:               f32,
+	start, end, current: u32,
 }

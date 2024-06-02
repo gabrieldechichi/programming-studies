@@ -21,8 +21,18 @@ Graphics :: struct {
 	variant: union {
 		GraphicsNone,
 		GraphicsRect,
-		SpriteAnimation,
+		game.SpriteAnimation,
 	},
+}
+
+PlayerAnimationName :: enum u32 {
+	Idle = 0,
+	Run  = 1,
+}
+
+PlayerAnimations :: struct {
+	idle: game.SpriteAnimation,
+	run:  game.SpriteAnimation,
 }
 
 Player :: struct {
@@ -32,6 +42,7 @@ Player :: struct {
 	movement_speed: f32,
 	jump_speed:     f32,
 	grounded:       bool,
+	animations:     PlayerAnimations,
 }
 
 GraphicsNone :: struct {}
@@ -40,15 +51,6 @@ GraphicsRect :: struct {
 	width:  f32,
 	height: f32,
 	color:  rl.Color,
-}
-
-SpriteAnimation :: struct {
-	sprite_sheet:        game.SpriteSheet,
-	size:                rl.Vector2,
-	flip_x:              bool,
-	fps:                 u8,
-	timer:               f32,
-	start, end, current: u32,
 }
 
 player_update :: proc(players: #soa[]Player) {
@@ -82,10 +84,26 @@ player_update :: proc(players: #soa[]Player) {
 			player.grounded = position.y <= GROUND_LEVEL
 		}
 
-		if f, ok := flip_x.?; ok {
-			#partial switch &graphics in player.graphics.variant {
-			case SpriteAnimation:
-				graphics.flip_x = f
+		//graphics
+		{
+			using player.graphics
+			using PlayerAnimationName
+
+			#partial switch &graphics in variant {
+			case game.SpriteAnimation:
+				flip_x, is_moving := flip_x.?
+				if is_moving {
+					graphics.flip_x = flip_x
+				}
+				flip_x = graphics.flip_x
+				if is_moving && graphics.name != auto_cast Run {
+					player.graphics.variant = player.animations.run
+					graphics.current = graphics.start
+				} else if !is_moving && graphics.name != auto_cast Idle {
+					player.graphics.variant = player.animations.idle
+					graphics.current = graphics.start
+				}
+				graphics.flip_x = flip_x
 			}
 		}
 	}
@@ -95,7 +113,7 @@ animation_update :: proc(animations: []Graphics) {
 	dt := rl.GetFrameTime()
 	for &gu in animations {
 		#partial switch &anim in gu.variant {
-		case SpriteAnimation:
+		case game.SpriteAnimation:
 			{
 				anim.timer += dt
 				if anim.timer > 1.0 / f32(anim.fps) {
@@ -134,7 +152,7 @@ world_draw :: proc(viewport: game.Viewport2D, world: ^World) {
 					p := game.rect_to_viewport(viewport, position, s)
 					rl.DrawRectangleV(p, s * viewport.scale, graphics.color)
 				}
-			case SpriteAnimation:
+			case game.SpriteAnimation:
 				{
 					rect := game.sprite_sheet_get_rect(
 						graphics.sprite_sheet,
@@ -193,6 +211,63 @@ new_entity :: proc(world: ^World, $T: typeid, entity: T) -> (u32, bool) {
 	}
 }
 
+create_player :: proc() -> Player {
+	create_anim :: proc(
+		name: PlayerAnimationName,
+		path: string,
+		rows, columns: u32,
+		start: u32 = 0,
+		end: u32 = 0,
+		fps: u8 = 12,
+	) -> game.SpriteAnimation {
+			end := end
+		if end == 0 {
+			end = rows * columns - 1
+		}
+		return game.SpriteAnimation {
+			name = auto_cast name,
+			sprite_sheet = game.sprite_sheet_new_path(
+				path,
+				row_count = rows,
+				column_count = columns,
+			),
+			size = rl.Vector2{50, 50},
+			fps = fps,
+			start = start,
+			end = end,
+			current = start,
+		}
+	}
+
+	using PlayerAnimationName
+
+	player_animations := PlayerAnimations {
+		idle = create_anim(
+			Idle,
+			"./assets/animations/cat_idle.png",
+			rows = 1,
+			columns = 2,
+			fps = 3,
+		),
+		run  = create_anim(
+			Run,
+			"./assets/animations/cat_run.png",
+			rows = 1,
+			columns = 4,
+		),
+	}
+
+	return Player {
+		position = {0, GROUND_LEVEL},
+		movement_speed = 200,
+		jump_speed = 700,
+		grounded = true,
+		variant = player_animations.idle,
+		animations = player_animations,
+	}
+
+}
+
 main :: proc() {
 	viewport := game.Viewport2D {
 		width  = 1280,
@@ -210,29 +285,7 @@ main :: proc() {
 	world := new(World)
 	defer free(world)
 
-	player_id, _ := new_entity(
-		world,
-		Player,
-		Player {
-			position = {0, GROUND_LEVEL},
-			movement_speed = 200,
-			jump_speed = 700,
-			grounded = true,
-			variant = SpriteAnimation {
-				sprite_sheet = game.sprite_sheet_new(
-					"./assets/animations/cat_run.png",
-					row_count = 1,
-					column_count = 4,
-				),
-				size = rl.Vector2{50, 50},
-				fps = 12,
-				start = 0,
-				end = 3,
-				current = 0,
-			},
-		},
-	)
-
+	new_entity(world, Player, create_player())
 
 	for !rl.WindowShouldClose() {
 		if rl.IsKeyPressed(rl.KeyboardKey.ESCAPE) {
