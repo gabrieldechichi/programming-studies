@@ -1,12 +1,13 @@
-package game
-import "../lib"
+package sprites
+
+import "../../lib/fixed_string"
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
 
 TextureHandle :: struct {
 	texture:   rl.Texture2D `json:ignore`,
-	file_path: lib.FixedString64,
+	file_path: fixed_string.FixedString64,
 }
 
 SpriteSheet :: struct {
@@ -24,7 +25,7 @@ sprite_sheet_new :: proc(
 	tex := rl.LoadTexture(cfile_path)
 	return SpriteSheet {
 		texture = tex,
-		file_path = lib.fixedstring64_from_string_copy(file_path),
+		file_path = fixed_string.new_from_string_64(file_path),
 		row_count = row_count,
 		column_count = column_count,
 		rect_size = rl.Vector2 {

@@ -8,7 +8,8 @@ import "core:os"
 import "core:reflect"
 import "core:strings"
 import "game"
-import "lib"
+import sprites "game/sprites"
+import "lib/fixed_string"
 import rl "vendor:raylib"
 
 GROUND_LEVEL :: -20
@@ -49,14 +50,14 @@ PlayerAnimationName :: enum u32 {
 }
 
 PlayerAnimations :: struct {
-	idle: game.SpriteAnimation,
-	run:  game.SpriteAnimation,
+	idle: sprites.SpriteAnimation,
+	run:  sprites.SpriteAnimation,
 }
 
 Player :: struct {
 	using entity:   Entity,
 	using position: Position,
-	graphics:       game.SpriteAnimation,
+	graphics:       sprites.SpriteAnimation,
 	velocity:       rl.Vector2,
 	movement_speed: f32,
 	jump_speed:     f32,
@@ -78,7 +79,7 @@ RectCollider :: struct {
 
 Platform :: struct {
 	using entity: Entity,
-	graphics:     game.SpriteAnimation,
+	graphics:     sprites.SpriteAnimation,
 	position:     Position,
 	collider:     Collider2D,
 }
@@ -213,7 +214,7 @@ player_update :: proc(
 	}
 }
 
-animation_update :: proc(animations: []game.SpriteAnimation) {
+animation_update :: proc(animations: []sprites.SpriteAnimation) {
 	dt := rl.GetFrameTime()
 	for &anim in animations {
 		anim.timer += dt
@@ -293,11 +294,11 @@ graphics_draw_rect_wired :: proc(
 }
 
 graphics_draw_sprite_animation :: proc(
-	graphics: game.SpriteAnimation,
+	graphics: sprites.SpriteAnimation,
 	position: Position,
 	viewport: game.Viewport2D,
 ) {
-	rect := game.sprite_sheet_get_rect(graphics.sprite_sheet, graphics.current)
+	rect := sprites.sprite_sheet_get_rect(graphics.sprite_sheet, graphics.current)
 	p := game.rect_to_viewport(viewport, position, graphics.size)
 	if graphics.flip_x {rect.width *= -1}
 	rl.DrawTexturePro(
@@ -483,8 +484,8 @@ world_deserialize :: proc(world: ^World, bytes: []byte) {
 	delete_soa(world.platforms)
 	world.platforms = deserialize_soa(#soa[dynamic]Platform, bytes)
 	for &platform in world.platforms {
-		platform.graphics.sprite_sheet = game.sprite_sheet_new(
-			lib.fixedstring64_to_string(
+		platform.graphics.sprite_sheet = sprites.sprite_sheet_new(
+			fixed_string.to_string_64(
 				platform.graphics.sprite_sheet.file_path,
 				context.temp_allocator,
 			),
@@ -510,14 +511,14 @@ create_player :: proc() -> Player {
 		start: u32 = 0,
 		end: u32 = 0,
 		fps: u8 = 12,
-	) -> game.SpriteAnimation {
+	) -> sprites.SpriteAnimation {
 		end := end
 		if end == 0 {
 			end = rows * columns - 1
 		}
-		return game.SpriteAnimation {
+		return sprites.SpriteAnimation {
 			name = auto_cast name,
-			sprite_sheet = game.sprite_sheet_new(
+			sprite_sheet = sprites.sprite_sheet_new(
 				path,
 				row_count = rows,
 				column_count = columns,
@@ -573,9 +574,9 @@ create_platform :: proc(
 	return Platform {
 		id = get_entity_id(),
 		position = {pos},
-		graphics = game.SpriteAnimation {
+		graphics = sprites.SpriteAnimation {
 			name = auto_cast PlayerAnimationName.None,
-			sprite_sheet = game.sprite_sheet_new(
+			sprite_sheet = sprites.sprite_sheet_new(
 				"./assets/animations/platform.png",
 				row_count = 1,
 				column_count = 1,
