@@ -484,7 +484,7 @@ world_deserialize :: proc(world: ^World, bytes: []byte) {
 	world.platforms = deserialize_soa(#soa[dynamic]Platform, bytes)
 	for &platform in world.platforms {
 		platform.graphics.sprite_sheet = game.sprite_sheet_new(
-			lib.fixed_string_to_string(
+			lib.fixedstring64_to_string(
 				platform.graphics.sprite_sheet.file_path,
 				context.temp_allocator,
 			),
@@ -639,7 +639,7 @@ main :: proc() {
 
 	append_soa(&world.players, create_player())
 
-	load := false
+	load := true
 	if load {
 
 		if bytes, ok := os.read_entire_file_from_filename(

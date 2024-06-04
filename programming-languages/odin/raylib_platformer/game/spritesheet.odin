@@ -6,7 +6,7 @@ import rl "vendor:raylib"
 
 TextureHandle :: struct {
 	texture:   rl.Texture2D `json:ignore`,
-	file_path: lib.FixedString,
+	file_path: lib.FixedString64,
 }
 
 SpriteSheet :: struct {
@@ -24,7 +24,7 @@ sprite_sheet_new :: proc(
 	tex := rl.LoadTexture(cfile_path)
 	return SpriteSheet {
 		texture = tex,
-		file_path = lib.fixedstring_from_string_copy(file_path),
+		file_path = lib.fixedstring64_from_string_copy(file_path),
 		row_count = row_count,
 		column_count = column_count,
 		rect_size = rl.Vector2 {
