@@ -78,3 +78,79 @@ _to_string :: proc(
 	s := s
 	return strings.clone_from_bytes(s.chars[:s.len], allocator)
 }
+// Example User Formatter:
+// SomeType :: struct {
+//     value: int,
+// }
+// // Custom Formatter for SomeType
+@(private)
+_fixed_string_formatter :: proc(
+	$N: int,
+	fi: ^fmt.Info,
+	arg: any,
+	verb: rune,
+) -> bool {
+	m := cast(^FixedString(N))arg.data
+	s := _to_string(m^, context.temp_allocator)
+	defer delete(s, context.temp_allocator)
+	fmt.fmt_string(fi, s, verb)
+	return true
+}
+
+@(private)
+_fixed_string_formatter_16 :: proc(
+	fi: ^fmt.Info,
+	arg: any,
+	verb: rune,
+) -> bool {
+	return _fixed_string_formatter(16, fi, arg, verb)
+}
+@(private)
+_fixed_string_formatter_32 :: proc(
+	fi: ^fmt.Info,
+	arg: any,
+	verb: rune,
+) -> bool {
+	return _fixed_string_formatter(32, fi, arg, verb)
+}
+@(private)
+_fixed_string_formatter_64 :: proc(
+	fi: ^fmt.Info,
+	arg: any,
+	verb: rune,
+) -> bool {
+	return _fixed_string_formatter(64, fi, arg, verb)
+}
+@(private)
+_fixed_string_formatter_128 :: proc(
+	fi: ^fmt.Info,
+	arg: any,
+	verb: rune,
+) -> bool {
+	return _fixed_string_formatter(128, fi, arg, verb)
+}
+
+@(private)
+@(init)
+_register_formatters :: proc() {
+	if fmt._user_formatters == nil {
+		fmt.set_user_formatters(new(map[typeid]fmt.User_Formatter))
+	}
+
+	fmt.register_user_formatter(
+		type_info_of(FixedString128).id,
+		_fixed_string_formatter_128,
+	)
+	fmt.register_user_formatter(
+		type_info_of(FixedString64).id,
+		_fixed_string_formatter_64,
+	)
+	fmt.register_user_formatter(
+		type_info_of(FixedString32).id,
+		_fixed_string_formatter_32,
+	)
+	fmt.register_user_formatter(
+		type_info_of(FixedString16).id,
+		_fixed_string_formatter_16,
+	)
+}

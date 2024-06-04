@@ -298,7 +298,10 @@ graphics_draw_sprite_animation :: proc(
 	position: Position,
 	viewport: game.Viewport2D,
 ) {
-	rect := sprites.sprite_sheet_get_rect(graphics.sprite_sheet, graphics.current)
+	rect := sprites.sprite_sheet_get_rect(
+		graphics.sprite_sheet,
+		graphics.current,
+	)
 	p := game.rect_to_viewport(viewport, position, graphics.size)
 	if graphics.flip_x {rect.width *= -1}
 	rl.DrawTexturePro(
@@ -475,14 +478,9 @@ world_serialize :: proc(
 }
 
 world_deserialize :: proc(world: ^World, bytes: []byte) {
-	// delete_soa(world.platforms)
-	// world.platforms = mem.reinterpret_copy(
-	// 	#soa[dynamic]Platform,
-	// 	raw_data(bytes),
-	// )
-
 	delete_soa(world.platforms)
 	world.platforms = deserialize_soa(#soa[dynamic]Platform, bytes)
+	fmt.println(world.platforms)
 	for &platform in world.platforms {
 		platform.graphics.sprite_sheet = sprites.sprite_sheet_new(
 			fixed_string.to_string_64(
