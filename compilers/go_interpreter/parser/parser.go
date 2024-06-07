@@ -5,6 +5,7 @@ import (
 	"go_interpreter/ast"
 	"go_interpreter/lexer"
 	"go_interpreter/token"
+	"log"
 	"strconv"
 )
 
@@ -91,12 +92,16 @@ func (p *Parser) peekTokenIs(tokenType token.TokenType) bool {
 }
 
 func (p *Parser) registerPrefixParseFn(tokenType token.TokenType, parseFn prefixParseFn) {
-	//todo: validate?
+	if _, ok := p.prefixParseFunctions[tokenType]; ok {
+		log.Fatalf("prefixParseFn already registered for tokenType %s", tokenType)
+	}
 	p.prefixParseFunctions[tokenType] = parseFn
 }
 
 func (p *Parser) registerInfixParseFn(tokenType token.TokenType, parseFn infixParseFn) {
-	//todo: validate?
+	if _, ok := p.infixParseFunctions[tokenType]; ok {
+		log.Fatalf("prefixParseFn already registered for tokenType %s", tokenType)
+	}
 	p.infixParseFunctions[tokenType] = parseFn
 }
 
@@ -117,6 +122,7 @@ func (p *Parser) getPrefixParseFn(tokType token.TokenType) (prefixParseFn, bool)
 	fn, ok := p.prefixParseFunctions[tokType]
 	return fn, ok
 }
+
 func (p *Parser) getInfixParseFn(tokType token.TokenType) (infixParseFn, bool) {
 	//todo: switch case faster?
 	fn, ok := p.infixParseFunctions[tokType]
@@ -168,8 +174,9 @@ func (p *Parser) parseLetStatement() ast.Statement {
 
 	letStmt.Value = p.parseExpression(LOWEST)
 
-	if !p.expectPeek(token.SEMICOLON) {
-		return nil
+    //skip semicolon
+	if p.peekTokenIs(token.SEMICOLON) {
+		p.nextToken()
 	}
 	return &letStmt
 }
@@ -180,9 +187,11 @@ func (p *Parser) parseReturnStatemetn() ast.Statement {
 	p.nextToken()
 	retStm.Expression = p.parseExpression(LOWEST)
 
-	if !p.expectPeek(token.SEMICOLON) {
-		return nil
+    //skip semicolon
+	if p.peekTokenIs(token.SEMICOLON) {
+		p.nextToken()
 	}
+
 	return &retStm
 }
 
@@ -190,7 +199,8 @@ func (p *Parser) parseExpressionStatement() ast.Statement {
 	exprStmt := ast.ExpressionStatement{}
 	exprStmt.Token = p.curToken
 	exprStmt.Expression = p.parseExpression(LOWEST)
-	//skip semicolon (optional)
+
+	//skip semicolon
 	if p.peekTokenIs(token.SEMICOLON) {
 		p.nextToken()
 	}
@@ -366,4 +376,5 @@ func (p *Parser) parseExprInfixFunctionCall(lhs ast.Expression) ast.Expression {
 	}
 	return e
 }
+
 //

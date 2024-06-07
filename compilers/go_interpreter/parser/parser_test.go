@@ -59,12 +59,13 @@ let foobar = 838383;
 `
 	type TestCase struct {
 		expectedIdentifier string
+		expr               string
 	}
 
 	testCases := []TestCase{
-		{"x"},
-		{"y"},
-		{"foobar"},
+		{"x", "5"},
+		{"y", "10"},
+		{"foobar", "838383"},
 	}
 
 	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
@@ -74,7 +75,7 @@ let foobar = 838383;
 
 		assert.Equal(t, testCase.expectedIdentifier, letStatement.Identifier.TokenLiteral())
 
-		//todo: test expressions
+		assertCodeText(t, testCase.expr, letStatement.Value.String())
 	})
 }
 
@@ -297,45 +298,72 @@ let  = 10;
 func TestReturnStatements(t *testing.T) {
 	input := `
 return 5;
-return 10;
-return 993322;
+return x + 1;
+return x + y * 2;
+return add(1,2);
 `
-	p := New(lexer.New(input))
-
-	program := p.ParseProgram()
-	assert.NotNil(t, program)
-	assertNoErrors(t, p)
-	assert.Len(t, program.Statements, 3)
-
-	testCases := []struct {
-		// expectedIdentifier string
-	}{
-		{},
-		{},
-		{},
+	type TestCase struct {
+		expectedIdentifier string
 	}
 
-	//sanity check
-	assert.Equal(t, len(testCases), len(program.Statements))
-	for i, _ := range testCases {
-		s := program.Statements[i]
+	testCases := []TestCase{
+		{"5"},
+		{"(x+1)"},
+		{"(x + (y*2))"},
+		{"add(1,2)"},
+	}
+
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
 		assert.Equal(t, "return", s.TokenLiteral())
 
 		r := castAssert[ast.ReturnStatement](t, s)
-		_ = r
-		//TODO: test expressions
-	}
+		assertCodeText(t, testCase.expectedIdentifier, r.Expression.String())
+	})
 }
 
 func TestProgramToString(t *testing.T) {
-	input := "let x = 5;"
+	input := `
+let print = fn(v) {
+    log(v)
+};
+
+let x = 5;
+let y = 4;
+
+if (x > 5) {
+    print(y+x)
+} else {
+    print(1 + x * 5)
+}
+
+if (x < 5) {
+    print((y+x))
+}
+`
+	expected := `
+let print = fn(v) {
+    log(v)
+};
+
+let x = 5;
+let y = 4;
+
+if ((x > 5)) {
+    print((y+x))
+} else {
+    print((1 + (x * 5)))
+}
+
+if ((x < 5)) {
+    print((y+x))
+}
+    `
+
 	p := New(lexer.New(input))
 	program := p.ParseProgram()
 	assertNoErrors(t, p)
 	str := program.String()
-	//todo: expressions
-	_ = str
-	// assert.Equal(t, input, str)
+	assertCodeText(t, expected, str)
 }
 
 func TestIdentifierExpression(t *testing.T) {
@@ -421,7 +449,7 @@ fn(x, y, z) { return x + y + z; };
 }
 
 func cleanCodeString(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), "\t", ""), "\n", "")
+	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), "\t", ""), "\n", ""), ";", "")
 }
 
 func assertCodeText(t *testing.T, expected string, actual string) {

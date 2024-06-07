@@ -187,8 +187,9 @@ func (s *IfExpression) String() string {
 		out.WriteString("\n} else {\n")
 		out.WriteString(s.Alternative.String())
 		out.WriteString("\n}")
+	} else {
+		out.WriteString("\n}")
 	}
-	out.WriteString("\n}")
 	return out.String()
 }
 
