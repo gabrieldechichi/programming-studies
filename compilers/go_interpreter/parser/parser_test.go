@@ -276,7 +276,7 @@ func TestOperatorPrecedenceParsing(t *testing.T) {
 	for _, testCase := range tests {
 		program, _ := parseProgramAndAssert(t, testCase.input)
 		actual := program.String()
-		assert.Equal(t, testCase.expected, actual)
+		assertCodeText(t, testCase.expected, actual)
 	}
 }
 

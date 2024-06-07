@@ -3,12 +3,13 @@ package main
 import (
 	"fmt"
 	"go_interpreter/lexer"
+	"go_interpreter/parser"
 	"go_interpreter/repl"
-	"go_interpreter/token"
 	"os"
 )
 
 func main() {
+    // uglyTest()
     runRepl()
 }
 
@@ -28,7 +29,6 @@ let add = fn(x, y) {
 x + y;
 };
 let result = add(five, ten);
-!-/*5;
 5 < 10 > 5;
 if (5 < 10) {
 return true;
@@ -38,15 +38,15 @@ return false;
 10 == 10;
 10 != 9;
     `
-	l := lexer.New(input)
-	fmt.Println(input)
-	for {
-		tok := l.NextToken()
-		if tok.Type == token.EOF {
-			break
+	p := parser.New(lexer.New(input))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		fmt.Println("Syntax error!")
+		for _, e := range p.Errors() {
+			fmt.Printf("\t >%s\n", e)
 		}
-		fmt.Println(tok.Type, tok.Literal)
+	} else {
+		fmt.Println("Parse success!")
+		fmt.Printf(program.String())
 	}
-	fmt.Println("done")
-
 }

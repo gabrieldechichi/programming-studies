@@ -65,6 +65,10 @@ func New(l *lexer.Lexer) *Parser {
 	return &p
 }
 
+func (p *Parser) Errors() []string {
+	return p.errors
+}
+
 func (p *Parser) nextToken() {
 	p.curToken = p.peekToken
 	p.peekToken = p.l.NextToken()
@@ -174,7 +178,7 @@ func (p *Parser) parseLetStatement() ast.Statement {
 
 	letStmt.Value = p.parseExpression(LOWEST)
 
-    //skip semicolon
+	//skip semicolon
 	if p.peekTokenIs(token.SEMICOLON) {
 		p.nextToken()
 	}
@@ -187,7 +191,7 @@ func (p *Parser) parseReturnStatemetn() ast.Statement {
 	p.nextToken()
 	retStm.Expression = p.parseExpression(LOWEST)
 
-    //skip semicolon
+	//skip semicolon
 	if p.peekTokenIs(token.SEMICOLON) {
 		p.nextToken()
 	}
