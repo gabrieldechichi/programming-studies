@@ -60,6 +60,7 @@ func New(l *lexer.Lexer) *Parser {
 		token.PLUS, token.MINUS,
 		token.ASTERISK, token.SLASH,
 	}, p.parseExprInfix)
+	p.registerInfixParseFn(token.LPAREN, p.parseExprInfixFunctionCall)
 	return &p
 }
 
@@ -230,6 +231,8 @@ func tokenPrecedence(tokenType token.TokenType) int {
 		return SUM
 	case token.ASTERISK, token.SLASH:
 		return PRODUCT
+	case token.LPAREN:
+		return CALL
 	}
 	return LOWEST
 }
@@ -347,4 +350,20 @@ func (p *Parser) parseExprInfix(lhs ast.Expression) ast.Expression {
 	return e
 }
 
+func (p *Parser) parseExprInfixFunctionCall(lhs ast.Expression) ast.Expression {
+	e := &ast.CallExpression{Token: p.curToken, Function: lhs}
+	p.nextToken()
+	for p.curToken.Type != token.RPAREN {
+		arg := p.parseExpression(LOWEST)
+		if arg == nil {
+			p.addError("Fail to parse function arguments")
+		}
+		e.Arguments = append(e.Arguments, arg)
+		p.nextToken()
+		if p.curToken.Type == token.COMMA {
+			p.nextToken()
+		}
+	}
+	return e
+}
 //

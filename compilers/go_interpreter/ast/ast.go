@@ -209,3 +209,21 @@ func (s *FunctionExpression) String() string {
 	}
 	return fmt.Sprintf("fn (%s) {\n\t%s\n}", strings.Join(parameters, ","), s.Body.String())
 }
+
+type CallExpression struct {
+	Token     token.Token // (
+	Function  Expression
+	Arguments []Expression
+}
+
+func (s *CallExpression) expressionNode() {}
+
+func (s *CallExpression) TokenLiteral() string { return s.Token.Literal }
+
+func (s *CallExpression) String() string {
+	parameters := []string{}
+	for _, p := range s.Arguments {
+		parameters = append(parameters, p.String())
+	}
+	return fmt.Sprintf("%s(%s)", s.Function.String(), strings.Join(parameters, ","))
+}

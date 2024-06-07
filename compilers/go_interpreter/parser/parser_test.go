@@ -382,6 +382,7 @@ if (x < y) { x } else { y }
 		}
 	})
 }
+
 func TestFunctionExpression(t *testing.T) {
 	input := `
 fn() {};
@@ -416,5 +417,45 @@ fn(x, y, z) { return x + y + z; };
 			assert.Equal(t, expected, identifier.Value)
 		}
 		assert.Equal(t, testCase.body, fnExpr.Body.String())
+	})
+}
+
+func cleanCodeString(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), "\t", ""), "\n", "")
+}
+
+func assertCodeText(t *testing.T, expected string, actual string) {
+	assert.Equal(t, cleanCodeString(expected), cleanCodeString(actual))
+}
+
+func TestCallExpression(t *testing.T) {
+	input := `add(2, 3);
+add(2+3*4, 2 * 4 + 4);
+add((2+3)*4, 3);
+fn(x, y) { x + y; }(2, 3);
+add(pow(2,3), 3);
+`
+	type TestCase struct {
+		function  string
+		arguments []string
+	}
+
+	testCases := []TestCase{
+		{"add", []string{"2", "3"}},
+		{"add", []string{"(2 + (3 * 4))", "((2 * 4) + 4)"}},
+		{"add", []string{"((2 + 3) * 4)", "3"}},
+		{"fn(x, y) { (x + y) }", []string{"2", "3"}},
+		{"add", []string{"pow(2,3)", "3"}},
+	}
+
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
+		exprStmt := castAssert[ast.ExpressionStatement](t, s)
+		callExpr := castAssert[ast.CallExpression](t, exprStmt.Expression)
+		assertCodeText(t, testCase.function, callExpr.Function.String())
+		assert.Len(t, callExpr.Arguments, len(testCase.arguments))
+
+		for i := range testCase.arguments {
+			assertCodeText(t, testCase.arguments[i], callExpr.Arguments[i].String())
+		}
 	})
 }
