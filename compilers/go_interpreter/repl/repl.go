@@ -3,6 +3,7 @@ package repl
 import (
 	"bufio"
 	"fmt"
+	"go_interpreter/evaluator"
 	"go_interpreter/lexer"
 	"go_interpreter/parser"
 	"io"
@@ -33,8 +34,9 @@ func Start(in io.Reader, out io.Writer) error {
 				io.WriteString(out, "\t"+msg+"\n")
 			}
 			continue
-		} else {
-			fmt.Printf("%s\n", program.String())
 		}
+
+        result := evaluator.EvalProgram(program)
+		fmt.Printf("%s\n", result.Inspect())
 	}
 }
