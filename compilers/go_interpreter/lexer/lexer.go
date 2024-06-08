@@ -105,9 +105,19 @@ func (l *Lexer) NextToken() token.Token {
 	case '/':
 		tok = newTokenFromCh(token.SLASH, l.c)
 	case '<':
-		tok = newTokenFromCh(token.LT, l.c)
+		if l.peekChar() == '=' {
+			l.readChar()
+			tok = newTokenFromStr(token.LTOREQ, "<=")
+		} else {
+			tok = newTokenFromCh(token.LT, l.c)
+		}
 	case '>':
-		tok = newTokenFromCh(token.GT, l.c)
+		if l.peekChar() == '=' {
+			l.readChar()
+			tok = newTokenFromStr(token.GTOREQ, ">=")
+		} else {
+			tok = newTokenFromCh(token.GT, l.c)
+		}
 	case ',':
 		tok = newTokenFromCh(token.COMMA, l.c)
 	case ';':
@@ -126,7 +136,7 @@ func (l *Lexer) NextToken() token.Token {
 	default:
 		{
 			if isIdentifierCh(l.c) {
-                // tok = newTokenFromStr(token.IdentifierToTokenType(tok.Literal), l.readIdentifier())
+				// tok = newTokenFromStr(token.IdentifierToTokenType(tok.Literal), l.readIdentifier())
 				tok.Literal = l.readIdentifier()
 				tok.Type = token.IdentifierToTokenType(tok.Literal)
 			} else if isDigitCh(l.c) {

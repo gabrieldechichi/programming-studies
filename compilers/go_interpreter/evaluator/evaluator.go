@@ -92,6 +92,10 @@ func evalInfixExpression(node *ast.InfixExpression) object.Object {
 			return nativeBoolToBooleanObj(leftNum.Value > rightNum.Value)
 		case "<":
 			return nativeBoolToBooleanObj(leftNum.Value < rightNum.Value)
+		case ">=":
+			return nativeBoolToBooleanObj(leftNum.Value >= rightNum.Value)
+		case "<=":
+			return nativeBoolToBooleanObj(leftNum.Value <= rightNum.Value)
 		}
 	} else if left.Type() == object.BOOLEAN_OBJ && right.Type() == object.BOOLEAN_OBJ {
 		leftBool := left.(*object.BooleanObj)

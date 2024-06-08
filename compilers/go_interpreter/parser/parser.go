@@ -58,6 +58,7 @@ func New(l *lexer.Lexer) *Parser {
 		token.EQ,
 		token.NOT_EQ,
 		token.GT, token.LT,
+		token.LTOREQ, token.GTOREQ,
 		token.PLUS, token.MINUS,
 		token.ASTERISK, token.SLASH,
 	}, p.parseExprInfix)
@@ -239,7 +240,7 @@ func tokenPrecedence(tokenType token.TokenType) int {
 	switch tokenType {
 	case token.EQ, token.NOT_EQ:
 		return EQUALS
-	case token.GT, token.LT:
+	case token.GT, token.LT, token.GTOREQ, token.LTOREQ:
 		return LESSGREATER
 	case token.PLUS, token.MINUS:
 		return SUM

@@ -139,6 +139,8 @@ func TestInfixExpressions(t *testing.T) {
 5<5;
 5==5;
 5!=5;
+5<=5;
+5>=5;
 true == false;
 true != false;
 `
@@ -157,6 +159,8 @@ true != false;
 		{5, 5, "<"},
 		{5, 5, "=="},
 		{5, 5, "!="},
+		{5, 5, "<="},
+		{5, 5, ">="},
 		{true, false, "=="},
 		{true, false, "!="},
 	}
@@ -336,7 +340,7 @@ if (x > 5) {
     print(1 + x * 5)
 }
 
-if (x < 5) {
+if (x <= 5) {
     print((y+x))
 }
 `
@@ -354,7 +358,7 @@ if ((x > 5)) {
     print((1 + (x * 5)))
 }
 
-if ((x < 5)) {
+if ((x <= 5)) {
     print((y+x))
 }
     `
