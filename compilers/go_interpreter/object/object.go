@@ -2,6 +2,8 @@ package object
 
 import (
 	"fmt"
+	"go_interpreter/ast"
+	"strings"
 )
 
 type ObjectType string
@@ -12,11 +14,12 @@ type Object interface {
 }
 
 const (
-	INTEGER_OBJ = "INTEGER"
-	BOOLEAN_OBJ = "BOOLEAN"
-	NULL_OBJ    = "NULL"
-	RETURN_OBJ  = "RETURN"
-	ERROR_OBJ   = "ERROR"
+	INTEGER_OBJ  = "INTEGER"
+	BOOLEAN_OBJ  = "BOOLEAN"
+	FUNCTION_OBJ = "FUNCTION"
+	NULL_OBJ     = "NULL"
+	RETURN_OBJ   = "RETURN"
+	ERROR_OBJ    = "ERROR"
 )
 
 var (
@@ -86,4 +89,22 @@ func (i *ErrorObj) Type() ObjectType {
 
 func (e *ErrorObj) Error() string {
 	return e.Inspect()
+}
+
+type FunctionObj struct {
+	Env       *Environment
+	Arguments []*ast.Identifier
+	Body      *ast.BlockStatement
+}
+
+func (i *FunctionObj) Inspect() string {
+	var args []string
+	for _, arg := range i.Arguments {
+		args = append(args, arg.String())
+	}
+	return fmt.Sprintf("fn (%s) {\n%s\n}", strings.Join(args, ","), i.Body.String())
+}
+
+func (i *FunctionObj) Type() ObjectType {
+	return FUNCTION_OBJ
 }

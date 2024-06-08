@@ -44,6 +44,10 @@ func Eval(node ast.Node, env *object.Environment) (object.Object, error) {
 		return evalLetStatement(node, env)
 	case *ast.Identifier:
 		return evalIdentifierStatement(node, env)
+	case *ast.FunctionExpression:
+		return evalFunctionExpression(node, env)
+	case *ast.CallExpression:
+		return evalCallExpression(node, env)
 	case *ast.IntegerLiteral:
 		return &object.IntegerObj{Value: node.Value}, nil
 	case *ast.BooleanLiteral:
@@ -54,6 +58,53 @@ func Eval(node ast.Node, env *object.Environment) (object.Object, error) {
 	default:
 		panic(fmt.Sprintf("Unhanded Eval case %T", node))
 	}
+}
+
+func evalCallExpression(node *ast.CallExpression, env *object.Environment) (object.Object, error) {
+	//eval function
+	obj, err := Eval(node.Function, env)
+	if err != nil {
+		return nil, err
+	}
+	funcObj, ok := obj.(*object.FunctionObj)
+	if !ok {
+		return nil, errorObj("not a function %s", obj.Inspect())
+	}
+
+	//eval arguments
+	var args []object.Object
+	for _, arg := range node.Arguments {
+		argObj, err := Eval(arg, env)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, argObj)
+	}
+
+	//create enclosed env and bind arguments
+	functionEnv := object.NewEnclosedEnvironment(funcObj.Env)
+	for i := range args {
+		argObj := args[i]
+		identifier := funcObj.Arguments[i]
+		functionEnv.Set(identifier.Value, argObj)
+	}
+
+	//evaluate function body
+	result, err := Eval(funcObj.Body, functionEnv)
+	if err != nil {
+		return nil, err
+	}
+
+    //unwrap return value if needed
+	if result, ok := result.(*object.ReturnObj); ok {
+		return result.Value, nil
+	}
+	return result, nil
+}
+
+func evalFunctionExpression(node *ast.FunctionExpression, env *object.Environment) (object.Object, error) {
+	funcObj := &object.FunctionObj{Arguments: node.Parameters, Body: node.Body, Env: env}
+	return funcObj, nil
 }
 
 func evalIdentifierStatement(node *ast.Identifier, env *object.Environment) (object.Object, error) {

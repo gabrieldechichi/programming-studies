@@ -4,6 +4,7 @@ import (
 	"go_interpreter/lexer"
 	"go_interpreter/object"
 	"go_interpreter/parser"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,15 +14,26 @@ func testEval(input string) object.Object {
 	l := lexer.New(input)
 	p := parser.New(l)
 	program := p.ParseProgram()
-    env := object.NewEnvironment()
-	return EvalProgram(program,env)
+	env := object.NewEnvironment()
+	return EvalProgram(program, env)
 }
 
+// REPEATED CODE
 func castAssert[U any](t *testing.T, v interface{}) *U {
 	r, ok := v.(*U)
 	assert.True(t, ok, "Value %v not of correct type. Expected *%T. Found %T", v, *new(U), v)
 	return r
 }
+
+func cleanCodeString(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), "\t", ""), "\n", ""), ";", "")
+}
+
+func assertCodeText(t *testing.T, expected string, actual string) {
+	assert.Equal(t, cleanCodeString(expected), cleanCodeString(actual))
+}
+
+//end repeated code
 
 func assertNativeAndObjectEqual(t *testing.T, v interface{}, o object.Object) {
 	switch value := v.(type) {
@@ -235,6 +247,66 @@ func TestLetStatements(t *testing.T) {
 		{"let a = 5 * 5; a;", 25},
 		{"let a = 5; let b = a; b;", 5},
 		{"let a = 5; let b = a; let c = a + b + 5; c;", 15},
+	}
+	for _, tt := range tests {
+		obj := testEval(tt.input)
+		assertNativeAndObjectEqual(t, tt.expected, obj)
+	}
+}
+
+func TestFunctionObject(t *testing.T) {
+	tests := []struct {
+		input        string
+		expectedArgs []string
+	}{
+		{"fn (x) { (x + 1) }", []string{"x"}},
+	}
+	for _, tt := range tests {
+		obj := testEval(tt.input)
+		funcObj := castAssert[object.FunctionObj](t, obj)
+		assert.Len(t, funcObj.Arguments, len(tt.expectedArgs))
+		for i := range funcObj.Arguments {
+			actual := funcObj.Arguments[i].Value
+			expected := tt.expectedArgs[i]
+			assert.Equal(t, expected, actual)
+		}
+		assertCodeText(t, tt.input, funcObj.Inspect())
+	}
+}
+
+func TestFunctionApplication(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected interface{}
+	}{
+		{"let identity = fn(x) { x; }; identity(5);", 5},
+		{"let identity = fn(x) { return true; }; identity(5);", true},
+		{"let double = fn(x) { x * 2; }; double(5);", 10},
+		{"let add = fn(x, y) { x + y; }; add(5, 5);", 10},
+		{"let add = fn(x, y) { x + y; }; add(5 + 5, add(5, 5));", 20},
+		{"fn(x) { x; }(5)", 5},
+	}
+	for _, tt := range tests {
+		obj := testEval(tt.input)
+		assertNativeAndObjectEqual(t, tt.expected, obj)
+	}
+}
+
+func TestClosures(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected interface{}
+	}{
+		{`
+let newAdder = fn(x) {
+    fn(y) { x + y };
+};
+let addTwo = newAdder(2);
+addTwo(2);`, 4},
+		{`
+let add = fn(a, b) { a + b };
+let applyFunc = fn(a, b, func) { func(a, b) };
+applyFunc(2, 2, add);`, 4},
 	}
 	for _, tt := range tests {
 		obj := testEval(tt.input)
