@@ -12,10 +12,11 @@ type Object interface {
 }
 
 const (
-	INTEGER_OBJ = "int"
-	BOOLEAN_OBJ = "bool"
-	NULL_OBJ    = "null"
-	RETURN_OBJ  = "return"
+	INTEGER_OBJ = "INTEGER"
+	BOOLEAN_OBJ = "BOOLEAN"
+	NULL_OBJ    = "NULL"
+	RETURN_OBJ  = "RETURN"
+	ERROR_OBJ   = "ERROR"
 )
 
 var (
@@ -69,4 +70,20 @@ func (i *ReturnObj) Inspect() string {
 
 func (i *ReturnObj) Type() ObjectType {
 	return RETURN_OBJ
+}
+
+type ErrorObj struct {
+	Value string
+}
+
+func (i *ErrorObj) Inspect() string {
+	return fmt.Sprintf("ERROR: %s", i.Value)
+}
+
+func (i *ErrorObj) Type() ObjectType {
+	return ERROR_OBJ
+}
+
+func (e *ErrorObj) Error() string {
+	return e.Inspect()
 }
