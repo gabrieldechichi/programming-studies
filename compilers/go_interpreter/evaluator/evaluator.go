@@ -6,11 +6,11 @@ import (
 	"go_interpreter/object"
 )
 
-func EvalProgram(program *ast.Program) object.Object {
+func EvalProgram(program *ast.Program, env *object.Environment) object.Object {
 	var result object.Object
 	var err error
 	for _, stmt := range program.Statements {
-		result, err = Eval(stmt)
+		result, err = Eval(stmt, env)
 		if err != nil {
 			return err.(*object.ErrorObj)
 		}
@@ -22,24 +22,28 @@ func EvalProgram(program *ast.Program) object.Object {
 	return result
 }
 
-func Eval(node ast.Node) (object.Object, error) {
+func Eval(node ast.Node, env *object.Environment) (object.Object, error) {
 	switch node := node.(type) {
 	case *ast.ExpressionStatement:
-		return Eval(node.Expression)
+		return Eval(node.Expression, env)
 	case *ast.PrefixExpression:
-		return evalPrefixExpression(node)
+		return evalPrefixExpression(node, env)
 	case *ast.InfixExpression:
-		return evalInfixExpression(node)
+		return evalInfixExpression(node, env)
 	case *ast.IfExpression:
-		return evalIfExpression(node)
+		return evalIfExpression(node, env)
 	case *ast.BlockStatement:
-		return evalBlockStatement(node)
+		return evalBlockStatement(node, env)
 	case *ast.ReturnStatement:
-		o, err := Eval(node.Expression)
+		o, err := Eval(node.Expression, env)
 		if err != nil {
 			return nil, err
 		}
 		return &object.ReturnObj{Value: o}, nil
+	case *ast.LetStatement:
+		return evalLetStatement(node, env)
+	case *ast.Identifier:
+		return evalIdentifierStatement(node, env)
 	case *ast.IntegerLiteral:
 		return &object.IntegerObj{Value: node.Value}, nil
 	case *ast.BooleanLiteral:
@@ -52,11 +56,32 @@ func Eval(node ast.Node) (object.Object, error) {
 	}
 }
 
-func evalBlockStatement(block *ast.BlockStatement) (object.Object, error) {
+func evalIdentifierStatement(node *ast.Identifier, env *object.Environment) (object.Object, error) {
+	identifierName := node.Value
+	if val, ok := env.Get(identifierName); ok {
+		return val, nil
+	}
+	return nil, errorObj("identifier not found: %s", identifierName)
+}
+
+func evalLetStatement(node *ast.LetStatement, env *object.Environment) (object.Object, error) {
+	identifierName := node.Identifier.Value
+	if _, ok := env.Get(identifierName); ok {
+		return nil, errorObj("identifier %s already bound to a value", identifierName)
+	}
+	expr, err := Eval(node.Value, env)
+	if err != nil {
+		return nil, err
+	}
+	env.Set(identifierName, expr)
+	return object.NULL, nil
+}
+
+func evalBlockStatement(block *ast.BlockStatement, env *object.Environment) (object.Object, error) {
 	var result object.Object
 	var err error
 	for _, stmt := range block.Statements {
-		result, err = Eval(stmt)
+		result, err = Eval(stmt, env)
 		if err != nil {
 			return nil, err
 		}
@@ -67,22 +92,22 @@ func evalBlockStatement(block *ast.BlockStatement) (object.Object, error) {
 	return result, nil
 }
 
-func evalIfExpression(node *ast.IfExpression) (object.Object, error) {
-	cond, err := Eval(node.Condition)
+func evalIfExpression(node *ast.IfExpression, env *object.Environment) (object.Object, error) {
+	cond, err := Eval(node.Condition, env)
 	if err != nil {
 		return nil, err
 	}
 	if isTruthy(cond) {
-		return Eval(node.Consequence)
+		return Eval(node.Consequence, env)
 	} else if node.Alternative != nil {
-		return Eval(node.Alternative)
+		return Eval(node.Alternative, env)
 	} else {
 		return object.NULL, nil
 	}
 }
 
-func evalPrefixExpression(node *ast.PrefixExpression) (object.Object, error) {
-	right, err := Eval(node.Right)
+func evalPrefixExpression(node *ast.PrefixExpression, env *object.Environment) (object.Object, error) {
+	right, err := Eval(node.Right, env)
 	if err != nil {
 		return nil, err
 	}
@@ -119,12 +144,12 @@ func errorObj(format string, a ...any) error {
 	return &object.ErrorObj{Value: fmt.Sprintf(format, a...)}
 }
 
-func evalInfixExpression(node *ast.InfixExpression) (object.Object, error) {
-	left, err := Eval(node.Left)
+func evalInfixExpression(node *ast.InfixExpression, env *object.Environment) (object.Object, error) {
+	left, err := Eval(node.Left, env)
 	if err != nil {
 		return nil, err
 	}
-	right, err := Eval(node.Right)
+	right, err := Eval(node.Right, env)
 	if err != nil {
 		return nil, err
 	}
