@@ -1,13 +1,18 @@
 package evaluator
 
 import (
+	"fmt"
 	"go_interpreter/ast"
 	"go_interpreter/object"
 )
 
 func EvalProgram(program *ast.Program) object.Object {
+	return evalStatements(program.Statements)
+}
+
+func evalStatements(statements []ast.Statement) object.Object {
 	var result object.Object
-	for _, stmt := range program.Statements {
+	for _, stmt := range statements {
 		result = Eval(stmt)
 	}
 	return result
@@ -21,6 +26,10 @@ func Eval(node ast.Node) object.Object {
 		return evalPrefixExpression(node)
 	case *ast.InfixExpression:
 		return evalInfixExpression(node)
+	case *ast.IfExpression:
+		return evalIfExpression(node)
+	case *ast.BlockStatement:
+		return evalStatements(node.Statements)
 	case *ast.IntegerLiteral:
 		return &object.IntegerObj{Value: node.Value}
 	case *ast.BooleanLiteral:
@@ -28,8 +37,20 @@ func Eval(node ast.Node) object.Object {
 			return object.TRUE
 		}
 		return object.FALSE
+	default:
+		panic(fmt.Sprintf("Unhanded Eval case %T", node))
 	}
-	return nil
+}
+
+func evalIfExpression(node *ast.IfExpression) object.Object {
+	cond := Eval(node.Condition)
+	if isTruthy(cond) {
+		return Eval(node.Consequence)
+	} else if node.Alternative != nil {
+		return Eval(node.Alternative)
+	} else {
+		return object.NULL
+	}
 }
 
 func evalPrefixExpression(node *ast.PrefixExpression) object.Object {
@@ -109,6 +130,10 @@ func evalInfixExpression(node *ast.InfixExpression) object.Object {
 	}
 
 	return object.NULL
+}
+
+func isTruthy(o object.Object) bool {
+	return !(o == object.FALSE || o == object.NULL)
 }
 
 func nativeBoolToBooleanObj(b bool) *object.BooleanObj {

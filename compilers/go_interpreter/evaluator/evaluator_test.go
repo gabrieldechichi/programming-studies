@@ -22,6 +22,19 @@ func castAssert[U any](t *testing.T, v interface{}) *U {
 	return r
 }
 
+func assertNativeAndObjectEqual(t *testing.T, v interface{}, o object.Object) {
+	switch value := v.(type) {
+	case bool:
+		boolValue := castAssert[object.BooleanObj](t, o)
+		assert.Equal(t, value, boolValue.Value)
+	case int:
+		intValue := castAssert[object.IntegerObj](t, o)
+		assert.Equal(t, int64(value), int64(intValue.Value))
+	case nil:
+		castAssert[object.NullObj](t, o)
+	}
+}
+
 func TestEvalIntegerExpression(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -103,5 +116,31 @@ func TestEvalBandOperator(t *testing.T) {
 		obj := testEval(tt.input)
 		result := castAssert[object.BooleanObj](t, obj)
 		assert.Equal(t, tt.expected, result.Value)
+	}
+}
+
+func TestIfElseExpressions(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected interface{}
+	}{
+		{"if (true) { 10 }", 10},
+		{"if (false) { 10 }", nil},
+		{"if (1) { 10 }", 10},
+		{"if (1 < 2) { 10 }", 10},
+		{"if (1 > 2) { 10 }", nil},
+		{"if (1 > 2) { 10 } else { 20 }", 20},
+		{"if (1 < 2) { 10 } else { 20 }", 10},
+		{`
+if (1 < 2) {
+    5 + 5;
+    5 + 10;
+    5 + 5;
+} else { 20 }`, 10},
+	}
+
+	for _, tt := range tests {
+		obj := testEval(tt.input)
+		assertNativeAndObjectEqual(t, tt.expected, obj)
 	}
 }
