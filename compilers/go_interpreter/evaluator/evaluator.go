@@ -7,13 +7,13 @@ import (
 )
 
 func EvalProgram(program *ast.Program) object.Object {
-	return evalStatements(program.Statements)
-}
-
-func evalStatements(statements []ast.Statement) object.Object {
 	var result object.Object
-	for _, stmt := range statements {
+	for _, stmt := range program.Statements {
 		result = Eval(stmt)
+		if result != nil && result.Type() == object.RETURN_OBJ {
+			returnObj := result.(*object.ReturnObj)
+			return returnObj.Value
+		}
 	}
 	return result
 }
@@ -29,7 +29,9 @@ func Eval(node ast.Node) object.Object {
 	case *ast.IfExpression:
 		return evalIfExpression(node)
 	case *ast.BlockStatement:
-		return evalStatements(node.Statements)
+		return evalBlockStatement(node)
+	case *ast.ReturnStatement:
+		return &object.ReturnObj{Value: Eval(node.Expression)}
 	case *ast.IntegerLiteral:
 		return &object.IntegerObj{Value: node.Value}
 	case *ast.BooleanLiteral:
@@ -40,6 +42,17 @@ func Eval(node ast.Node) object.Object {
 	default:
 		panic(fmt.Sprintf("Unhanded Eval case %T", node))
 	}
+}
+
+func evalBlockStatement(block *ast.BlockStatement) object.Object {
+	var result object.Object
+	for _, stmt := range block.Statements {
+		result = Eval(stmt)
+		if result != nil && result.Type() == object.RETURN_OBJ {
+			return result
+		}
+	}
+	return result
 }
 
 func evalIfExpression(node *ast.IfExpression) object.Object {

@@ -14,13 +14,14 @@ type Object interface {
 const (
 	INTEGER_OBJ = "int"
 	BOOLEAN_OBJ = "bool"
-	NULL_OBJ = "null"
+	NULL_OBJ    = "null"
+	RETURN_OBJ  = "return"
 )
 
 var (
-    TRUE = &BooleanObj{Value: true}
-    FALSE = &BooleanObj{Value: false}
-    NULL = &NullObj{}
+	TRUE  = &BooleanObj{Value: true}
+	FALSE = &BooleanObj{Value: false}
+	NULL  = &NullObj{}
 )
 
 type IntegerObj struct {
@@ -58,3 +59,14 @@ func (i *NullObj) Type() ObjectType {
 	return NULL_OBJ
 }
 
+type ReturnObj struct {
+	Value Object
+}
+
+func (i *ReturnObj) Inspect() string {
+	return i.Value.Inspect()
+}
+
+func (i *ReturnObj) Type() ObjectType {
+	return RETURN_OBJ
+}
