@@ -4,6 +4,8 @@ class Renderer {
   private context!: GPUCanvasContext;
   private device!: GPUDevice;
   private pipeline!: GPURenderPipeline;
+  private positionBuffer!: GPUBuffer;
+  private colorBuffer!: GPUBuffer;
 
   public async initialize() {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
@@ -30,15 +32,61 @@ class Renderer {
       device: this.device,
       format: navigator.gpu.getPreferredCanvasFormat(),
     });
-    this.prepareModel()
+
+    this.prepareModel();
+    this.positionBuffer = this.createBuffer(
+      new Float32Array([-0.5, -0.5, 0.5, -0.5, 0.0, 0.5]),
+    );
+    this.colorBuffer = this.createBuffer(
+      new Float32Array([
+        1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0,
+      ]),
+    );
+  }
+
+  createBuffer(data: Float32Array): GPUBuffer {
+    const buffer = this.device.createBuffer({
+      size: data.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+
+    new Float32Array(buffer.getMappedRange()).set(data);
+    buffer.unmap();
+    return buffer;
   }
 
   prepareModel() {
     const module = this.device.createShaderModule({ code: shaderSource });
 
+    const posBuffer: GPUVertexBufferLayout = {
+      arrayStride: 2 * Float32Array.BYTES_PER_ELEMENT,
+      stepMode: "vertex",
+      attributes: [
+        {
+          shaderLocation: 0,
+          offset: 0,
+          format: "float32x2",
+        },
+      ],
+    };
+
+    const colorBuffer: GPUVertexBufferLayout = {
+      arrayStride: 4 * Float32Array.BYTES_PER_ELEMENT,
+      stepMode: "vertex",
+      attributes: [
+        {
+          shaderLocation: 1,
+          offset: 0,
+          format: "float32x4",
+        },
+      ],
+    };
+
     const vertex: GPUVertexState = {
       module,
       entryPoint: "vertexMain",
+      buffers: [posBuffer, colorBuffer],
     };
 
     const fragment: GPUFragmentState = {
@@ -70,8 +118,10 @@ class Renderer {
     };
 
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-    passEncoder.setPipeline(this.pipeline)
-    passEncoder.draw(3)
+    passEncoder.setPipeline(this.pipeline);
+    passEncoder.setVertexBuffer(0, this.positionBuffer);
+    passEncoder.setVertexBuffer(1, this.colorBuffer);
+    passEncoder.draw(3);
     passEncoder.end();
 
     this.device.queue.submit([commandEncoder.finish()]);
