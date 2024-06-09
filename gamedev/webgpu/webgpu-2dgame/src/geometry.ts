@@ -7,11 +7,12 @@ import {
 
 export class Quad {
   //prettier-ignore
-  positions: number[] = [
-      -0.5, -0.5,
-      0.5, -0.5,
-      0.5, 0.5,
-      -0.5, 0.5
+  vertices = [
+      // xy        //uv         //color
+      -0.5, -0.5,  0.0, 1.0,    1.0, 1.0, 1.0, 1.0,
+      0.5, -0.5,   1.0, 1.0,    1.0, 1.0, 1.0, 1.0,
+      0.5, 0.5,    1.0, 0.0,    1.0, 1.0, 1.0, 1.0,
+      -0.5, 0.5,   0.0, 0.0,    1.0, 1.0, 1.0, 1.0,
   ];
 
   //prettier-ignore
@@ -20,37 +21,14 @@ export class Quad {
       2, 3, 0
   ];
 
-  //prettier-ignore
-  colors:number[] = [
-      1.0, 1.0, 1.0, 1.0,
-      1.0, 1.0, 1.0, 1.0,
-      1.0, 1.0, 1.0, 1.0,
-      1.0, 1.0, 1.0, 1.0,
-  ];
-
-  //prettier-ignore
-  uvs: number[] = [
-      0.0, 1.0,
-      1.0, 1.0,
-      1.0, 0.0,
-      0.0, 0.0,
-  ]
-
-  positionBuffer!: GPUVertexBuffer;
+  vertexBuffer!: GPUVertexBuffer;
   indexBuffer!: GPUIndexBuffer;
-  colorBuffer!: GPUVertexBuffer;
-  uvBuffer!: GPUVertexBuffer;
 
   constructor(device: GPUDevice) {
-    this.positionBuffer = createVertexBuffer(
+    this.vertexBuffer = createVertexBuffer(
       device,
-      new Float32Array(this.positions),
+      new Float32Array(this.vertices),
     );
     this.indexBuffer = createIndexBuffer(device, new Int16Array(this.indexes));
-    this.uvBuffer = createVertexBuffer(device, new Float32Array(this.uvs));
-    this.colorBuffer = createVertexBuffer(
-      device,
-      new Float32Array(this.colors),
-    );
   }
 }

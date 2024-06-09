@@ -46,37 +46,26 @@ class Renderer {
     const module = this.device.createShaderModule({ code: shaderSource });
 
     //vertex and fragment stuff
-    const posBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 2 * Float32Array.BYTES_PER_ELEMENT,
+    const vertexBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: (2 + 2 + 4) * Float32Array.BYTES_PER_ELEMENT,
       stepMode: "vertex",
       attributes: [
+        //position
         {
           shaderLocation: 0,
           offset: 0,
           format: "float32x2",
         },
-      ],
-    };
-
-    const uvBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 2 * Float32Array.BYTES_PER_ELEMENT,
-      stepMode: "vertex",
-      attributes: [
+        //uv
         {
           shaderLocation: 1,
-          offset: 0,
+          offset: 2 * Float32Array.BYTES_PER_ELEMENT,
           format: "float32x2",
         },
-      ],
-    };
-
-    const colorBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 4 * Float32Array.BYTES_PER_ELEMENT,
-      stepMode: "vertex",
-      attributes: [
+        //color
         {
           shaderLocation: 2,
-          offset: 0,
+          offset: (2 + 2) * Float32Array.BYTES_PER_ELEMENT,
           format: "float32x4",
         },
       ],
@@ -85,7 +74,7 @@ class Renderer {
     const vertex: GPUVertexState = {
       module,
       entryPoint: "vertexMain",
-      buffers: [posBufferLayout, uvBufferLayout, colorBufferLayout],
+      buffers: [vertexBufferLayout],
     };
 
     const fragment: GPUFragmentState = {
@@ -166,9 +155,7 @@ class Renderer {
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
     passEncoder.setPipeline(this.pipeline);
     passEncoder.setIndexBuffer(this.quad.indexBuffer, "uint16");
-    passEncoder.setVertexBuffer(0, this.quad.positionBuffer);
-    passEncoder.setVertexBuffer(1, this.quad.uvBuffer);
-    passEncoder.setVertexBuffer(2, this.quad.colorBuffer);
+    passEncoder.setVertexBuffer(0, this.quad.vertexBuffer);
     passEncoder.setBindGroup(0, this.textureBindGroup);
     passEncoder.drawIndexed(6);
     passEncoder.end();
