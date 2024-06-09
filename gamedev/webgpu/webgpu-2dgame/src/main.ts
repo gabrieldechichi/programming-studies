@@ -1,3 +1,10 @@
+import {
+  GPUUniformBuffer,
+  MAT4_BYTE_LENGTH,
+  createUniformBuffer,
+} from "./bufferUtils";
+import { Camera } from "./camera";
+import { Content } from "./content";
 import { Quad } from "./geometry";
 import shaderSource from "./shader/shader.wgsl?raw";
 import { Texture } from "./texture";
@@ -6,7 +13,10 @@ class Renderer {
   private context!: GPUCanvasContext;
   private device!: GPUDevice;
   private pipeline!: GPURenderPipeline;
-  private quad!: Quad;
+  private camera!: Camera;
+  private projectionViewBuffer!: GPUUniformBuffer;
+  private player!: Quad;
+  private projectionViewBindGroup!: GPUBindGroup;
   private textureBindGroup!: GPUBindGroup;
 
   public async initialize() {
@@ -35,10 +45,21 @@ class Renderer {
       format: navigator.gpu.getPreferredCanvasFormat(),
     });
 
+    {
+      this.camera = new Camera(800, 600);
+      this.camera.update();
+
+      this.projectionViewBuffer = createUniformBuffer(
+        this.device,
+        MAT4_BYTE_LENGTH,
+      );
+    }
+
     //model stuff
     {
+      await Content.initialize(this.device);
       await this.preparePipeline();
-      this.quad = new Quad(this.device);
+      this.player = new Quad(this.device, [0, 0], [99, 75]);
     }
   }
 
@@ -107,27 +128,46 @@ class Renderer {
       ],
     });
 
-    const testTexture = await Texture.createTextureFromUrl(
-      this.device,
-      "assets/uv_test.png",
-    );
+    const playerTexture = Content.playerTexture;
 
     this.textureBindGroup = this.device.createBindGroup({
       layout: textureGroupLayout,
       entries: [
         {
           binding: 0,
-          resource: testTexture.sampler,
+          resource: playerTexture.sampler,
         },
         {
           binding: 1,
-          resource: testTexture.texture.createView(),
+          resource: playerTexture.texture.createView(),
+        },
+      ],
+    });
+
+    const projectionViewBufferLayout = this.device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: "uniform" },
+        },
+      ],
+    });
+
+    this.projectionViewBindGroup = this.device.createBindGroup({
+      layout: projectionViewBufferLayout,
+      entries: [
+        {
+          binding: 0,
+          resource: {
+            buffer: this.projectionViewBuffer,
+          },
         },
       ],
     });
 
     const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [textureGroupLayout],
+      bindGroupLayouts: [projectionViewBufferLayout, textureGroupLayout],
     });
 
     this.pipeline = this.device.createRenderPipeline({
@@ -139,28 +179,44 @@ class Renderer {
   }
 
   public render() {
-    const commandEncoder = this.device.createCommandEncoder();
-    const textureViewer = this.context.getCurrentTexture().createView();
-    const renderPassDescriptor: GPURenderPassDescriptor = {
-      colorAttachments: [
-        {
-          view: textureViewer,
-          clearValue: { r: 0.8, g: 0.8, b: 0.8, a: 1.0 },
-          loadOp: "clear",
-          storeOp: "store",
-        },
-      ],
-    };
+    //update view
+    {
+      this.camera.update();
+      this.device.queue.writeBuffer(
+        this.projectionViewBuffer,
+        0,
+        this.camera.viewProjection as Float32Array,
+      );
+    }
 
-    const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-    passEncoder.setPipeline(this.pipeline);
-    passEncoder.setIndexBuffer(this.quad.indexBuffer, "uint16");
-    passEncoder.setVertexBuffer(0, this.quad.vertexBuffer);
-    passEncoder.setBindGroup(0, this.textureBindGroup);
-    passEncoder.drawIndexed(6);
-    passEncoder.end();
+    //render
+    {
+      const commandEncoder = this.device.createCommandEncoder();
+      const textureViewer = this.context.getCurrentTexture().createView();
+      const renderPassDescriptor: GPURenderPassDescriptor = {
+        colorAttachments: [
+          {
+            view: textureViewer,
+            clearValue: { r: 0.8, g: 0.8, b: 0.8, a: 1.0 },
+            loadOp: "clear",
+            storeOp: "store",
+          },
+        ],
+      };
 
-    this.device.queue.submit([commandEncoder.finish()]);
+      const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+      passEncoder.setPipeline(this.pipeline);
+
+      passEncoder.setIndexBuffer(this.player.indexBuffer, "uint16");
+      passEncoder.setVertexBuffer(0, this.player.vertexBuffer);
+
+      passEncoder.setBindGroup(0, this.projectionViewBindGroup);
+      passEncoder.setBindGroup(1, this.textureBindGroup);
+      passEncoder.drawIndexed(6);
+      passEncoder.end();
+
+      this.device.queue.submit([commandEncoder.finish()]);
+    }
   }
 }
 

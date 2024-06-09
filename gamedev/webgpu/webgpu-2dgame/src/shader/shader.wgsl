@@ -10,19 +10,22 @@ struct VertexOut {
     @location(1) color: vec4f,
 }
 
+@group(0) @binding(0)
+var<uniform> mvp: mat4x4f;
+
 @vertex
 fn vertexMain(in: VertexIn) -> VertexOut {
     var out: VertexOut;
-    out.pos = vec4(in.position, 0.0, 1.0);
+    out.pos = mvp * vec4(in.position, 0.0, 1.0);
     out.texCoords = in.texCoords;
     out.color = in.color;
     return out;
 }
 
-@group(0) @binding(0)
+@group(1) @binding(0)
 var texSampler: sampler;
 
-@group(0) @binding(1)
+@group(1) @binding(1)
 var tex: texture_2d<f32>;
 
 @fragment

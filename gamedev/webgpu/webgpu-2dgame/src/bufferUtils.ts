@@ -4,6 +4,9 @@ interface Branding<BrandName> {
 
 export type GPUVertexBuffer = GPUBuffer & Branding<"GPUVertexBuffer">;
 export type GPUIndexBuffer = GPUBuffer & Branding<"GPUIndexBuffer">;
+export type GPUUniformBuffer = GPUBuffer & Branding<"GPUUniformBuffer">;
+
+export const MAT4_BYTE_LENGTH: number = 16 * Float32Array.BYTES_PER_ELEMENT;
 
 export function createVertexBuffer(
   device: GPUDevice,
@@ -33,4 +36,16 @@ export function createIndexBuffer(
   new Int16Array(buffer.getMappedRange()).set(data);
   buffer.unmap();
   return buffer as GPUIndexBuffer;
+}
+
+export function createUniformBuffer(
+  device: GPUDevice,
+  byteLength: number,
+): GPUUniformBuffer {
+  const buffer = device.createBuffer({
+    size: byteLength,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  return buffer as GPUUniformBuffer;
 }
