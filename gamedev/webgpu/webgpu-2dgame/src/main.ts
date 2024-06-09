@@ -1,11 +1,13 @@
 import { Quad } from "./geometry";
 import shaderSource from "./shader/shader.wgsl?raw";
+import { Texture } from "./texture";
 
 class Renderer {
   private context!: GPUCanvasContext;
   private device!: GPUDevice;
   private pipeline!: GPURenderPipeline;
   private quad!: Quad;
+  private textureBindGroup!: GPUBindGroup;
 
   public async initialize() {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
@@ -35,15 +37,16 @@ class Renderer {
 
     //model stuff
     {
-      this.preparePipeline();
+      await this.preparePipeline();
       this.quad = new Quad(this.device);
     }
   }
 
-  preparePipeline() {
+  async preparePipeline() {
     const module = this.device.createShaderModule({ code: shaderSource });
 
-    const posBuffer: GPUVertexBufferLayout = {
+    //vertex and fragment stuff
+    const posBufferLayout: GPUVertexBufferLayout = {
       arrayStride: 2 * Float32Array.BYTES_PER_ELEMENT,
       stepMode: "vertex",
       attributes: [
@@ -55,12 +58,24 @@ class Renderer {
       ],
     };
 
-    const colorBuffer: GPUVertexBufferLayout = {
-      arrayStride: 4 * Float32Array.BYTES_PER_ELEMENT,
+    const uvBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 2 * Float32Array.BYTES_PER_ELEMENT,
       stepMode: "vertex",
       attributes: [
         {
           shaderLocation: 1,
+          offset: 0,
+          format: "float32x2",
+        },
+      ],
+    };
+
+    const colorBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 4 * Float32Array.BYTES_PER_ELEMENT,
+      stepMode: "vertex",
+      attributes: [
+        {
+          shaderLocation: 2,
           offset: 0,
           format: "float32x4",
         },
@@ -70,20 +85,67 @@ class Renderer {
     const vertex: GPUVertexState = {
       module,
       entryPoint: "vertexMain",
-      buffers: [posBuffer, colorBuffer],
+      buffers: [posBufferLayout, uvBufferLayout, colorBufferLayout],
     };
 
     const fragment: GPUFragmentState = {
       module,
       entryPoint: "fragmentMain",
-      targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
+      targets: [
+        {
+          format: navigator.gpu.getPreferredCanvasFormat(),
+          blend: {
+            color: {
+              operation: "add",
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+            },
+            alpha: {
+              operation: "add",
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+            },
+          },
+        },
+      ],
     };
+
+    //texture binding
+    const textureGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+      ],
+    });
+
+    const testTexture = await Texture.createTextureFromUrl(
+      this.device,
+      "assets/uv_test.png",
+    );
+
+    this.textureBindGroup = this.device.createBindGroup({
+      layout: textureGroupLayout,
+      entries: [
+        {
+          binding: 0,
+          resource: testTexture.sampler,
+        },
+        {
+          binding: 1,
+          resource: testTexture.texture.createView(),
+        },
+      ],
+    });
+
+    const pipelineLayout = this.device.createPipelineLayout({
+      bindGroupLayouts: [textureGroupLayout],
+    });
 
     this.pipeline = this.device.createRenderPipeline({
       vertex,
       fragment,
       primitive: { topology: "triangle-list" },
-      layout: "auto",
+      layout: pipelineLayout,
     });
   }
 
@@ -105,7 +167,9 @@ class Renderer {
     passEncoder.setPipeline(this.pipeline);
     passEncoder.setIndexBuffer(this.quad.indexBuffer, "uint16");
     passEncoder.setVertexBuffer(0, this.quad.positionBuffer);
-    passEncoder.setVertexBuffer(1, this.quad.colorBuffer);
+    passEncoder.setVertexBuffer(1, this.quad.uvBuffer);
+    passEncoder.setVertexBuffer(2, this.quad.colorBuffer);
+    passEncoder.setBindGroup(0, this.textureBindGroup);
     passEncoder.drawIndexed(6);
     passEncoder.end();
 
