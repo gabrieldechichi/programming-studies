@@ -1,12 +1,11 @@
+import { Quad } from "./geometry";
 import shaderSource from "./shader/shader.wgsl?raw";
 
 class Renderer {
   private context!: GPUCanvasContext;
   private device!: GPUDevice;
   private pipeline!: GPURenderPipeline;
-  private positionBuffer!: GPUBuffer;
-  private colorBuffer!: GPUBuffer;
-  private indexBuffer!: GPUBuffer;
+  private quad!: Quad;
 
   public async initialize() {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
@@ -34,46 +33,14 @@ class Renderer {
       format: navigator.gpu.getPreferredCanvasFormat(),
     });
 
-    this.prepareModel();
-    this.positionBuffer = this.createBuffer(
-      new Float32Array([-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5]),
-    );
-    this.colorBuffer = this.createBuffer(
-      new Float32Array([
-        1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0,
-        0.0, 1.0,
-      ]),
-    );
-    this.indexBuffer = this.createIndexBuffer(
-      new Int16Array([0, 1, 2, 2, 3, 0]),
-    );
+    //model stuff
+    {
+      this.preparePipeline();
+      this.quad = new Quad(this.device);
+    }
   }
 
-  createBuffer(data: Float32Array): GPUBuffer {
-    const buffer = this.device.createBuffer({
-      size: data.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true,
-    });
-
-    new Float32Array(buffer.getMappedRange()).set(data);
-    buffer.unmap();
-    return buffer;
-  }
-
-  createIndexBuffer(data: Int16Array): GPUBuffer {
-    const buffer = this.device.createBuffer({
-      size: data.byteLength,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true,
-    });
-
-    new Int16Array(buffer.getMappedRange()).set(data);
-    buffer.unmap();
-    return buffer;
-  }
-
-  prepareModel() {
+  preparePipeline() {
     const module = this.device.createShaderModule({ code: shaderSource });
 
     const posBuffer: GPUVertexBufferLayout = {
@@ -136,9 +103,9 @@ class Renderer {
 
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
     passEncoder.setPipeline(this.pipeline);
-    passEncoder.setIndexBuffer(this.indexBuffer, "uint16");
-    passEncoder.setVertexBuffer(0, this.positionBuffer);
-    passEncoder.setVertexBuffer(1, this.colorBuffer);
+    passEncoder.setIndexBuffer(this.quad.indexBuffer, "uint16");
+    passEncoder.setVertexBuffer(0, this.quad.positionBuffer);
+    passEncoder.setVertexBuffer(1, this.quad.colorBuffer);
     passEncoder.drawIndexed(6);
     passEncoder.end();
 
