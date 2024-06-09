@@ -6,6 +6,7 @@ class Renderer {
   private pipeline!: GPURenderPipeline;
   private positionBuffer!: GPUBuffer;
   private colorBuffer!: GPUBuffer;
+  private indexBuffer!: GPUBuffer;
 
   public async initialize() {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
@@ -35,12 +36,16 @@ class Renderer {
 
     this.prepareModel();
     this.positionBuffer = this.createBuffer(
-      new Float32Array([-0.5, -0.5, 0.5, -0.5, 0.0, 0.5]),
+      new Float32Array([-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5]),
     );
     this.colorBuffer = this.createBuffer(
       new Float32Array([
-        1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0,
+        1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0,
+        0.0, 1.0,
       ]),
+    );
+    this.indexBuffer = this.createIndexBuffer(
+      new Int16Array([0, 1, 2, 2, 3, 0]),
     );
   }
 
@@ -52,6 +57,18 @@ class Renderer {
     });
 
     new Float32Array(buffer.getMappedRange()).set(data);
+    buffer.unmap();
+    return buffer;
+  }
+
+  createIndexBuffer(data: Int16Array): GPUBuffer {
+    const buffer = this.device.createBuffer({
+      size: data.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+
+    new Int16Array(buffer.getMappedRange()).set(data);
     buffer.unmap();
     return buffer;
   }
@@ -119,9 +136,10 @@ class Renderer {
 
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
     passEncoder.setPipeline(this.pipeline);
+    passEncoder.setIndexBuffer(this.indexBuffer, "uint16");
     passEncoder.setVertexBuffer(0, this.positionBuffer);
     passEncoder.setVertexBuffer(1, this.colorBuffer);
-    passEncoder.draw(3);
+    passEncoder.drawIndexed(6);
     passEncoder.end();
 
     this.device.queue.submit([commandEncoder.finish()]);
