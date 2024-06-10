@@ -1,4 +1,4 @@
-import { GPUUniformBuffer } from "./bufferUtils";
+import { GPUUniformBuffer, MAT4_BYTE_LENGTH } from "./bufferUtils";
 import shaderSource from "./shader/shader.wgsl?raw";
 import { Texture } from "./texture";
 
@@ -7,7 +7,21 @@ export class SpritePipeline {
   textureBindGroup!: GPUBindGroup;
   projectionViewBindGroup!: GPUBindGroup;
 
-  async initialize(
+  static FLOATS_PER_VERTEX: number = 2 + 2 + 4; //xy + uv + color
+  static VERTEX_STRIDE: number =
+    SpritePipeline.FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
+
+  static create(
+    device: GPUDevice,
+    texture: Texture,
+    projectionViewBuffer: GPUUniformBuffer,
+  ): SpritePipeline {
+    const pipeline = new SpritePipeline();
+    pipeline.initialize(device, texture, projectionViewBuffer);
+    return pipeline;
+  }
+
+  initialize(
     device: GPUDevice,
     texture: Texture,
     projectionViewBuffer: GPUUniformBuffer,
@@ -40,10 +54,41 @@ export class SpritePipeline {
       ],
     };
 
+    const modelBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: MAT4_BYTE_LENGTH,
+      stepMode: "instance",
+      attributes: [
+        //row1
+        {
+          shaderLocation: 3,
+          offset: 0,
+          format: "float32x4",
+        },
+        //row2
+        {
+          shaderLocation: 4,
+          offset: 1 * 4 * Float32Array.BYTES_PER_ELEMENT,
+          format: "float32x4",
+        },
+        //row3
+        {
+          shaderLocation: 5,
+          offset: 2 * 4 * Float32Array.BYTES_PER_ELEMENT,
+          format: "float32x4",
+        },
+        //row4
+        {
+          shaderLocation: 6,
+          offset: 3 * 4 * Float32Array.BYTES_PER_ELEMENT,
+          format: "float32x4",
+        },
+      ],
+    };
+
     const vertex: GPUVertexState = {
       module,
       entryPoint: "vertexMain",
-      buffers: [vertexBufferLayout],
+      buffers: [vertexBufferLayout, modelBufferLayout],
     };
 
     const fragment: GPUFragmentState = {
@@ -90,7 +135,7 @@ export class SpritePipeline {
       ],
     });
 
-    const projectionViewBindGroupLayout = device.createBindGroupLayout({
+    const projectionViewBufferLayout = device.createBindGroupLayout({
       entries: [
         {
           binding: 0,
@@ -101,7 +146,7 @@ export class SpritePipeline {
     });
 
     this.projectionViewBindGroup = device.createBindGroup({
-      layout: projectionViewBindGroupLayout,
+      layout: projectionViewBufferLayout,
       entries: [
         {
           binding: 0,
@@ -113,10 +158,11 @@ export class SpritePipeline {
     });
 
     const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [projectionViewBindGroupLayout, textureGroupLayout],
+      bindGroupLayouts: [projectionViewBufferLayout, textureGroupLayout],
     });
 
     this.pipeline = device.createRenderPipeline({
+      label: texture.id,
       vertex,
       fragment,
       primitive: { topology: "triangle-list" },

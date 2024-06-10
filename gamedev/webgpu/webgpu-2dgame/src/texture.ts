@@ -1,10 +1,21 @@
+import { vec2 } from "gl-matrix";
+
 export class Texture {
-    id: string;
+  id!: string;
   texture: GPUTexture;
   sampler: GPUSampler;
+  size: vec2;
 
-  constructor(texture: GPUTexture, sampler: GPUSampler) {
-    (this.texture = texture), (this.sampler = sampler);
+  constructor(
+    texture: GPUTexture,
+    sampler: GPUSampler,
+    id: string,
+    size: vec2,
+  ) {
+    this.texture = texture;
+    this.sampler = sampler;
+    this.id = id;
+    this.size = size;
   }
 
   static async createTexture(
@@ -31,7 +42,7 @@ export class Texture {
       magFilter: "linear",
     });
 
-    return new Texture(tex, sampler);
+    return new Texture(tex, sampler, image.src, [image.width, image.height]);
   }
 
   static async createTextureFromUrl(
