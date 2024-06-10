@@ -1,4 +1,5 @@
 export class Texture {
+    id: string;
   texture: GPUTexture;
   sampler: GPUSampler;
 

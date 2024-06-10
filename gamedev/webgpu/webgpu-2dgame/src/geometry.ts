@@ -1,8 +1,11 @@
 import { vec2 } from "gl-matrix";
 import {
   GPUIndexBuffer,
+  GPUUniformBuffer,
   GPUVertexBuffer,
+  MAT4_BYTE_LENGTH,
   createIndexBuffer,
+  createUniformBuffer,
   createVertexBuffer,
 } from "./bufferUtils";
 
@@ -24,8 +27,9 @@ export class Quad {
 
   vertexBuffer!: GPUVertexBuffer;
   indexBuffer!: GPUIndexBuffer;
+  modelBuffer!: GPUVertexBuffer;
 
-  constructor(device: GPUDevice, _pos: vec2, size: vec2) {
+  constructor(device: GPUDevice, size: vec2) {
     const e = vec2.scale(vec2.create(), size, 0.5);
     //prettier-ignore
     this.vertices = [
@@ -40,5 +44,6 @@ export class Quad {
       new Float32Array(this.vertices),
     );
     this.indexBuffer = createIndexBuffer(device, new Int16Array(this.indexes));
+    this.modelBuffer = createVertexBuffer(device, new Float32Array(16));
   }
 }

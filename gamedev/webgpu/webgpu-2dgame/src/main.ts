@@ -17,7 +17,7 @@ class Renderer {
   private mvpBuffer!: GPUUniformBuffer;
   private player!: Quad;
   private playerPos!: vec2;
-  private mvpBindGroup!: GPUBindGroup;
+  private projectionViewBindGroup!: GPUBindGroup;
   private textureBindGroup!: GPUBindGroup;
 
   public async initialize() {
@@ -59,7 +59,7 @@ class Renderer {
     {
       await Content.initialize(this.device);
       await this.preparePipeline();
-      this.player = new Quad(this.device, [0, 0], [99, 75]);
+      this.player = new Quad(this.device, [99, 75]);
       this.playerPos = [-100, -100];
     }
   }
@@ -93,10 +93,41 @@ class Renderer {
       ],
     };
 
+    const modelBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: MAT4_BYTE_LENGTH,
+      stepMode: "instance",
+      attributes: [
+        //row1
+        {
+          shaderLocation: 3,
+          offset: 0,
+          format: "float32x4",
+        },
+        //row2
+        {
+          shaderLocation: 4,
+          offset: 1 * 4 * Float32Array.BYTES_PER_ELEMENT,
+          format: "float32x4",
+        },
+        //row3
+        {
+          shaderLocation: 5,
+          offset: 2 * 4 * Float32Array.BYTES_PER_ELEMENT,
+          format: "float32x4",
+        },
+        //row4
+        {
+          shaderLocation: 6,
+          offset: 3 * 4 * Float32Array.BYTES_PER_ELEMENT,
+          format: "float32x4",
+        },
+      ],
+    };
+
     const vertex: GPUVertexState = {
       module,
       entryPoint: "vertexMain",
-      buffers: [vertexBufferLayout],
+      buffers: [vertexBufferLayout, modelBufferLayout],
     };
 
     const fragment: GPUFragmentState = {
@@ -145,7 +176,7 @@ class Renderer {
       ],
     });
 
-    const mvpBufferLayout = this.device.createBindGroupLayout({
+    const projectionViewBufferLayout = this.device.createBindGroupLayout({
       entries: [
         {
           binding: 0,
@@ -155,8 +186,8 @@ class Renderer {
       ],
     });
 
-    this.mvpBindGroup = this.device.createBindGroup({
-      layout: mvpBufferLayout,
+    this.projectionViewBindGroup = this.device.createBindGroup({
+      layout: projectionViewBufferLayout,
       entries: [
         {
           binding: 0,
@@ -168,7 +199,7 @@ class Renderer {
     });
 
     const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [mvpBufferLayout, textureGroupLayout],
+      bindGroupLayouts: [projectionViewBufferLayout, textureGroupLayout],
     });
 
     this.pipeline = this.device.createRenderPipeline({
@@ -182,17 +213,23 @@ class Renderer {
   public render() {
     //update view
     {
-      const playerTrs = mat4.fromTranslation(mat4.create(), [
-        this.playerPos[0],
-        this.playerPos[1],
-        0,
-      ]);
-      const playerMvp = mat4.multiply(mat4.create(), this.camera.viewProjection, playerTrs);
       this.camera.update();
       this.device.queue.writeBuffer(
         this.mvpBuffer,
         0,
-        playerMvp as Float32Array,
+        this.camera.viewProjection as Float32Array,
+      );
+
+      const playerModelMat = mat4.fromTranslation(mat4.create(), [
+        this.playerPos[0],
+        this.playerPos[1],
+        0,
+      ]);
+
+      this.device.queue.writeBuffer(
+        this.player.modelBuffer,
+        0,
+        playerModelMat as Float32Array,
       );
     }
 
@@ -216,8 +253,9 @@ class Renderer {
 
       passEncoder.setIndexBuffer(this.player.indexBuffer, "uint16");
       passEncoder.setVertexBuffer(0, this.player.vertexBuffer);
+      passEncoder.setVertexBuffer(1, this.player.modelBuffer);
 
-      passEncoder.setBindGroup(0, this.mvpBindGroup);
+      passEncoder.setBindGroup(0, this.projectionViewBindGroup);
       passEncoder.setBindGroup(1, this.textureBindGroup);
       passEncoder.drawIndexed(6);
       passEncoder.end();
