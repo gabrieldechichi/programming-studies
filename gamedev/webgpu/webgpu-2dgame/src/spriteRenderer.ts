@@ -7,7 +7,7 @@ import {
   createVertexBuffer,
 } from "./bufferUtils";
 import { SpritePipeline } from "./spritePipeline";
-import { Texture } from "./texture";
+import { Sprite } from "./content";
 
 const MAX_SPRITE_PER_BATCH = 1024;
 const INDICEX_PER_SPRITE = 6; //quad
@@ -74,8 +74,9 @@ export class SpriteRenderer {
     );
   }
 
-  render(texture: Texture, transform: Transform) {
+  render(sprite: Sprite, transform: Transform) {
     //get or create pipeline
+    const texture = sprite.texture;
     let pipeline = this.pipelinesPerTexture[texture.id];
     if (!pipeline) {
       pipeline = SpritePipeline.create(
@@ -112,11 +113,15 @@ export class SpriteRenderer {
       this.rotateVertex([pos[0] - e[0], pos[1] + e[1]], pos, rot),
     ];
 
+    const u0 = sprite.xy[0] / sprite.texture.size[0];
+    const v0 = sprite.xy[1] / sprite.texture.size[1];
+    const u1 = (sprite.xy[0] + sprite.wh[0]) / sprite.texture.size[0];
+    const v1 = (sprite.xy[1] + sprite.wh[1]) / sprite.texture.size[1];
     const uvs: vec2[] = [
-      [0.0, 1.0],
-      [1.0, 1.0],
-      [1.0, 0.0],
-      [0.0, 0.0],
+      [u0, v1],
+      [u1, v1],
+      [u1, v0],
+      [u0, v0],
     ];
 
     //prettier-ignore

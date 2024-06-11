@@ -1,18 +1,45 @@
+import { vec2 } from "gl-matrix";
 import { Texture } from "./texture";
 
+export type Sprite = {
+  texture: Texture;
+  xy: vec2;
+  wh: vec2;
+};
+
 export class Content {
-  public static playerTexture: Texture;
-  public static ufoRedTexture: Texture;
+  public static playerSprite: Sprite;
+  public static spriteSheet: { [name: string]: Sprite } = {};
 
   public static async initialize(device: GPUDevice) {
-    this.playerTexture = await Texture.createTextureFromUrl(
-      device,
-      "assets/PNG/playerShip1_blue.png",
-    );
+    //load sprite
+    {
+      const spriteSheetTexture = await Texture.createTextureFromUrl(
+        device,
+        "assets/Spritesheet/sheet.png",
+      );
 
-    this.ufoRedTexture = await Texture.createTextureFromUrl(
-      device,
-      "assets/PNG/ufoRed.png",
-    );
+      const sheetXmlReq = await fetch("assets/Spritesheet/sheet.xml");
+      const sheetXmlText = await sheetXmlReq.text();
+
+      const xml = new DOMParser().parseFromString(sheetXmlText, "text/xml");
+
+      // <SubTexture name="beam0.png" x="143" y="377" width="43" height="31"/>
+      xml.querySelectorAll("SubTexture").forEach((element) => {
+        const name = element.getAttribute("name")!.split(".")[0];
+        const x = parseFloat(element.getAttribute("x")!);
+        const y = parseFloat(element.getAttribute("y")!);
+        const width = parseFloat(element.getAttribute("width")!);
+        const height = parseFloat(element.getAttribute("height")!);
+
+        Content.spriteSheet[name] = {
+          texture: spriteSheetTexture,
+          xy: [x, y],
+          wh: [width, height],
+        } as Sprite;
+      });
+
+      Content.playerSprite = Content.spriteSheet["playerShip1_blue"];
+    }
   }
 }

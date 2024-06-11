@@ -86,10 +86,10 @@ class Renderer {
       const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
 
       this.spriteRenderer.startFrame(this.camera.viewProjection);
-      this.spriteRenderer.render(Content.playerTexture, {
+      this.spriteRenderer.render(Content.playerSprite, {
         pos: [0, 0],
-        rot: Math.PI/4,
-        size: Content.playerTexture.size,
+        rot: 0,
+        size: Content.playerSprite.wh,
       });
       this.spriteRenderer.endFrame(passEncoder);
 
