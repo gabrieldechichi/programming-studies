@@ -1,4 +1,4 @@
-import { GPUUniformBuffer, MAT4_BYTE_LENGTH } from "./bufferUtils";
+import { GPUUniformBuffer } from "./bufferUtils";
 import shaderSource from "./shader/shader.wgsl?raw";
 import { Texture } from "./texture";
 
@@ -54,41 +54,10 @@ export class SpritePipeline {
       ],
     };
 
-    const modelBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: MAT4_BYTE_LENGTH,
-      stepMode: "instance",
-      attributes: [
-        //row1
-        {
-          shaderLocation: 3,
-          offset: 0,
-          format: "float32x4",
-        },
-        //row2
-        {
-          shaderLocation: 4,
-          offset: 1 * 4 * Float32Array.BYTES_PER_ELEMENT,
-          format: "float32x4",
-        },
-        //row3
-        {
-          shaderLocation: 5,
-          offset: 2 * 4 * Float32Array.BYTES_PER_ELEMENT,
-          format: "float32x4",
-        },
-        //row4
-        {
-          shaderLocation: 6,
-          offset: 3 * 4 * Float32Array.BYTES_PER_ELEMENT,
-          format: "float32x4",
-        },
-      ],
-    };
-
     const vertex: GPUVertexState = {
       module,
       entryPoint: "vertexMain",
-      buffers: [vertexBufferLayout, modelBufferLayout],
+      buffers: [vertexBufferLayout],
     };
 
     const fragment: GPUFragmentState = {

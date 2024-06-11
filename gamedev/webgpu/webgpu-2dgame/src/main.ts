@@ -46,7 +46,6 @@ class Renderer {
 
     {
       this.camera = new Camera(width, height);
-      this.camera.update();
 
       this.projectionViewBuffer = createUniformBuffer(
         this.device,
@@ -86,7 +85,7 @@ class Renderer {
       const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
 
       this.spriteRenderer.startFrame(this.camera.viewProjection);
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < 20_000; i++) {
         this.spriteRenderer.render(Content.playerTexture, [
           (Math.random() - 0.5) * this.canvas.width,
           (Math.random() - 0.5) * this.canvas.height,

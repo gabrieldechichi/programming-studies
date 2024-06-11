@@ -12,25 +12,19 @@ import { Texture } from "./texture";
 const MAX_SPRITE_PER_BATCH = 1024;
 const INDICEX_PER_SPRITE = 6; //quad
 const VERTEX_PER_SPRITE = 4; //quad
-const MAT4_FLOAT_COUNT = 16;
 
 const VERTEX_BUFFER_FLOATS_PER_SPRITE =
   VERTEX_PER_SPRITE * SpritePipeline.FLOATS_PER_VERTEX;
-const MODEL_BUFFER_FLOATS_PER_SPRITE = MAT4_FLOAT_COUNT;
 
 class SpriteBatch {
   vertexData = new Float32Array(
     VERTEX_BUFFER_FLOATS_PER_SPRITE * MAX_SPRITE_PER_BATCH,
-  );
-  modelMatrixData = new Float32Array(
-    MAX_SPRITE_PER_BATCH * MODEL_BUFFER_FLOATS_PER_SPRITE,
   );
   instanceCount: number = 0;
 }
 
 type SpriteVertexBuffers = {
   vertexBuffer: GPUVertexBuffer;
-  modelBuffer: GPUVertexBuffer;
 };
 
 export class SpriteRenderer {
@@ -84,6 +78,8 @@ export class SpriteRenderer {
 
   endFrame(passEncoder: GPURenderPassEncoder) {
     passEncoder.setIndexBuffer(this.indexBuffer, "uint16");
+    const usedSpriteBuffers: SpriteVertexBuffers[] = [];
+
     for (const textureId in this.batchesPerTexture) {
       const batches = this.batchesPerTexture[textureId];
       if (!batches || batches.length == 0) {
@@ -98,14 +94,11 @@ export class SpriteRenderer {
       passEncoder.setBindGroup(0, pipeline.projectionViewBindGroup);
       passEncoder.setBindGroup(1, pipeline.textureBindGroup);
 
-      const usedSpriteBuffers: SpriteVertexBuffers[] = [];
-
       for (const batch of batches) {
         let spriteBuffers = this.vertexBuffersPool.pop();
         if (!spriteBuffers) {
           spriteBuffers = {
             vertexBuffer: createVertexBuffer(this.device, batch.vertexData),
-            modelBuffer: createVertexBuffer(this.device, batch.modelMatrixData),
           } as SpriteVertexBuffers;
         } else {
           //todo: specify write data size?
@@ -114,22 +107,13 @@ export class SpriteRenderer {
             0,
             batch.vertexData,
           );
-          this.device.queue.writeBuffer(
-            spriteBuffers.modelBuffer,
-            0,
-            batch.vertexData,
-          );
         }
 
         usedSpriteBuffers.push(spriteBuffers);
 
         passEncoder.setVertexBuffer(0, spriteBuffers.vertexBuffer);
-        passEncoder.setVertexBuffer(1, spriteBuffers.modelBuffer);
 
-        passEncoder.drawIndexed(
-          batch.instanceCount * INDICEX_PER_SPRITE,
-          batch.instanceCount,
-        );
+        passEncoder.drawIndexed(batch.instanceCount * INDICEX_PER_SPRITE);
       }
 
       for (const spriteBuffers of usedSpriteBuffers) {
@@ -147,23 +131,15 @@ export class SpriteRenderer {
     const e = vec2.scale(vec2.create(), size, 0.5);
     //prettier-ignore
     const vertices = [
-      // xy           //uv         //color
-      -e[0], -e[1],   0.0, 1.0,    1.0, 1.0, 1.0, 1.0,
-       e[0], -e[1],   1.0, 1.0,    1.0, 1.0, 1.0, 1.0,
-       e[0],  e[1],   1.0, 0.0,    1.0, 1.0, 1.0, 1.0,
-      -e[0],  e[1],   0.0, 0.0,    1.0, 1.0, 1.0, 1.0,
+      // xy                           //uv         //color
+      pos[0] - e[0], pos[1] - e[1],   0.0, 1.0,    1.0, 1.0, 1.0, 1.0,
+      pos[0] + e[0], pos[1] - e[1],   1.0, 1.0,    1.0, 1.0, 1.0, 1.0,
+      pos[0] + e[0], pos[1] + e[1],   1.0, 0.0,    1.0, 1.0, 1.0, 1.0,
+      pos[0] - e[0], pos[1] + e[1],   0.0, 0.0,    1.0, 1.0, 1.0, 1.0,
     ];
     const vertOffset = spriteBatchIndex * VERTEX_BUFFER_FLOATS_PER_SPRITE;
     for (let i = 0; i < vertices.length; i++) {
       batch.vertexData[i + vertOffset] = vertices[i];
-    }
-    console.log(vertices);
-    console.log(batch.vertexData);
-
-    const modelMat = mat4.fromTranslation(mat4.create(), [pos[0], pos[1], 0]);
-    const matOffset = spriteBatchIndex * MODEL_BUFFER_FLOATS_PER_SPRITE;
-    for (let i = 0; i < modelMat.length; i++) {
-      batch.modelMatrixData[i + matOffset] = modelMat[i];
     }
   }
 
