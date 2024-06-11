@@ -123,9 +123,13 @@ class Input {
 }
 
 class Player {
-  pos: vec2 = [0, 0];
   sprite!: Sprite;
-  speed: number = 2;
+
+  pos: vec2 = [0, 0];
+  velocity: vec2 = [0, 0];
+
+  maxSpeed: number = 0.5;
+  acceleration: number = 0.005;
 
   update(dt: number, input: Input) {
     const moveInput = vec2.create();
@@ -141,11 +145,36 @@ class Player {
     if (input.isKeyDown("s")) {
       moveInput[1] -= 1;
     }
+
     vec2.normalize(moveInput, moveInput);
 
-    this.pos[0] += moveInput[0] * dt;
-    this.pos[1] += moveInput[1] * dt;
+    const targetVelocity = vec2.scale(vec2.create(), moveInput, this.maxSpeed)
+
+    this.velocity = moveTowards(
+      this.velocity,
+      targetVelocity,
+      this.acceleration * dt,
+    );
+
+    this.pos[0] += this.velocity[0] * dt;
+    this.pos[1] += this.velocity[1] * dt;
   }
+}
+
+function moveTowards(
+  current: vec2,
+  target: vec2,
+  maxDistanceDelta: number,
+): vec2 {
+  const toTarget: vec2 = [target[0] - current[0], target[1] - current[1]];
+  const magnitude = vec2.len(toTarget);
+  if (magnitude <= maxDistanceDelta || magnitude == 0) {
+    return target;
+  }
+  const dx = (toTarget[0] / magnitude) * maxDistanceDelta;
+  const dy = (toTarget[1] / magnitude) * maxDistanceDelta;
+
+  return [current[0] + dx, current[1] + dy] as vec2;
 }
 
 class Engine {
