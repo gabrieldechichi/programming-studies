@@ -102,15 +102,32 @@ export class SpriteRenderer {
     //set vertex pos
     const spriteBatchIndex = batch.instanceCount;
     const pos = transform.pos;
+    const rot = transform.rot;
     const e = [transform.size[0] * 0.5, transform.size[1] * 0.5];
+
+    const vs: vec2[] = [
+      this.rotateVertex([pos[0] - e[0], pos[1] - e[1]], pos, rot),
+      this.rotateVertex([pos[0] + e[0], pos[1] - e[1]], pos, rot),
+      this.rotateVertex([pos[0] + e[0], pos[1] + e[1]], pos, rot),
+      this.rotateVertex([pos[0] - e[0], pos[1] + e[1]], pos, rot),
+    ];
+
+    const uvs: vec2[] = [
+      [0.0, 1.0],
+      [1.0, 1.0],
+      [1.0, 0.0],
+      [0.0, 0.0],
+    ];
+
     //prettier-ignore
     const vertices = [
-      // xy                           //uv         //color
-      pos[0] - e[0], pos[1] - e[1],   0.0, 1.0,    1.0, 1.0, 1.0, 1.0,
-      pos[0] + e[0], pos[1] - e[1],   1.0, 1.0,    1.0, 1.0, 1.0, 1.0,
-      pos[0] + e[0], pos[1] + e[1],   1.0, 0.0,    1.0, 1.0, 1.0, 1.0,
-      pos[0] - e[0], pos[1] + e[1],   0.0, 0.0,    1.0, 1.0, 1.0, 1.0,
+      // xy                 //uv
+      vs[0][0], vs[0][1],   uvs[0][0], uvs[0][1],
+      vs[1][0], vs[1][1],   uvs[1][0], uvs[1][1],
+      vs[2][0], vs[2][1],   uvs[2][0], uvs[2][1],
+      vs[3][0], vs[3][1],   uvs[3][0], uvs[3][1],
     ];
+
     const vertOffset = spriteBatchIndex * VERTEX_BUFFER_FLOATS_PER_SPRITE;
     for (let i = 0; i < vertices.length; i++) {
       batch.vertexData[i + vertOffset] = vertices[i];
@@ -123,6 +140,10 @@ export class SpriteRenderer {
       newBatch.instanceCount = 0;
       batches.push(newBatch);
     }
+  }
+
+  rotateVertex(v: vec2, origin: vec2, rot: number): vec2 {
+    return vec2.rotate(vec2.create(), v, origin, rot);
   }
 
   endFrame(passEncoder: GPURenderPassEncoder) {

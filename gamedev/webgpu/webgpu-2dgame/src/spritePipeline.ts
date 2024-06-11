@@ -7,7 +7,7 @@ export class SpritePipeline {
   textureBindGroup!: GPUBindGroup;
   projectionViewBindGroup!: GPUBindGroup;
 
-  static FLOATS_PER_VERTEX: number = 2 + 2 + 4; //xy + uv + color
+  static FLOATS_PER_VERTEX: number = 2 + 2; //xy + uv
   static VERTEX_STRIDE: number =
     SpritePipeline.FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
 
@@ -30,7 +30,7 @@ export class SpritePipeline {
 
     //vertex and fragment stuff
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: (2 + 2 + 4) * Float32Array.BYTES_PER_ELEMENT,
+      arrayStride: SpritePipeline.VERTEX_STRIDE,
       stepMode: "vertex",
       attributes: [
         //position
@@ -44,12 +44,6 @@ export class SpritePipeline {
           shaderLocation: 1,
           offset: 2 * Float32Array.BYTES_PER_ELEMENT,
           format: "float32x2",
-        },
-        //color
-        {
-          shaderLocation: 2,
-          offset: (2 + 2) * Float32Array.BYTES_PER_ELEMENT,
-          format: "float32x4",
         },
       ],
     };
@@ -74,7 +68,7 @@ export class SpritePipeline {
             },
             alpha: {
               operation: "add",
-              srcFactor: "src-alpha",
+              srcFactor: "one",
               dstFactor: "one-minus-src-alpha",
             },
           },

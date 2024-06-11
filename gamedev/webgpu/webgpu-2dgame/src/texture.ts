@@ -38,8 +38,8 @@ export class Texture {
     );
 
     const sampler = device.createSampler({
-      minFilter: "linear",
-      magFilter: "linear",
+      minFilter: "nearest",
+      magFilter: "nearest",
     });
 
     return new Texture(tex, sampler, image.src, [image.width, image.height]);

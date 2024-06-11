@@ -1,3 +1,4 @@
+import { vec2 } from "gl-matrix";
 import {
   GPUUniformBuffer,
   MAT4_BYTE_LENGTH,
@@ -85,27 +86,11 @@ class Renderer {
       const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
 
       this.spriteRenderer.startFrame(this.camera.viewProjection);
-      const drawCount = 20_000
-      for (let i = 0; i < drawCount; i++) {
-        this.spriteRenderer.render(Content.playerTexture, {
-          pos: [
-            (Math.random() - 0.5) * this.canvas.width,
-            (Math.random() - 0.5) * this.canvas.height,
-          ],
-          rot: 0,
-          size: [10, 10],
-        });
-      }
-      for (let i = 0; i < drawCount; i++) {
-        this.spriteRenderer.render(Content.ufoRedTexture, {
-          pos: [
-            (Math.random() - 0.5) * this.canvas.width,
-            (Math.random() - 0.5) * this.canvas.height,
-          ],
-          rot: 0,
-          size: [10, 10],
-        });
-      }
+      this.spriteRenderer.render(Content.playerTexture, {
+        pos: [0, 0],
+        rot: Math.PI/4,
+        size: Content.playerTexture.size,
+      });
       this.spriteRenderer.endFrame(passEncoder);
 
       passEncoder.end();
