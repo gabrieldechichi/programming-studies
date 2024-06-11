@@ -27,6 +27,12 @@ type SpriteVertexBuffers = {
   vertexBuffer: GPUVertexBuffer;
 };
 
+type Transform = {
+  pos: vec2;
+  rot: number;
+  size: vec2;
+};
+
 export class SpriteRenderer {
   device!: GPUDevice;
   projectionViewBuffer!: GPUUniformBuffer;
@@ -68,12 +74,55 @@ export class SpriteRenderer {
     );
   }
 
-  render(texture: Texture, pos: vec2) {
-    this.getOrCreatePipeline(texture);
-    const batch = this.getAvailableBatchForPipeline(texture);
+  render(texture: Texture, transform: Transform) {
+    //get or create pipeline
+    let pipeline = this.pipelinesPerTexture[texture.id];
+    if (!pipeline) {
+      pipeline = SpritePipeline.create(
+        this.device,
+        texture,
+        this.projectionViewBuffer,
+      );
+      this.pipelinesPerTexture[texture.id] = pipeline;
+    }
 
-    this.fillSpriteVertexData(batch, batch.instanceCount, pos, texture.size);
+    //get or create batch
+    let batches = this.batchesPerTexture[texture.id];
+    if (!batches) {
+      batches = [];
+      this.batchesPerTexture[texture.id] = batches;
+    }
+    let batch = batches[batches.length - 1];
+    if (!batch) {
+      batch = new SpriteBatch();
+      batch.instanceCount = 0;
+      batches.push(batch);
+    }
+
+    //set vertex pos
+    const spriteBatchIndex = batch.instanceCount;
+    const pos = transform.pos;
+    const e = [transform.size[0] * 0.5, transform.size[1] * 0.5];
+    //prettier-ignore
+    const vertices = [
+      // xy                           //uv         //color
+      pos[0] - e[0], pos[1] - e[1],   0.0, 1.0,    1.0, 1.0, 1.0, 1.0,
+      pos[0] + e[0], pos[1] - e[1],   1.0, 1.0,    1.0, 1.0, 1.0, 1.0,
+      pos[0] + e[0], pos[1] + e[1],   1.0, 0.0,    1.0, 1.0, 1.0, 1.0,
+      pos[0] - e[0], pos[1] + e[1],   0.0, 0.0,    1.0, 1.0, 1.0, 1.0,
+    ];
+    const vertOffset = spriteBatchIndex * VERTEX_BUFFER_FLOATS_PER_SPRITE;
+    for (let i = 0; i < vertices.length; i++) {
+      batch.vertexData[i + vertOffset] = vertices[i];
+    }
+
     batch.instanceCount++;
+
+    if (batch.instanceCount >= MAX_SPRITE_PER_BATCH) {
+      const newBatch = new SpriteBatch();
+      newBatch.instanceCount = 0;
+      batches.push(newBatch);
+    }
   }
 
   endFrame(passEncoder: GPURenderPassEncoder) {
@@ -120,54 +169,5 @@ export class SpriteRenderer {
         this.vertexBuffersPool.push(spriteBuffers);
       }
     }
-  }
-
-  private fillSpriteVertexData(
-    batch: SpriteBatch,
-    spriteBatchIndex: number,
-    pos: vec2,
-    size: vec2,
-  ) {
-    const e = vec2.scale(vec2.create(), size, 0.5);
-    //prettier-ignore
-    const vertices = [
-      // xy                           //uv         //color
-      pos[0] - e[0], pos[1] - e[1],   0.0, 1.0,    1.0, 1.0, 1.0, 1.0,
-      pos[0] + e[0], pos[1] - e[1],   1.0, 1.0,    1.0, 1.0, 1.0, 1.0,
-      pos[0] + e[0], pos[1] + e[1],   1.0, 0.0,    1.0, 1.0, 1.0, 1.0,
-      pos[0] - e[0], pos[1] + e[1],   0.0, 0.0,    1.0, 1.0, 1.0, 1.0,
-    ];
-    const vertOffset = spriteBatchIndex * VERTEX_BUFFER_FLOATS_PER_SPRITE;
-    for (let i = 0; i < vertices.length; i++) {
-      batch.vertexData[i + vertOffset] = vertices[i];
-    }
-  }
-
-  private getOrCreatePipeline(texture: Texture) {
-    let pipeline = this.pipelinesPerTexture[texture.id];
-    if (!pipeline) {
-      pipeline = SpritePipeline.create(
-        this.device,
-        texture,
-        this.projectionViewBuffer,
-      );
-      this.pipelinesPerTexture[texture.id] = pipeline;
-    }
-    return pipeline;
-  }
-
-  private getAvailableBatchForPipeline(texture: Texture): SpriteBatch {
-    let batches = this.batchesPerTexture[texture.id];
-    if (!batches) {
-      batches = [];
-      this.batchesPerTexture[texture.id] = batches;
-    }
-    let batch = batches[batches.length - 1];
-    if (!batch || batch.instanceCount >= MAX_SPRITE_PER_BATCH) {
-      batch = new SpriteBatch();
-      batch.instanceCount = 0;
-      batches.push(batch);
-    }
-    return batch;
   }
 }

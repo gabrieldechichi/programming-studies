@@ -85,11 +85,26 @@ class Renderer {
       const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
 
       this.spriteRenderer.startFrame(this.camera.viewProjection);
-      for (let i = 0; i < 20_000; i++) {
-        this.spriteRenderer.render(Content.playerTexture, [
-          (Math.random() - 0.5) * this.canvas.width,
-          (Math.random() - 0.5) * this.canvas.height,
-        ]);
+      const drawCount = 20_000
+      for (let i = 0; i < drawCount; i++) {
+        this.spriteRenderer.render(Content.playerTexture, {
+          pos: [
+            (Math.random() - 0.5) * this.canvas.width,
+            (Math.random() - 0.5) * this.canvas.height,
+          ],
+          rot: 0,
+          size: [10, 10],
+        });
+      }
+      for (let i = 0; i < drawCount; i++) {
+        this.spriteRenderer.render(Content.ufoRedTexture, {
+          pos: [
+            (Math.random() - 0.5) * this.canvas.width,
+            (Math.random() - 0.5) * this.canvas.height,
+          ],
+          rot: 0,
+          size: [10, 10],
+        });
       }
       this.spriteRenderer.endFrame(passEncoder);
 
@@ -97,7 +112,7 @@ class Renderer {
 
       this.device.queue.submit([commandEncoder.finish()]);
 
-      window.requestAnimationFrame(() => this.render())
+      window.requestAnimationFrame(() => this.render());
     }
   }
 }
