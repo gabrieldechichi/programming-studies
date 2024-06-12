@@ -14,13 +14,14 @@ type Object interface {
 }
 
 const (
-	INTEGER_OBJ  = "INTEGER"
-	BOOLEAN_OBJ  = "BOOLEAN"
-	STRING_OBJ  = "STRING"
-	FUNCTION_OBJ = "FUNCTION"
-	NULL_OBJ     = "NULL"
-	RETURN_OBJ   = "RETURN"
-	ERROR_OBJ    = "ERROR"
+	INTEGER_OBJ          = "INTEGER"
+	BOOLEAN_OBJ          = "BOOLEAN"
+	STRING_OBJ           = "STRING"
+	FUNCTION_OBJ         = "FUNCTION"
+	BUILTIN_FUNCTION_OBJ = "FUNCTION"
+	NULL_OBJ             = "NULL"
+	RETURN_OBJ           = "RETURN"
+	ERROR_OBJ            = "ERROR"
 )
 
 var (
@@ -120,4 +121,19 @@ func (i *FunctionObj) Inspect() string {
 
 func (i *FunctionObj) Type() ObjectType {
 	return FUNCTION_OBJ
+}
+
+type BuiltinFunction func(args ...Object) Object
+
+type BuiltinFunctionObj struct {
+	Name string
+	Fn   BuiltinFunction
+}
+
+func (i *BuiltinFunctionObj) Inspect() string {
+	return fmt.Sprintf("builtin function: %s", i.Name)
+}
+
+func (i *BuiltinFunctionObj) Type() ObjectType {
+	return BUILTIN_FUNCTION_OBJ
 }

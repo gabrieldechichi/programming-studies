@@ -6,6 +6,24 @@ import (
 	"go_interpreter/object"
 )
 
+var builtinFunctions = map[string]*object.BuiltinFunctionObj{
+	"len": {
+		Name: "len",
+		Fn: func(args ...object.Object) object.Object {
+			if len(args) != 1 {
+				return errorObj("wrong number of arguments. got=%d, want=1", len(args))
+			}
+			arg := args[0]
+			switch v := arg.(type) {
+			case *object.StringObj:
+				return &object.IntegerObj{Value: int64(len(v.Value))}
+			default:
+				return errorObj("argument to `len` not supported, got %s", arg.Type())
+			}
+		},
+	},
+}
+
 func EvalProgram(program *ast.Program, env *object.Environment) object.Object {
 	var result object.Object
 	var err error
@@ -68,10 +86,6 @@ func evalCallExpression(node *ast.CallExpression, env *object.Environment) (obje
 	if err != nil {
 		return nil, err
 	}
-	funcObj, ok := obj.(*object.FunctionObj)
-	if !ok {
-		return nil, errorObj("not a function %s", obj.Inspect())
-	}
 
 	//eval arguments
 	var args []object.Object
@@ -83,25 +97,36 @@ func evalCallExpression(node *ast.CallExpression, env *object.Environment) (obje
 		args = append(args, argObj)
 	}
 
-	//create enclosed env and bind arguments
-	functionEnv := object.NewEnclosedEnvironment(funcObj.Env)
-	for i := range args {
-		argObj := args[i]
-		identifier := funcObj.Arguments[i]
-		functionEnv.Set(identifier.Value, argObj)
-	}
+	switch funcObj := obj.(type) {
+	case *object.FunctionObj:
+		//create enclosed env and bind arguments
+		functionEnv := object.NewEnclosedEnvironment(funcObj.Env)
+		for i := range args {
+			argObj := args[i]
+			identifier := funcObj.Arguments[i]
+			functionEnv.Set(identifier.Value, argObj)
+		}
 
-	//evaluate function body
-	result, err := Eval(funcObj.Body, functionEnv)
-	if err != nil {
-		return nil, err
-	}
+		//evaluate function body
+		result, err := Eval(funcObj.Body, functionEnv)
+		if err != nil {
+			return nil, err
+		}
 
-	//unwrap return value if needed
-	if result, ok := result.(*object.ReturnObj); ok {
-		return result.Value, nil
+		//unwrap return value if needed
+		if result, ok := result.(*object.ReturnObj); ok {
+			return result.Value, nil
+		}
+		return result, nil
+	case *object.BuiltinFunctionObj:
+		result := funcObj.Fn(args...)
+		if result.Type() == object.ERROR_OBJ {
+			return nil, result.(*object.ErrorObj)
+		}
+		return result, nil
+	default:
+		return nil, errorObj("not a function %s", obj.Inspect())
 	}
-	return result, nil
 }
 
 func evalFunctionExpression(node *ast.FunctionExpression, env *object.Environment) (object.Object, error) {
@@ -112,6 +137,9 @@ func evalFunctionExpression(node *ast.FunctionExpression, env *object.Environmen
 func evalIdentifierStatement(node *ast.Identifier, env *object.Environment) (object.Object, error) {
 	identifierName := node.Value
 	if val, ok := env.Get(identifierName); ok {
+		return val, nil
+	}
+	if val, ok := builtinFunctions[identifierName]; ok {
 		return val, nil
 	}
 	return nil, errorObj("identifier not found: %s", identifierName)
@@ -193,7 +221,7 @@ func evalPrefixExpression(node *ast.PrefixExpression, env *object.Environment) (
 	}
 }
 
-func errorObj(format string, a ...any) error {
+func errorObj(format string, a ...any) *object.ErrorObj {
 	return &object.ErrorObj{Value: fmt.Sprintf(format, a...)}
 }
 
@@ -253,9 +281,9 @@ func evalInfixExpression(node *ast.InfixExpression, env *object.Environment) (ob
 		case "+":
 			return &object.StringObj{Value: leftStr.Value + rightStr.Value}, nil
 		case "==":
-			return nativeBoolToBooleanObj(leftStr.Value == rightStr.Value),nil
+			return nativeBoolToBooleanObj(leftStr.Value == rightStr.Value), nil
 		case "!=":
-			return nativeBoolToBooleanObj(leftStr.Value != rightStr.Value),nil
+			return nativeBoolToBooleanObj(leftStr.Value != rightStr.Value), nil
 		}
 	} else {
 		return nil, errorObj("type mismatch: %s %s %s", left.Type(), node.Operator, right.Type())

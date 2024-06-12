@@ -10,7 +10,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func testEval(input string) object.Object {
+func testEval(t *testing.T, input string) object.Object {
+	result := testEvalNoErrorCheck(input)
+	if error, isError := result.(*object.ErrorObj); isError {
+		t.Fatalf("Eval returned error: %s", error.Inspect())
+	}
+	return result
+}
+
+func testEvalNoErrorCheck(input string) object.Object {
 	l := lexer.New(input)
 	p := parser.New(l)
 	program := p.ParseProgram()
@@ -44,8 +52,12 @@ func assertNativeAndObjectEqual(t *testing.T, v interface{}, o object.Object) {
 		intValue := castAssert[object.IntegerObj](t, o)
 		assert.Equal(t, int64(value), int64(intValue.Value))
 	case string:
-		stringValue := castAssert[object.StringObj](t, o)
-		assert.Equal(t, value, stringValue.Value)
+		if err, isErr := o.(*object.ErrorObj); isErr {
+            assert.Equal(t, value, err.Value)
+		} else {
+			stringValue := castAssert[object.StringObj](t, o)
+			assert.Equal(t, value, stringValue.Value)
+		}
 	case nil:
 		castAssert[object.NullObj](t, o)
 	}
@@ -73,7 +85,7 @@ func TestEvalIntegerExpression(t *testing.T) {
 		{"(5 + 10 * 2 + 15 / 3) * 2 + -10", 50},
 	}
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
 		result := castAssert[object.IntegerObj](t, obj)
 		assert.Equal(t, tt.expected, result.Value)
 	}
@@ -109,7 +121,7 @@ func TestEvalBooleanExpression(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
 		result := castAssert[object.BooleanObj](t, obj)
 		assert.Equal(t, tt.expected, result.Value)
 	}
@@ -128,7 +140,7 @@ func TestEvalStringExpression(t *testing.T) {
 		{`"foo" != "bar"`, true},
 	}
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
 		assertNativeAndObjectEqual(t, tt.expected, obj)
 	}
 }
@@ -147,7 +159,7 @@ func TestEvalBandOperator(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
 		result := castAssert[object.BooleanObj](t, obj)
 		assert.Equal(t, tt.expected, result.Value)
 	}
@@ -176,7 +188,7 @@ if (1 < 2) {
 	}
 
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
 		assertNativeAndObjectEqual(t, tt.expected, obj)
 	}
 }
@@ -199,7 +211,7 @@ if (10 > 1) {
 }`, 10},
 	}
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
 		assertNativeAndObjectEqual(t, tt.expected, obj)
 	}
 }
@@ -259,7 +271,7 @@ if (10 > 1) {
 	}
 
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEvalNoErrorCheck(tt.input)
 		errorObj := castAssert[object.ErrorObj](t, obj)
 		assert.Equal(t, tt.expectedMessage, errorObj.Value)
 	}
@@ -276,7 +288,7 @@ func TestLetStatements(t *testing.T) {
 		{"let a = 5; let b = a; let c = a + b + 5; c;", 15},
 	}
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
 		assertNativeAndObjectEqual(t, tt.expected, obj)
 	}
 }
@@ -289,7 +301,7 @@ func TestFunctionObject(t *testing.T) {
 		{"fn (x) { (x + 1) }", []string{"x"}},
 	}
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
 		funcObj := castAssert[object.FunctionObj](t, obj)
 		assert.Len(t, funcObj.Arguments, len(tt.expectedArgs))
 		for i := range funcObj.Arguments {
@@ -314,7 +326,7 @@ func TestFunctionApplication(t *testing.T) {
 		{"fn(x) { x; }(5)", 5},
 	}
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
 		assertNativeAndObjectEqual(t, tt.expected, obj)
 	}
 }
@@ -336,7 +348,25 @@ let applyFunc = fn(a, b, func) { func(a, b) };
 applyFunc(2, 2, add);`, 4},
 	}
 	for _, tt := range tests {
-		obj := testEval(tt.input)
+		obj := testEval(t, tt.input)
+		assertNativeAndObjectEqual(t, tt.expected, obj)
+	}
+}
+
+func TestBuiltinFunctions(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected interface{}
+	}{
+		{`len("")`, 0},
+		{`len("four")`, 4},
+		{`len("hello world")`, 11},
+		{`len(1)`, "argument to `len` not supported, got INTEGER"},
+		{`len("one", "two")`, "wrong number of arguments. got=2, want=1"},
+	}
+
+	for _, tt := range tests {
+		obj := testEvalNoErrorCheck(tt.input)
 		assertNativeAndObjectEqual(t, tt.expected, obj)
 	}
 }
