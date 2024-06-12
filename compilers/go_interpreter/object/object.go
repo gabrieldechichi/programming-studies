@@ -17,6 +17,7 @@ const (
 	INTEGER_OBJ          = "INTEGER"
 	BOOLEAN_OBJ          = "BOOLEAN"
 	STRING_OBJ           = "STRING"
+	ARRAY_OBJ            = "ARRAY"
 	FUNCTION_OBJ         = "FUNCTION"
 	BUILTIN_FUNCTION_OBJ = "FUNCTION"
 	NULL_OBJ             = "NULL"
@@ -64,6 +65,22 @@ func (i *StringObj) Inspect() string {
 
 func (i *StringObj) Type() ObjectType {
 	return STRING_OBJ
+}
+
+type ArrayObj struct {
+	Elements []Object
+}
+
+func (i *ArrayObj) Inspect() string {
+	var elements []string
+	for _, e := range i.Elements {
+		elements = append(elements, e.Inspect())
+	}
+	return fmt.Sprintf("[%s]", strings.Join(elements, ","))
+}
+
+func (i *ArrayObj) Type() ObjectType {
+	return ARRAY_OBJ
 }
 
 type NullObj struct {

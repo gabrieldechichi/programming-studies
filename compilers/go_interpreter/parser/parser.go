@@ -24,6 +24,7 @@ const (
 	PRODUCT     // *
 	PREFIX      // -X or !X
 	CALL        // myFunction(X)
+    INDEXING    // [
 )
 
 type Parser struct {
@@ -53,6 +54,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefixParseFnMulti([]token.TokenType{token.BANG, token.MINUS}, p.parseExprPrefix)
 	p.registerPrefixParseFn(token.IF, p.parseExprIf)
 	p.registerPrefixParseFn(token.FUNC, p.parseExprFunction)
+	p.registerPrefixParseFn(token.LBRACKET, p.parseExprArray)
 
 	//infix
 	p.registerInfixParseFnMulti([]token.TokenType{
@@ -64,6 +66,7 @@ func New(l *lexer.Lexer) *Parser {
 		token.ASTERISK, token.SLASH,
 	}, p.parseExprInfix)
 	p.registerInfixParseFn(token.LPAREN, p.parseExprInfixFunctionCall)
+	p.registerInfixParseFn(token.LBRACKET, p.parseExprInfixIndexArray)
 	return &p
 }
 
@@ -247,6 +250,8 @@ func tokenPrecedence(tokenType token.TokenType) int {
 		return SUM
 	case token.ASTERISK, token.SLASH:
 		return PRODUCT
+	case token.LBRACKET:
+		return INDEXING
 	case token.LPAREN:
 		return CALL
 	}
@@ -360,6 +365,20 @@ func (p *Parser) parseExprFunction() ast.Expression {
 	return e
 }
 
+func (p *Parser) parseExprArray() ast.Expression {
+	e := &ast.ArrayExpression{Token: p.curToken}
+	p.nextToken()
+	for p.curToken.Type != token.RBRACKET && p.curToken.Type != token.EOF {
+		arg := p.parseExpression(LOWEST)
+		e.Args = append(e.Args, arg)
+		p.nextToken()
+		if p.curToken.Type == token.COMMA {
+			p.nextToken()
+		}
+	}
+	return e
+}
+
 //
 
 // Infix parsers
@@ -385,6 +404,14 @@ func (p *Parser) parseExprInfixFunctionCall(lhs ast.Expression) ast.Expression {
 			p.nextToken()
 		}
 	}
+	return e
+}
+
+func (p *Parser) parseExprInfixIndexArray(lhs ast.Expression) ast.Expression {
+	e := &ast.IndexArrayExpression{Token: p.curToken, Left: lhs}
+	p.nextToken()
+	e.Index = p.parseExpression(LOWEST)
+    p.expectPeek(token.RBRACKET)
 	return e
 }
 

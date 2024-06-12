@@ -43,23 +43,23 @@ func assertCodeText(t *testing.T, expected string, actual string) {
 
 //end repeated code
 
-func assertNativeAndObjectEqual(t *testing.T, v interface{}, o object.Object) {
-	switch value := v.(type) {
+func assertNativeAndObjectEqual(t *testing.T, expected interface{}, actual object.Object) {
+	switch value := expected.(type) {
 	case bool:
-		boolValue := castAssert[object.BooleanObj](t, o)
+		boolValue := castAssert[object.BooleanObj](t, actual)
 		assert.Equal(t, value, boolValue.Value)
 	case int:
-		intValue := castAssert[object.IntegerObj](t, o)
+		intValue := castAssert[object.IntegerObj](t, actual)
 		assert.Equal(t, int64(value), int64(intValue.Value))
 	case string:
-		if err, isErr := o.(*object.ErrorObj); isErr {
-            assert.Equal(t, value, err.Value)
+		if err, isErr := actual.(*object.ErrorObj); isErr {
+			assert.Equal(t, value, err.Value)
 		} else {
-			stringValue := castAssert[object.StringObj](t, o)
+			stringValue := castAssert[object.StringObj](t, actual)
 			assert.Equal(t, value, stringValue.Value)
 		}
 	case nil:
-		castAssert[object.NullObj](t, o)
+		castAssert[object.NullObj](t, actual)
 	}
 }
 
@@ -142,6 +142,26 @@ func TestEvalStringExpression(t *testing.T) {
 	for _, tt := range tests {
 		obj := testEval(t, tt.input)
 		assertNativeAndObjectEqual(t, tt.expected, obj)
+	}
+}
+
+func TestEvalArrayExpression(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []interface{}
+	}{
+		{"[5, -5, 10]", []interface{}{5, -5, 10}},
+		{`["foobar", true, 10]`, []interface{}{"foobar", true, 10}},
+	}
+	for _, tt := range tests {
+		obj := testEval(t, tt.input)
+		result := castAssert[object.ArrayObj](t, obj)
+		assert.Len(t, result.Elements, len(tt.expected))
+		for i := range tt.expected {
+			expected := tt.expected[i]
+			actual := result.Elements[i]
+			assertNativeAndObjectEqual(t, expected, actual)
+		}
 	}
 }
 
@@ -363,6 +383,67 @@ func TestBuiltinFunctions(t *testing.T) {
 		{`len("hello world")`, 11},
 		{`len(1)`, "argument to `len` not supported, got INTEGER"},
 		{`len("one", "two")`, "wrong number of arguments. got=2, want=1"},
+	}
+
+	for _, tt := range tests {
+		obj := testEvalNoErrorCheck(tt.input)
+		assertNativeAndObjectEqual(t, tt.expected, obj)
+	}
+}
+
+func TestEvalIndexArrayExpression(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected interface{}
+	}{
+		{
+			"[1, 2, 3][0]",
+			1,
+		},
+		{
+			"[1, 2, 3][1]",
+			2,
+		},
+		{
+			"[1, 2, 3][2]",
+			3,
+		},
+		{
+			"let i = 0; [1][i];",
+			1,
+		},
+		{
+			"[1, 2, 3][1 + 1];",
+			3,
+		},
+		{
+			"let myArray = [1, 2, 3]; myArray[2];",
+			3,
+		},
+		{
+			"let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];",
+			6,
+		},
+		{
+			"let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]",
+			2,
+		},
+		{
+			"[1, 2, 3][3]",
+			nil,
+		},
+		{
+			"[1, 2, 3][-1]",
+			nil,
+		},
+		{
+			"true[-1]",
+			"Expected array. Found true (BOOLEAN)",
+		},
+		{
+			`[1,23]["hi"]`,
+			`Index must be an integer. Found "hi" (STRING)`,
+		},
 	}
 
 	for _, tt := range tests {

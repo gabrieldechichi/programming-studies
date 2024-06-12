@@ -75,9 +75,48 @@ func Eval(node ast.Node, env *object.Environment) (object.Object, error) {
 		return object.FALSE, nil
 	case *ast.StringLiteral:
 		return &object.StringObj{Value: node.Value}, nil
+	case *ast.ArrayExpression:
+		o := &object.ArrayObj{}
+		for _, elementExpr := range node.Args {
+			element, err := Eval(elementExpr, env)
+			if err != nil {
+				return nil, err
+			}
+			o.Elements = append(o.Elements, element)
+		}
+		return o, nil
+	case *ast.IndexArrayExpression:
+		return evalIndexArrayExpression(node, env)
+
 	default:
 		panic(fmt.Sprintf("Unhanded Eval case %T", node))
 	}
+}
+
+func evalIndexArrayExpression(node *ast.IndexArrayExpression, env *object.Environment) (object.Object, error) {
+	leftObj, err := Eval(node.Left, env)
+	if err != nil {
+		return nil, err
+	}
+	array, ok := leftObj.(*object.ArrayObj)
+	if !ok {
+		return nil, errorObj("Expected array. Found %s (%s)", leftObj.Inspect(), leftObj.Type())
+	}
+
+	indexObj, err := Eval(node.Index, env)
+	if err != nil {
+		return nil, err
+	}
+	index, ok := indexObj.(*object.IntegerObj)
+	if !ok {
+		return nil, errorObj("Index must be an integer. Found %s (%s)", indexObj.Inspect(), indexObj.Type())
+	}
+
+	if index.Value < 0 || index.Value >= int64(len(array.Elements)) {
+        return object.NULL, nil
+	}
+
+	return array.Elements[int(index.Value)], nil
 }
 
 func evalCallExpression(node *ast.CallExpression, env *object.Environment) (object.Object, error) {

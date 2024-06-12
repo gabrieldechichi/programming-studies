@@ -242,3 +242,34 @@ func (s *CallExpression) String() string {
 	}
 	return fmt.Sprintf("%s(%s)", s.Function.String(), strings.Join(parameters, ","))
 }
+
+type ArrayExpression struct {
+	Token token.Token // [
+	Args  []Expression
+}
+
+func (s *ArrayExpression) expressionNode() {}
+
+func (s *ArrayExpression) TokenLiteral() string { return s.Token.Literal }
+
+func (s *ArrayExpression) String() string {
+	var args []string
+	for _, a := range s.Args {
+		args = append(args, a.String())
+	}
+	return fmt.Sprintf("[%s]", strings.Join(args, ","))
+}
+
+type IndexArrayExpression struct {
+	Token token.Token // [
+	Left  Expression
+	Index Expression
+}
+
+func (s *IndexArrayExpression) expressionNode() {}
+
+func (s *IndexArrayExpression) TokenLiteral() string { return s.Token.Literal }
+
+func (s *IndexArrayExpression) String() string {
+	return fmt.Sprintf("(%s[%s])", s.Left.String(), s.Index.String())
+}

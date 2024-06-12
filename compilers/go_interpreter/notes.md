@@ -11,3 +11,8 @@ Ginger Bill suggestions for building a language:
 Andrew Kelley
 - Start with something similar: wasm first
 
+Notes for new compiler
+- Try Zig or Odin?
+- Better error messages
+- Need to get better at Operator precedense and Prett-Parsing
+

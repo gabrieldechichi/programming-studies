@@ -101,7 +101,7 @@ false;
 	})
 }
 
-func TestBooleanExpression(t *testing.T) {
+func TestStringExpression(t *testing.T) {
 	input := `"foobar";
 "foo bar";`
 	testCases := []string{"foobar", "foo bar"}
@@ -109,6 +109,59 @@ func TestBooleanExpression(t *testing.T) {
 		exprStmt := castAssert[ast.ExpressionStatement](t, s)
 		stringLiteral := castAssert[ast.StringLiteral](t, exprStmt.Expression)
 		assert.Equal(t, testCase, stringLiteral.Value)
+	})
+}
+
+func TestArrayExpression(t *testing.T) {
+	input := `[1, 2 * 2, 3 + 3];
+[1, "foobar", true];
+["foobar", [1,2]];
+    `
+	testCases := [][]string{
+		{"1", "(2 * 2)", "(3 + 3)"},
+		{"1", `"foobar"`, "true"},
+		{`"foobar"`, "[1,2]"},
+	}
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase []string, s ast.Statement) {
+		exprStmt := castAssert[ast.ExpressionStatement](t, s)
+		arrayLiteral := castAssert[ast.ArrayExpression](t, exprStmt.Expression)
+		assert.Len(t, arrayLiteral.Args, len(testCase))
+		for i := range testCase {
+			expected := testCase[i]
+			actual := arrayLiteral.Args[i].String()
+			assert.Equal(t, expected, actual)
+		}
+	})
+}
+
+func TestArrayIndexing(t *testing.T) {
+	input := `x[1];
+[1,2,3][0];
+"foo"[0];
+myArray[1 + 2];
+y[getIndex()];
+y[x[0]];
+getArray()[1];
+`
+    type TestCase struct {
+        left string
+        index string
+    }
+	testCases := []TestCase{
+        {"x", "1"},
+        {"[1,2,3]", "0"},
+        {`"foo"`, "0"},
+        {"myArray", "(1 + 2)"},
+        {"y", "getIndex()"},
+        {"y", "(x[0])"},
+        {"getArray()", "1"},
+	}
+
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase TestCase, s ast.Statement) {
+		exprStmt := castAssert[ast.ExpressionStatement](t, s)
+		indexArrayExpr := castAssert[ast.IndexArrayExpression](t, exprStmt.Expression)
+        assert.Equal(t, testCase.left, indexArrayExpr.Left.String())
+        assert.Equal(t, testCase.index, indexArrayExpr.Index.String())
 	})
 }
 
@@ -286,6 +339,14 @@ func TestOperatorPrecedenceParsing(t *testing.T) {
 			"!(true == true)",
 			"(!(true == true))",
 		},
+        {
+            "a * [1, 2, 3, 4][b * c] * d",
+            "((a * ([1, 2, 3, 4][(b * c)])) * d)",
+        },
+        {
+            "add(a * b[2], b[1], 2 * [1, 2][1])",
+            "add((a * (b[2])), (b[1]), (2 * ([1, 2][1])))",
+        },
 	}
 
 	for _, testCase := range tests {
