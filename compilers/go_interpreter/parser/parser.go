@@ -47,6 +47,7 @@ func New(l *lexer.Lexer) *Parser {
 	//prefix
 	p.registerPrefixParseFn(token.IDENT, p.parseExprIdentifier)
 	p.registerPrefixParseFn(token.INT, p.parseExprIntegerLiteral)
+	p.registerPrefixParseFn(token.STRING, p.parseExprStringLiteral)
 	p.registerPrefixParseFn(token.LPAREN, p.parseExprGroup)
 	p.registerPrefixParseFnMulti([]token.TokenType{token.TRUE, token.FALSE}, p.parseExprBooleanLiteral)
 	p.registerPrefixParseFnMulti([]token.TokenType{token.BANG, token.MINUS}, p.parseExprPrefix)
@@ -255,6 +256,11 @@ func tokenPrecedence(tokenType token.TokenType) int {
 // Prefix parsers
 func (p *Parser) parseExprIdentifier() ast.Expression {
 	return &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+}
+
+func (p *Parser) parseExprStringLiteral() ast.Expression {
+	e := &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+	return e
 }
 
 func (p *Parser) parseExprIntegerLiteral() ast.Expression {

@@ -2,6 +2,7 @@ package lexer
 
 import (
 	"go_interpreter/token"
+	"strings"
 )
 
 //TODO: support unicode
@@ -47,6 +48,16 @@ func (l *Lexer) eatWhitespace() {
 	for l.c == ' ' || l.c == '\t' || l.c == '\n' || l.c == '\r' {
 		l.readChar()
 	}
+}
+
+func (l *Lexer) readString() string {
+	var strBuilder strings.Builder
+	l.readChar()
+	for l.c != '"' && l.c != 0 {
+		strBuilder.WriteByte(l.c)
+		l.readChar()
+	}
+	return strBuilder.String()
 }
 
 func (l *Lexer) readIdentifier() string {
@@ -130,6 +141,9 @@ func (l *Lexer) NextToken() token.Token {
 		tok = newTokenFromCh(token.LBRACE, l.c)
 	case '}':
 		tok = newTokenFromCh(token.RBRACE, l.c)
+	case '"':
+		tok = token.Token{Type: token.STRING}
+		tok.Literal = l.readString()
 	case 0:
 		tok.Literal = ""
 		tok.Type = token.EOF

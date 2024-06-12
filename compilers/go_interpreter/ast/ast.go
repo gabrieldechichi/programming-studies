@@ -39,7 +39,7 @@ func (p *Program) String() string {
 
 	for _, s := range p.Statements {
 		out.WriteString(s.String())
-        out.WriteString("\n")
+		out.WriteString("\n")
 	}
 	return out.String()
 }
@@ -112,6 +112,19 @@ func (s *IntegerLiteral) String() string {
 	return s.Token.Literal
 }
 func (s *IntegerLiteral) expressionNode() {}
+
+type StringLiteral struct {
+	Token token.Token
+	Value string
+}
+
+func (s *StringLiteral) TokenLiteral() string { return s.Token.Literal }
+
+func (s *StringLiteral) String() string {
+	return fmt.Sprintf("\"%s\"", s.Value)
+}
+
+func (s *StringLiteral) expressionNode() {}
 
 type BooleanLiteral struct {
 	Token token.Token

@@ -16,6 +16,7 @@ type Object interface {
 const (
 	INTEGER_OBJ  = "INTEGER"
 	BOOLEAN_OBJ  = "BOOLEAN"
+	STRING_OBJ  = "STRING"
 	FUNCTION_OBJ = "FUNCTION"
 	NULL_OBJ     = "NULL"
 	RETURN_OBJ   = "RETURN"
@@ -50,6 +51,18 @@ func (i *BooleanObj) Inspect() string {
 
 func (i *BooleanObj) Type() ObjectType {
 	return BOOLEAN_OBJ
+}
+
+type StringObj struct {
+	Value string
+}
+
+func (i *StringObj) Inspect() string {
+	return fmt.Sprintf(`"%s"`, i.Value)
+}
+
+func (i *StringObj) Type() ObjectType {
+	return STRING_OBJ
 }
 
 type NullObj struct {

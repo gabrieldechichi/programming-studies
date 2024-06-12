@@ -55,6 +55,8 @@ func Eval(node ast.Node, env *object.Environment) (object.Object, error) {
 			return object.TRUE, nil
 		}
 		return object.FALSE, nil
+	case *ast.StringLiteral:
+		return &object.StringObj{Value: node.Value}, nil
 	default:
 		panic(fmt.Sprintf("Unhanded Eval case %T", node))
 	}
@@ -95,7 +97,7 @@ func evalCallExpression(node *ast.CallExpression, env *object.Environment) (obje
 		return nil, err
 	}
 
-    //unwrap return value if needed
+	//unwrap return value if needed
 	if result, ok := result.(*object.ReturnObj); ok {
 		return result.Value, nil
 	}
@@ -243,6 +245,17 @@ func evalInfixExpression(node *ast.InfixExpression, env *object.Environment) (ob
 			return nativeBoolToBooleanObj(leftBool.Value == rightBool.Value), nil
 		case "!=":
 			return nativeBoolToBooleanObj(leftBool.Value != rightBool.Value), nil
+		}
+	} else if left.Type() == object.STRING_OBJ && right.Type() == object.STRING_OBJ {
+		leftStr := left.(*object.StringObj)
+		rightStr := right.(*object.StringObj)
+		switch node.Operator {
+		case "+":
+			return &object.StringObj{Value: leftStr.Value + rightStr.Value}, nil
+		case "==":
+			return nativeBoolToBooleanObj(leftStr.Value == rightStr.Value),nil
+		case "!=":
+			return nativeBoolToBooleanObj(leftStr.Value != rightStr.Value),nil
 		}
 	} else {
 		return nil, errorObj("type mismatch: %s %s %s", left.Type(), node.Operator, right.Type())

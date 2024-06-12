@@ -101,6 +101,17 @@ false;
 	})
 }
 
+func TestBooleanExpression(t *testing.T) {
+	input := `"foobar";
+"foo bar";`
+	testCases := []string{"foobar", "foo bar"}
+	testProgramParsing(t, input, testCases, func(t *testing.T, testCase string, s ast.Statement) {
+		exprStmt := castAssert[ast.ExpressionStatement](t, s)
+		stringLiteral := castAssert[ast.StringLiteral](t, exprStmt.Expression)
+		assert.Equal(t, testCase, stringLiteral.Value)
+	})
+}
+
 func TestPrefixExpressions(t *testing.T) {
 	input := `
 !5;
@@ -343,6 +354,8 @@ if (x > 5) {
 if (x <= 5) {
     print((y+x))
 }
+
+let x = "foobar";
 `
 	expected := `
 let print = fn(v) {
@@ -361,7 +374,9 @@ if ((x > 5)) {
 if ((x <= 5)) {
     print((y+x))
 }
-    `
+
+let x = "foobar"
+`
 
 	p := New(lexer.New(input))
 	program := p.ParseProgram()

@@ -43,6 +43,9 @@ func assertNativeAndObjectEqual(t *testing.T, v interface{}, o object.Object) {
 	case int:
 		intValue := castAssert[object.IntegerObj](t, o)
 		assert.Equal(t, int64(value), int64(intValue.Value))
+	case string:
+		stringValue := castAssert[object.StringObj](t, o)
+		assert.Equal(t, value, stringValue.Value)
 	case nil:
 		castAssert[object.NullObj](t, o)
 	}
@@ -112,6 +115,24 @@ func TestEvalBooleanExpression(t *testing.T) {
 	}
 }
 
+func TestEvalStringExpression(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected interface{}
+	}{
+		{`"5"`, "5"},
+		{`"foo bar"`, "foo bar"},
+		{`"foo" + "bar"`, "foobar"},
+		{`"foo" + "bar" + " " + "bar"`, "foobar bar"},
+		{`"foo" == "bar"`, false},
+		{`"foo" != "bar"`, true},
+	}
+	for _, tt := range tests {
+		obj := testEval(tt.input)
+		assertNativeAndObjectEqual(t, tt.expected, obj)
+	}
+}
+
 func TestEvalBandOperator(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -144,6 +165,8 @@ func TestIfElseExpressions(t *testing.T) {
 		{"if (1 > 2) { 10 }", nil},
 		{"if (1 > 2) { 10 } else { 20 }", 20},
 		{"if (1 < 2) { 10 } else { 20 }", 10},
+		{`if (1 < 2) { "hey" }`, "hey"},
+		{`if ("hey" == "hey") { "yo" }`, "yo"},
 		{`
 if (1 < 2) {
     5 + 5;
@@ -228,6 +251,10 @@ if (10 > 1) {
 		{
 			"foobar",
 			"identifier not found: foobar",
+		},
+		{
+			`"foobar" - "bar"`,
+			`unknown operator: STRING - STRING`,
 		},
 	}
 

@@ -29,6 +29,9 @@ if (5 < 10) {
 10 != 9;
 10 >= 9;
 9 <= 10;
+
+"foo"
+"foo bar"
 `
 
 	tests := []struct {
@@ -116,6 +119,8 @@ if (5 < 10) {
 		{token.LTOREQ, "<="},
 		{token.INT, "10"},
 		{token.SEMICOLON, ";"},
+        {token.STRING, "foo"},
+        {token.STRING, "foo bar"},
 		{token.EOF, ""},
 	}
 
