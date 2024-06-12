@@ -94,15 +94,6 @@ func Eval(node ast.Node, env *object.Environment) (object.Object, error) {
 }
 
 func evalIndexArrayExpression(node *ast.IndexArrayExpression, env *object.Environment) (object.Object, error) {
-	leftObj, err := Eval(node.Left, env)
-	if err != nil {
-		return nil, err
-	}
-	array, ok := leftObj.(*object.ArrayObj)
-	if !ok {
-		return nil, errorObj("Expected array. Found %s (%s)", leftObj.Inspect(), leftObj.Type())
-	}
-
 	indexObj, err := Eval(node.Index, env)
 	if err != nil {
 		return nil, err
@@ -112,11 +103,25 @@ func evalIndexArrayExpression(node *ast.IndexArrayExpression, env *object.Enviro
 		return nil, errorObj("Index must be an integer. Found %s (%s)", indexObj.Inspect(), indexObj.Type())
 	}
 
-	if index.Value < 0 || index.Value >= int64(len(array.Elements)) {
-        return object.NULL, nil
+	leftObj, err := Eval(node.Left, env)
+	if err != nil {
+		return nil, err
 	}
 
-	return array.Elements[int(index.Value)], nil
+	switch left := leftObj.(type) {
+	case *object.ArrayObj:
+		if index.Value < 0 || index.Value >= int64(len(left.Elements)) {
+			return object.NULL, nil
+		}
+		return left.Elements[int(index.Value)], nil
+	case *object.StringObj:
+		if index.Value < 0 || index.Value >= int64(len(left.Value)) {
+			return object.NULL, nil
+		}
+		return &object.StringObj{Value: string(left.Value[index.Value])}, nil
+	default:
+		return nil, errorObj("Expected array. Found true (%s)", leftObj.Type())
+	}
 }
 
 func evalCallExpression(node *ast.CallExpression, env *object.Environment) (object.Object, error) {

@@ -437,6 +437,22 @@ func TestEvalIndexArrayExpression(t *testing.T) {
 			nil,
 		},
 		{
+			`"foobar"[0]`,
+			"f",
+		},
+		{
+			`"foobar"[5]`,
+			"r",
+		},
+		{
+			`"foobar"[-1]`,
+			nil,
+		},
+		{
+			`"foobar"[100]`,
+			nil,
+		},
+		{
 			"true[-1]",
 			"Expected array. Found true (BOOLEAN)",
 		},
