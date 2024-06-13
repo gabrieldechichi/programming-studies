@@ -17,9 +17,65 @@ var builtinFunctions = map[string]*object.BuiltinFunctionObj{
 			switch v := arg.(type) {
 			case *object.StringObj:
 				return &object.IntegerObj{Value: int64(len(v.Value))}
+			case *object.ArrayObj:
+				return &object.IntegerObj{Value: int64(len(v.Elements))}
 			default:
 				return errorObj("argument to `len` not supported, got %s", arg.Type())
 			}
+		},
+	},
+	"first": {
+		Name: "first",
+		Fn: func(args ...object.Object) object.Object {
+			if len(args) != 1 {
+				return errorObj("wrong number of arguments. got=%d, want=1", len(args))
+			}
+			obj, err := executeObjectIndex(args[0], 0)
+			if err != nil {
+				return err.(*object.ErrorObj)
+			}
+			return obj
+		},
+	},
+	"last": {
+		Name: "last",
+		Fn: func(args ...object.Object) object.Object {
+			if len(args) != 1 {
+				return errorObj("wrong number of arguments. got=%d, want=1", len(args))
+			}
+			var l int
+			switch arg := args[0].(type) {
+			case *object.ArrayObj:
+				l = len(arg.Elements)
+			case *object.StringObj:
+				l = len(arg.Value)
+			default:
+				return errorObj("unsupported argument type %s", args[0].Type())
+			}
+			obj, err := executeObjectIndex(args[0], l-1)
+			if err != nil {
+				return err.(*object.ErrorObj)
+			}
+			return obj
+		},
+	},
+	"push": {
+		Name: "push",
+		Fn: func(args ...object.Object) object.Object {
+			if len(args) != 2 {
+				return errorObj("wrong number of arguments. got=%d, want=2", len(args))
+			}
+			array, ok := args[0].(*object.ArrayObj)
+			if !ok {
+				return errorObj("mismatched argument type for position 0. Expected array, got %s", args[0].Type())
+			}
+
+			newLen := len(array.Elements) + 1
+			element := args[1]
+			newArray := make([]object.Object, newLen, newLen)
+			copy(newArray, array.Elements)
+			newArray[newLen-1] = element
+			return &object.ArrayObj{Elements: newArray}
 		},
 	},
 }
@@ -93,6 +149,23 @@ func Eval(node ast.Node, env *object.Environment) (object.Object, error) {
 	}
 }
 
+func executeObjectIndex(leftObj object.Object, index int) (object.Object, error) {
+	switch left := leftObj.(type) {
+	case *object.ArrayObj:
+		if index < 0 || index >= len(left.Elements) {
+			return object.NULL, nil
+		}
+		return left.Elements[index], nil
+	case *object.StringObj:
+		if index < 0 || index >= len(left.Value) {
+			return object.NULL, nil
+		}
+		return &object.StringObj{Value: string(left.Value[index])}, nil
+	default:
+		return nil, errorObj("Expected array. Found true (%s)", leftObj.Type())
+	}
+}
+
 func evalIndexArrayExpression(node *ast.IndexArrayExpression, env *object.Environment) (object.Object, error) {
 	indexObj, err := Eval(node.Index, env)
 	if err != nil {
@@ -108,20 +181,7 @@ func evalIndexArrayExpression(node *ast.IndexArrayExpression, env *object.Enviro
 		return nil, err
 	}
 
-	switch left := leftObj.(type) {
-	case *object.ArrayObj:
-		if index.Value < 0 || index.Value >= int64(len(left.Elements)) {
-			return object.NULL, nil
-		}
-		return left.Elements[int(index.Value)], nil
-	case *object.StringObj:
-		if index.Value < 0 || index.Value >= int64(len(left.Value)) {
-			return object.NULL, nil
-		}
-		return &object.StringObj{Value: string(left.Value[index.Value])}, nil
-	default:
-		return nil, errorObj("Expected array. Found true (%s)", leftObj.Type())
-	}
+	return executeObjectIndex(leftObj, int(index.Value))
 }
 
 func evalCallExpression(node *ast.CallExpression, env *object.Environment) (object.Object, error) {

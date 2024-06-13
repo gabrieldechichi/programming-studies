@@ -58,6 +58,12 @@ func assertNativeAndObjectEqual(t *testing.T, expected interface{}, actual objec
 			stringValue := castAssert[object.StringObj](t, actual)
 			assert.Equal(t, value, stringValue.Value)
 		}
+	case []interface{}:
+		arrayObj := castAssert[object.ArrayObj](t, actual)
+		assert.Len(t, arrayObj.Elements, len(value))
+		for i := range value {
+			assertNativeAndObjectEqual(t, value[i], arrayObj.Elements[i])
+		}
 	case nil:
 		castAssert[object.NullObj](t, actual)
 	}
@@ -378,11 +384,29 @@ func TestBuiltinFunctions(t *testing.T) {
 		input    string
 		expected interface{}
 	}{
+		//len
 		{`len("")`, 0},
 		{`len("four")`, 4},
 		{`len("hello world")`, 11},
+		{`len([1,2,3])`, 3},
 		{`len(1)`, "argument to `len` not supported, got INTEGER"},
 		{`len("one", "two")`, "wrong number of arguments. got=2, want=1"},
+
+		//first
+		{`first([1,2,3])`, 1},
+		{`let x = ["foo", true];first(x)`, "foo"},
+		{`first("foobar")`, "f"},
+		{`let x = "bar";first(x)`, "b"},
+
+		//last
+		{`last([1,2,3])`, 3},
+		{`let x = ["foo", true];last(x)`, true},
+		{`last("r")`, "r"},
+		{`let x = "bar";last(x)`, "r"},
+
+		//push
+		{`push([1,2,3], 2)`, []interface{}{1, 2, 3, 2}},
+        {`let x = [1, "true"]; push(x, true)`, []interface{}{1, "true", true}},
 	}
 
 	for _, tt := range tests {
