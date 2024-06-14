@@ -1,7 +1,9 @@
 import { mat4, vec2 } from "gl-matrix";
 import {
+  GPUIndexBuffer,
   GPUUniformBuffer,
   GPUVertexBuffer,
+  createIndexBuffer,
   createVertexBuffer,
 } from "./bufferUtils";
 import shaderSource from "./shader/debug.wgsl?raw";
@@ -124,7 +126,10 @@ const MAX_INSTANCES = 1024;
 type InstanceData = {
   floatStride: number;
   data: Float32Array;
-  buffer: GPUVertexBuffer;
+  geometryBuffer: GPUVertexBuffer;
+  indexBuffer: GPUIndexBuffer;
+  indexCount: number;
+  instancesBuffer: GPUVertexBuffer;
   capacity: number;
   count: number;
 };
@@ -133,33 +138,18 @@ export class DebugRenderer {
   device!: GPUDevice;
   projectionViewBuffer!: GPUUniformBuffer;
   pipeline!: DebugPipeline;
-  instanceData!: InstanceData;
+  squareInstanceData!: InstanceData;
+  circleInstanceData!: InstanceData;
   //vertex data for a single square
-  squareVertexBuffer!: GPUVertexBuffer;
 
   static create(device: GPUDevice, projectionViewBufer: GPUUniformBuffer) {
     const renderer = new DebugRenderer();
     renderer.device = device;
     renderer.projectionViewBuffer = projectionViewBufer;
     renderer.pipeline = DebugPipeline.create(device, projectionViewBufer);
-    //prettier-ignore
-    renderer.squareVertexBuffer = createVertexBuffer(
-      device,
-      new Float32Array([
-          //tri 1
-        -0.5, -0.5,
-        0.5, -0.5,
-        0.5, 0.5,
-
-        //tri 2
-        0.5, 0.5,
-        -0.5, 0.5,
-        -0.5, -0.5,
-      ]),
-    );
 
     //@ts-ignore
-    renderer.instanceData = {
+    renderer.squareInstanceData = {
       floatStride: DebugPipeline.VERTEX_INSTANCE_FLOAT_NUM,
       data: new Float32Array(
         MAX_INSTANCES * DebugPipeline.VERTEX_INSTANCE_FLOAT_NUM,
@@ -167,9 +157,69 @@ export class DebugRenderer {
       capacity: MAX_INSTANCES,
       count: 0,
     };
-    renderer.instanceData.buffer = createVertexBuffer(
+    renderer.squareInstanceData.instancesBuffer = createVertexBuffer(
       device,
-      renderer.instanceData.data,
+      renderer.squareInstanceData.data,
+    );
+
+    //prettier-ignore
+    renderer.squareInstanceData.geometryBuffer = createVertexBuffer(
+      device,
+      new Float32Array([
+          //tri 1
+        -0.5, -0.5,
+        0.5, -0.5,
+        0.5, 0.5,
+        -0.5, 0.5,
+      ]),
+    );
+
+    renderer.squareInstanceData.indexBuffer = createIndexBuffer(
+      device,
+      new Int16Array([0, 1, 2, 2, 3, 0]),
+    );
+
+    renderer.squareInstanceData.indexCount = 6;
+
+    //@ts-ignore
+    renderer.circleInstanceData = {
+      floatStride: DebugPipeline.VERTEX_INSTANCE_FLOAT_NUM,
+      data: new Float32Array(
+        MAX_INSTANCES * DebugPipeline.VERTEX_INSTANCE_FLOAT_NUM,
+      ),
+      capacity: MAX_INSTANCES,
+      count: 0,
+    };
+    renderer.circleInstanceData.instancesBuffer = createVertexBuffer(
+      device,
+      renderer.circleInstanceData.data,
+    );
+
+    const sectorCount = 24;
+    const radius = 1;
+    const circleGeometryData: number[] = [0, 0];
+    const circleIndexData: number[] = [];
+    // Calculate surrounding vertices
+    for (let i = 0; i <= sectorCount; ++i) {
+      const angle = (i / sectorCount) * 2 * Math.PI;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      circleGeometryData.push(x, y);
+    }
+
+    for (let i = 1; i <= sectorCount; ++i) {
+      circleIndexData.push(0, i, i + 1);
+    }
+    renderer.circleInstanceData.indexCount = circleIndexData.length;
+
+    renderer.circleInstanceData.geometryBuffer = createVertexBuffer(
+      device,
+      new Float32Array(circleGeometryData),
+    );
+
+    renderer.circleInstanceData.indexBuffer = createIndexBuffer(
+      device,
+      new Int16Array(circleIndexData),
     );
 
     return renderer;
@@ -182,76 +232,125 @@ export class DebugRenderer {
       projectionViewMatrix as Float32Array,
     );
 
-    this.instanceData.count = 0;
+    this.squareInstanceData.count = 0;
+    this.circleInstanceData.count = 0;
+  }
+
+  drawCircle(
+    pos: vec2,
+    radius: number,
+    color: GPUColorDict = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+  ) {
+    const index =
+      this.circleInstanceData.count * this.circleInstanceData.floatStride;
+    //TODO: random requests above MAX_INSTANCES
+
+    this.circleInstanceData.data[index + 0] = pos[0];
+    this.circleInstanceData.data[index + 1] = pos[1];
+
+    this.circleInstanceData.data[index + 2] = radius;
+    this.circleInstanceData.data[index + 3] = radius;
+
+    //rgba
+    this.circleInstanceData.data[index + 4] = color.r;
+    this.circleInstanceData.data[index + 5] = color.g;
+    this.circleInstanceData.data[index + 6] = color.b;
+    this.circleInstanceData.data[index + 7] = color.a;
+
+    this.circleInstanceData.count++;
   }
 
   drawSquare(
     transform: Transform,
-    color: GPUColor = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+    color: GPUColorDict = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
   ) {
-    const index = this.instanceData.count * this.instanceData.floatStride;
+    const index =
+      this.squareInstanceData.count * this.squareInstanceData.floatStride;
     //TODO: random requests above MAX_INSTANCES
 
-    this.instanceData.data[index + 0] = transform.pos[0];
-    this.instanceData.data[index + 1] = transform.pos[1];
+    this.squareInstanceData.data[index + 0] = transform.pos[0];
+    this.squareInstanceData.data[index + 1] = transform.pos[1];
 
-    this.instanceData.data[index + 2] = transform.size[0];
-    this.instanceData.data[index + 3] = transform.size[1];
+    this.squareInstanceData.data[index + 2] = transform.size[0];
+    this.squareInstanceData.data[index + 3] = transform.size[1];
 
     //rgba
-    this.instanceData.data[index + 4] = color.r;
-    this.instanceData.data[index + 5] = color.g;
-    this.instanceData.data[index + 6] = color.b;
-    this.instanceData.data[index + 7] = color.a;
+    this.squareInstanceData.data[index + 4] = color.r;
+    this.squareInstanceData.data[index + 5] = color.g;
+    this.squareInstanceData.data[index + 6] = color.b;
+    this.squareInstanceData.data[index + 7] = color.a;
 
-    this.instanceData.count++;
+    this.squareInstanceData.count++;
   }
 
   drawWireSquare(
     transform: Transform,
     thickness = 2,
-    color: GPUColor = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+    color: GPUColorDict = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
   ) {
     const { pos, size } = transform;
     //left line
-    this.drawSquare({
-      pos: [pos[0] - size[0] / 2 + thickness / 2, pos[1]],
-      rot: 0,
-      size: [thickness, size[1]],
-    }, color);
+    this.drawSquare(
+      {
+        pos: [pos[0] - size[0] / 2 + thickness / 2, pos[1]],
+        rot: 0,
+        size: [thickness, size[1]],
+      },
+      color,
+    );
     //right line
-    this.drawSquare({
-      pos: [pos[0] + size[0] / 2 - thickness / 2, pos[1]],
-      rot: 0,
-      size: [thickness, size[1]],
-    }, color);
+    this.drawSquare(
+      {
+        pos: [pos[0] + size[0] / 2 - thickness / 2, pos[1]],
+        rot: 0,
+        size: [thickness, size[1]],
+      },
+      color,
+    );
     //bottom line
-    this.drawSquare({
-      pos: [pos[0], pos[1] - size[1] / 2 + thickness / 2],
-      rot: 0,
-      size: [size[0], thickness],
-    }, color);
+    this.drawSquare(
+      {
+        pos: [pos[0], pos[1] - size[1] / 2 + thickness / 2],
+        rot: 0,
+        size: [size[0], thickness],
+      },
+      color,
+    );
     //top line
-    this.drawSquare({
-      pos: [pos[0], pos[1] + size[1] / 2 - thickness / 2],
-      rot: 0,
-      size: [size[0], thickness],
-    }, color);
+    this.drawSquare(
+      {
+        pos: [pos[0], pos[1] + size[1] / 2 - thickness / 2],
+        rot: 0,
+        size: [size[0], thickness],
+      },
+      color,
+    );
   }
 
   endFrame(passEncoder: GPURenderPassEncoder) {
-    this.device.queue.writeBuffer(
-      this.instanceData.buffer,
-      0,
-      this.instanceData.data,
-    );
+    this.drawInstancedData(passEncoder, this.squareInstanceData);
+    this.drawInstancedData(passEncoder, this.circleInstanceData);
+  }
 
-    passEncoder.setPipeline(this.pipeline.pipeline);
-    passEncoder.setBindGroup(0, this.pipeline.uniformsBindGroup);
-    passEncoder.setVertexBuffer(0, this.squareVertexBuffer);
-    passEncoder.setVertexBuffer(1, this.instanceData.buffer);
+  private drawInstancedData(
+    passEncoder: GPURenderPassEncoder,
+    instanceData: InstanceData,
+  ) {
+    if (instanceData.count > 0) {
+      this.device.queue.writeBuffer(
+        instanceData.instancesBuffer,
+        0,
+        instanceData.data,
+      );
 
-    passEncoder.draw(6, this.instanceData.count);
+      passEncoder.setPipeline(this.pipeline.pipeline);
+      passEncoder.setBindGroup(0, this.pipeline.uniformsBindGroup);
+      passEncoder.setIndexBuffer(instanceData.indexBuffer, "uint16");
+      passEncoder.setVertexBuffer(0, instanceData.geometryBuffer);
+      passEncoder.setVertexBuffer(1, instanceData.instancesBuffer);
+
+      passEncoder.drawIndexed(instanceData.indexCount, instanceData.count);
+    }
   }
 
   rotateVertex(v: vec2, origin: vec2, rot: number): vec2 {
