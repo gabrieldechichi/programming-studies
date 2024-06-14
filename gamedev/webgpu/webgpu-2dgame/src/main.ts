@@ -7,6 +7,7 @@ import {
 import { Camera } from "./camera";
 import { Content, Sprite } from "./content";
 import { SpriteRenderer } from "./spriteRenderer";
+import { DebugRenderer } from "./debugPipeline";
 
 class Renderer {
   private context!: GPUCanvasContext;
@@ -14,6 +15,7 @@ class Renderer {
   private device!: GPUDevice;
   private projectionViewBuffer!: GPUUniformBuffer;
   spriteRenderer!: SpriteRenderer;
+  debugRenderer!: DebugRenderer;
 
   public async initialize() {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
@@ -54,6 +56,11 @@ class Renderer {
       this.projectionViewBuffer,
     );
 
+    this.debugRenderer = DebugRenderer.create(
+      this.device,
+      this.projectionViewBuffer,
+    );
+
     await Content.initialize(this.device);
   }
 
@@ -74,12 +81,14 @@ class Renderer {
       };
 
       this.spriteRenderer.startFrame(camera.viewProjection);
+      this.debugRenderer.startFrame(camera.viewProjection);
 
       const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
 
       renderEntities();
 
       this.spriteRenderer.endFrame(passEncoder);
+      this.debugRenderer.endFrame(passEncoder);
 
       passEncoder.end();
 
@@ -164,13 +173,13 @@ class Player {
     const playerExtents = [this.size[0] / 2, this.size[1] / 2];
     if (this.pos[0] - playerExtents[0] < -canvasExtents[0]) {
       this.pos[0] = -canvasExtents[0] + playerExtents[0];
-    } else if (this.pos[0] + playerExtents[0]> canvasExtents[0]) {
+    } else if (this.pos[0] + playerExtents[0] > canvasExtents[0]) {
       this.pos[0] = canvasExtents[0] - playerExtents[0];
     }
 
-    if (this.pos[1] - playerExtents[1]< -canvasExtents[1]) {
+    if (this.pos[1] - playerExtents[1] < -canvasExtents[1]) {
       this.pos[1] = -canvasExtents[1] + playerExtents[1];
-    } else if (this.pos[1] + playerExtents[1]> canvasExtents[1]) {
+    } else if (this.pos[1] + playerExtents[1] > canvasExtents[1]) {
       this.pos[1] = canvasExtents[1] - playerExtents[1];
     }
   }
@@ -233,6 +242,11 @@ class Engine {
     this.camera.update();
     this.renderer.render(this.camera, () => {
       this.renderer.renderSprite(this.player.sprite, this.player.pos);
+      this.renderer.debugRenderer.drawWireSquare({
+        pos: this.player.pos,
+        rot: 0,
+        size: this.player.size,
+      });
     });
     window.requestAnimationFrame(() => this.loop());
   }

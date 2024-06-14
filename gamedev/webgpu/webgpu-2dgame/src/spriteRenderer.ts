@@ -27,7 +27,7 @@ type SpriteVertexBuffers = {
   vertexBuffer: GPUVertexBuffer;
 };
 
-type Transform = {
+export type Transform = {
   pos: vec2;
   rot: number;
   size: vec2;
