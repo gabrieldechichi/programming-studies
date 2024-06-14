@@ -13,7 +13,7 @@ export class DebugPipeline {
   pipeline!: GPURenderPipeline;
   uniformsBindGroup!: GPUBindGroup;
 
-  static VERTEX_INSTANCE_FLOAT_NUM = 2 + 2 + 4;
+  static VERTEX_INSTANCE_FLOAT_NUM = 2 + 1 + 2 + 4;
 
   static create(device: GPUDevice, projectionViewBufer: GPUUniformBuffer) {
     const pipeline = new DebugPipeline();
@@ -69,16 +69,22 @@ export class DebugPipeline {
               offset: 0,
               format: "float32x2",
             },
-            //instance size
+            //instance rot
             {
               shaderLocation: 2,
               offset: 2 * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32",
+            },
+            //instance size
+            {
+              shaderLocation: 3,
+              offset: (2 + 1) * Float32Array.BYTES_PER_ELEMENT,
               format: "float32x2",
             },
             //color
             {
-              shaderLocation: 3,
-              offset: (2 + 2) * Float32Array.BYTES_PER_ELEMENT,
+              shaderLocation: 4,
+              offset: (2 + 1 + 2) * Float32Array.BYTES_PER_ELEMENT,
               format: "float32x4",
             },
           ],
@@ -248,14 +254,16 @@ export class DebugRenderer {
     this.circleInstanceData.data[index + 0] = pos[0];
     this.circleInstanceData.data[index + 1] = pos[1];
 
-    this.circleInstanceData.data[index + 2] = radius;
+    this.circleInstanceData.data[index + 2] = 0;
+
     this.circleInstanceData.data[index + 3] = radius;
+    this.circleInstanceData.data[index + 4] = radius;
 
     //rgba
-    this.circleInstanceData.data[index + 4] = color.r;
-    this.circleInstanceData.data[index + 5] = color.g;
-    this.circleInstanceData.data[index + 6] = color.b;
-    this.circleInstanceData.data[index + 7] = color.a;
+    this.circleInstanceData.data[index + 5] = color.r;
+    this.circleInstanceData.data[index + 6] = color.g;
+    this.circleInstanceData.data[index + 7] = color.b;
+    this.circleInstanceData.data[index + 8] = color.a;
 
     this.circleInstanceData.count++;
   }
@@ -271,14 +279,16 @@ export class DebugRenderer {
     this.squareInstanceData.data[index + 0] = transform.pos[0];
     this.squareInstanceData.data[index + 1] = transform.pos[1];
 
-    this.squareInstanceData.data[index + 2] = transform.size[0];
-    this.squareInstanceData.data[index + 3] = transform.size[1];
+    this.squareInstanceData.data[index + 2] = transform.rot;
+
+    this.squareInstanceData.data[index + 3] = transform.size[0];
+    this.squareInstanceData.data[index + 4] = transform.size[1];
 
     //rgba
-    this.squareInstanceData.data[index + 4] = color.r;
-    this.squareInstanceData.data[index + 5] = color.g;
-    this.squareInstanceData.data[index + 6] = color.b;
-    this.squareInstanceData.data[index + 7] = color.a;
+    this.squareInstanceData.data[index + 5] = color.r;
+    this.squareInstanceData.data[index + 6] = color.g;
+    this.squareInstanceData.data[index + 7] = color.b;
+    this.squareInstanceData.data[index + 8] = color.a;
 
     this.squareInstanceData.count++;
   }
@@ -288,12 +298,17 @@ export class DebugRenderer {
     thickness = 2,
     color: GPUColorDict = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
   ) {
-    const { pos, size } = transform;
+    let { pos, rot, size } = transform;
+
     //left line
     this.drawSquare(
       {
-        pos: [pos[0] - size[0] / 2 + thickness / 2, pos[1]],
-        rot: 0,
+        pos: this.rotateVertex(
+          [pos[0] - size[0] / 2 + thickness / 2, pos[1]],
+          pos,
+          rot,
+        ),
+        rot,
         size: [thickness, size[1]],
       },
       color,
@@ -301,8 +316,12 @@ export class DebugRenderer {
     //right line
     this.drawSquare(
       {
-        pos: [pos[0] + size[0] / 2 - thickness / 2, pos[1]],
-        rot: 0,
+        pos: this.rotateVertex(
+          [pos[0] + size[0] / 2 - thickness / 2, pos[1]],
+          pos,
+          rot,
+        ),
+        rot,
         size: [thickness, size[1]],
       },
       color,
@@ -310,8 +329,12 @@ export class DebugRenderer {
     //bottom line
     this.drawSquare(
       {
-        pos: [pos[0], pos[1] - size[1] / 2 + thickness / 2],
-        rot: 0,
+        pos: this.rotateVertex(
+          [pos[0], pos[1] - size[1] / 2 + thickness / 2],
+          pos,
+          rot,
+        ),
+        rot,
         size: [size[0], thickness],
       },
       color,
@@ -319,8 +342,12 @@ export class DebugRenderer {
     //top line
     this.drawSquare(
       {
-        pos: [pos[0], pos[1] + size[1] / 2 - thickness / 2],
-        rot: 0,
+        pos: this.rotateVertex(
+          [pos[0], pos[1] + size[1] / 2 - thickness / 2],
+          pos,
+          rot,
+        ),
+        rot,
         size: [size[0], thickness],
       },
       color,

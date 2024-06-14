@@ -242,6 +242,7 @@ class Engine {
     this.camera.update();
     this.renderer.render(this.camera, () => {
       this.renderer.renderSprite(this.player.sprite, this.player.pos);
+
       this.renderer.debugRenderer.drawWireSquare(
         {
           pos: this.player.pos,
@@ -250,6 +251,15 @@ class Engine {
         },
         2,
       );
+
+      this.renderer.debugRenderer.drawSquare(
+        {
+          pos: [-200, -400],
+          rot: Math.PI/4 - 0.2,
+          size: [50, 50]
+        }
+      );
+
       this.renderer.debugRenderer.drawWireSquare(
         {
           pos: [0, -200],
