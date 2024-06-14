@@ -242,11 +242,31 @@ class Engine {
     this.camera.update();
     this.renderer.render(this.camera, () => {
       this.renderer.renderSprite(this.player.sprite, this.player.pos);
-      this.renderer.debugRenderer.drawWireSquare({
-        pos: this.player.pos,
-        rot: 0,
-        size: this.player.size,
-      }, 4);
+      this.renderer.debugRenderer.drawWireSquare(
+        {
+          pos: this.player.pos,
+          rot: 0,
+          size: this.player.size,
+        },
+        2,
+      );
+      this.renderer.debugRenderer.drawWireSquare(
+        {
+          pos: [0, -200],
+          rot: 0,
+          size: this.player.size,
+        },
+        2,
+        { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+      );
+      this.renderer.debugRenderer.drawWireSquare(
+        {
+          pos: [100, -200],
+          rot: 0,
+          size: this.player.size,
+        },
+        2,
+      );
     });
     window.requestAnimationFrame(() => this.loop());
   }

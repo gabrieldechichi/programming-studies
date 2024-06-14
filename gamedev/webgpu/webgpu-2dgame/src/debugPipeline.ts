@@ -2,7 +2,6 @@ import { mat4, vec2 } from "gl-matrix";
 import {
   GPUUniformBuffer,
   GPUVertexBuffer,
-  createUniformBuffer,
   createVertexBuffer,
 } from "./bufferUtils";
 import shaderSource from "./shader/debug.wgsl?raw";
@@ -11,25 +10,16 @@ import { Transform } from "./spriteRenderer";
 export class DebugPipeline {
   pipeline!: GPURenderPipeline;
   uniformsBindGroup!: GPUBindGroup;
-  uniformsBuffer!: GPUUniformBuffer;
+
+  static VERTEX_INSTANCE_FLOAT_NUM = 2 + 2 + 4;
 
   static create(device: GPUDevice, projectionViewBufer: GPUUniformBuffer) {
     const pipeline = new DebugPipeline();
-
-    pipeline.uniformsBuffer = createUniformBuffer(
-      device,
-      Float32Array.BYTES_PER_ELEMENT * 4,
-    );
 
     const uniformsGroupLayout = device.createBindGroupLayout({
       entries: [
         {
           binding: 0,
-          visibility: GPUShaderStage.VERTEX,
-          buffer: { type: "uniform" },
-        },
-        {
-          binding: 1,
           visibility: GPUShaderStage.VERTEX,
           buffer: { type: "uniform" },
         },
@@ -42,10 +32,6 @@ export class DebugPipeline {
         {
           binding: 0,
           resource: { buffer: projectionViewBufer },
-        },
-        {
-          binding: 1,
-          resource: { buffer: pipeline.uniformsBuffer },
         },
       ],
     });
@@ -60,11 +46,38 @@ export class DebugPipeline {
           arrayStride: 2 * Float32Array.BYTES_PER_ELEMENT,
           stepMode: "vertex",
           attributes: [
-            //position
+            //vertex Pos
             {
               shaderLocation: 0,
               offset: 0,
               format: "float32x2",
+            },
+          ],
+        },
+        {
+          //instancePos + instance size + color
+          arrayStride:
+            DebugPipeline.VERTEX_INSTANCE_FLOAT_NUM *
+            Float32Array.BYTES_PER_ELEMENT,
+          stepMode: "instance",
+          attributes: [
+            //instance pos
+            {
+              shaderLocation: 1,
+              offset: 0,
+              format: "float32x2",
+            },
+            //instance size
+            {
+              shaderLocation: 2,
+              offset: 2 * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x2",
+            },
+            //color
+            {
+              shaderLocation: 3,
+              offset: (2 + 2) * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x4",
             },
           ],
         },
@@ -106,25 +119,57 @@ export class DebugPipeline {
   }
 }
 
+const MAX_INSTANCES = 1024;
+
+type InstanceData = {
+  floatStride: number;
+  data: Float32Array;
+  buffer: GPUVertexBuffer;
+  capacity: number;
+  count: number;
+};
+
 export class DebugRenderer {
   device!: GPUDevice;
   projectionViewBuffer!: GPUUniformBuffer;
   pipeline!: DebugPipeline;
-  squareVertexData!: Float32Array;
+  instanceData!: InstanceData;
+  //vertex data for a single square
   squareVertexBuffer!: GPUVertexBuffer;
-
-  private hackyRenderQueue: ((passEncoder: GPURenderPassEncoder) => void)[] =
-    [];
 
   static create(device: GPUDevice, projectionViewBufer: GPUUniformBuffer) {
     const renderer = new DebugRenderer();
     renderer.device = device;
     renderer.projectionViewBuffer = projectionViewBufer;
     renderer.pipeline = DebugPipeline.create(device, projectionViewBufer);
-    renderer.squareVertexData = new Float32Array(6 * 2);
+    //prettier-ignore
     renderer.squareVertexBuffer = createVertexBuffer(
       device,
-      renderer.squareVertexData,
+      new Float32Array([
+          //tri 1
+        -0.5, -0.5,
+        0.5, -0.5,
+        0.5, 0.5,
+
+        //tri 2
+        0.5, 0.5,
+        -0.5, 0.5,
+        -0.5, -0.5,
+      ]),
+    );
+
+    //@ts-ignore
+    renderer.instanceData = {
+      floatStride: DebugPipeline.VERTEX_INSTANCE_FLOAT_NUM,
+      data: new Float32Array(
+        MAX_INSTANCES * DebugPipeline.VERTEX_INSTANCE_FLOAT_NUM,
+      ),
+      capacity: MAX_INSTANCES,
+      count: 0,
+    };
+    renderer.instanceData.buffer = createVertexBuffer(
+      device,
+      renderer.instanceData.data,
     );
 
     return renderer;
@@ -137,65 +182,76 @@ export class DebugRenderer {
       projectionViewMatrix as Float32Array,
     );
 
-    this.hackyRenderQueue = [];
+    this.instanceData.count = 0;
   }
 
-  drawSquare(transform: Transform) {
-    this.hackyRenderQueue.push((passEncoder) => {
-      const pos = transform.pos;
-      const rot = transform.rot;
-      const e = [transform.size[0] * 0.5, transform.size[1] * 0.5];
+  drawSquare(
+    transform: Transform,
+    color: GPUColor = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+  ) {
+    const index = this.instanceData.count * this.instanceData.floatStride;
+    //TODO: random requests above MAX_INSTANCES
 
-      const vs: vec2[] = [
-        this.rotateVertex([pos[0] - e[0], pos[1] - e[1]], pos, rot),
-        this.rotateVertex([pos[0] + e[0], pos[1] - e[1]], pos, rot),
-        this.rotateVertex([pos[0] + e[0], pos[1] + e[1]], pos, rot),
-        this.rotateVertex([pos[0] - e[0], pos[1] + e[1]], pos, rot),
-      ];
+    this.instanceData.data[index + 0] = transform.pos[0];
+    this.instanceData.data[index + 1] = transform.pos[1];
 
-      this.squareVertexData[0] = vs[0][0];
-      this.squareVertexData[1] = vs[0][1];
-      this.squareVertexData[2] = vs[1][0];
-      this.squareVertexData[3] = vs[1][1];
-      this.squareVertexData[4] = vs[2][0];
-      this.squareVertexData[5] = vs[2][1];
+    this.instanceData.data[index + 2] = transform.size[0];
+    this.instanceData.data[index + 3] = transform.size[1];
 
-      this.squareVertexData[6] = vs[2][0];
-      this.squareVertexData[7] = vs[2][1];
-      this.squareVertexData[8] = vs[3][0];
-      this.squareVertexData[9] = vs[3][1];
-      this.squareVertexData[10] = vs[0][0];
-      this.squareVertexData[11] = vs[0][1];
+    //rgba
+    this.instanceData.data[index + 4] = color.r;
+    this.instanceData.data[index + 5] = color.g;
+    this.instanceData.data[index + 6] = color.b;
+    this.instanceData.data[index + 7] = color.a;
 
-      this.device.queue.writeBuffer(
-        this.squareVertexBuffer,
-        0,
-        this.squareVertexData,
-      );
-
-      passEncoder.setPipeline(this.pipeline.pipeline);
-      passEncoder.setBindGroup(0, this.pipeline.uniformsBindGroup);
-      passEncoder.setVertexBuffer(0, this.squareVertexBuffer);
-      passEncoder.draw(6);
-    });
+    this.instanceData.count++;
   }
 
-  drawWireSquare(transform: Transform, thickness = 2){
-      const {pos, size} = transform
-      //left line
-      this.drawSquare({pos: [pos[0] - size[0]/2 + thickness / 2, pos[1]], rot: 0, size: [thickness, size[1]]})
-      //right line
-      this.drawSquare({pos: [pos[0] + size[0]/2 - thickness / 2, pos[1]], rot: 0, size: [thickness, size[1]]})
-      //bottom line
-      this.drawSquare({pos: [pos[0], pos[1] - size[1]/2 + thickness/2], rot: 0, size: [size[0], thickness]})
-      //top line
-      this.drawSquare({pos: [pos[0], pos[1] + size[1]/2 - thickness/2], rot: 0, size: [size[0], thickness]})
+  drawWireSquare(
+    transform: Transform,
+    thickness = 2,
+    color: GPUColor = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+  ) {
+    const { pos, size } = transform;
+    //left line
+    this.drawSquare({
+      pos: [pos[0] - size[0] / 2 + thickness / 2, pos[1]],
+      rot: 0,
+      size: [thickness, size[1]],
+    }, color);
+    //right line
+    this.drawSquare({
+      pos: [pos[0] + size[0] / 2 - thickness / 2, pos[1]],
+      rot: 0,
+      size: [thickness, size[1]],
+    }, color);
+    //bottom line
+    this.drawSquare({
+      pos: [pos[0], pos[1] - size[1] / 2 + thickness / 2],
+      rot: 0,
+      size: [size[0], thickness],
+    }, color);
+    //top line
+    this.drawSquare({
+      pos: [pos[0], pos[1] + size[1] / 2 - thickness / 2],
+      rot: 0,
+      size: [size[0], thickness],
+    }, color);
   }
 
   endFrame(passEncoder: GPURenderPassEncoder) {
-    for (const rend of this.hackyRenderQueue) {
-      rend(passEncoder);
-    }
+    this.device.queue.writeBuffer(
+      this.instanceData.buffer,
+      0,
+      this.instanceData.data,
+    );
+
+    passEncoder.setPipeline(this.pipeline.pipeline);
+    passEncoder.setBindGroup(0, this.pipeline.uniformsBindGroup);
+    passEncoder.setVertexBuffer(0, this.squareVertexBuffer);
+    passEncoder.setVertexBuffer(1, this.instanceData.buffer);
+
+    passEncoder.draw(6, this.instanceData.count);
   }
 
   rotateVertex(v: vec2, origin: vec2, rot: number): vec2 {
