@@ -246,7 +246,7 @@ class Engine {
         pos: this.player.pos,
         rot: 0,
         size: this.player.size,
-      });
+      }, 4);
     });
     window.requestAnimationFrame(() => this.loop());
   }

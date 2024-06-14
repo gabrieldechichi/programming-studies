@@ -97,7 +97,7 @@ export class DebugPipeline {
       label: "debug",
       vertex,
       fragment,
-      primitive: { topology: "line-strip" },
+      primitive: { topology: "triangle-list" },
       layout: device.createPipelineLayout({
         bindGroupLayouts: [uniformsGroupLayout],
       }),
@@ -121,7 +121,7 @@ export class DebugRenderer {
     renderer.device = device;
     renderer.projectionViewBuffer = projectionViewBufer;
     renderer.pipeline = DebugPipeline.create(device, projectionViewBufer);
-    renderer.squareVertexData = new Float32Array(5 * 2);
+    renderer.squareVertexData = new Float32Array(6 * 2);
     renderer.squareVertexBuffer = createVertexBuffer(
       device,
       renderer.squareVertexData,
@@ -140,7 +140,7 @@ export class DebugRenderer {
     this.hackyRenderQueue = [];
   }
 
-  drawWireSquare(transform: Transform) {
+  drawSquare(transform: Transform) {
     this.hackyRenderQueue.push((passEncoder) => {
       const pos = transform.pos;
       const rot = transform.rot;
@@ -159,10 +159,14 @@ export class DebugRenderer {
       this.squareVertexData[3] = vs[1][1];
       this.squareVertexData[4] = vs[2][0];
       this.squareVertexData[5] = vs[2][1];
-      this.squareVertexData[6] = vs[3][0];
-      this.squareVertexData[7] = vs[3][1];
-      this.squareVertexData[8] = vs[0][0];
-      this.squareVertexData[9] = vs[0][1];
+
+      this.squareVertexData[6] = vs[2][0];
+      this.squareVertexData[7] = vs[2][1];
+      this.squareVertexData[8] = vs[3][0];
+      this.squareVertexData[9] = vs[3][1];
+      this.squareVertexData[10] = vs[0][0];
+      this.squareVertexData[11] = vs[0][1];
+
       this.device.queue.writeBuffer(
         this.squareVertexBuffer,
         0,
@@ -172,8 +176,20 @@ export class DebugRenderer {
       passEncoder.setPipeline(this.pipeline.pipeline);
       passEncoder.setBindGroup(0, this.pipeline.uniformsBindGroup);
       passEncoder.setVertexBuffer(0, this.squareVertexBuffer);
-      passEncoder.draw(5);
+      passEncoder.draw(6);
     });
+  }
+
+  drawWireSquare(transform: Transform, thickness = 2){
+      const {pos, size} = transform
+      //left line
+      this.drawSquare({pos: [pos[0] - size[0]/2 + thickness / 2, pos[1]], rot: 0, size: [thickness, size[1]]})
+      //right line
+      this.drawSquare({pos: [pos[0] + size[0]/2 - thickness / 2, pos[1]], rot: 0, size: [thickness, size[1]]})
+      //bottom line
+      this.drawSquare({pos: [pos[0], pos[1] - size[1]/2 + thickness/2], rot: 0, size: [size[0], thickness]})
+      //top line
+      this.drawSquare({pos: [pos[0], pos[1] + size[1]/2 - thickness/2], rot: 0, size: [size[0], thickness]})
   }
 
   endFrame(passEncoder: GPURenderPassEncoder) {
