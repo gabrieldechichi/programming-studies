@@ -124,6 +124,7 @@ class Input {
 
 class Player {
   sprite!: Sprite;
+  size!: vec2;
 
   pos: vec2 = [0, 0];
   velocity: vec2 = [0, 0];
@@ -131,7 +132,7 @@ class Player {
   maxSpeed: number = 0.5;
   acceleration: number = 0.005;
 
-  update(dt: number, input: Input) {
+  update(dt: number, input: Input, canvasSize: vec2) {
     const moveInput = vec2.create();
     if (input.isKeyDown("d")) {
       moveInput[0] += 1;
@@ -148,7 +149,7 @@ class Player {
 
     vec2.normalize(moveInput, moveInput);
 
-    const targetVelocity = vec2.scale(vec2.create(), moveInput, this.maxSpeed)
+    const targetVelocity = vec2.scale(vec2.create(), moveInput, this.maxSpeed);
 
     this.velocity = moveTowards(
       this.velocity,
@@ -158,6 +159,20 @@ class Player {
 
     this.pos[0] += this.velocity[0] * dt;
     this.pos[1] += this.velocity[1] * dt;
+
+    const canvasExtents = [canvasSize[0] / 2, canvasSize[1] / 2];
+    const playerExtents = [this.size[0] / 2, this.size[1] / 2];
+    if (this.pos[0] - playerExtents[0] < -canvasExtents[0]) {
+      this.pos[0] = -canvasExtents[0] + playerExtents[0];
+    } else if (this.pos[0] + playerExtents[0]> canvasExtents[0]) {
+      this.pos[0] = canvasExtents[0] - playerExtents[0];
+    }
+
+    if (this.pos[1] - playerExtents[1]< -canvasExtents[1]) {
+      this.pos[1] = -canvasExtents[1] + playerExtents[1];
+    } else if (this.pos[1] + playerExtents[1]> canvasExtents[1]) {
+      this.pos[1] = canvasExtents[1] - playerExtents[1];
+    }
   }
 }
 
@@ -178,11 +193,11 @@ function moveTowards(
 }
 
 class Engine {
-  private camera!: Camera;
-  private renderer!: Renderer;
+  camera!: Camera;
+  renderer!: Renderer;
   input!: Input;
   time!: Time;
-  private player!: Player;
+  player!: Player;
 
   static async create(): Promise<Engine> {
     const engine = new Engine();
@@ -201,6 +216,7 @@ class Engine {
   play() {
     this.player = new Player();
     this.player.sprite = Content.playerSprite;
+    this.player.size = this.player.sprite.wh;
     this.player.pos[1] = -this.camera.height / 2 + this.player.sprite.wh[1];
     this.loop();
   }
@@ -210,7 +226,10 @@ class Engine {
     this.time.dt = now - this.time.now;
     this.time.now = now;
 
-    this.player.update(this.time.dt, this.input);
+    this.player.update(this.time.dt, this.input, [
+      this.renderer.canvas.width,
+      this.renderer.canvas.height,
+    ]);
     this.camera.update();
     this.renderer.render(this.camera, () => {
       this.renderer.renderSprite(this.player.sprite, this.player.pos);
