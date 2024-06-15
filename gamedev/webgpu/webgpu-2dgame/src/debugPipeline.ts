@@ -1,4 +1,4 @@
-import { mat4, vec2 } from "gl-matrix";
+import { mat4, quat, vec2 } from "gl-matrix";
 import {
   GPUIndexBuffer,
   GPUUniformBuffer,
@@ -13,7 +13,7 @@ export class DebugPipeline {
   pipeline!: GPURenderPipeline;
   uniformsBindGroup!: GPUBindGroup;
 
-  static VERTEX_INSTANCE_FLOAT_NUM = 2 + 1 + 2 + 4;
+  static VERTEX_INSTANCE_FLOAT_NUM = 16 + 4; //mat4x4 + color
 
   static create(device: GPUDevice, projectionViewBufer: GPUUniformBuffer) {
     const pipeline = new DebugPipeline();
@@ -63,28 +63,34 @@ export class DebugPipeline {
             Float32Array.BYTES_PER_ELEMENT,
           stepMode: "instance",
           attributes: [
-            //instance pos
+            //model matrix line 1
             {
               shaderLocation: 1,
               offset: 0,
-              format: "float32x2",
+              format: "float32x4",
             },
-            //instance rot
+            //model matrix line 2
             {
               shaderLocation: 2,
-              offset: 2 * Float32Array.BYTES_PER_ELEMENT,
-              format: "float32",
+              offset: 4 * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x4",
             },
-            //instance size
+            //model matrix line 3
             {
               shaderLocation: 3,
-              offset: (2 + 1) * Float32Array.BYTES_PER_ELEMENT,
-              format: "float32x2",
+              offset: (4 + 4) * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x4",
+            },
+            //model matrix line 4
+            {
+              shaderLocation: 4,
+              offset: (4 + 4 + 4) * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x4",
             },
             //color
             {
-              shaderLocation: 4,
-              offset: (2 + 1 + 2) * Float32Array.BYTES_PER_ELEMENT,
+              shaderLocation: 5,
+              offset: 16 * Float32Array.BYTES_PER_ELEMENT,
               format: "float32x4",
             },
           ],
@@ -127,7 +133,7 @@ export class DebugPipeline {
   }
 }
 
-const MAX_INSTANCES = 1024;
+const MAX_INSTANCES = 100;
 
 type InstanceData = {
   floatStride: number;
@@ -247,25 +253,15 @@ export class DebugRenderer {
     radius: number,
     color: GPUColorDict = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
   ) {
-    const index =
-      this.circleInstanceData.count * this.circleInstanceData.floatStride;
-    //TODO: random requests above MAX_INSTANCES
-
-    this.circleInstanceData.data[index + 0] = pos[0];
-    this.circleInstanceData.data[index + 1] = pos[1];
-
-    this.circleInstanceData.data[index + 2] = 0;
-
-    this.circleInstanceData.data[index + 3] = radius;
-    this.circleInstanceData.data[index + 4] = radius;
-
-    //rgba
-    this.circleInstanceData.data[index + 5] = color.r;
-    this.circleInstanceData.data[index + 6] = color.g;
-    this.circleInstanceData.data[index + 7] = color.b;
-    this.circleInstanceData.data[index + 8] = color.a;
-
-    this.circleInstanceData.count++;
+    DebugRenderer.fillInstanceData(
+      this.circleInstanceData,
+      {
+        pos,
+        size: [radius, radius],
+        rot: 0,
+      },
+      color,
+    );
   }
 
   drawWireCircle(
@@ -298,25 +294,7 @@ export class DebugRenderer {
     transform: Transform,
     color: GPUColorDict = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
   ) {
-    const index =
-      this.squareInstanceData.count * this.squareInstanceData.floatStride;
-    //TODO: random requests above MAX_INSTANCES
-
-    this.squareInstanceData.data[index + 0] = transform.pos[0];
-    this.squareInstanceData.data[index + 1] = transform.pos[1];
-
-    this.squareInstanceData.data[index + 2] = transform.rot;
-
-    this.squareInstanceData.data[index + 3] = transform.size[0];
-    this.squareInstanceData.data[index + 4] = transform.size[1];
-
-    //rgba
-    this.squareInstanceData.data[index + 5] = color.r;
-    this.squareInstanceData.data[index + 6] = color.g;
-    this.squareInstanceData.data[index + 7] = color.b;
-    this.squareInstanceData.data[index + 8] = color.a;
-
-    this.squareInstanceData.count++;
+    DebugRenderer.fillInstanceData(this.squareInstanceData, transform, color);
   }
 
   drawWireSquare(
@@ -404,6 +382,39 @@ export class DebugRenderer {
 
       passEncoder.drawIndexed(instanceData.indexCount, instanceData.count);
     }
+  }
+
+  private static fillInstanceData(
+    instanceData: InstanceData,
+    transform: Transform,
+    color: GPUColorDict,
+  ) {
+    const index = instanceData.count * instanceData.floatStride;
+    //TODO: random requests above MAX_INSTANCES
+
+    const modelMatrix = DebugRenderer.trs(transform);
+
+    for (let i = 0; i < 16; i++) {
+      instanceData.data[index + i] = modelMatrix[i];
+    }
+
+    const colorOffset = index + 16;
+    //rgba
+    instanceData.data[colorOffset + 0] = color.r;
+    instanceData.data[colorOffset + 1] = color.g;
+    instanceData.data[colorOffset + 2] = color.b;
+    instanceData.data[colorOffset + 3] = color.a;
+
+    instanceData.count++;
+  }
+
+  private static trs(transform: Transform) {
+    return mat4.fromRotationTranslationScale(
+      mat4.create(),
+      quat.fromEuler(quat.create(), 0, 0, (180 * transform.rot) / Math.PI),
+      [transform.pos[0], transform.pos[1], 0],
+      [transform.size[0], transform.size[1], 0],
+    );
   }
 
   rotateVertex(v: vec2, origin: vec2, rot: number): vec2 {
