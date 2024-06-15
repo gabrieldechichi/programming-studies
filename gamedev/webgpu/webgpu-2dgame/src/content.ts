@@ -1,5 +1,6 @@
 import { vec2 } from "gl-matrix";
 import { Texture } from "./texture";
+import { Font } from "./font/font";
 
 export type Sprite = {
   texture: Texture;
@@ -10,6 +11,7 @@ export type Sprite = {
 export class Content {
   public static playerSprite: Sprite;
   public static spriteSheet: { [name: string]: Sprite } = {};
+  public static defaultFont: Font;
 
   public static async initialize(device: GPUDevice) {
     //load sprite
@@ -41,5 +43,12 @@ export class Content {
 
       Content.playerSprite = Content.spriteSheet["playerShip1_blue"];
     }
+
+    //load font
+    Content.defaultFont = await Font.fromXml(
+      device,
+      "assets/SpriteFont.png",
+      "assets/SpriteFont.xml",
+    );
   }
 }

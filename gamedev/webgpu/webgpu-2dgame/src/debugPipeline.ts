@@ -1,4 +1,4 @@
-import { mat4, vec2 } from "gl-matrix";
+import { vec2 } from "gl-matrix";
 import { GPUUniformBuffer } from "./rendering/bufferUtils";
 import shaderSource from "./shader/debug.wgsl?raw";
 import { InstanceData } from "./rendering/instancing";
@@ -131,7 +131,6 @@ const MAX_INSTANCES = 100;
 
 export class DebugRenderer {
   device!: GPUDevice;
-  projectionViewBuffer!: GPUUniformBuffer;
   pipeline!: DebugPipeline;
   squareInstanceData!: InstanceData;
   circleInstanceData!: InstanceData;
@@ -139,7 +138,6 @@ export class DebugRenderer {
   static create(device: GPUDevice, projectionViewBufer: GPUUniformBuffer) {
     const renderer = new DebugRenderer();
     renderer.device = device;
-    renderer.projectionViewBuffer = projectionViewBufer;
     renderer.pipeline = DebugPipeline.create(device, projectionViewBufer);
 
     //squares buffer
@@ -189,14 +187,7 @@ export class DebugRenderer {
     return renderer;
   }
 
-  startFrame(projectionViewMatrix: mat4) {
-    //TODO: duplicate writes to projection buffer (move to main renderer)
-    this.device.queue.writeBuffer(
-      this.projectionViewBuffer,
-      0,
-      projectionViewMatrix as Float32Array,
-    );
-
+  startFrame() {
     this.squareInstanceData.count = 0;
     this.circleInstanceData.count = 0;
   }

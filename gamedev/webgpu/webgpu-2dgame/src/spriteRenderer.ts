@@ -1,9 +1,10 @@
-import { mat4 } from "gl-matrix";
+import { vec2 } from "gl-matrix";
 import { GPUUniformBuffer } from "./rendering/bufferUtils";
 import { SpritePipeline } from "./spritePipeline";
 import { Sprite } from "./content";
 import { MathUtils, Transform } from "./math/math";
 import { InstanceData } from "./rendering/instancing";
+import { Font } from "./font/font";
 
 const MAX_INSTANCES = 1024;
 
@@ -23,20 +24,18 @@ export class SpriteRenderer {
     return renderer;
   }
 
-  startFrame(projectionViewMatrix: mat4) {
+  startFrame() {
     for (const key in this.instancesPerTexture) {
       this.instancesPerTexture[key].count = 0;
     }
-
-    //TODO: duplicate writes to projection buffer (move to main renderer)
-    this.device.queue.writeBuffer(
-      this.projectionViewBuffer,
-      0,
-      projectionViewMatrix as Float32Array,
-    );
   }
 
-  render(sprite: Sprite, transform: Transform) {
+  drawSprite(sprite: Sprite, pos?: vec2, rot?: number, size?: vec2) {
+    const transform = {
+      pos: pos || [0, 0],
+      rot: rot || 0,
+      size: size || sprite.wh,
+    } as Transform;
     //get or create pipeline
     const texture = sprite.texture;
     let pipeline = this.pipelinesPerTexture[texture.id];
@@ -59,10 +58,10 @@ export class SpriteRenderer {
         //prettier-ignore
         new Float32Array([
             //pos         //uv
-            -0.5, -0.5,   0.0, 1.0,
-             0.5, -0.5,   1.0, 1.0,
-             0.5, 0.5,    1.0, 0.0,
-            -0.5, 0.5,    0.0, 0.0
+             0.0, 0.0,    0.0, 0.0,
+             1.0, 0.0,    1.0, 0.0,
+             1.0, 1.0,    1.0, 1.0,
+             0.0, 1.0,    0.0, 1.0
         ]),
         new Int16Array([0, 1, 2, 2, 3, 0]),
       );
@@ -93,6 +92,32 @@ export class SpriteRenderer {
     instanceData.data[offset + 16 + 3] = uvScale[1];
 
     instanceData.count++;
+  }
+
+  drawText(text: string, topLeft: vec2, font: Font, size: number = 50) {
+    const cursor = topLeft;
+    size = size || font.size;
+    const scale = size / font.size;
+    for (var i = 0; i < text.length; i++) {
+      const c = text[i].charCodeAt(0);
+      const fontChar = font.characters[c];
+
+      const sprite: Sprite = {
+        texture: font.texture,
+        xy: fontChar.xy,
+        wh: fontChar.wh,
+      };
+      const pos: vec2 = [
+        cursor[0] + fontChar.offset[0] * scale,
+        cursor[1] + fontChar.offset[1] * scale,
+      ];
+      this.drawSprite(sprite, pos, 0, [
+        sprite.wh[0] * scale,
+        sprite.wh[1] * scale,
+      ]);
+
+      cursor[0] += fontChar.advance * scale;
+    }
   }
 
   endFrame(passEncoder: GPURenderPassEncoder) {

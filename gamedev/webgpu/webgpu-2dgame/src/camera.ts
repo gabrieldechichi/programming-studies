@@ -15,12 +15,21 @@ export class Camera {
   }
 
   update() {
+    // this.projection = mat4.ortho(
+    //   mat4.create(),
+    //   -this.width / 2,
+    //   this.width / 2,
+    //   -this.height / 2,
+    //   this.height / 2,
+    //   -1,
+    //   1,
+    // );
     this.projection = mat4.ortho(
       mat4.create(),
-      -this.width / 2,
-      this.width / 2,
-      -this.height / 2,
-      this.height / 2,
+      0,
+      this.width,
+      this.height,
+      0,
       -1,
       1,
     );

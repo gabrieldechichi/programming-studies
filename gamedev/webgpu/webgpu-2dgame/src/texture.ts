@@ -21,6 +21,7 @@ export class Texture {
   static async createTexture(
     device: GPUDevice,
     image: HTMLImageElement,
+    filterMode: GPUFilterMode = "nearest",
   ): Promise<Texture> {
     const tex = device.createTexture({
       size: { width: image.width, height: image.height },
@@ -38,8 +39,8 @@ export class Texture {
     );
 
     const sampler = device.createSampler({
-      minFilter: "nearest",
-      magFilter: "nearest",
+      minFilter: filterMode,
+      magFilter: filterMode,
     });
 
     return new Texture(tex, sampler, image.src, [image.width, image.height]);
@@ -48,6 +49,7 @@ export class Texture {
   static async createTextureFromUrl(
     device: GPUDevice,
     imageUrl: string,
+    filterMode: GPUFilterMode = "nearest",
   ): Promise<Texture> {
     const loadImage = new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image();
@@ -59,6 +61,6 @@ export class Texture {
       };
     });
     const img = await loadImage;
-    return await this.createTexture(device, img);
+    return await this.createTexture(device, img, filterMode);
   }
 }

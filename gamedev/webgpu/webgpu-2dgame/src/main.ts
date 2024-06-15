@@ -81,8 +81,14 @@ class Renderer {
         ],
       };
 
-      this.spriteRenderer.startFrame(camera.viewProjection);
-      this.debugRenderer.startFrame(camera.viewProjection);
+      this.device.queue.writeBuffer(
+        this.projectionViewBuffer,
+        0,
+        camera.viewProjection as Float32Array,
+      );
+
+      this.spriteRenderer.startFrame();
+      this.debugRenderer.startFrame();
 
       const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
 
@@ -95,18 +101,6 @@ class Renderer {
 
       this.device.queue.submit([commandEncoder.finish()]);
     }
-  }
-
-  renderSprite(sprite: Sprite, pos?: vec2, rot?: number, size?: vec2) {
-    pos = pos || [0, 0];
-    rot = rot || 0;
-    size = size || sprite.wh;
-
-    this.spriteRenderer.render(sprite, {
-      pos,
-      rot,
-      size,
-    });
   }
 }
 
@@ -316,14 +310,35 @@ class Engine {
       this.renderer.canvas.height,
     ]);
 
-    this.asteroidWave.update(this.player)
+    this.asteroidWave.update(this.player);
 
     this.camera.update();
     this.renderer.render(this.camera, () => {
-      this.renderer.renderSprite(this.player.sprite, this.player.pos);
+      this.renderer.spriteRenderer.drawSprite(
+        this.player.sprite,
+        this.player.pos,
+      );
       for (const asteroid of this.asteroidWave.asteroids) {
-        this.renderer.renderSprite(asteroid.sprite, asteroid.pos, asteroid.rot);
+        this.renderer.spriteRenderer.drawSprite(
+          asteroid.sprite,
+          asteroid.pos,
+          asteroid.rot,
+        );
       }
+
+      this.renderer.spriteRenderer.drawText(
+        "Hello World",
+        [0, 0],
+        Content.defaultFont,
+      );
+      this.renderer.debugRenderer.drawWireSquare({
+        pos: [
+          200 - this.renderer.canvas.width / 2,
+          -50 + this.renderer.canvas.height / 2,
+        ],
+        rot: 0,
+        size: [400, 100],
+      });
     });
     window.requestAnimationFrame(() => this.loop());
   }
