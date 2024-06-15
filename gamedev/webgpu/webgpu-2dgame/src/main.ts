@@ -15,7 +15,10 @@ class Renderer {
   canvas!: HTMLCanvasElement;
   private device!: GPUDevice;
   private projectionViewBuffer!: GPUUniformBuffer;
+  private uiProjectionBuffer!: GPUUniformBuffer;
   spriteRenderer!: SpriteRenderer;
+  uiRenderer!: SpriteRenderer;
+
   debugRenderer!: DebugRenderer;
 
   public async initialize() {
@@ -45,21 +48,31 @@ class Renderer {
       format: navigator.gpu.getPreferredCanvasFormat(),
     });
 
-    {
-      this.projectionViewBuffer = createUniformBuffer(
-        this.device,
-        MAT4_BYTE_LENGTH,
-      );
-    }
+    this.projectionViewBuffer = createUniformBuffer(
+      this.device,
+      MAT4_BYTE_LENGTH,
+    );
+    this.uiProjectionBuffer = createUniformBuffer(
+      this.device,
+      MAT4_BYTE_LENGTH,
+    );
 
     this.spriteRenderer = SpriteRenderer.create(
       this.device,
       this.projectionViewBuffer,
+      SpriteRenderer.SpriteCenteredGeo,
+    );
+
+    this.uiRenderer = SpriteRenderer.create(
+      this.device,
+      this.uiProjectionBuffer,
+      SpriteRenderer.SpriteUIGeo,
     );
 
     this.debugRenderer = DebugRenderer.create(
       this.device,
       this.projectionViewBuffer,
+      DebugRenderer.SpriteCenteredGeo,
     );
 
     await Content.initialize(this.device);
@@ -86,8 +99,15 @@ class Renderer {
         0,
         camera.viewProjection as Float32Array,
       );
+      this.device.queue.writeBuffer(
+        this.uiProjectionBuffer,
+        0,
+        camera.uiProjection as Float32Array,
+      );
 
       this.spriteRenderer.startFrame();
+      this.uiRenderer.startFrame();
+
       this.debugRenderer.startFrame();
 
       const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
@@ -95,6 +115,7 @@ class Renderer {
       renderEntities();
 
       this.spriteRenderer.endFrame(passEncoder);
+      this.uiRenderer.endFrame(passEncoder);
       this.debugRenderer.endFrame(passEncoder);
 
       passEncoder.end();
@@ -326,19 +347,11 @@ class Engine {
         );
       }
 
-      this.renderer.spriteRenderer.drawText(
+      this.renderer.uiRenderer.drawText(
         "Hello World",
         [0, 0],
         Content.defaultFont,
       );
-      this.renderer.debugRenderer.drawWireSquare({
-        pos: [
-          200 - this.renderer.canvas.width / 2,
-          -50 + this.renderer.canvas.height / 2,
-        ],
-        rot: 0,
-        size: [400, 100],
-      });
     });
     window.requestAnimationFrame(() => this.loop());
   }

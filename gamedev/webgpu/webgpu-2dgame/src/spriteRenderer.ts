@@ -13,14 +13,35 @@ export class SpriteRenderer {
   projectionViewBuffer!: GPUUniformBuffer;
   instancesPerTexture: { [id: string]: InstanceData } = {};
   pipelinesPerTexture: { [id: string]: SpritePipeline } = {};
+  defaultGeometry!: Float32Array;
+
+  //prettier-ignore
+  static SpriteUIGeo = new Float32Array([
+    //pos       //uv
+    0.0, 0.0,   0.0, 0.0,
+    1.0, 0.0,   1.0, 0.0,
+    1.0, 1.0,   1.0, 1.0,
+    0.0, 1.0,   0.0, 1.0,
+  ]);
+
+  //prettier-ignore
+  static SpriteCenteredGeo = new Float32Array([
+    //pos          //uv
+    -0.5, -0.5,    0.0, 1.0,
+    0.5, -0.5,     1.0, 1.0,
+    0.5, 0.5,      1.0, 0.0,
+    -0.5, 0.5,     0.0, 0.0,
+  ]);
 
   static create(
     device: GPUDevice,
     projectionViewBuffer: GPUUniformBuffer,
+    defaultGeometry: Float32Array,
   ): SpriteRenderer {
     const renderer = new SpriteRenderer();
     renderer.device = device;
     renderer.projectionViewBuffer = projectionViewBuffer;
+    renderer.defaultGeometry = defaultGeometry;
     return renderer;
   }
 
@@ -55,14 +76,7 @@ export class SpriteRenderer {
         this.device,
         MAX_INSTANCES,
         SpritePipeline.VERTEX_INSTANCE_FLOAT_NUM,
-        //prettier-ignore
-        new Float32Array([
-            //pos         //uv
-             0.0, 0.0,    0.0, 0.0,
-             1.0, 0.0,    1.0, 0.0,
-             1.0, 1.0,    1.0, 1.0,
-             0.0, 1.0,    0.0, 1.0
-        ]),
+        this.defaultGeometry,
         new Int16Array([0, 1, 2, 2, 3, 0]),
       );
 

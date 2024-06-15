@@ -3,6 +3,7 @@ import { mat4 } from "gl-matrix";
 export class Camera {
   view!: mat4;
   projection!: mat4;
+  uiProjection!: mat4;
   viewProjection!: mat4;
 
   width: number;
@@ -15,16 +16,16 @@ export class Camera {
   }
 
   update() {
-    // this.projection = mat4.ortho(
-    //   mat4.create(),
-    //   -this.width / 2,
-    //   this.width / 2,
-    //   -this.height / 2,
-    //   this.height / 2,
-    //   -1,
-    //   1,
-    // );
     this.projection = mat4.ortho(
+      mat4.create(),
+      -this.width / 2,
+      this.width / 2,
+      -this.height / 2,
+      this.height / 2,
+      -1,
+      1,
+    );
+    this.uiProjection = mat4.ortho(
       mat4.create(),
       0,
       this.width,

@@ -3,6 +3,7 @@ import { GPUUniformBuffer } from "./rendering/bufferUtils";
 import shaderSource from "./shader/debug.wgsl?raw";
 import { InstanceData } from "./rendering/instancing";
 import { MathUtils, Transform } from "./math/math";
+import { Font } from "./font/font";
 
 export class DebugPipeline {
   pipeline!: GPURenderPipeline;
@@ -135,7 +136,29 @@ export class DebugRenderer {
   squareInstanceData!: InstanceData;
   circleInstanceData!: InstanceData;
 
-  static create(device: GPUDevice, projectionViewBufer: GPUUniformBuffer) {
+  //prettier-ignore
+  static SpriteUIGeo = new Float32Array([
+    //pos       //uv
+    0.0, 0.0,
+    1.0, 0.0,
+    1.0, 1.0,
+    0.0, 1.0,
+  ]);
+
+  //prettier-ignore
+  static SpriteCenteredGeo = new Float32Array([
+    //pos          //uv
+    -0.5, -0.5,
+    0.5, -0.5,
+    0.5, 0.5,
+    -0.5, 0.5,
+  ]);
+
+  static create(
+    device: GPUDevice,
+    projectionViewBufer: GPUUniformBuffer,
+    geometry: Float32Array,
+  ) {
     const renderer = new DebugRenderer();
     renderer.device = device;
     renderer.pipeline = DebugPipeline.create(device, projectionViewBufer);
@@ -146,14 +169,7 @@ export class DebugRenderer {
         device,
         MAX_INSTANCES,
         DebugPipeline.VERTEX_INSTANCE_FLOAT_NUM,
-        //prettier-ignore
-        new Float32Array([
-          //tri 1
-        -0.5, -0.5,
-        0.5, -0.5,
-        0.5, 0.5,
-        -0.5, 0.5,
-      ]),
+        geometry,
         new Int16Array([0, 1, 2, 2, 3, 0]),
       );
     }
@@ -305,6 +321,19 @@ export class DebugRenderer {
       },
       color,
     );
+  }
+
+  drawTextBounds(text: string, topLeft: vec2, font: Font, size: number = 50) {
+    size = size || font.size;
+    const scale = size / font.size;
+    let width = 0;
+    const height = font.lineHeight;
+    for (var i = 0; i < text.length; i++) {
+      const c = text[i].charCodeAt(0);
+      const fontChar = font.characters[c];
+      width += fontChar.advance * scale;
+    }
+    this.drawWireSquare({ pos: topLeft, rot: 0, size: [width, height] });
   }
 
   private drawInstancedData(
