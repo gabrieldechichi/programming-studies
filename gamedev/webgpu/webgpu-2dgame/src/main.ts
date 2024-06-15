@@ -8,6 +8,7 @@ import { Camera } from "./camera";
 import { Content, Sprite } from "./content";
 import { SpriteRenderer } from "./spriteRenderer";
 import { DebugRenderer } from "./debugPipeline";
+import { MathUtils } from "./math/math";
 
 class Renderer {
   private context!: GPUCanvasContext;
@@ -131,9 +132,38 @@ class Input {
   }
 }
 
+type Circle = { center: vec2; radius: number };
+
+class Collision {
+  static circleColliderFromSprite(sprite: Sprite): Circle {
+    return {
+      radius: Math.min(sprite.wh[0], sprite.wh[1]) / 2,
+      center: [0, 0],
+    };
+  }
+
+  static circleCircleCollision(
+    a: Circle,
+    b: Circle,
+  ): { isColliding: boolean; penetration: vec2 } {
+    var aToB: vec2 = [b.center[0] - a.center[0], b.center[1] - a.center[1]];
+    var aToBSqrdLen = vec2.squaredLength(aToB);
+    var radiusSum = a.radius + b.radius;
+    if (aToBSqrdLen >= radiusSum * radiusSum) {
+      return { isColliding: false, penetration: [0, 0] };
+    }
+
+    const aToBLen = Math.sqrt(aToBSqrdLen);
+    const delta = radiusSum - aToBLen;
+    vec2.normalize(aToB, aToB);
+    return { isColliding: true, penetration: vec2.scale(aToB, aToB, -delta) };
+  }
+}
+
 class Player {
   sprite!: Sprite;
   size!: vec2;
+  collider!: Circle;
 
   pos: vec2 = [0, 0];
   velocity: vec2 = [0, 0];
@@ -160,7 +190,7 @@ class Player {
 
     const targetVelocity = vec2.scale(vec2.create(), moveInput, this.maxSpeed);
 
-    this.velocity = moveTowards(
+    this.velocity = MathUtils.moveTowards(
       this.velocity,
       targetVelocity,
       this.acceleration * dt,
@@ -183,22 +213,52 @@ class Player {
       this.pos[1] = canvasExtents[1] - playerExtents[1];
     }
   }
+
+  worldCollider() {
+    return {
+      center: this.pos,
+      radius: this.collider.radius,
+    } as Circle;
+  }
 }
 
-function moveTowards(
-  current: vec2,
-  target: vec2,
-  maxDistanceDelta: number,
-): vec2 {
-  const toTarget: vec2 = [target[0] - current[0], target[1] - current[1]];
-  const magnitude = vec2.len(toTarget);
-  if (magnitude <= maxDistanceDelta || magnitude == 0) {
-    return target;
-  }
-  const dx = (toTarget[0] / magnitude) * maxDistanceDelta;
-  const dy = (toTarget[1] / magnitude) * maxDistanceDelta;
+class Asteroid {
+  sprite!: Sprite;
+  collider!: Circle;
+  pos: vec2 = [0, 0];
+  rot: number = 0;
 
-  return [current[0] + dx, current[1] + dy] as vec2;
+  worldCollider() {
+    return {
+      center: this.pos,
+      radius: this.collider.radius,
+    } as Circle;
+  }
+}
+
+class AsteroidWave {
+  asteroids: Asteroid[] = [];
+
+  update(player: Player) {
+    const playerCollider = player.worldCollider();
+    for (let i = this.asteroids.length - 1; i >= 0; i--) {
+      const asteroid = this.asteroids[i];
+      const asteroidCollider = asteroid.worldCollider();
+      const { isColliding } = Collision.circleCircleCollision(
+        playerCollider,
+        asteroidCollider,
+      );
+      if (isColliding) {
+        this.asteroids.splice(i, 1);
+      }
+    }
+  }
+}
+
+class Color {
+  static RED: GPUColorDict = { r: 1, g: 0, b: 0, a: 1 };
+  static GREEN: GPUColorDict = { r: 0, g: 0.7, b: 0, a: 1 };
+  static BLUE: GPUColorDict = { r: 0, g: 0, b: 1, a: 1 };
 }
 
 class Engine {
@@ -207,6 +267,7 @@ class Engine {
   input!: Input;
   time!: Time;
   player!: Player;
+  asteroidWave!: AsteroidWave;
 
   static async create(): Promise<Engine> {
     const engine = new Engine();
@@ -223,10 +284,25 @@ class Engine {
   }
 
   play() {
-    this.player = new Player();
-    this.player.sprite = Content.playerSprite;
-    this.player.size = this.player.sprite.wh;
-    this.player.pos[1] = -this.camera.height / 2 + this.player.sprite.wh[1];
+    //new player
+    {
+      this.player = new Player();
+      this.player.sprite = Content.playerSprite;
+      this.player.collider = Collision.circleColliderFromSprite(
+        this.player.sprite,
+      );
+      this.player.size = this.player.sprite.wh;
+      this.player.pos[1] = -this.camera.height / 2 + this.player.sprite.wh[1];
+    }
+
+    //new asteroid
+    {
+      this.asteroidWave = new AsteroidWave();
+      const asteroid = new Asteroid();
+      asteroid.sprite = Content.spriteSheet["meteorBrown_big1"];
+      asteroid.collider = Collision.circleColliderFromSprite(asteroid.sprite);
+      this.asteroidWave.asteroids.push(asteroid);
+    }
     this.loop();
   }
 
@@ -239,49 +315,15 @@ class Engine {
       this.renderer.canvas.width,
       this.renderer.canvas.height,
     ]);
+
+    this.asteroidWave.update(this.player)
+
     this.camera.update();
     this.renderer.render(this.camera, () => {
       this.renderer.renderSprite(this.player.sprite, this.player.pos);
-
-      // this.renderer.renderSprite(this.player.sprite, [0,0], 0, [200,200]);
-
-      this.renderer.debugRenderer.drawWireSquare(
-        {
-          pos: this.player.pos,
-          rot: 0,
-          size: this.player.size,
-        },
-        2,
-      );
-
-      this.renderer.debugRenderer.drawSquare(
-        {
-          pos: [-200, -400],
-          rot: Math.PI/4 - 0.2,
-          size: [50, 50]
-        }
-      );
-
-      this.renderer.debugRenderer.drawWireSquare(
-        {
-          pos: [0, -200],
-          rot: 0,
-          size: this.player.size,
-        },
-        2,
-        { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
-      );
-      this.renderer.debugRenderer.drawWireSquare(
-        {
-          pos: [100, -200],
-          rot: 0,
-          size: this.player.size,
-        },
-        2,
-      );
-
-      this.renderer.debugRenderer.drawCircle([100, -200], 50);
-      this.renderer.debugRenderer.drawWireCircle([-120, -200], 50);
+      for (const asteroid of this.asteroidWave.asteroids) {
+        this.renderer.renderSprite(asteroid.sprite, asteroid.pos, asteroid.rot);
+      }
     });
     window.requestAnimationFrame(() => this.loop());
   }

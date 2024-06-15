@@ -19,4 +19,20 @@ export class MathUtils {
   static rotateVertex(v: vec2, origin: vec2, rot: number): vec2 {
     return vec2.rotate(vec2.create(), v, origin, rot);
   }
+
+  static moveTowards(
+    current: vec2,
+    target: vec2,
+    maxDistanceDelta: number,
+  ): vec2 {
+    const toTarget: vec2 = [target[0] - current[0], target[1] - current[1]];
+    const magnitude = vec2.len(toTarget);
+    if (magnitude <= maxDistanceDelta || magnitude == 0) {
+      return target;
+    }
+    const dx = (toTarget[0] / magnitude) * maxDistanceDelta;
+    const dy = (toTarget[1] / magnitude) * maxDistanceDelta;
+
+    return [current[0] + dx, current[1] + dy] as vec2;
+  }
 }

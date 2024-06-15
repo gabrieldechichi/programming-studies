@@ -1,5 +1,10 @@
 - [x] Debug 2d shapes 
-- [ ] Refactor pipeline?
-- [ ] Collision
+- [x] Refactor pipeline?
+- [x] Collision
+- [x] Asteroids
 - [ ] Font rendering
 - [ ] Post processing
+
+Unimportant:
+- [ ] Background
+- [ ] Explosion
