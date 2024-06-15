@@ -1,4 +1,4 @@
-import { GPUUniformBuffer } from "./bufferUtils";
+import { GPUUniformBuffer } from "./rendering/bufferUtils";
 import shaderSource from "./shader/shader.wgsl?raw";
 import { Texture } from "./texture";
 

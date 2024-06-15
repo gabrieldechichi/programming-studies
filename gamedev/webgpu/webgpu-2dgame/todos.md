@@ -1,3 +1,5 @@
-- [ ] Debug 2d shapes 
+- [x] Debug 2d shapes 
+- [ ] Refactor pipeline?
+- [ ] Collision
 - [ ] Font rendering
 - [ ] Post processing

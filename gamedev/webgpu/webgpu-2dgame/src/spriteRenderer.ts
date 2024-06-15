@@ -5,9 +5,10 @@ import {
   GPUVertexBuffer,
   createIndexBuffer,
   createVertexBuffer,
-} from "./bufferUtils";
+} from "./rendering/bufferUtils";
 import { SpritePipeline } from "./spritePipeline";
 import { Sprite } from "./content";
+import { Transform } from "./math/math";
 
 const MAX_SPRITE_PER_BATCH = 1024;
 const INDICEX_PER_SPRITE = 6; //quad
@@ -25,12 +26,6 @@ class SpriteBatch {
 
 type SpriteVertexBuffers = {
   vertexBuffer: GPUVertexBuffer;
-};
-
-export type Transform = {
-  pos: vec2;
-  rot: number;
-  size: vec2;
 };
 
 export class SpriteRenderer {

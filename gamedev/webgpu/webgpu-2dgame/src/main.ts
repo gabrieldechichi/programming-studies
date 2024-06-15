@@ -3,7 +3,7 @@ import {
   GPUUniformBuffer,
   MAT4_BYTE_LENGTH,
   createUniformBuffer,
-} from "./bufferUtils";
+} from "./rendering/bufferUtils";
 import { Camera } from "./camera";
 import { Content, Sprite } from "./content";
 import { SpriteRenderer } from "./spriteRenderer";
