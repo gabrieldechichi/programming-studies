@@ -7,6 +7,7 @@ export class SpritePipeline {
   textureBindGroup!: GPUBindGroup;
   projectionViewBindGroup!: GPUBindGroup;
 
+  static VERTEX_INSTANCE_FLOAT_NUM = 16 + 2 + 2; //mat4x4 + uvOffset + uvScale
   static FLOATS_PER_VERTEX: number = 2 + 2; //xy + uv
   static VERTEX_STRIDE: number =
     SpritePipeline.FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
@@ -28,30 +29,73 @@ export class SpritePipeline {
   ) {
     const module = device.createShaderModule({ code: shaderSource });
 
-    //vertex and fragment stuff
-    const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: SpritePipeline.VERTEX_STRIDE,
-      stepMode: "vertex",
-      attributes: [
-        //position
-        {
-          shaderLocation: 0,
-          offset: 0,
-          format: "float32x2",
-        },
-        //uv
-        {
-          shaderLocation: 1,
-          offset: 2 * Float32Array.BYTES_PER_ELEMENT,
-          format: "float32x2",
-        },
-      ],
-    };
-
     const vertex: GPUVertexState = {
       module,
       entryPoint: "vertexMain",
-      buffers: [vertexBufferLayout],
+      buffers: [
+        {
+          arrayStride: SpritePipeline.VERTEX_STRIDE,
+          stepMode: "vertex",
+          attributes: [
+            //position
+            {
+              shaderLocation: 0,
+              offset: 0,
+              format: "float32x2",
+            },
+            //uv
+            {
+              shaderLocation: 1,
+              offset: 2 * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x2",
+            },
+          ],
+        },
+        {
+          arrayStride:
+            SpritePipeline.VERTEX_INSTANCE_FLOAT_NUM *
+            Float32Array.BYTES_PER_ELEMENT,
+          stepMode: "instance",
+          attributes: [
+            //model matrix line 1
+            {
+              shaderLocation: 2,
+              offset: 0,
+              format: "float32x4",
+            },
+            //model matrix line 2
+            {
+              shaderLocation: 3,
+              offset: 4 * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x4",
+            },
+            //model matrix line 3
+            {
+              shaderLocation: 4,
+              offset: (4 + 4) * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x4",
+            },
+            //model matrix line 4
+            {
+              shaderLocation: 5,
+              offset: (4 + 4 + 4) * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x4",
+            },
+            //uv offset
+            {
+              shaderLocation: 6,
+              offset: (4 + 4 + 4 + 4) * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x2",
+            },
+            //uv scale
+            {
+              shaderLocation: 7,
+              offset: (4 + 4 + 4 + 4 + 2) * Float32Array.BYTES_PER_ELEMENT,
+              format: "float32x2",
+            },
+          ],
+        },
+      ],
     };
 
     const fragment: GPUFragmentState = {
@@ -120,16 +164,14 @@ export class SpritePipeline {
       ],
     });
 
-    const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [projectionViewBufferLayout, textureGroupLayout],
-    });
-
     this.pipeline = device.createRenderPipeline({
       label: texture.id,
       vertex,
       fragment,
       primitive: { topology: "triangle-list" },
-      layout: pipelineLayout,
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [projectionViewBufferLayout, textureGroupLayout],
+      }),
     });
   }
 }

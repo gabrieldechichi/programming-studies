@@ -1,9 +1,5 @@
 import { mat4, vec2 } from "gl-matrix";
-import {
-  GPUUniformBuffer,
-  createIndexBuffer,
-  createVertexBuffer,
-} from "./rendering/bufferUtils";
+import { GPUUniformBuffer } from "./rendering/bufferUtils";
 import shaderSource from "./shader/debug.wgsl?raw";
 import { InstanceData } from "./rendering/instancing";
 import { MathUtils, Transform } from "./math/math";
@@ -56,7 +52,6 @@ export class DebugPipeline {
           ],
         },
         {
-          //instancePos + instance size + color
           arrayStride:
             DebugPipeline.VERTEX_INSTANCE_FLOAT_NUM *
             Float32Array.BYTES_PER_ELEMENT,
@@ -195,6 +190,7 @@ export class DebugRenderer {
   }
 
   startFrame(projectionViewMatrix: mat4) {
+    //TODO: duplicate writes to projection buffer (move to main renderer)
     this.device.queue.writeBuffer(
       this.projectionViewBuffer,
       0,
@@ -346,8 +342,8 @@ export class DebugRenderer {
     transform: Transform,
     color: GPUColorDict,
   ) {
+    //TODO: handle requests above MAX_INSTANCES
     const index = instanceData.count * instanceData.floatStride;
-    //TODO: random requests above MAX_INSTANCES
 
     const modelMatrix = MathUtils.trs(transform);
 

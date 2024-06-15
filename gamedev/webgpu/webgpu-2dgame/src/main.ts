@@ -243,6 +243,8 @@ class Engine {
     this.renderer.render(this.camera, () => {
       this.renderer.renderSprite(this.player.sprite, this.player.pos);
 
+      // this.renderer.renderSprite(this.player.sprite, [0,0], 0, [200,200]);
+
       this.renderer.debugRenderer.drawWireSquare(
         {
           pos: this.player.pos,

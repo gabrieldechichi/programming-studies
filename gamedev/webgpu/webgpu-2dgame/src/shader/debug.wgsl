@@ -17,14 +17,14 @@ var<uniform> viewProjectionMatrix: mat4x4f;
 
 @vertex
 fn vertexMain(in: VertexIn) -> VertexOut {
-    var out: VertexOut;
-
     let modelMatrix = mat4x4<f32>(
         in.instanceModelMatrixCol0,
         in.instanceModelMatrixCol1,
         in.instanceModelMatrixCol2,
         in.instanceModelMatrixCol3,
     );
+
+    var out: VertexOut;
     out.pos = viewProjectionMatrix * modelMatrix * vec4(in.pos, 0.0, 1.0);
     out.color = in.instanceColor;
 
