@@ -279,6 +279,7 @@ class Engine {
       );
 
       this.renderer.debugRenderer.drawCircle([100, -200], 50);
+      this.renderer.debugRenderer.drawWireCircle([-120, -200], 50);
     });
     window.requestAnimationFrame(() => this.loop());
   }

@@ -268,6 +268,32 @@ export class DebugRenderer {
     this.circleInstanceData.count++;
   }
 
+  drawWireCircle(
+    pos: vec2,
+    radius: number,
+    thickness: number = 2,
+    color: GPUColorDict = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+  ) {
+    const sectorCount = 24;
+    for (let i = 0; i <= sectorCount - 1; ++i) {
+      const angleA = (i / sectorCount) * 2 * Math.PI;
+      const angleB = ((i + 1) / sectorCount) * 2 * Math.PI;
+      const xA = Math.cos(angleA) * radius;
+      const yA = Math.sin(angleA) * radius;
+      const xB = Math.cos(angleB) * radius;
+      const yB = Math.sin(angleB) * radius;
+      const length = Math.sqrt((xB - xA) * (xB - xA) + (yB - yA) * (yB - yA));
+
+      const x = (xB + xA) / 2;
+      const y = (yB + yA) / 2;
+      const rot = (angleB + angleA) / 2 - Math.PI / 2;
+      this.drawSquare(
+        { pos: [x + pos[0], y + pos[1]], rot, size: [length, thickness] },
+        color,
+      );
+    }
+  }
+
   drawSquare(
     transform: Transform,
     color: GPUColorDict = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
@@ -298,7 +324,7 @@ export class DebugRenderer {
     thickness = 2,
     color: GPUColorDict = { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
   ) {
-    let { pos, rot, size } = transform;
+    const { pos, rot, size } = transform;
 
     //left line
     this.drawSquare(
