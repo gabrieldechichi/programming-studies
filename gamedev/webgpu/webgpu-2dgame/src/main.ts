@@ -9,11 +9,12 @@ import { Content, Sprite } from "./content";
 import { SpriteRenderer } from "./spriteRenderer";
 import { DebugRenderer } from "./debugPipeline";
 import { MathUtils } from "./math/math";
+import { PostProcessRenderer } from "./rendering/postProcessPipeline";
 
 class Renderer {
   private context!: GPUCanvasContext;
   canvas!: HTMLCanvasElement;
-  private device!: GPUDevice;
+  device!: GPUDevice;
   private projectionViewBuffer!: GPUUniformBuffer;
   private uiProjectionBuffer!: GPUUniformBuffer;
   spriteRenderer!: SpriteRenderer;
@@ -78,50 +79,55 @@ class Renderer {
     await Content.initialize(this.device);
   }
 
-  public render(camera: Camera, renderEntities: () => void) {
-    //render
-    {
-      const commandEncoder = this.device.createCommandEncoder();
-      const textureViewer = this.context.getCurrentTexture().createView();
-      const renderPassDescriptor: GPURenderPassDescriptor = {
-        colorAttachments: [
-          {
-            view: textureViewer,
-            clearValue: { r: 0.8, g: 0.8, b: 0.8, a: 1.0 },
-            loadOp: "clear",
-            storeOp: "store",
-          },
-        ],
-      };
+  getScreenTexture() {
+    return this.context.getCurrentTexture();
+  }
 
-      this.device.queue.writeBuffer(
-        this.projectionViewBuffer,
-        0,
-        camera.viewProjection as Float32Array,
-      );
-      this.device.queue.writeBuffer(
-        this.uiProjectionBuffer,
-        0,
-        camera.uiProjection as Float32Array,
-      );
+  public render(
+    camera: Camera,
+    targetTexture: GPUTextureView | null,
+    renderEntities: () => void,
+  ) {
+    targetTexture = targetTexture || this.getScreenTexture().createView();
 
-      this.spriteRenderer.startFrame();
-      this.uiRenderer.startFrame();
+    const commandEncoder = this.device.createCommandEncoder();
+    const passEncoder = commandEncoder.beginRenderPass({
+      label: "main render",
+      colorAttachments: [
+        {
+          view: targetTexture,
+          clearValue: { r: 0.8, g: 0.8, b: 0.8, a: 1.0 },
+          loadOp: "clear",
+          storeOp: "store",
+        },
+      ],
+    });
 
-      this.debugRenderer.startFrame();
+    this.device.queue.writeBuffer(
+      this.projectionViewBuffer,
+      0,
+      camera.viewProjection as Float32Array,
+    );
+    this.device.queue.writeBuffer(
+      this.uiProjectionBuffer,
+      0,
+      camera.uiProjection as Float32Array,
+    );
 
-      const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+    this.spriteRenderer.startFrame();
+    this.uiRenderer.startFrame();
 
-      renderEntities();
+    this.debugRenderer.startFrame();
 
-      this.spriteRenderer.endFrame(passEncoder);
-      this.uiRenderer.endFrame(passEncoder);
-      this.debugRenderer.endFrame(passEncoder);
+    renderEntities();
 
-      passEncoder.end();
+    this.spriteRenderer.endFrame(passEncoder);
+    this.uiRenderer.endFrame(passEncoder);
+    this.debugRenderer.endFrame(passEncoder);
 
-      this.device.queue.submit([commandEncoder.finish()]);
-    }
+    passEncoder.end();
+
+    this.device.queue.submit([commandEncoder.finish()]);
   }
 }
 
@@ -279,6 +285,7 @@ class Color {
 class Engine {
   camera!: Camera;
   renderer!: Renderer;
+  postProcess!: PostProcessRenderer;
   input!: Input;
   time!: Time;
   player!: Player;
@@ -289,6 +296,12 @@ class Engine {
     engine.renderer = new Renderer();
     await engine.renderer.initialize();
     engine.camera = new Camera(
+      engine.renderer.canvas.width,
+      engine.renderer.canvas.height,
+    );
+
+    engine.postProcess = await PostProcessRenderer.create(
+      engine.renderer.device,
       engine.renderer.canvas.width,
       engine.renderer.canvas.height,
     );
@@ -334,7 +347,9 @@ class Engine {
     this.asteroidWave.update(this.player);
 
     this.camera.update();
-    this.renderer.render(this.camera, () => {
+
+    const renderTarget = this.postProcess.pipeline.texture.texture.createView();
+    this.renderer.render(this.camera, renderTarget, () => {
       this.renderer.spriteRenderer.drawSprite(
         this.player.sprite,
         this.player.pos,
@@ -353,6 +368,8 @@ class Engine {
         Content.defaultFont,
       );
     });
+
+    this.postProcess.render(this.renderer.getScreenTexture().createView());
     window.requestAnimationFrame(() => this.loop());
   }
 }

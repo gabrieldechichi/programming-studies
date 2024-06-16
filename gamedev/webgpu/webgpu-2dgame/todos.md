@@ -2,8 +2,9 @@
 - [x] Refactor pipeline?
 - [x] Collision
 - [x] Asteroids
-- [ ] Font rendering
-- [ ] Post processing
+- [x] Font rendering
+- [x] Basic Post processing
+- [ ] Advanced Post processing
 
 Unimportant:
 - [ ] Background

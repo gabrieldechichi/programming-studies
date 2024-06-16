@@ -26,6 +26,7 @@ export class Texture {
     const tex = device.createTexture({
       size: { width: image.width, height: image.height },
       format: "rgba8unorm",
+      // format: navigator.gpu.getPreferredCanvasFormat(),
       usage:
         GPUTextureUsage.COPY_DST |
         GPUTextureUsage.TEXTURE_BINDING |
@@ -44,6 +45,30 @@ export class Texture {
     });
 
     return new Texture(tex, sampler, image.src, [image.width, image.height]);
+  }
+
+  static async createEmptyTexture(
+    device: GPUDevice,
+    width: number,
+    height: number,
+    filterMode: GPUFilterMode = "nearest",
+  ) {
+    const tex = device.createTexture({
+      size: { width: width, height: height },
+      //format: "rgba8unorm",
+      format: navigator.gpu.getPreferredCanvasFormat(),
+      usage:
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    const sampler = device.createSampler({
+      minFilter: filterMode,
+      magFilter: filterMode,
+    });
+
+    return new Texture(tex, sampler, "empty", [width, height]);
   }
 
   static async createTextureFromUrl(
