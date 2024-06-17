@@ -21,3 +21,6 @@
 [submodule "programming-languages/c/lowlevel.academy/czerotozero/vendor/Unity"]
 	path = programming-languages/c/lowlevel.academy/czerotozero/vendor/Unity
 	url = https://github.com/ThrowTheSwitch/Unity.git
+[submodule "programming-languages/c/gui_task_management/leif"]
+	path = programming-languages/c/gui_task_management/leif
+	url = https://github.com/cococry/leif
