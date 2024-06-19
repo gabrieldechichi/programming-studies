@@ -20,11 +20,44 @@
     p.margin_bottom = v
 
 typedef enum {
+    FILTER_ALL = 0,
+    FILTER_IN_PROGRESS,
+    FILTER_COMPLETED,
+    FILTER_LOW,
+    FILTER_MEDIUM,
+    FILTER_HIGH,
+} entry_filter_e;
+
+static const char *entry_filters[] = {"ALL", "IN PROGRESS", "COMPLETED",
+                                      "LOW", "MEDIUM",      "HIGH"};
+
+typedef enum {
     DRAW_DIR_LEFT = 0,
     DRAW_DIR_RIGHT = 1,
 } draw_direction_e;
 
-static draw_direction_e draw_direction = DRAW_DIR_LEFT;
+typedef enum {
+    PRIORITY_LOW = 0,
+    PRIORITY_MEDIUM,
+    PRIORITY_HIGH,
+} entry_priority;
+
+typedef struct {
+    bool completed;
+    char *desc;
+    char *date;
+    entry_priority priority;
+} task_entry_t;
+
+typedef struct {
+    draw_direction_e draw_direction;
+    entry_filter_e current_filter;
+    task_entry_t tasks[1024];
+    size_t num_tasks;
+} app_state_t;
+
+static app_state_t app_state = {.draw_direction = DRAW_DIR_LEFT,
+                                .current_filter = 0};
 
 LfDiv div_begin(vec2s pos, vec2s size, bool scrollable) {
     lf_div_begin(pos, size, scrollable);
@@ -41,7 +74,7 @@ LfDiv div_begin_color(vec2s pos, vec2s size, bool scrollable, LfColor color) {
 }
 
 LfClickableItemState button(const char *text) {
-    switch (draw_direction) {
+    switch (app_state.draw_direction) {
     case DRAW_DIR_RIGHT: {
         float x = lf_get_ptr_x();
         lf_set_no_render(true);
@@ -87,32 +120,57 @@ void draw_top_bar(LfFont titlefont) {
 
     // filters
     {
-        static const char *filters[] = {"ALL", "IN PROGRESS", "COMPLETED",
-                                        "LOW", "MEDIUM",      "HIGH"};
 
         LfUIElementProps textProps = lf_get_theme().text_props;
         lf_push_style_props(textProps);
-        LfUIElementProps btnProps = lf_get_theme().button_props;
-        btnProps.border_width = 0;
-        btnProps.corner_radius = 4;
         btnProps.color = LF_NO_COLOR;
-        lf_push_style_props(btnProps);
 
         lf_next_line();
         lf_set_ptr_x(div.aabb.size.x);
-        draw_direction = DRAW_DIR_RIGHT;
-        for (uint32_t i = 0; i < ARRAY_SIZE(filters); i++) {
-            button(filters[i]);
+        app_state.draw_direction = DRAW_DIR_RIGHT;
+        for (uint32_t i = 0; i < ARRAY_SIZE(entry_filters); i++) {
+            LfUIElementProps btnProps = lf_get_theme().button_props;
+            btnProps.border_width = 0;
+            btnProps.corner_radius = 4;
+
+            if (app_state.current_filter == (entry_filter_e)i) {
+
+                btnProps.color = (LfColor){120, 120, 120, 255};
+                btnProps.hover_color = LF_NO_COLOR;
+            } else {
+
+                btnProps.color = LF_NO_COLOR;
+            }
+
+            lf_push_style_props(btnProps);
+            if (button(entry_filters[i]) == LF_CLICKED) {
+                app_state.current_filter = i;
+            }
+            lf_pop_style_props();
         }
-        draw_direction = DRAW_DIR_LEFT;
-        lf_pop_style_props();
+        app_state.draw_direction = DRAW_DIR_LEFT;
         lf_pop_style_props();
     }
 
     lf_div_end();
 }
 
+void app_add_task(app_state_t *app, const task_entry_t task) {
+    if (app->num_tasks >= ARRAY_SIZE(app->tasks)) {
+        printf("Error: above max tasks");
+        return;
+    }
+
+    app->tasks[app->num_tasks] = task;
+    app->num_tasks++;
+}
+
 int main() {
+    app_add_task(&app_state, (task_entry_t){.desc = "Do the dishes",
+                                            .date = "2024/02/02",
+                                            .priority = PRIORITY_HIGH,
+                                            .completed = false});
+
     glfwInit();
     GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, "Todo", NULL, NULL);
     glfwMakeContextCurrent(window);
@@ -127,7 +185,7 @@ int main() {
     set_margin(theme.button_props, DIV_DEFAULT_PAD);
     theme.text_props.color = LF_WHITE;
     theme.button_props.text_color = LF_WHITE;
-    theme.button_props.hover_color = (LfColor) { 50, 50, 50, 255};
+    theme.button_props.hover_color = (LfColor){50, 50, 50, 255};
     lf_set_theme(theme);
 
     LfFont titlefont = lf_load_font("./fonts/inter.ttf", 40);
