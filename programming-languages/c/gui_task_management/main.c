@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #define ARRAY_SIZE(arr) sizeof(arr) / sizeof(arr[0])
 
@@ -183,8 +184,36 @@ void app_add_task(app_state_t *app, const task_entry_t task) {
     app->num_tasks++;
 }
 
+void app_remove_task(app_state_t *app, int index) {
+    if (index < 0 || (size_t)index >= app->num_tasks) {
+        printf("Error: invalid index %d (num_tasks: %zu)", index,
+               app->num_tasks);
+        return;
+    }
+
+    if ((size_t)index == app->num_tasks - 1) {
+        app->num_tasks--;
+    } else {
+        memmove(&app->tasks[index], &app->tasks[index + 1],
+                (app->num_tasks - 1 - index) * sizeof(task_entry_t));
+        app->num_tasks--;
+    }
+}
+
 int main() {
-    app_add_task(&app_state, (task_entry_t){.desc = "Do the dishes",
+    app_add_task(&app_state, (task_entry_t){.desc = "Do the dishes 1",
+                                            .date = "2024/02/02",
+                                            .priority = PRIORITY_MEDIUM,
+                                            .completed = false});
+    app_add_task(&app_state, (task_entry_t){.desc = "Do the dishes 2",
+                                            .date = "2024/02/02",
+                                            .priority = PRIORITY_HIGH,
+                                            .completed = false});
+    app_add_task(&app_state, (task_entry_t){.desc = "Do the dishes 3",
+                                            .date = "2024/02/02",
+                                            .priority = PRIORITY_LOW,
+                                            .completed = false});
+    app_add_task(&app_state, (task_entry_t){.desc = "Do the dishes 4",
                                             .date = "2024/02/02",
                                             .priority = PRIORITY_HIGH,
                                             .completed = false});
@@ -230,10 +259,12 @@ int main() {
         // draw tasks
         {
             const float priority_size = 15.0f;
-            LfDiv div = div_begin(cur_ptr, (vec2s){{WIDTH, HEIGHT}}, true);
+            div_begin(cur_ptr, (vec2s){{WIDTH, HEIGHT}}, true);
 
-            lf_set_ptr_x(DIV_DEFAULT_PAD);
+            lf_set_ptr_y(DIV_DEFAULT_PAD);
 
+            int index_to_remove = -1;
+            int rendered_count= 0;
             for (uint32_t i = 0; i < app_state.num_tasks; i++) {
                 task_entry_t task = app_state.tasks[i];
 
@@ -260,13 +291,14 @@ int main() {
                 }
 
                 if (!passes_filter) {
-                    lf_text("There are no tasks here.");
+                    // lf_text("There are no tasks here.");
                     continue;
                 }
 
+                rendered_count ++;
+                lf_set_ptr_x(DIV_DEFAULT_PAD);
                 // draw priority
                 {
-                    lf_set_ptr_y(DIV_DEFAULT_PAD + 2);
                     LfColor priority_col = LF_NO_COLOR;
                     switch (task.priority) {
                     case PRIORITY_LOW:
@@ -280,15 +312,16 @@ int main() {
                         break;
                     }
 
+                    lf_set_ptr_y_absolute(lf_get_ptr_y() + DIV_DEFAULT_PAD + 2);
                     lf_rect(priority_size, priority_size, priority_col, 4.0f);
-                    lf_set_ptr_y(0);
+                    lf_set_ptr_y_absolute(lf_get_ptr_y() - DIV_DEFAULT_PAD - 2);
                 }
                 // checkbox
                 {
                     lf_set_ptr_y_absolute(
                         lf_get_ptr_y() -
                         lf_get_theme().checkbox_props.padding / 2);
-                    lf_checkbox("", &task.completed, LF_NO_COLOR, LF_RED);
+                    lf_checkbox("", &task.completed, LF_NO_COLOR, LF_GREEN);
                     lf_set_ptr_y_absolute(
                         lf_get_ptr_y() +
                         lf_get_theme().checkbox_props.padding / 2);
@@ -301,7 +334,7 @@ int main() {
                     btnProps.color = LF_NO_COLOR;
                     btnProps.border_color = LF_NO_COLOR;
                     btnProps.padding = 4;
-                    btnProps.margin_top-=6;
+                    btnProps.margin_top -= 6;
                     btnProps.margin_right = 0;
                     // set_margin(btnProps, 0);
                     LfTexture t = (LfTexture){.id = app_data.remove_icon.id,
@@ -309,7 +342,7 @@ int main() {
                                               .height = 20};
                     lf_push_style_props(btnProps);
                     if (lf_image_button(t) == LF_CLICKED) {
-                        printf("Clicked \n");
+                        index_to_remove = i;
                     }
                     lf_pop_style_props();
                 }
@@ -319,7 +352,15 @@ int main() {
 
                 app_state.tasks[i] = task;
             }
+            if (rendered_count == 0){
+                lf_text("No tasks here.");
+            }
             cur_ptr = div_end();
+
+            if (index_to_remove >= 0) {
+                app_remove_task(&app_state, index_to_remove);
+                index_to_remove = -1;
+            }
         }
 
         lf_end();
