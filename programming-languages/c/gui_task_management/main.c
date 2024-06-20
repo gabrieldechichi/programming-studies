@@ -56,8 +56,16 @@ typedef struct {
     size_t num_tasks;
 } app_state_t;
 
+typedef struct {
+    LfTexture remove_icon;
+
+    LfFont titlefont;
+} app_data_t;
+
 static app_state_t app_state = {.draw_direction = DRAW_DIR_LEFT,
                                 .current_filter = 0};
+
+static app_data_t app_data = {0};
 
 LfDiv div_begin(vec2s pos, vec2s size, bool scrollable) {
     lf_div_begin(pos, size, scrollable);
@@ -71,6 +79,16 @@ LfDiv div_begin_color(vec2s pos, vec2s size, bool scrollable, LfColor color) {
     lf_div_begin(pos, size, scrollable);
     lf_pop_style_props();
     return lf_get_current_div();
+}
+
+vec2s div_end() {
+    LfUIElementProps divProps = lf_get_theme().div_props;
+
+    vec2s cursor =
+        (vec2s){{lf_get_ptr_x(), lf_get_ptr_y() + divProps.margin_bottom +
+                                     divProps.margin_top}};
+    lf_div_end();
+    return cursor;
 }
 
 LfClickableItemState button(const char *text) {
@@ -96,8 +114,8 @@ LfClickableItemState button(const char *text) {
     }
 }
 
-void draw_top_bar(LfFont titlefont) {
-    LfDiv div = div_begin((vec2s){0}, (vec2s){{WIDTH, HEIGHT}}, true);
+vec2s draw_top_bar(vec2s cur_ptr, LfFont titlefont) {
+    LfDiv div = div_begin(cur_ptr, (vec2s){{WIDTH, 130}}, true);
 
     LfUIElementProps divProps = lf_get_theme().div_props;
 
@@ -120,7 +138,6 @@ void draw_top_bar(LfFont titlefont) {
 
     // filters
     {
-
         LfUIElementProps textProps = lf_get_theme().text_props;
         lf_push_style_props(textProps);
         btnProps.color = LF_NO_COLOR;
@@ -152,7 +169,8 @@ void draw_top_bar(LfFont titlefont) {
         lf_pop_style_props();
     }
 
-    lf_div_end();
+    lf_next_line();
+    return div_end();
 }
 
 void app_add_task(app_state_t *app, const task_entry_t task) {
@@ -171,24 +189,35 @@ int main() {
                                             .priority = PRIORITY_HIGH,
                                             .completed = false});
 
+    // init window
     glfwInit();
     GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, "Todo", NULL, NULL);
     glfwMakeContextCurrent(window);
 
     lf_init_glfw(WIDTH, HEIGHT, window);
 
-    LfTheme theme = lf_get_theme();
-    theme.div_props.color = LF_NO_COLOR;
-    theme.div_props.padding = DIV_DEFAULT_PAD;
+    // set theme
+    {
+        LfTheme theme = lf_get_theme();
+        theme.div_props.color = LF_NO_COLOR;
+        theme.div_props.padding = DIV_DEFAULT_PAD;
+        set_margin(theme.div_props, DIV_DEFAULT_PAD);
 
-    set_margin(theme.text_props, DIV_DEFAULT_PAD);
-    set_margin(theme.button_props, DIV_DEFAULT_PAD);
-    theme.text_props.color = LF_WHITE;
-    theme.button_props.text_color = LF_WHITE;
-    theme.button_props.hover_color = (LfColor){50, 50, 50, 255};
-    lf_set_theme(theme);
+        set_margin(theme.text_props, DIV_DEFAULT_PAD);
+        set_margin(theme.button_props, DIV_DEFAULT_PAD);
+        set_margin(theme.checkbox_props, DIV_DEFAULT_PAD);
+        theme.text_props.color = LF_WHITE;
+        theme.button_props.text_color = LF_WHITE;
+        theme.button_props.hover_color = (LfColor){50, 50, 50, 255};
 
-    LfFont titlefont = lf_load_font("./fonts/inter.ttf", 40);
+        theme.checkbox_props.border_width = 1;
+        theme.checkbox_props.padding = 2;
+        lf_set_theme(theme);
+    }
+
+    app_data.titlefont = lf_load_font("./fonts/inter.ttf", 40);
+    app_data.remove_icon =
+        lf_load_texture("./icons/remove.png", true, LF_TEX_FILTER_LINEAR);
 
     while (!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT);
@@ -196,17 +225,110 @@ int main() {
 
         lf_begin();
 
-        // root div
+        vec2s cur_ptr = (vec2s){{0}};
+        cur_ptr = draw_top_bar(cur_ptr, app_data.titlefont);
+        // draw tasks
+        {
+            const float priority_size = 15.0f;
+            LfDiv div = div_begin(cur_ptr, (vec2s){{WIDTH, HEIGHT}}, true);
 
-        draw_top_bar(titlefont);
-        lf_div_end();
+            lf_set_ptr_x(DIV_DEFAULT_PAD);
+
+            for (uint32_t i = 0; i < app_state.num_tasks; i++) {
+                task_entry_t task = app_state.tasks[i];
+
+                bool passes_filter = false;
+                switch (app_state.current_filter) {
+                case FILTER_ALL:
+                    passes_filter = true;
+                    break;
+                case FILTER_IN_PROGRESS:
+                    passes_filter = !task.completed;
+                    break;
+                case FILTER_COMPLETED:
+                    passes_filter = task.completed;
+                    break;
+                case FILTER_LOW:
+                    passes_filter = task.priority == PRIORITY_LOW;
+                    break;
+                case FILTER_MEDIUM:
+                    passes_filter = task.priority == PRIORITY_MEDIUM;
+                    break;
+                case FILTER_HIGH:
+                    passes_filter = task.priority == PRIORITY_HIGH;
+                    break;
+                }
+
+                if (!passes_filter) {
+                    lf_text("There are no tasks here.");
+                    continue;
+                }
+
+                // draw priority
+                {
+                    lf_set_ptr_y(DIV_DEFAULT_PAD + 2);
+                    LfColor priority_col = LF_NO_COLOR;
+                    switch (task.priority) {
+                    case PRIORITY_LOW:
+                        priority_col = (LfColor){76, 175, 80, 255};
+                        break;
+                    case PRIORITY_MEDIUM:
+                        priority_col = (LfColor){255, 235, 59, 255};
+                        break;
+                    case PRIORITY_HIGH:
+                        priority_col = (LfColor){244, 67, 54, 255};
+                        break;
+                    }
+
+                    lf_rect(priority_size, priority_size, priority_col, 4.0f);
+                    lf_set_ptr_y(0);
+                }
+                // checkbox
+                {
+                    lf_set_ptr_y_absolute(
+                        lf_get_ptr_y() -
+                        lf_get_theme().checkbox_props.padding / 2);
+                    lf_checkbox("", &task.completed, LF_NO_COLOR, LF_RED);
+                    lf_set_ptr_y_absolute(
+                        lf_get_ptr_y() +
+                        lf_get_theme().checkbox_props.padding / 2);
+                    lf_set_ptr_x_absolute(lf_get_ptr_x() - DIV_DEFAULT_PAD * 2);
+                }
+
+                // removebutton
+                {
+                    LfUIElementProps btnProps = lf_get_theme().button_props;
+                    btnProps.color = LF_NO_COLOR;
+                    btnProps.border_color = LF_NO_COLOR;
+                    btnProps.padding = 4;
+                    btnProps.margin_top-=6;
+                    btnProps.margin_right = 0;
+                    // set_margin(btnProps, 0);
+                    LfTexture t = (LfTexture){.id = app_data.remove_icon.id,
+                                              .width = 20,
+                                              .height = 20};
+                    lf_push_style_props(btnProps);
+                    if (lf_image_button(t) == LF_CLICKED) {
+                        printf("Clicked \n");
+                    }
+                    lf_pop_style_props();
+                }
+
+                lf_text(task.desc);
+                lf_next_line();
+
+                app_state.tasks[i] = task;
+            }
+            cur_ptr = div_end();
+        }
+
         lf_end();
 
         glfwPollEvents();
         glfwSwapBuffers(window);
     }
 
-    lf_free_font(&titlefont);
+    lf_free_font(&app_data.titlefont);
     lf_terminate();
     glfwDestroyWindow(window);
     glfwTerminate();
