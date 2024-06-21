@@ -1,0 +1,7 @@
+CompileFlags:
+  Add: 
+    - '-I./'
+    - '-I./include'
+    - '-I./src'
+    - '-I../vendor/stb'
+    - '-I../vendor/webgpu'
