@@ -5,3 +5,4 @@ CompileFlags:
     - '-I./src'
     - '-I../vendor/stb'
     - '-I../vendor/webgpu'
+    - '-I../vendor/glfw3webgpu'
