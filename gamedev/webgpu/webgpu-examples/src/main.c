@@ -1,8 +1,9 @@
-#include "GLFW/glfw3.h"
 #include "lib.h"
 #include "stb_ds.h"
+#include "stdbool.h"
 #include "stdio.h"
 #include "webgpu.h"
+#include "wgpu.h"
 #include "wgpuex.h"
 
 const unsigned int WIDTH = 800;
@@ -12,6 +13,7 @@ typedef struct {
     WGPUInstance instance;
     WGPUAdapter adapter;
     WGPUDevice device;
+    WGPUQueue queue;
 } WgpuState;
 
 typedef struct {
@@ -71,25 +73,13 @@ void inspectDevice(WGPUDevice device) {
     }
 }
 
+void wgpuQueueWorkDoneCallback(WGPUQueueWorkDoneStatus status, void *userdata) {
+    UNUSED(userdata);
+    printf("Queue %s work finished: 0x%X\n", "default queue", status);
+}
+
 int main(void) {
-    if (!glfwInit()) {
-        println("Failed to initialize GLFW");
-        return ERR_CODE_FAIL;
-    }
-
     AppData app_data = {0};
-
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-
-    GLFWwindow *window =
-        glfwCreateWindow(WIDTH, HEIGHT, "WebgGPU example", NULL, NULL);
-    if (!window) {
-        println("Failed to create GLFW wnidow");
-        glfwTerminate();
-
-        return ERR_CODE_FAIL;
-    }
 
     // instance
     {
@@ -115,20 +105,47 @@ int main(void) {
         inspectDevice(app_data.wgpu.device);
     }
 
-    WGPUInstance instance = wgpuCreateInstance(&desc);
+    // queue
+    {
+        app_data.wgpu.queue = wgpuDeviceGetQueue(app_data.wgpu.device);
+        wgpuQueueOnSubmittedWorkDone(app_data.wgpu.queue,
+                                     wgpuQueueWorkDoneCallback, NULL);
+    }
 
-    while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-            glfwSetWindowShouldClose(window, GLFW_TRUE);
+    // command
+    {
+        WGPUCommandEncoderDescriptor cmdencoder_desc =
+            (WGPUCommandEncoderDescriptor){.label = "My command encoder"};
+        WGPUCommandEncoder cmdencoder = wgpuDeviceCreateCommandEncoder(
+            app_data.wgpu.device, &cmdencoder_desc);
+        wgpuCommandEncoderInsertDebugMarker(cmdencoder, "Do one thing");
+        wgpuCommandEncoderInsertDebugMarker(cmdencoder, "Do another thing");
+
+        WGPUCommandBufferDescriptor cmdbuff_desc =
+            (WGPUCommandBufferDescriptor){.label = "My command buffer"};
+
+        WGPUCommandBuffer cmdbuff =
+            wgpuCommandEncoderFinish(cmdencoder, &cmdbuff_desc);
+
+        printf("Submitting command\n");
+        wgpuQueueSubmit(app_data.wgpu.queue, 1, &cmdbuff);
+        wgpuCommandBufferRelease(cmdbuff);
+        wgpuCommandEncoderRelease(cmdencoder);
+
+        while (true) {
+            printf("Waiting for queue...\n");
+            bool queue_empty = wgpuDevicePoll(app_data.wgpu.device, true, NULL);
+            if (queue_empty) {
+                break;
+            }
         }
+        printf("Finish submit\n");
     }
 
     wgpuInstanceRelease(app_data.wgpu.instance);
     wgpuAdapterRelease(app_data.wgpu.adapter);
     wgpuDeviceRelease(app_data.wgpu.device);
+    wgpuQueueRelease(app_data.wgpu.queue);
 
-    glfwDestroyWindow(window);
-    glfwTerminate();
     return ERR_CODE_SUCCESS;
 }
