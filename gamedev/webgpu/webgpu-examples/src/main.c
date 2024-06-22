@@ -18,6 +18,59 @@ typedef struct {
     WgpuState wgpu;
 } AppData;
 
+void inspectAdapter(WGPUAdapter adapter) {
+    WGPUAdapterProperties adapterProperties = {0};
+    wgpuAdapterGetProperties(adapter, &adapterProperties);
+
+    printf("Adapter properties:\n");
+    printf("\t- vendorID: %d\n", adapterProperties.vendorID);
+    if (adapterProperties.vendorName) {
+        printf("\t- vendorName: %s\n", adapterProperties.vendorName);
+    }
+    if (adapterProperties.architecture) {
+        printf("\t- architecture: %s\n", adapterProperties.architecture);
+    }
+    printf("\t- deviceID: %d\n", adapterProperties.deviceID);
+    if (adapterProperties.name) {
+        printf("\t- name: %s\n", adapterProperties.name);
+    }
+    if (adapterProperties.driverDescription) {
+        printf("\t- driverDescription: %s\n",
+               adapterProperties.driverDescription);
+    }
+}
+
+void inspectDevice(WGPUDevice device) {
+    size_t featureCount = wgpuDeviceEnumerateFeatures(device, NULL);
+    if (featureCount > 0) {
+        WGPUFeatureName *features = NULL;
+        arrsetlen(features, featureCount);
+        wgpuDeviceEnumerateFeatures(device, features);
+
+        printf("Device features:\n");
+        for (size_t i = 0; i < (size_t)arrlen(features); ++i) {
+            printf("\t0x%X\n", features[i]);
+        }
+    }
+
+    WGPUSupportedLimits limits = {};
+    limits.nextInChain = NULL;
+
+    WGPUBool success = wgpuDeviceGetLimits(device, &limits);
+
+    if (success) {
+        printf("Device Limits:\n");
+        printf("\t- maxTextureDimension1D: %d\n",
+               limits.limits.maxTextureDimension1D);
+        printf("\t- maxTextureDimension2D: %d\n",
+               limits.limits.maxTextureDimension2D);
+        printf("\t- maxTextureDimension3D: %d\n",
+               limits.limits.maxTextureDimension3D);
+        printf("\t- maxTextureArrayLayers: %d\n",
+               limits.limits.maxTextureArrayLayers);
+    }
+}
+
 int main(void) {
     if (!glfwInit()) {
         println("Failed to initialize GLFW");
@@ -38,31 +91,31 @@ int main(void) {
         return ERR_CODE_FAIL;
     }
 
-    app_data.wgpu.instance = wgpuCreateInstance(NULL);
-    assert(app_data.wgpu.instance);
-    app_data.wgpu.adapter =
-        wgpuRequestAdapterSync(app_data.wgpu.instance, NULL).adapter;
-    app_data.wgpu.device = wgpuRequestDeviceSync(app_data.wgpu.adapter).device;
+    // instance
+    {
+        app_data.wgpu.instance = wgpuCreateInstance(NULL);
+        assert(app_data.wgpu.instance);
+    }
 
-    WGPUAdapterProperties adapterProperties = {0};
-    wgpuAdapterGetProperties(app_data.wgpu.adapter, &adapterProperties);
+    // adapter
+    {
+        WGPURequestAdapterOptions options = (WGPURequestAdapterOptions){
+            .powerPreference = WGPUPowerPreference_HighPerformance};
 
-    printf("Adapter properties:\n");
-    printf(" - vendorID: %d\n", adapterProperties.vendorID);
-    if (adapterProperties.vendorName) {
-        printf(" - vendorName: %s\n", adapterProperties.vendorName);
+        app_data.wgpu.adapter =
+            wgpuRequestAdapterSync(app_data.wgpu.instance, &options).adapter;
+
+        inspectAdapter(app_data.wgpu.adapter);
     }
-    if (adapterProperties.architecture) {
-        printf(" - architecture: %s\n", adapterProperties.architecture);
+
+    // device
+    {
+        app_data.wgpu.device =
+            wgpuRequestDeviceSync(app_data.wgpu.adapter, NULL).device;
+        inspectDevice(app_data.wgpu.device);
     }
-    printf(" - deviceID: %d\n", adapterProperties.deviceID);
-    if (adapterProperties.name) {
-        printf(" - name: %s\n", adapterProperties.name);
-    }
-    if (adapterProperties.driverDescription) {
-        printf(" - driverDescription: %s\n",
-               adapterProperties.driverDescription);
-    }
+
+    WGPUInstance instance = wgpuCreateInstance(&desc);
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();

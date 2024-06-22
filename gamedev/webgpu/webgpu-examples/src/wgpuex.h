@@ -14,6 +14,6 @@ typedef struct {
 } WGPURequestDeviceResponse;
 
 WGPURequestAdapterResponse wgpuRequestAdapterSync(WGPUInstance instance, WGPURequestAdapterOptions* options);
-WGPURequestDeviceResponse wgpuRequestDeviceSync(WGPUAdapter adapter);
+WGPURequestDeviceResponse wgpuRequestDeviceSync(WGPUAdapter adapter, WGPUDeviceDescriptor* deviceDesc);
 
 #endif
