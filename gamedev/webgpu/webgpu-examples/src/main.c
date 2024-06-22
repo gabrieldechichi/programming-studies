@@ -11,9 +11,6 @@ const unsigned int WIDTH = 800;
 const unsigned int HEIGHT = 600;
 
 typedef struct {
-    WGPUInstance instance;
-    // TODO: release adapter, no need to keep it
-    WGPUAdapter adapter;
     WGPUDevice device;
     WGPUQueue queue;
     WGPUSurface surface;
@@ -109,18 +106,16 @@ int appInit(AppData *app_data) {
         return ERR_CODE_FAIL;
     }
 
-    // TODO: release instance and adapter
+    WGPUInstance instance;
+    WGPUAdapter adapter;
     //  instance
     {
-        app_data->wgpu.instance = wgpuCreateInstance(NULL);
-        assert(app_data->wgpu.instance);
+        instance = wgpuCreateInstance(NULL);
+        assert(instance);
     }
 
     // surface
-    {
-        app_data->wgpu.surface =
-            glfwGetWGPUSurface(app_data->wgpu.instance, app_data->window);
-    }
+    { app_data->wgpu.surface = glfwGetWGPUSurface(instance, app_data->window); }
 
     // adapter
     {
@@ -128,16 +123,14 @@ int appInit(AppData *app_data) {
             .compatibleSurface = app_data->wgpu.surface,
             .powerPreference = WGPUPowerPreference_HighPerformance};
 
-        app_data->wgpu.adapter =
-            wgpuRequestAdapterSync(app_data->wgpu.instance, &options).adapter;
+        adapter = wgpuRequestAdapterSync(instance, &options).adapter;
 
-        inspectAdapter(app_data->wgpu.adapter);
+        inspectAdapter(adapter);
     }
 
     // device
     {
-        app_data->wgpu.device =
-            wgpuRequestDeviceSync(app_data->wgpu.adapter, NULL).device;
+        app_data->wgpu.device = wgpuRequestDeviceSync(adapter, NULL).device;
         inspectDevice(app_data->wgpu.device);
     }
 
@@ -148,8 +141,8 @@ int appInit(AppData *app_data) {
             .width = WIDTH,
             .height = HEIGHT,
             .device = app_data->wgpu.device,
-            .format = wgpuSurfaceGetPreferredFormat(app_data->wgpu.surface,
-                                                    app_data->wgpu.adapter),
+            .format =
+                wgpuSurfaceGetPreferredFormat(app_data->wgpu.surface, adapter),
             .usage = WGPUTextureUsage_RenderAttachment,
             .presentMode = WGPUPresentMode_Fifo,
             .alphaMode = WGPUCompositeAlphaMode_Auto,
@@ -163,6 +156,9 @@ int appInit(AppData *app_data) {
         wgpuQueueOnSubmittedWorkDone(app_data->wgpu.queue,
                                      wgpuQueueWorkDoneCallback, NULL);
     }
+
+    wgpuInstanceRelease(instance);
+    wgpuAdapterRelease(adapter);
 
     return ERR_CODE_SUCCESS;
 }
@@ -184,7 +180,6 @@ void appUpdate(AppData *app_data) {
     // START grab surface texture
     WGPUSurfaceTexture surfaceTex;
     wgpuSurfaceGetCurrentTexture(app_data->wgpu.surface, &surfaceTex);
-    // TODO: check success?
     if (surfaceTex.status != WGPUSurfaceGetCurrentTextureStatus_Success) {
         return;
     }
@@ -244,12 +239,10 @@ void appUpdate(AppData *app_data) {
 }
 
 void appTerminate(AppData *app_data) {
-    wgpuInstanceRelease(app_data->wgpu.instance);
-    wgpuSurfaceRelease(app_data->wgpu.surface);
-    wgpuAdapterRelease(app_data->wgpu.adapter);
-    wgpuDeviceRelease(app_data->wgpu.device);
-    wgpuQueueRelease(app_data->wgpu.queue);
     wgpuSurfaceUnconfigure(app_data->wgpu.surface);
+    wgpuSurfaceRelease(app_data->wgpu.surface);
+    wgpuQueueRelease(app_data->wgpu.queue);
+    wgpuDeviceRelease(app_data->wgpu.device);
 
     glfwTerminate();
     glfwDestroyWindow(app_data->window);
