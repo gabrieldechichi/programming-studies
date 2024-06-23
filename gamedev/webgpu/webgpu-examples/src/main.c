@@ -145,6 +145,7 @@ int appInit(AppData *app_data) {
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // Start the window minimized
     app_data->window =
         glfwCreateWindow(WIDTH, HEIGHT, "WebGPU examples", NULL, NULL);
     if (!app_data->window) {
@@ -295,6 +296,7 @@ int appInit(AppData *app_data) {
             app_data->wgpu.device, "Indices", ARRAY_LEN(indices), indices);
     }
 
+    glfwShowWindow(app_data->window);
     return ERR_CODE_SUCCESS;
 }
 
