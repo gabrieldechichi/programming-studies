@@ -27,6 +27,9 @@ WGPURequestDeviceResponse
 wgpuRequestDeviceSync(WGPUAdapter adapter, WGPUDeviceDescriptor *deviceDesc);
 WGPUShaderCompilationResponse
 wgpuShaderCompilationInfoSync(WGPUShaderModule shaderModule);
-WGPUBuffer createVertexBuffer(WGPUDevice device, const char *label, int vertexLength, float *vertices);
+WGPUBuffer createVertexBuffer(WGPUDevice device, const char *label,
+                              int vertexLength, float *vertices);
+WGPUBuffer createIndexBuffer16(WGPUDevice device, const char *label,
+                               int indexLength, uint16_t *indices);
 
 #endif

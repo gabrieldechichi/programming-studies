@@ -3,6 +3,7 @@
 #include "lib.h"
 #include "webgpu.h"
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -134,3 +135,17 @@ WGPUBuffer createVertexBuffer(WGPUDevice device, const char *label,
     return buffer;
 }
 
+WGPUBuffer createIndexBuffer16(WGPUDevice device, const char *label,
+                               int indexLength, uint16_t *indices) {
+    WGPUBufferDescriptor bufferDesc = {.label = label,
+                                       .usage = WGPUBufferUsage_Index,
+                                       .size = indexLength * sizeof(uint16_t),
+                                       .mappedAtCreation = true};
+
+    WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &bufferDesc);
+    uint16_t *elements =
+        (uint16_t *)wgpuBufferGetMappedRange(buffer, 0, bufferDesc.size);
+    memcpy(elements, indices, bufferDesc.size);
+    wgpuBufferUnmap(buffer);
+    return buffer;
+}

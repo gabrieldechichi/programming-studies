@@ -6,6 +6,7 @@
 #include "stdio.h"
 #include "webgpu.h"
 #include "wgpuex.h"
+#include <stdint.h>
 #include <string.h>
 
 const unsigned int WIDTH = 800;
@@ -17,6 +18,7 @@ typedef struct {
     WGPUSurface surface;
     WGPURenderPipeline pipeline;
     WGPUBuffer vertexBuffer;
+    WGPUBuffer indexBuffer;
     WGPUTextureFormat textureFormat;
 } WgpuState;
 
@@ -227,8 +229,8 @@ int appInit(AppData *app_data) {
             .fragment = &fragment,
             .primitive =
                 {
-                    .topology = WGPUPrimitiveTopology_TriangleList,
-                    .stripIndexFormat = WGPUIndexFormat_Undefined,
+                    .topology = WGPUPrimitiveTopology_TriangleStrip,
+                    .stripIndexFormat = WGPUIndexFormat_Uint16,
                     .frontFace = WGPUFrontFace_CCW,
                     .cullMode = WGPUCullMode_Back,
                 },
@@ -242,16 +244,23 @@ int appInit(AppData *app_data) {
         wgpuShaderModuleRelease(module);
 
         // clang-format off
-        float vertices[6] = {
+        float vertices[] = {
             -0.5, -0.5,
             0.5, -0.5,
             0.0, 0.5
+        };
+
+        uint16_t indices[] = {
+            0,1,2,
+            0,2,3
         };
         // clang-format on
 
         app_data->wgpu.vertexBuffer =
             createVertexBuffer(app_data->wgpu.device, "Geometry Buffer",
                                ARRAY_LEN(vertices), vertices);
+        app_data->wgpu.indexBuffer = createIndexBuffer16(
+            app_data->wgpu.device, "Indices", ARRAY_LEN(indices), indices);
     }
 
     return ERR_CODE_SUCCESS;
@@ -315,10 +324,13 @@ void appUpdate(AppData *app_data) {
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
         wgpuRenderPassEncoderSetPipeline(passEncoder, app_data->wgpu.pipeline);
+        wgpuRenderPassEncoderSetIndexBuffer(
+            passEncoder, app_data->wgpu.indexBuffer, WGPUIndexFormat_Uint16, 0,
+            wgpuBufferGetSize(app_data->wgpu.vertexBuffer));
         wgpuRenderPassEncoderSetVertexBuffer(
             passEncoder, 0, app_data->wgpu.vertexBuffer, 0,
             wgpuBufferGetSize(app_data->wgpu.vertexBuffer));
-        wgpuRenderPassEncoderDraw(passEncoder, 3, 1, 0, 0);
+        wgpuRenderPassEncoderDrawIndexed(passEncoder, 6, 1, 0, 0, 0);
         wgpuRenderPassEncoderEnd(passEncoder);
         wgpuRenderPassEncoderRelease(passEncoder);
     }
