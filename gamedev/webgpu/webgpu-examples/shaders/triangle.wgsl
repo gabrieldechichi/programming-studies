@@ -1,5 +1,5 @@
 struct VertexIn {
-    @builtin(vertex_index) index: u32,
+    @location(0) pos: vec2f,
 };
 
 struct VertexOut {
@@ -8,16 +8,8 @@ struct VertexOut {
 
 @vertex
 fn vs_main(in: VertexIn) -> VertexOut {
-    var out : VertexOut;
-    var p = vec2f(0.0, 0.0);
-    if in.index == 0u {
-        p = vec2f(-0.5, -0.5);
-    } else if in.index == 1u {
-        p = vec2f(0.5, -0.5);
-    } else {
-        p = vec2f(0.0, 0.5);
-    }
-    out.pos = vec4f(p, 0.0, 1.0);
+    var out: VertexOut;
+    out.pos = vec4f(in.pos, 0.0, 1.0);
     return out;
 }
 

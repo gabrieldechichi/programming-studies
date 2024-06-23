@@ -20,8 +20,13 @@ typedef struct {
 
 } WGPUShaderCompilationResponse;
 
-WGPURequestAdapterResponse wgpuRequestAdapterSync(WGPUInstance instance, WGPURequestAdapterOptions* options);
-WGPURequestDeviceResponse wgpuRequestDeviceSync(WGPUAdapter adapter, WGPUDeviceDescriptor* deviceDesc);
-WGPUShaderCompilationResponse wgpuShaderCompilationInfoSync(WGPUShaderModule shaderModule);
+WGPURequestAdapterResponse
+wgpuRequestAdapterSync(WGPUInstance instance,
+                       WGPURequestAdapterOptions *options);
+WGPURequestDeviceResponse
+wgpuRequestDeviceSync(WGPUAdapter adapter, WGPUDeviceDescriptor *deviceDesc);
+WGPUShaderCompilationResponse
+wgpuShaderCompilationInfoSync(WGPUShaderModule shaderModule);
+WGPUBuffer createVertexBuffer(WGPUDevice device, const char *label, int vertexLength, float *vertices);
 
 #endif

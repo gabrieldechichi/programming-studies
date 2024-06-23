@@ -8,6 +8,7 @@
 
 #define UNUSED(x) (void)x;
 #define CODE(...) #__VA_ARGS__
+#define ARRAY_LEN(arr) sizeof(arr)/sizeof(arr[0])
 
 void println(const char *__restrict __format, ...);
 

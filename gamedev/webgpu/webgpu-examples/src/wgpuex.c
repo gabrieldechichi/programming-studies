@@ -2,7 +2,9 @@
 #include "assert.h"
 #include "lib.h"
 #include "webgpu.h"
+#include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 
 static void _requestAdapterCallback(WGPURequestAdapterStatus status,
                                     WGPUAdapter adapter, char const *message,
@@ -116,3 +118,19 @@ wgpuShaderCompilationInfoSync(WGPUShaderModule shaderModule) {
 
     return response;
 }
+
+WGPUBuffer createVertexBuffer(WGPUDevice device, const char *label,
+                              int vertexLength, float *vertices) {
+    WGPUBufferDescriptor bufferDesc = {.label = label,
+                                       .usage = WGPUBufferUsage_Vertex,
+                                       .size = vertexLength * sizeof(float),
+                                       .mappedAtCreation = true};
+
+    WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &bufferDesc);
+    float *elements =
+        (float *)wgpuBufferGetMappedRange(buffer, 0, bufferDesc.size);
+    memcpy(elements, vertices, bufferDesc.size);
+    wgpuBufferUnmap(buffer);
+    return buffer;
+}
+
