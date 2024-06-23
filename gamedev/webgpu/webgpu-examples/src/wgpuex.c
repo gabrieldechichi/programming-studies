@@ -87,3 +87,32 @@ wgpuRequestDeviceSync(WGPUAdapter adapter,
                                          defaultDeviceErrorCallback, NULL);
     return resp;
 }
+
+void shaderCompilationInfoCallback(
+    WGPUCompilationInfoRequestStatus status,
+    struct WGPUCompilationInfo const *compilationInfo, void *userdata) {
+    WGPUShaderCompilationResponse *response =
+        (WGPUShaderCompilationResponse *)userdata;
+    response->status = status;
+    if (compilationInfo) {
+        response->messageCount = compilationInfo->messageCount;
+        response->messages = compilationInfo->messages;
+    }
+}
+
+WGPUShaderCompilationResponse
+wgpuShaderCompilationInfoSync(WGPUShaderModule shaderModule) {
+    WGPUShaderCompilationResponse response = {0};
+    wgpuShaderModuleGetCompilationInfo(
+        shaderModule, shaderCompilationInfoCallback, &response);
+    // TODO: emscripten wait
+
+    for (size_t i = 0; i < response.messageCount; i++) {
+        WGPUCompilationMessage msg = response.messages[i];
+
+        printf("(0x%X): %s (%lu:%lu)\n", msg.type, msg.message, msg.lineNum,
+               msg.linePos);
+    }
+
+    return response;
+}

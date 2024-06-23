@@ -13,7 +13,15 @@ typedef struct {
     WGPURequestDeviceStatus status;
 } WGPURequestDeviceResponse;
 
+typedef struct {
+    WGPUCompilationInfoRequestStatus status;
+    size_t messageCount;
+    WGPUCompilationMessage const *messages;
+
+} WGPUShaderCompilationResponse;
+
 WGPURequestAdapterResponse wgpuRequestAdapterSync(WGPUInstance instance, WGPURequestAdapterOptions* options);
 WGPURequestDeviceResponse wgpuRequestDeviceSync(WGPUAdapter adapter, WGPUDeviceDescriptor* deviceDesc);
+WGPUShaderCompilationResponse wgpuShaderCompilationInfoSync(WGPUShaderModule shaderModule);
 
 #endif

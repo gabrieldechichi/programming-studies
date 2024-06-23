@@ -3,6 +3,7 @@ CompileFlags:
     - '-I./'
     - '-I./include'
     - '-I./src'
+    - '-I../vendor'
     - '-I../vendor/stb'
     - '-I../vendor/webgpu'
     - '-I../vendor/glfw3webgpu'

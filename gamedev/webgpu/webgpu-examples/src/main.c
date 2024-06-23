@@ -14,6 +14,8 @@ typedef struct {
     WGPUDevice device;
     WGPUQueue queue;
     WGPUSurface surface;
+    WGPURenderPipeline pipeline;
+    WGPUTextureFormat textureFormat;
 } WgpuState;
 
 typedef struct {
@@ -106,43 +108,36 @@ int appInit(AppData *app_data) {
         return ERR_CODE_FAIL;
     }
 
-    WGPUInstance instance;
-    WGPUAdapter adapter;
     //  instance
-    {
-        instance = wgpuCreateInstance(NULL);
-        assert(instance);
-    }
+    WGPUInstance instance = wgpuCreateInstance(NULL);
+    assert(instance);
 
     // surface
-    { app_data->wgpu.surface = glfwGetWGPUSurface(instance, app_data->window); }
+    app_data->wgpu.surface = glfwGetWGPUSurface(instance, app_data->window);
 
     // adapter
-    {
-        WGPURequestAdapterOptions options = (WGPURequestAdapterOptions){
-            .compatibleSurface = app_data->wgpu.surface,
-            .powerPreference = WGPUPowerPreference_HighPerformance};
+    WGPURequestAdapterOptions options = {
+        .compatibleSurface = app_data->wgpu.surface,
+        .powerPreference = WGPUPowerPreference_HighPerformance};
 
-        adapter = wgpuRequestAdapterSync(instance, &options).adapter;
+    WGPUAdapter adapter = wgpuRequestAdapterSync(instance, &options).adapter;
 
-        inspectAdapter(adapter);
-    }
+    inspectAdapter(adapter);
 
     // device
-    {
-        app_data->wgpu.device = wgpuRequestDeviceSync(adapter, NULL).device;
-        inspectDevice(app_data->wgpu.device);
-    }
+    app_data->wgpu.device = wgpuRequestDeviceSync(adapter, NULL).device;
+    inspectDevice(app_data->wgpu.device);
 
     // configure surface
     {
+        app_data->wgpu.textureFormat =
+            wgpuSurfaceGetPreferredFormat(app_data->wgpu.surface, adapter);
         WGPUSurfaceConfiguration surface_conf = {
             .nextInChain = NULL,
             .width = WIDTH,
             .height = HEIGHT,
             .device = app_data->wgpu.device,
-            .format =
-                wgpuSurfaceGetPreferredFormat(app_data->wgpu.surface, adapter),
+            .format = app_data->wgpu.textureFormat,
             .usage = WGPUTextureUsage_RenderAttachment,
             .presentMode = WGPUPresentMode_Fifo,
             .alphaMode = WGPUCompositeAlphaMode_Auto,
@@ -160,6 +155,80 @@ int appInit(AppData *app_data) {
     wgpuInstanceRelease(instance);
     wgpuAdapterRelease(adapter);
 
+    // pipeline
+    {
+        char *shaderSource = fileReadAllText("shaders/triangle.wgsl");
+
+        WGPUShaderModuleWGSLDescriptor wgslDesc = {
+            .chain = {.sType = WGPUSType_ShaderModuleWGSLDescriptor},
+            .code = shaderSource,
+        };
+
+        WGPUShaderModuleDescriptor moduleDesc = {
+            .nextInChain = &wgslDesc.chain,
+            .label = "Hello Triangle",
+        };
+
+        WGPUShaderModule module =
+            wgpuDeviceCreateShaderModule(app_data->wgpu.device, &moduleDesc);
+
+        free(shaderSource);
+
+        WGPUVertexState vertex = {
+            .module = module,
+            .entryPoint = "vs_main",
+            .bufferCount = 0,
+            .buffers = NULL,
+        };
+
+        WGPUBlendState blendState = {
+            .color =
+                {
+                    .operation = WGPUBlendOperation_Add,
+                    .srcFactor = WGPUBlendFactor_SrcAlpha,
+                    .dstFactor = WGPUBlendFactor_OneMinusSrcAlpha,
+                },
+            .alpha = {
+                .operation = WGPUBlendOperation_Add,
+                .srcFactor = WGPUBlendFactor_Zero,
+                .dstFactor = WGPUBlendFactor_One,
+            }};
+
+        WGPUColorTargetState targetState = {
+            .format = app_data->wgpu.textureFormat,
+            .blend = &blendState,
+            .writeMask = WGPUColorWriteMask_All,
+        };
+
+        WGPUFragmentState fragment = {
+
+            .module = module,
+            .entryPoint = "fs_main",
+            .targetCount = 1,
+            .targets = &targetState,
+        };
+
+        WGPURenderPipelineDescriptor pipelineDesc = {
+            .label = "Hello Triangle",
+            .vertex = vertex,
+            .fragment = &fragment,
+            .primitive =
+                {
+                    .topology = WGPUPrimitiveTopology_TriangleList,
+                    .stripIndexFormat = WGPUIndexFormat_Undefined,
+                    .frontFace = WGPUFrontFace_CCW,
+                    .cullMode = WGPUCullMode_Back,
+                },
+            .depthStencil = NULL,
+            .multisample = {.count = 1,
+                            .mask = ~0,
+                            .alphaToCoverageEnabled = false},
+        };
+        app_data->wgpu.pipeline = wgpuDeviceCreateRenderPipeline(
+            app_data->wgpu.device, &pipelineDesc);
+        wgpuShaderModuleRelease(module);
+    }
+
     return ERR_CODE_SUCCESS;
 }
 
@@ -169,8 +238,6 @@ bool appIsRunning(AppData *app_data) {
 
 // TODO: separate update and render
 void appUpdate(AppData *app_data) {
-    UNUSED(app_data);
-
     glfwPollEvents();
     if (glfwGetKey(app_data->window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(app_data->window, GLFW_TRUE);
@@ -221,6 +288,9 @@ void appUpdate(AppData *app_data) {
 
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
+
+        wgpuRenderPassEncoderSetPipeline(passEncoder, app_data->wgpu.pipeline);
+        wgpuRenderPassEncoderDraw(passEncoder, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(passEncoder);
         wgpuRenderPassEncoderRelease(passEncoder);
     }
@@ -239,6 +309,7 @@ void appUpdate(AppData *app_data) {
 }
 
 void appTerminate(AppData *app_data) {
+    wgpuRenderPipelineRelease(app_data->wgpu.pipeline);
     wgpuSurfaceUnconfigure(app_data->wgpu.surface);
     wgpuSurfaceRelease(app_data->wgpu.surface);
     wgpuQueueRelease(app_data->wgpu.queue);
