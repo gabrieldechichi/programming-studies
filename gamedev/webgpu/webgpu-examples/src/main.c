@@ -39,6 +39,15 @@ typedef struct {
     AppTerminateCallback terminate;
 } App;
 
+void printLimits(WGPULimits limits) {
+    printf("\t- maxTextureDimension1D: %d\n", limits.maxTextureDimension1D);
+    printf("\t- maxTextureDimension2D: %d\n", limits.maxTextureDimension2D);
+    printf("\t- maxTextureDimension3D: %d\n", limits.maxTextureDimension3D);
+    printf("\t- maxTextureArrayLayers: %d\n", limits.maxTextureArrayLayers);
+    printf("\t- maxVertexBuffers: %d\n", limits.maxVertexBuffers);
+    printf("\t- maxVertexAttributes: %d\n", limits.maxVertexAttributes);
+}
+
 void inspectAdapter(WGPUAdapter adapter) {
     WGPUAdapterProperties adapterProperties = {0};
     wgpuAdapterGetProperties(adapter, &adapterProperties);
@@ -58,6 +67,11 @@ void inspectAdapter(WGPUAdapter adapter) {
     if (adapterProperties.driverDescription) {
         printf("\t- driverDescription: %s\n",
                adapterProperties.driverDescription);
+    }
+    WGPUSupportedLimits limits = {0};
+    if (wgpuAdapterGetLimits(adapter, &limits)) {
+        printf("Adapter limits:\n");
+        printLimits(limits.limits);
     }
 }
 
@@ -81,14 +95,7 @@ void inspectDevice(WGPUDevice device) {
 
     if (success) {
         printf("Device Limits:\n");
-        printf("\t- maxTextureDimension1D: %d\n",
-               limits.limits.maxTextureDimension1D);
-        printf("\t- maxTextureDimension2D: %d\n",
-               limits.limits.maxTextureDimension2D);
-        printf("\t- maxTextureDimension3D: %d\n",
-               limits.limits.maxTextureDimension3D);
-        printf("\t- maxTextureArrayLayers: %d\n",
-               limits.limits.maxTextureArrayLayers);
+        printLimits(limits.limits);
     }
 }
 
@@ -129,6 +136,7 @@ int appInit(AppData *app_data) {
     inspectAdapter(adapter);
 
     // device
+    // TODO: pass reasonable limits when requesting device
     app_data->wgpu.device = wgpuRequestDeviceSync(adapter, NULL).device;
     inspectDevice(app_data->wgpu.device);
 
@@ -178,15 +186,19 @@ int appInit(AppData *app_data) {
 
         free(shaderSource);
 
-        WGPUVertexAttribute vertexBuffAttributes[1] = {
+        WGPUVertexAttribute vertexBuffAttributes[] = {
             {.format = WGPUVertexFormat_Float32x2,
              .offset = 0,
-             .shaderLocation = 0}};
+             .shaderLocation = 0},
+            {.format = WGPUVertexFormat_Float32x4,
+             .offset = 2 * sizeof(float),
+             .shaderLocation = 1},
+        };
 
         WGPUVertexBufferLayout vertexBuffers[1] = {
-            {.arrayStride = 2 * sizeof(float),
+            {.arrayStride = (2 + 4) * sizeof(float),
              .stepMode = WGPUVertexStepMode_Vertex,
-             .attributeCount = 1,
+             .attributeCount = ARRAY_LEN(vertexBuffAttributes),
              .attributes = vertexBuffAttributes}};
 
         WGPUVertexState vertex = {
@@ -245,9 +257,10 @@ int appInit(AppData *app_data) {
 
         // clang-format off
         float vertices[] = {
-            -0.5, -0.5,
-            0.5, -0.5,
-            0.0, 0.5
+            //pos         //col
+            -0.5, -0.5,   1.0, 0.0, 0.0, 1.0,
+            0.5, -0.5,    0.0, 1.0, 0.0, 1.0,
+            0.0, 0.5,     0.0, 0.0, 1.0, 1.0,
         };
 
         uint16_t indices[] = {
@@ -313,7 +326,7 @@ void appUpdate(AppData *app_data) {
             .resolveTarget = NULL,
             .loadOp = WGPULoadOp_Clear,
             .storeOp = WGPUStoreOp_Store,
-            .clearValue = {1, 0, 0, 1}};
+            .clearValue = {0.5, 0.5, 0.5, 1}};
 
         WGPURenderPassDescriptor renderPassDesc = {.label = "Frame render pass",
                                                    .colorAttachmentCount = 1,
@@ -324,9 +337,11 @@ void appUpdate(AppData *app_data) {
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
         wgpuRenderPassEncoderSetPipeline(passEncoder, app_data->wgpu.pipeline);
+        // PERF: cache vertex buffer len
         wgpuRenderPassEncoderSetIndexBuffer(
             passEncoder, app_data->wgpu.indexBuffer, WGPUIndexFormat_Uint16, 0,
             wgpuBufferGetSize(app_data->wgpu.vertexBuffer));
+        // PERF: cache index buffer len
         wgpuRenderPassEncoderSetVertexBuffer(
             passEncoder, 0, app_data->wgpu.vertexBuffer, 0,
             wgpuBufferGetSize(app_data->wgpu.vertexBuffer));
@@ -349,6 +364,8 @@ void appUpdate(AppData *app_data) {
 }
 
 void appTerminate(AppData *app_data) {
+    wgpuBufferRelease(app_data->wgpu.indexBuffer);
+    wgpuBufferRelease(app_data->wgpu.vertexBuffer);
     wgpuRenderPipelineRelease(app_data->wgpu.pipeline);
     wgpuSurfaceUnconfigure(app_data->wgpu.surface);
     wgpuSurfaceRelease(app_data->wgpu.surface);
