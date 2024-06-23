@@ -3,6 +3,8 @@
 
 #include "webgpu.h"
 
+#define WGPU_COPY_BUFFER_ALIGNMENT 4
+
 typedef struct {
     WGPUAdapter adapter;
     WGPURequestAdapterStatus status;

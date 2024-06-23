@@ -137,15 +137,17 @@ WGPUBuffer createVertexBuffer(WGPUDevice device, const char *label,
 
 WGPUBuffer createIndexBuffer16(WGPUDevice device, const char *label,
                                int indexLength, uint16_t *indices) {
-    WGPUBufferDescriptor bufferDesc = {.label = label,
-                                       .usage = WGPUBufferUsage_Index,
-                                       .size = indexLength * sizeof(uint16_t),
-                                       .mappedAtCreation = true};
+    size_t indexSize = indexLength * sizeof(uint16_t);
+    WGPUBufferDescriptor bufferDesc = {
+        .label = label,
+        .usage = WGPUBufferUsage_Index,
+        .size = alignTo(indexSize, WGPU_COPY_BUFFER_ALIGNMENT),
+        .mappedAtCreation = true};
 
     WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &bufferDesc);
     uint16_t *elements =
         (uint16_t *)wgpuBufferGetMappedRange(buffer, 0, bufferDesc.size);
-    memcpy(elements, indices, bufferDesc.size);
+    memcpy(elements, indices, indexSize);
     wgpuBufferUnmap(buffer);
     return buffer;
 }
