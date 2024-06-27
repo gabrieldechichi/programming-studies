@@ -1,9 +1,13 @@
 #include "lib.h"
+#include "stb_ds.h"
 #include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 void println(const char *__restrict __format, ...) {
     va_list args;
@@ -28,4 +32,133 @@ char *fileReadAllText(const char *filePath) {
         return buffer;
     }
     return NULL;
+}
+
+string_result_t fileReadLine(FILE *file) {
+    string_result_t r = {0};
+    const int max_size = 256;
+    r.value.cap = max_size;
+    r.value.chars = malloc(max_size);
+    if (!r.value.chars) {
+        r.error_code = ERR_CODE_FAIL;
+        return r;
+    }
+
+    if (fgets(r.value.chars, r.value.cap, file) != NULL) {
+        // TODO: asset it's actually end of line
+        r.value.len = strlen(r.value.chars) - 1;
+        // skip '\n'
+        r.value.chars[r.value.len] = 0;
+    }
+    return r;
+}
+
+typedef enum {
+    GFILE_SECT_NONE = 0,
+    GFILE_SECT_POINTS,
+    GFILE_SECT_INDICES
+} geo_file_section_e;
+
+// Read file line by line
+mesh_result_t loadGeometry(const char *filename) {
+    mesh_result_t result = {0};
+
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        fprintf(stderr, "Error opening file %s\n", filename);
+        perror("Error");
+        result.error_code = ERR_CODE_FAIL;
+        return result;
+    }
+
+    geo_file_section_e section = GFILE_SECT_NONE;
+    while (true) {
+        if (feof(file)) {
+            break;
+        }
+        string_result_t lineResult = fileReadLine(file);
+        if (lineResult.error_code != ERR_CODE_SUCCESS) {
+            result.error_code = lineResult.error_code;
+            str_free(&lineResult.value);
+            fclose(file);
+            return result;
+        }
+
+        string_t line = str_trim_start(lineResult.value);
+        if (line.len == 0) {
+            str_free(&line);
+            continue;
+        }
+
+        // comment
+        if (str_contains(line, '#')) {
+            printf("Skipping: %s\n", line.chars);
+            str_free(&line);
+            continue;
+        }
+
+        // check section
+        if (line.chars[0] == '[') {
+            if (str_eq_c(line, "[points]")) {
+                section = GFILE_SECT_POINTS;
+            } else if (str_eq_c(line, "[indices]")) {
+                section = GFILE_SECT_INDICES;
+            } else {
+                fprintf(stderr, "Unexpected file section: %s", line.chars);
+                return (mesh_result_t){.error_code = ERR_CODE_FAIL};
+            }
+        } else {
+            switch (section) {
+            case GFILE_SECT_NONE:
+                break;
+            case GFILE_SECT_POINTS: {
+                char *startptr = &line.chars[0];
+                char *endptr = startptr;
+                while (true) {
+                    float n = strtof(startptr, &endptr);
+                    if (startptr == endptr) {
+                        break;
+                    } else {
+                        arrpush(result.value.vertices, n);
+                        if (endptr == NULL || *endptr == '\n') {
+                            break;
+                        } else {
+                            // check next character
+                            startptr = endptr;
+                        }
+                    }
+                };
+                break;
+            }
+            case GFILE_SECT_INDICES: {
+                char *startptr = &line.chars[0];
+                char *endptr = startptr;
+                while (true) {
+                    int n = strtod(startptr, &endptr);
+                    if (startptr == endptr) {
+                        break;
+                    } else {
+                        arrpush(result.value.indices, n);
+                        if (endptr == NULL || *endptr == '\n') {
+                            break;
+                        } else {
+                            // check next character
+                            startptr = endptr;
+                        }
+                    }
+                };
+                break;
+            }
+            default:
+                fprintf(stderr, "Unexpected section: %d", section);
+                return (mesh_result_t){.error_code = ERR_CODE_FAIL};
+            }
+        }
+
+        str_free(&line);
+    }
+
+    fclose(file);
+
+    return result;
 }
