@@ -117,6 +117,13 @@ mesh_result_t loadGeometry(const char *filename) {
                 while (true) {
                     float n = strtof(startptr, &endptr);
                     if (startptr == endptr) {
+                        if (endptr != NULL && *endptr != 0) {
+                            fprintf(stderr,
+                                    "Failed parsing number. Invalid character: "
+                                    "%s\n",
+                                    endptr);
+                            return (mesh_result_t){.error_code = ERR_CODE_FAIL};
+                        }
                         break;
                     } else {
                         arrpush(result.value.vertices, n);
@@ -136,6 +143,13 @@ mesh_result_t loadGeometry(const char *filename) {
                 while (true) {
                     int n = strtod(startptr, &endptr);
                     if (startptr == endptr) {
+                        if (endptr != NULL && *endptr != 0) {
+                            fprintf(stderr,
+                                    "Failed parsing number. Invalid character: "
+                                    "%s\n",
+                                    endptr);
+                            return (mesh_result_t){.error_code = ERR_CODE_FAIL};
+                        }
                         break;
                     } else {
                         arrpush(result.value.indices, n);

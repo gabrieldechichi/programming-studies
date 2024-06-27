@@ -18,7 +18,9 @@ typedef struct {
     WGPUSurface surface;
     WGPURenderPipeline pipeline;
     WGPUBuffer vertexBuffer;
+    int vertexBufferLen;
     WGPUBuffer indexBuffer;
+    int indexBufferLen;
     WGPUTextureFormat textureFormat;
 } WgpuState;
 
@@ -242,8 +244,8 @@ int appInit(AppData *app_data) {
             .fragment = &fragment,
             .primitive =
                 {
-                    .topology = WGPUPrimitiveTopology_TriangleStrip,
-                    .stripIndexFormat = WGPUIndexFormat_Uint16,
+                    .topology = WGPUPrimitiveTopology_TriangleList,
+                    .stripIndexFormat = WGPUIndexFormat_Undefined,
                     .frontFace = WGPUFrontFace_CCW,
                     .cullMode = WGPUCullMode_Back,
                 },
@@ -267,9 +269,11 @@ int appInit(AppData *app_data) {
         app_data->wgpu.vertexBuffer =
             createVertexBuffer(app_data->wgpu.device, "Geometry Buffer",
                                arrlen(mesh.vertices), mesh.vertices);
+        app_data->wgpu.vertexBufferLen = arrlen(mesh.vertices);
         app_data->wgpu.indexBuffer =
             createIndexBuffer16(app_data->wgpu.device, "Indices",
                                 arrlen(mesh.indices), mesh.indices);
+        app_data->wgpu.indexBufferLen = arrlen(mesh.indices);
     }
 
     glfwShowWindow(app_data->window);
@@ -334,15 +338,14 @@ void appUpdate(AppData *app_data) {
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
         wgpuRenderPassEncoderSetPipeline(passEncoder, app_data->wgpu.pipeline);
-        // PERF: cache vertex buffer len
         wgpuRenderPassEncoderSetIndexBuffer(
             passEncoder, app_data->wgpu.indexBuffer, WGPUIndexFormat_Uint16, 0,
-            wgpuBufferGetSize(app_data->wgpu.indexBuffer));
-        // PERF: cache index buffer len
+            app_data->wgpu.indexBufferLen * sizeof(uint16_t));
         wgpuRenderPassEncoderSetVertexBuffer(
             passEncoder, 0, app_data->wgpu.vertexBuffer, 0,
-            wgpuBufferGetSize(app_data->wgpu.vertexBuffer));
-        wgpuRenderPassEncoderDrawIndexed(passEncoder, 15, 1, 0, 0, 0);
+            app_data->wgpu.vertexBufferLen * sizeof(float));
+        wgpuRenderPassEncoderDrawIndexed(
+            passEncoder, app_data->wgpu.indexBufferLen, 1, 0, 0, 0);
         wgpuRenderPassEncoderEnd(passEncoder);
         wgpuRenderPassEncoderRelease(passEncoder);
     }
