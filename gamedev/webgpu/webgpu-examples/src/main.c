@@ -1,6 +1,7 @@
 #include "GLFW/glfw3.h"
 #include "glfw3webgpu.h"
 #include "lib.h"
+#include "lib/string.h"
 #include "stb_ds.h"
 #include "stdbool.h"
 #include "stdio.h"
@@ -172,11 +173,15 @@ int appInit(AppData *app_data) {
 
     // pipeline
     {
-        char *shaderSource = fileReadAllText("shaders/triangle.wgsl");
+        string_result_t shaderSourceResult =
+            fileReadAllText("shaders/default.wgsl");
+        if (shaderSourceResult.error_code != ERR_CODE_SUCCESS) {
+            return shaderSourceResult.error_code;
+        }
 
         WGPUShaderModuleWGSLDescriptor wgslDesc = {
             .chain = {.sType = WGPUSType_ShaderModuleWGSLDescriptor},
-            .code = shaderSource,
+            .code = shaderSourceResult.value.chars,
         };
 
         WGPUShaderModuleDescriptor moduleDesc = {
@@ -187,7 +192,7 @@ int appInit(AppData *app_data) {
         WGPUShaderModule module =
             wgpuDeviceCreateShaderModule(app_data->wgpu.device, &moduleDesc);
 
-        free(shaderSource);
+        str_free(&shaderSourceResult.value);
 
         WGPUVertexAttribute vertexBuffAttributes[] = {
             {.format = WGPUVertexFormat_Float32x2,

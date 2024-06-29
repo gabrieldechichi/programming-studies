@@ -2,3 +2,4 @@
 #include "src/main.c"
 #include "src/vendor.c"
 #include "src/wgpuex.c"
+#include "src/lib/string.c"

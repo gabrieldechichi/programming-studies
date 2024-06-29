@@ -1,4 +1,5 @@
 #include "lib.h"
+#include "lib/string.h"
 #include "stb_ds.h"
 #include <stdarg.h>
 #include <stdbool.h>
@@ -15,42 +16,6 @@ void println(const char *__restrict __format, ...) {
     vprintf(__format, args);
     va_end(args);
     printf("\n");
-}
-
-char *fileReadAllText(const char *filePath) {
-    FILE *file = fopen(filePath, "r");
-    if (file) {
-        fseek(file, 0, SEEK_END);
-        long length = ftell(file);
-        fseek(file, 0, SEEK_SET);
-        char *buffer = malloc(length + 1);
-        if (buffer) {
-            fread(buffer, 1, length, file);
-            buffer[length] = '\0';
-        }
-        fclose(file);
-        return buffer;
-    }
-    return NULL;
-}
-
-string_result_t fileReadLine(FILE *file) {
-    string_result_t r = {0};
-    const int max_size = 256;
-    r.value.cap = max_size;
-    r.value.chars = malloc(max_size);
-    if (!r.value.chars) {
-        r.error_code = ERR_CODE_FAIL;
-        return r;
-    }
-
-    if (fgets(r.value.chars, r.value.cap, file) != NULL) {
-        // TODO: asset it's actually end of line
-        r.value.len = strlen(r.value.chars) - 1;
-        // skip '\n'
-        r.value.chars[r.value.len] = 0;
-    }
-    return r;
 }
 
 typedef enum {
