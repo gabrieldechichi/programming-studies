@@ -39,6 +39,11 @@ static inline uint8_t alignTo(uint8_t size, uint8_t alignment) {
     return (size + alignment - 1) & ~(alignment - 1);
 }
 
+static inline uint32_t ceilToNextMultiple(uint32_t value, uint32_t step) {
+    uint32_t divide_and_ceil = value / step + (value % step == 0 ? 0 : 1);
+    return step * divide_and_ceil;
+}
+
 mesh_result_t loadGeometry(const char *filename);
 
 #endif

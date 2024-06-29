@@ -21,6 +21,7 @@ typedef struct {
 
 typedef struct {
     WGPUDevice device;
+    WGPULimits deviceLimits;
     WGPUQueue queue;
     WGPUSurface surface;
     WGPURenderPipeline pipeline;
@@ -29,6 +30,7 @@ typedef struct {
     WGPUBuffer indexBuffer;
     int indexBufferLen;
     WGPUBuffer uniformBuffer;
+    int uniformBufferStride;
     WGPUBindGroup uniformBindGroup;
     WGPUTextureFormat textureFormat;
 } WgpuState;
@@ -57,6 +59,8 @@ void printLimits(WGPULimits limits) {
     printf("\t- maxTextureArrayLayers: %d\n", limits.maxTextureArrayLayers);
     printf("\t- maxVertexBuffers: %d\n", limits.maxVertexBuffers);
     printf("\t- maxVertexAttributes: %d\n", limits.maxVertexAttributes);
+    printf("\t- minUniformBufferOffsetAlignment: %d\n",
+           limits.minUniformBufferOffsetAlignment);
 }
 
 void inspectAdapter(WGPUAdapter adapter) {
@@ -147,10 +151,27 @@ error_code_t appInit(AppData *app_data) {
 
     inspectAdapter(adapter);
 
+    WGPUSupportedLimits adapterLimits = {0};
+    if (!wgpuAdapterGetLimits(adapter, &adapterLimits)) {
+        return ERR_CODE_FAIL;
+    }
+
     // device
     // TODO: pass reasonable limits when requesting device
-    app_data->wgpu.device = wgpuRequestDeviceSync(adapter, NULL).device;
+    WGPURequiredLimits requiredLimits[1] = {{.limits = adapterLimits.limits}};
+    requiredLimits[0].limits.minUniformBufferOffsetAlignment = 32;
+    WGPUDeviceDescriptor deviceDesc = {
+        .requiredLimits = requiredLimits,
+    };
+
+    app_data->wgpu.device = wgpuRequestDeviceSync(adapter, &deviceDesc).device;
     inspectDevice(app_data->wgpu.device);
+
+    WGPUSupportedLimits deviceSupportedLimits = {0};
+    if (!wgpuDeviceGetLimits(app_data->wgpu.device, &deviceSupportedLimits)) {
+        return ERR_CODE_FAIL;
+    }
+    app_data->wgpu.deviceLimits = deviceSupportedLimits.limits;
 
     // configure surface
     {
@@ -257,6 +278,7 @@ error_code_t appInit(AppData *app_data) {
              .buffer = {
                  .type = WGPUBufferBindingType_Uniform,
                  .minBindingSize = sizeof(shader_uniforms_t),
+                 .hasDynamicOffset = true,
              }}};
 
         WGPUBindGroupLayoutDescriptor bindGroupLayoutDesc = {
@@ -315,8 +337,13 @@ error_code_t appInit(AppData *app_data) {
                                 arrlen(mesh.indices), mesh.indices);
         app_data->wgpu.indexBufferLen = arrlen(mesh.indices);
 
+        int uniformBufferStride = ceilToNextMultiple(
+            sizeof(shader_uniforms_t),
+            app_data->wgpu.deviceLimits.minUniformBufferOffsetAlignment);
         app_data->wgpu.uniformBuffer = createUniformBuffer(
-            app_data->wgpu.device, "Uniform", sizeof(shader_uniforms_t)/sizeof(float));
+            app_data->wgpu.device, "Uniform",
+            (uniformBufferStride + sizeof(shader_uniforms_t)) / sizeof(float));
+        app_data->wgpu.uniformBufferStride = uniformBufferStride;
 
         WGPUBindGroupEntry binding = {
             .binding = 0,
@@ -394,28 +421,57 @@ void appUpdate(AppData *app_data) {
                                                    .colorAttachments =
                                                        &colorAttachment};
 
-        shader_uniforms_t uniforms = {
-            .time = glfwGetTime(),
-            .color = {0.5, 0.8, 0.5, 1.0},
-        };
-
-        wgpuQueueWriteBuffer(app_data->wgpu.queue, app_data->wgpu.uniformBuffer,
-                             0, &uniforms, sizeof(uniforms));
-
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
         wgpuRenderPassEncoderSetPipeline(passEncoder, app_data->wgpu.pipeline);
-        wgpuRenderPassEncoderSetBindGroup(
-            passEncoder, 0, app_data->wgpu.uniformBindGroup, 0, 0);
         wgpuRenderPassEncoderSetIndexBuffer(
             passEncoder, app_data->wgpu.indexBuffer, WGPUIndexFormat_Uint16, 0,
             app_data->wgpu.indexBufferLen * sizeof(uint16_t));
         wgpuRenderPassEncoderSetVertexBuffer(
             passEncoder, 0, app_data->wgpu.vertexBuffer, 0,
             app_data->wgpu.vertexBufferLen * sizeof(float));
-        wgpuRenderPassEncoderDrawIndexed(
-            passEncoder, app_data->wgpu.indexBufferLen, 1, 0, 0, 0);
+
+        // draw 1
+        {
+            shader_uniforms_t uniforms = {
+                .time = glfwGetTime(),
+                .color = {0.5, 0.8, 0.5, 1.0},
+            };
+
+            wgpuQueueWriteBuffer(app_data->wgpu.queue,
+                                 app_data->wgpu.uniformBuffer, 0, &uniforms,
+                                 sizeof(uniforms));
+
+            shader_uniforms_t uniforms2 = {
+                .time = 2 * glfwGetTime() + 0.5,
+                .color = {1, 1, 0, 1},
+            };
+
+            wgpuQueueWriteBuffer(app_data->wgpu.queue,
+                                 app_data->wgpu.uniformBuffer,
+                                 app_data->wgpu.uniformBufferStride, &uniforms2,
+                                 sizeof(uniforms2));
+
+            uint32_t dynamicOffsets[1] = {0};
+
+            wgpuRenderPassEncoderSetBindGroup(
+                passEncoder, 0, app_data->wgpu.uniformBindGroup,
+                ARRAY_LEN(dynamicOffsets), dynamicOffsets);
+
+            wgpuRenderPassEncoderDrawIndexed(
+                passEncoder, app_data->wgpu.indexBufferLen, 1, 0, 0, 0);
+
+            dynamicOffsets[0] = app_data->wgpu.uniformBufferStride;
+
+            wgpuRenderPassEncoderSetBindGroup(
+                passEncoder, 0, app_data->wgpu.uniformBindGroup,
+                ARRAY_LEN(dynamicOffsets), dynamicOffsets);
+
+            wgpuRenderPassEncoderDrawIndexed(
+                passEncoder, app_data->wgpu.indexBufferLen, 1, 0, 0, 0);
+        }
+
         wgpuRenderPassEncoderEnd(passEncoder);
         wgpuRenderPassEncoderRelease(passEncoder);
     }

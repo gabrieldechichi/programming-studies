@@ -26,6 +26,8 @@ static void _requestDeviceCallback(WGPURequestDeviceStatus status,
     resp->status = status;
     if (status == WGPURequestDeviceStatus_Success) {
         resp->device = device;
+    } else {
+        fprintf(stderr, "Device request failed (%d): %s\n", status, message);
     }
 }
 
