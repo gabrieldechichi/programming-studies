@@ -12,6 +12,18 @@
 
 const unsigned int WIDTH = 800;
 const unsigned int HEIGHT = 600;
+const unsigned int UNIFORM_ALIGNMENT = 16;
+
+typedef struct {
+    float time;
+    float color[4];
+} shader_uniforms_t;
+
+#define SHADER_UNIFORMS_T_SIZE                                                 \
+    alignTo(sizeof(shader_uniforms_t), UNIFORM_ALIGNMENT)
+#define SHADER_UNIFORMS_T_FLOATS SHADER_UNIFORMS_T_SIZE / sizeof(float)
+#define SHADER_UNIFORMS_T_OFFSET(m)                                            \
+    alignTo(offsetof(shader_uniforms_t, m), UNIFORM_ALIGNMENT)
 
 typedef struct {
     WGPUDevice device;
@@ -23,7 +35,6 @@ typedef struct {
     WGPUBuffer indexBuffer;
     int indexBufferLen;
     WGPUBuffer uniformBuffer;
-    int uniformBufferLen;
     WGPUBindGroup uniformBindGroup;
     WGPUTextureFormat textureFormat;
 } WgpuState;
@@ -251,8 +262,7 @@ error_code_t appInit(AppData *app_data) {
              .visibility = WGPUShaderStage_Vertex,
              .buffer = {
                  .type = WGPUBufferBindingType_Uniform,
-                 // TODO: indirect connection with uniform buffer size
-                 .minBindingSize = sizeof(float),
+                 .minBindingSize = SHADER_UNIFORMS_T_SIZE,
              }}};
 
         WGPUBindGroupLayoutDescriptor bindGroupLayoutDesc = {
@@ -311,15 +321,14 @@ error_code_t appInit(AppData *app_data) {
                                 arrlen(mesh.indices), mesh.indices);
         app_data->wgpu.indexBufferLen = arrlen(mesh.indices);
 
-        app_data->wgpu.uniformBuffer =
-            createUniformBuffer(app_data->wgpu.device, "Uniform", 1);
-        app_data->wgpu.uniformBufferLen = 1;
+        app_data->wgpu.uniformBuffer = createUniformBuffer(
+            app_data->wgpu.device, "Uniform", SHADER_UNIFORMS_T_FLOATS);
 
         WGPUBindGroupEntry binding = {
             .binding = 0,
             .buffer = app_data->wgpu.uniformBuffer,
             .offset = 0,
-            .size = sizeof(float),
+            .size = SHADER_UNIFORMS_T_SIZE,
         };
 
         WGPUBindGroupDescriptor uniformBindGroupDesc = {
@@ -391,9 +400,18 @@ void appUpdate(AppData *app_data) {
                                                    .colorAttachments =
                                                        &colorAttachment};
 
-        float time = glfwGetTime();
+        shader_uniforms_t uniforms = {
+            .time = glfwGetTime(),
+            .color = {0.5, 0.8, 0.5, 1.0},
+        };
+
         wgpuQueueWriteBuffer(app_data->wgpu.queue, app_data->wgpu.uniformBuffer,
-                             0, &time, sizeof(float));
+                             SHADER_UNIFORMS_T_OFFSET(time), &uniforms.time,
+                             sizeof(uniforms.time));
+        wgpuQueueWriteBuffer(app_data->wgpu.queue, app_data->wgpu.uniformBuffer,
+                             SHADER_UNIFORMS_T_OFFSET(color), &uniforms.color,
+                             sizeof(uniforms.color));
+
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
