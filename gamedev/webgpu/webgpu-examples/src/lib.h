@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef int error_code_t;
 #define ERR_CODE_SUCCESS 0
 #define ERR_CODE_FAIL -1
 #define INDEX_INVALID -1

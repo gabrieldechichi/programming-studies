@@ -17,13 +17,11 @@ string_result_t fileReadLine(FILE *file) {
         return r;
     }
 
-    if (fgets(r.value.chars, r.value.cap, file) != NULL) {
+    if (fgets(r.value, arrcap(r.value), file) != NULL) {
         // TODO: asset it's actually end of line
-        r.value.len = strlen(r.value.chars) - 1;
+        arrsetlen(r.value, strlen(r.value) - 1);
         // skip '\n'
-        r.value.chars[r.value.len] = '\0';
-
-        printf("(%d, %d) %s\n", r.value.len, r.value.cap, r.value.chars);
+        r.value[arrlen(r.value)] = '\0';
     }
 
     return r;
@@ -40,8 +38,8 @@ string_result_t fileReadAllText(const char *filePath) {
         if (r.error_code != ERR_CODE_SUCCESS) {
             return r;
         }
-        fread(r.value.chars, 1, length, file);
-        r.value.chars[length] = '\0';
+        fread(r.value, 1, length, file);
+        r.value[length] = '\0';
         fclose(file);
         return r;
     }

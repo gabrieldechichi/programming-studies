@@ -50,26 +50,26 @@ mesh_result_t loadGeometry(const char *filename) {
         }
 
         string_t line = str_trim_start(lineResult.value);
-        if (line.len == 0) {
+        if (!arrlen(line)) {
             str_free(&line);
             continue;
         }
 
         // comment
         if (str_contains(line, '#')) {
-            printf("Skipping: %s\n", line.chars);
+            printf("Skipping: %s\n", line);
             str_free(&line);
             continue;
         }
 
         // check section
-        if (line.chars[0] == '[') {
+        if (line[0] == '[') {
             if (str_eq_c(line, "[points]")) {
                 section = GFILE_SECT_POINTS;
             } else if (str_eq_c(line, "[indices]")) {
                 section = GFILE_SECT_INDICES;
             } else {
-                fprintf(stderr, "Unexpected file section: %s", line.chars);
+                fprintf(stderr, "Unexpected file section: %s", line);
                 return (mesh_result_t){.error_code = ERR_CODE_FAIL};
             }
         } else {
@@ -77,7 +77,7 @@ mesh_result_t loadGeometry(const char *filename) {
             case GFILE_SECT_NONE:
                 break;
             case GFILE_SECT_POINTS: {
-                char *startptr = &line.chars[0];
+                char *startptr = &line[0];
                 char *endptr = startptr;
                 while (true) {
                     float n = strtof(startptr, &endptr);
@@ -103,7 +103,7 @@ mesh_result_t loadGeometry(const char *filename) {
                 break;
             }
             case GFILE_SECT_INDICES: {
-                char *startptr = &line.chars[0];
+                char *startptr = &line[0];
                 char *endptr = startptr;
                 while (true) {
                     int n = strtod(startptr, &endptr);

@@ -30,7 +30,7 @@ typedef struct {
     WgpuState wgpu;
 } AppData;
 
-typedef int (*AppInitCallback)(AppData *app_data);
+typedef error_code_t (*AppInitCallback)(AppData *app_data);
 typedef void (*AppUpdateCallback)(AppData *app_data);
 typedef bool (*AppIsRunningCallback)(AppData *app_data);
 typedef void (*AppTerminateCallback)(AppData *app_data);
@@ -107,7 +107,7 @@ void wgpuQueueWorkDoneCallback(WGPUQueueWorkDoneStatus status, void *userdata) {
     printf("Queue %s work finished: 0x%X\n", "default queue", status);
 }
 
-int appInit(AppData *app_data) {
+error_code_t appInit(AppData *app_data) {
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialize glfw\n");
         return ERR_CODE_FAIL;
@@ -181,7 +181,7 @@ int appInit(AppData *app_data) {
 
         WGPUShaderModuleWGSLDescriptor wgslDesc = {
             .chain = {.sType = WGPUSType_ShaderModuleWGSLDescriptor},
-            .code = shaderSourceResult.value.chars,
+            .code = shaderSourceResult.value,
         };
 
         WGPUShaderModuleDescriptor moduleDesc = {
@@ -390,7 +390,11 @@ int main(void) {
         .terminate = appTerminate,
     };
 
-    app.init(&app_data);
+    error_code_t err = app.init(&app_data);
+    if (err) {
+        return err;
+    }
+
     while (app.isRunning(&app_data)) {
         app.update(&app_data);
     }
