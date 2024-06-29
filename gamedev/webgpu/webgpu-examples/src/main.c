@@ -12,18 +12,12 @@
 
 const unsigned int WIDTH = 800;
 const unsigned int HEIGHT = 600;
-const unsigned int UNIFORM_ALIGNMENT = 16;
 
 typedef struct {
     float time;
+    float _time_padding[3];
     float color[4];
 } shader_uniforms_t;
-
-#define SHADER_UNIFORMS_T_SIZE                                                 \
-    alignTo(sizeof(shader_uniforms_t), UNIFORM_ALIGNMENT)
-#define SHADER_UNIFORMS_T_FLOATS SHADER_UNIFORMS_T_SIZE / sizeof(float)
-#define SHADER_UNIFORMS_T_OFFSET(m)                                            \
-    alignTo(offsetof(shader_uniforms_t, m), UNIFORM_ALIGNMENT)
 
 typedef struct {
     WGPUDevice device;
@@ -262,7 +256,7 @@ error_code_t appInit(AppData *app_data) {
              .visibility = WGPUShaderStage_Vertex,
              .buffer = {
                  .type = WGPUBufferBindingType_Uniform,
-                 .minBindingSize = SHADER_UNIFORMS_T_SIZE,
+                 .minBindingSize = sizeof(shader_uniforms_t),
              }}};
 
         WGPUBindGroupLayoutDescriptor bindGroupLayoutDesc = {
@@ -322,13 +316,13 @@ error_code_t appInit(AppData *app_data) {
         app_data->wgpu.indexBufferLen = arrlen(mesh.indices);
 
         app_data->wgpu.uniformBuffer = createUniformBuffer(
-            app_data->wgpu.device, "Uniform", SHADER_UNIFORMS_T_FLOATS);
+            app_data->wgpu.device, "Uniform", sizeof(shader_uniforms_t)/sizeof(float));
 
         WGPUBindGroupEntry binding = {
             .binding = 0,
             .buffer = app_data->wgpu.uniformBuffer,
             .offset = 0,
-            .size = SHADER_UNIFORMS_T_SIZE,
+            .size = sizeof(shader_uniforms_t),
         };
 
         WGPUBindGroupDescriptor uniformBindGroupDesc = {
@@ -406,11 +400,7 @@ void appUpdate(AppData *app_data) {
         };
 
         wgpuQueueWriteBuffer(app_data->wgpu.queue, app_data->wgpu.uniformBuffer,
-                             SHADER_UNIFORMS_T_OFFSET(time), &uniforms.time,
-                             sizeof(uniforms.time));
-        wgpuQueueWriteBuffer(app_data->wgpu.queue, app_data->wgpu.uniformBuffer,
-                             SHADER_UNIFORMS_T_OFFSET(color), &uniforms.color,
-                             sizeof(uniforms.color));
+                             0, &uniforms, sizeof(uniforms));
 
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
