@@ -22,6 +22,9 @@ typedef struct {
     int vertexBufferLen;
     WGPUBuffer indexBuffer;
     int indexBufferLen;
+    WGPUBuffer uniformBuffer;
+    int uniformBufferLen;
+    WGPUBindGroup uniformBindGroup;
     WGPUTextureFormat textureFormat;
 } WgpuState;
 
@@ -175,7 +178,7 @@ error_code_t appInit(AppData *app_data) {
     {
         string_result_t shaderSourceResult =
             fileReadAllText("shaders/default.wgsl");
-        if (shaderSourceResult.error_code != ERR_CODE_SUCCESS) {
+        if (shaderSourceResult.error_code) {
             return shaderSourceResult.error_code;
         }
 
@@ -186,7 +189,7 @@ error_code_t appInit(AppData *app_data) {
 
         WGPUShaderModuleDescriptor moduleDesc = {
             .nextInChain = &wgslDesc.chain,
-            .label = "Hello Triangle",
+            .label = "Hello WGPU",
         };
 
         WGPUShaderModule module =
@@ -243,8 +246,34 @@ error_code_t appInit(AppData *app_data) {
             .targets = &targetState,
         };
 
+        WGPUBindGroupLayoutEntry uniformEntries[1] = {
+            {.binding = 0,
+             .visibility = WGPUShaderStage_Vertex,
+             .buffer = {
+                 .type = WGPUBufferBindingType_Uniform,
+                 // TODO: indirect connection with uniform buffer size
+                 .minBindingSize = sizeof(float),
+             }}};
+
+        WGPUBindGroupLayoutDescriptor bindGroupLayoutDesc = {
+            .label = "Bind group",
+            .entryCount = 1,
+            .entries = uniformEntries,
+        };
+
+        WGPUBindGroupLayout bindGroupLayout = wgpuDeviceCreateBindGroupLayout(
+            app_data->wgpu.device, &bindGroupLayoutDesc);
+
+        WGPUPipelineLayoutDescriptor pipelineLayoutDesc = {
+
+            .label = "Hello WGPU Pipeline Layout",
+            .bindGroupLayoutCount = 1,
+            .bindGroupLayouts = &bindGroupLayout};
+
         WGPURenderPipelineDescriptor pipelineDesc = {
             .label = "Hello Triangle",
+            .layout = wgpuDeviceCreatePipelineLayout(app_data->wgpu.device,
+                                                     &pipelineLayoutDesc),
             .vertex = vertex,
             .fragment = &fragment,
             .primitive =
@@ -266,19 +295,42 @@ error_code_t appInit(AppData *app_data) {
         mesh_result_t meshResult =
             loadGeometry("./resources/geometry/wgpu.geo");
 
-        if (meshResult.error_code != ERR_CODE_SUCCESS) {
+        if (meshResult.error_code) {
             return meshResult.error_code;
         }
+
         mesh_t mesh = meshResult.value;
 
         app_data->wgpu.vertexBuffer =
             createVertexBuffer(app_data->wgpu.device, "Geometry Buffer",
                                arrlen(mesh.vertices), mesh.vertices);
         app_data->wgpu.vertexBufferLen = arrlen(mesh.vertices);
+
         app_data->wgpu.indexBuffer =
             createIndexBuffer16(app_data->wgpu.device, "Indices",
                                 arrlen(mesh.indices), mesh.indices);
         app_data->wgpu.indexBufferLen = arrlen(mesh.indices);
+
+        app_data->wgpu.uniformBuffer =
+            createUniformBuffer(app_data->wgpu.device, "Uniform", 1);
+        app_data->wgpu.uniformBufferLen = 1;
+
+        WGPUBindGroupEntry binding = {
+            .binding = 0,
+            .buffer = app_data->wgpu.uniformBuffer,
+            .offset = 0,
+            .size = sizeof(float),
+        };
+
+        WGPUBindGroupDescriptor uniformBindGroupDesc = {
+            .label = "Uniform bind group",
+            .layout = bindGroupLayout,
+            .entryCount = bindGroupLayoutDesc.entryCount,
+            .entries = &binding,
+        };
+
+        app_data->wgpu.uniformBindGroup = wgpuDeviceCreateBindGroup(
+            app_data->wgpu.device, &uniformBindGroupDesc);
     }
 
     glfwShowWindow(app_data->window);
@@ -339,10 +391,15 @@ void appUpdate(AppData *app_data) {
                                                    .colorAttachments =
                                                        &colorAttachment};
 
+        float time = glfwGetTime();
+        wgpuQueueWriteBuffer(app_data->wgpu.queue, app_data->wgpu.uniformBuffer,
+                             0, &time, sizeof(float));
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
         wgpuRenderPassEncoderSetPipeline(passEncoder, app_data->wgpu.pipeline);
+        wgpuRenderPassEncoderSetBindGroup(
+            passEncoder, 0, app_data->wgpu.uniformBindGroup, 0, 0);
         wgpuRenderPassEncoderSetIndexBuffer(
             passEncoder, app_data->wgpu.indexBuffer, WGPUIndexFormat_Uint16, 0,
             app_data->wgpu.indexBufferLen * sizeof(uint16_t));

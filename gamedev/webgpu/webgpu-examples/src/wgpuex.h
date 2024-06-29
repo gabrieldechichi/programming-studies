@@ -34,4 +34,7 @@ WGPUBuffer createVertexBuffer(WGPUDevice device, const char *label,
 WGPUBuffer createIndexBuffer16(WGPUDevice device, const char *label,
                                int indexLength, uint16_t *indices);
 
+WGPUBuffer createUniformBuffer(WGPUDevice device, const char *label,
+                               int length);
+
 #endif

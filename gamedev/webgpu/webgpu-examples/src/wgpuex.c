@@ -151,3 +151,15 @@ WGPUBuffer createIndexBuffer16(WGPUDevice device, const char *label,
     wgpuBufferUnmap(buffer);
     return buffer;
 }
+
+WGPUBuffer createUniformBuffer(WGPUDevice device, const char *label,
+                               int length) {
+    WGPUBufferDescriptor bufferDesc = {.label = label,
+                                       .usage = WGPUBufferUsage_Uniform |
+                                                WGPUBufferUsage_CopyDst,
+                                       .size = length * sizeof(float),
+                                       .mappedAtCreation = false};
+
+    WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &bufferDesc);
+    return buffer;
+}

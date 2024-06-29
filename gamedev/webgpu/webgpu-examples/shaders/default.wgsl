@@ -8,12 +8,15 @@ struct VertexOut {
     @location(0) col: vec4f,
 };
 
+@group(0) @binding(0) var<uniform> uTime: f32;
+
 @vertex
 fn vs_main(in: VertexIn) -> VertexOut {
     var out: VertexOut;
 
-    let ratio = 800.0 / 600.0; 
-    let offset = vec2f(-0.6875, -0.463);
+    let ratio = 800.0 / 600.0;
+    var offset = vec2f(-0.6875, -0.463);
+    offset += 0.3 * vec2f(cos(uTime), sin(uTime));
     out.pos = vec4f(in.pos.x + offset.x, (in.pos.y + offset.y) * ratio, 0.0, 1.0);
     //out.pos = vec4f(in.pos.x, in.pos.y, 0.0, 1.0);
 
@@ -24,6 +27,6 @@ fn vs_main(in: VertexIn) -> VertexOut {
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4f {
 	// We apply a gamma-correction to the color
-	let corrected_color = pow(in.col.rgb, vec3f(2.2));
-	return vec4f(corrected_color, 1.0);
+    let corrected_color = pow(in.col.rgb, vec3f(2.2));
+    return vec4f(corrected_color, 1.0);
 }
