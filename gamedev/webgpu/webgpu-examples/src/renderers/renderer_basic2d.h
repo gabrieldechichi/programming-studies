@@ -2,7 +2,7 @@
 #define RENDERER_BASIC2D_H
 
 #include "lib.h"
-#include "pipelines/default2d.h"
+#include "pipelines/pipeline_default2d.h"
 
 typedef struct {
     shader_default2d_pipeline pipeline;

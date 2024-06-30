@@ -1,7 +1,7 @@
 #include "renderer_basic2d.h"
 #include "GLFW/glfw3.h"
 #include "lib.h"
-#include "pipelines/default2d.h"
+#include "pipelines/pipeline_default2d.h"
 #include "stb/stb_ds.h"
 #include "webgpu/webgpu.h"
 #include "wgpuex.h"

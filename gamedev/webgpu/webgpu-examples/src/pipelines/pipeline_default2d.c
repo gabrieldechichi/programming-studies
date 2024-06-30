@@ -1,9 +1,9 @@
-#include "default2d.h"
+#include "pipeline_default2d.h"
 #include "lib/string.h"
 #include "webgpu/webgpu.h"
 
 shader_default2d_pipeline_result_t
-shader_default2d_createPipeline(WGPUDevice device, 
+shader_default2d_createPipeline(WGPUDevice device,
                                 WGPUTextureFormat textureFormat) {
 
     shader_default2d_pipeline pipeline;
