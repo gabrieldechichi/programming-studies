@@ -1,6 +1,7 @@
 #include "wgpuex.h"
 #include "assert.h"
 #include "lib.h"
+#include "lib/string.h"
 #include "webgpu.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -164,4 +165,29 @@ WGPUBuffer createUniformBuffer(WGPUDevice device, const char *label,
 
     WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &bufferDesc);
     return buffer;
+}
+
+WGPUShaderModuleResult wgpuCreateWGSLShaderModule(WGPUDevice device,
+                                                  const char *shaderPath) {
+    StringResult shaderSourceResult = fileReadAllText(shaderPath);
+
+    if (shaderSourceResult.errorCode) {
+        return (WGPUShaderModuleResult){.errorCode =
+                                            shaderSourceResult.errorCode};
+    }
+
+    WGPUShaderModuleWGSLDescriptor wgslDesc = {
+        .chain = {.sType = WGPUSType_ShaderModuleWGSLDescriptor},
+        .code = shaderSourceResult.value};
+
+    WGPUShaderModuleDescriptor shaderModuleDesc = {
+        .nextInChain = &wgslDesc.chain,
+        .label = shaderPath,
+    };
+
+    WGPUShaderModule shaderModule =
+        wgpuDeviceCreateShaderModule(device, &shaderModuleDesc);
+
+    str_free(&shaderSourceResult.value);
+    return (WGPUShaderModuleResult){.value = shaderModule};
 }

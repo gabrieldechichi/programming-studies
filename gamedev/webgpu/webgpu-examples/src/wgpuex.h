@@ -1,6 +1,7 @@
 #ifndef WGPUEX_H
 #define WGPUEX_H
 
+#include "lib.h"
 #include "webgpu.h"
 
 #define WGPU_COPY_BUFFER_ALIGNMENT 4
@@ -36,5 +37,8 @@ WGPUBuffer createIndexBuffer16(WGPUDevice device, const char *label,
 
 WGPUBuffer createUniformBuffer(WGPUDevice device, const char *label,
                                int length);
+
+RESULT_STRUCT(WGPUShaderModule);
+WGPUShaderModuleResult wgpuCreateWGSLShaderModule(WGPUDevice device, const char* shaderPath);
 
 #endif

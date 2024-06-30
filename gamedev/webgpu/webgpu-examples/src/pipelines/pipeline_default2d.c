@@ -109,7 +109,6 @@ shaderDefault2dCreatePipeline(WGPUDevice device,
         .primitive =
             {
                 .topology = WGPUPrimitiveTopology_TriangleList,
-                .stripIndexFormat = WGPUIndexFormat_Undefined,
                 .frontFace = WGPUFrontFace_CCW,
                 .cullMode = WGPUCullMode_Back,
             },

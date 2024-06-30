@@ -24,6 +24,14 @@ typedef int ErrorCode;
         int errorCode;                                                        \
     } t##Result
 
+#define CAST_ERROR(v, t)                                                       \
+    (t) { .errorCode = v.errorCode }
+
+#define RETURN_IF_ERROR(r, t)                                                  \
+    if (r.errorCode) {                                                         \
+        return CAST_ERROR(r, t);                                               \
+    }
+
 typedef struct {
     float *vertices;
     uint16_t *indices;

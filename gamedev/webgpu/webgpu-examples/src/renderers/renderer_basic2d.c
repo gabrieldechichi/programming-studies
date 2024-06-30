@@ -100,8 +100,7 @@ void rendererBasic2dRender(RendererBasic2D renderer,
             passEncoder, 0, renderer.uniformBindGroup,
             ARRAY_LEN(dynamicOffsets), dynamicOffsets);
 
-        wgpuRenderPassEncoderDrawIndexed(passEncoder, renderer.indexBufferLen,
-                                         1, 0, 0, 0);
+        wgpuRenderPassEncoderDrawIndexed(passEncoder, renderer.indexBufferLen, 1, 0, 0, 0);
 
         dynamicOffsets[0] = renderer.uniformBufferStride;
 

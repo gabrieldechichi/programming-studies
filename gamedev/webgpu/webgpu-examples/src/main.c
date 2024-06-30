@@ -2,7 +2,7 @@
 #include "glfw3webgpu.h"
 #include "lib.h"
 #include "lib/string.h"
-#include "renderers/renderer_basic2d.h"
+#include "renderers/renderer_basic3d.h"
 #include "stb_ds.h"
 #include "stdbool.h"
 #include "stdio.h"
@@ -19,7 +19,7 @@ typedef struct {
     WGPULimits deviceLimits;
     WGPUQueue queue;
     WGPUSurface surface;
-    RendererBasic2D renderer2d;
+    RendererBasic3D renderer;
     WGPUTextureFormat textureFormat;
 } WgpuState;
 
@@ -191,13 +191,12 @@ ErrorCode appInit(AppData *appData) {
     // pipeline
     {
 
-        RendererBasic2DResult rendererResult = rendererBasic2dCreate(
-            appData->wgpu.device, appData->wgpu.deviceLimits,
-            appData->wgpu.textureFormat);
+        RendererBasic3DResult rendererResult = rendererBasic3dCreate(
+            appData->wgpu.device, appData->wgpu.textureFormat);
         if (rendererResult.errorCode) {
             return rendererResult.errorCode;
         }
-        appData->wgpu.renderer2d = rendererResult.value;
+        appData->wgpu.renderer = rendererResult.value;
     }
 
     glfwShowWindow(appData->window);
@@ -261,8 +260,8 @@ void appUpdate(AppData *appData) {
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
-        rendererBasic2dRender(appData->wgpu.renderer2d, passEncoder,
-                                appData->wgpu.queue);
+        rendererBasic3dRender(appData->wgpu.renderer, passEncoder,
+                              appData->wgpu.queue);
 
         wgpuRenderPassEncoderEnd(passEncoder);
         wgpuRenderPassEncoderRelease(passEncoder);
@@ -282,7 +281,7 @@ void appUpdate(AppData *appData) {
 }
 
 void appTerminate(AppData *appData) {
-    rendererBasic2dFree(appData->wgpu.renderer2d);
+    rendererBasic3dFree(appData->wgpu.renderer);
     wgpuSurfaceUnconfigure(appData->wgpu.surface);
     wgpuSurfaceRelease(appData->wgpu.surface);
     wgpuQueueRelease(appData->wgpu.queue);
