@@ -5,7 +5,7 @@
 #include "pipelines/pipeline_default2d.h"
 
 typedef struct {
-    shader_default2d_pipeline pipeline;
+    ShaderDefault2DPipeline pipeline;
     WGPUBuffer vertexBuffer;
     int vertexBufferLen;
     WGPUBuffer indexBuffer;
@@ -13,17 +13,17 @@ typedef struct {
     WGPUBuffer uniformBuffer;
     int uniformBufferStride;
     WGPUBindGroup uniformBindGroup;
-} renderer_basic2d;
+} RendererBasic2D;
 
-RESULT_STRUCT(renderer_basic2d);
+RESULT_STRUCT(RendererBasic2D);
 
-renderer_basic2d_result_t
-renderer_basic2d_create(WGPUDevice device, WGPULimits deviceLimits,
+RendererBasic2DResult
+rendererBasic2dCreate(WGPUDevice device, WGPULimits deviceLimits,
                         WGPUTextureFormat textureFormat);
 
-void renderer_basic2d_render(renderer_basic2d renderer,
+void rendererBasic2dRender(RendererBasic2D renderer,
                              WGPURenderPassEncoder passEncoder,
                              WGPUQueue queue);
 
-void renderer_basic2d_free(renderer_basic2d renderer);
+void rendererBasic2dFree(RendererBasic2D renderer);
 #endif

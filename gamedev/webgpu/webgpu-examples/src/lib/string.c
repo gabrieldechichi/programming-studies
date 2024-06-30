@@ -10,10 +10,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-string_result_t fileReadLine(FILE *file) {
+StringResult fileReadLine(FILE *file) {
     const int max_size = 256;
-    string_result_t r = str_new(max_size);
-    if (r.error_code) {
+    StringResult r = str_new(max_size);
+    if (r.errorCode) {
         return r;
     }
 
@@ -27,15 +27,15 @@ string_result_t fileReadLine(FILE *file) {
     return r;
 }
 
-string_result_t fileReadAllText(const char *filePath) {
+StringResult fileReadAllText(const char *filePath) {
     FILE *file = fopen(filePath, "r");
     if (file) {
         fseek(file, 0, SEEK_END);
         long length = ftell(file);
         fseek(file, 0, SEEK_SET);
 
-        string_result_t r = str_new(length);
-        if (r.error_code != ERR_CODE_SUCCESS) {
+        StringResult r = str_new(length);
+        if (r.errorCode != ERR_CODE_SUCCESS) {
             return r;
         }
         fread(r.value, 1, length, file);
@@ -43,5 +43,5 @@ string_result_t fileReadAllText(const char *filePath) {
         fclose(file);
         return r;
     }
-    return (string_result_t){.error_code = ERR_CODE_FAIL};
+    return (StringResult){.errorCode = ERR_CODE_FAIL};
 }

@@ -6,26 +6,26 @@
 #include "webgpu/webgpu.h"
 #include "wgpuex.h"
 
-renderer_basic2d_result_t
-renderer_basic2d_create(WGPUDevice device, WGPULimits deviceLimits,
+RendererBasic2DResult
+rendererBasic2dCreate(WGPUDevice device, WGPULimits deviceLimits,
                         WGPUTextureFormat textureFormat) {
-    shader_default2d_pipeline_result_t pipelineResult =
-        shader_default2d_createPipeline(device, textureFormat);
-    if (pipelineResult.error_code) {
-        return (renderer_basic2d_result_t){.error_code =
-                                               pipelineResult.error_code};
+    ShaderDefault2DPipelineResult pipelineResult =
+        shaderDefault2dCreatePipeline(device, textureFormat);
+    if (pipelineResult.errorCode) {
+        return (RendererBasic2DResult){.errorCode =
+                                               pipelineResult.errorCode};
     }
 
-    renderer_basic2d renderer = {0};
+    RendererBasic2D renderer = {0};
     renderer.pipeline = pipelineResult.value;
 
-    mesh_result_t meshResult = loadGeometry("./resources/geometry/wgpu.geo");
+    MeshResult meshResult = loadGeometry("./resources/geometry/wgpu.geo");
 
-    if (meshResult.error_code) {
-        return (renderer_basic2d_result_t){.error_code = meshResult.error_code};
+    if (meshResult.errorCode) {
+        return (RendererBasic2DResult){.errorCode = meshResult.errorCode};
     }
 
-    mesh_t mesh = meshResult.value;
+    Mesh mesh = meshResult.value;
 
     renderer.vertexBuffer = createVertexBuffer(
         device, "Geometry Buffer", arrlen(mesh.vertices), mesh.vertices);
@@ -36,11 +36,11 @@ renderer_basic2d_create(WGPUDevice device, WGPULimits deviceLimits,
     renderer.indexBufferLen = arrlen(mesh.indices);
 
     int uniformBufferStride =
-        ceilToNextMultiple(sizeof(shader_default2d_uniforms_t),
+        ceilToNextMultiple(sizeof(ShaderDefault2DUniforms),
                            deviceLimits.minUniformBufferOffsetAlignment);
     renderer.uniformBuffer = createUniformBuffer(
         device, "Uniform",
-        (uniformBufferStride + sizeof(shader_default2d_uniforms_t)) /
+        (uniformBufferStride + sizeof(ShaderDefault2DUniforms)) /
             sizeof(float));
     renderer.uniformBufferStride = uniformBufferStride;
 
@@ -48,7 +48,7 @@ renderer_basic2d_create(WGPUDevice device, WGPULimits deviceLimits,
         .binding = 0,
         .buffer = renderer.uniformBuffer,
         .offset = 0,
-        .size = sizeof(shader_default2d_uniforms_t),
+        .size = sizeof(ShaderDefault2DUniforms),
     };
 
     WGPUBindGroupDescriptor uniformBindGroupDesc = {
@@ -61,10 +61,10 @@ renderer_basic2d_create(WGPUDevice device, WGPULimits deviceLimits,
     renderer.uniformBindGroup =
         wgpuDeviceCreateBindGroup(device, &uniformBindGroupDesc);
 
-    return (renderer_basic2d_result_t){.value = renderer};
+    return (RendererBasic2DResult){.value = renderer};
 }
 
-void renderer_basic2d_render(renderer_basic2d renderer,
+void rendererBasic2dRender(RendererBasic2D renderer,
                              WGPURenderPassEncoder passEncoder,
                              WGPUQueue queue) {
     wgpuRenderPassEncoderSetPipeline(passEncoder, renderer.pipeline.pipeline);
@@ -77,7 +77,7 @@ void renderer_basic2d_render(renderer_basic2d renderer,
 
     // draw 1
     {
-        shader_default2d_uniforms_t uniforms = {
+        ShaderDefault2DUniforms uniforms = {
             .time = (float)glfwGetTime(),
             .color = {0.5, 0.8, 0.5, 1.0},
         };
@@ -85,7 +85,7 @@ void renderer_basic2d_render(renderer_basic2d renderer,
         wgpuQueueWriteBuffer(queue, renderer.uniformBuffer, 0, &uniforms,
                              sizeof(uniforms));
 
-        shader_default2d_uniforms_t uniforms2 = {
+        ShaderDefault2DUniforms uniforms2 = {
             .time = 2.0 * (float)glfwGetTime() + 0.5,
             .color = {1, 1, 0, 1},
         };
@@ -114,7 +114,7 @@ void renderer_basic2d_render(renderer_basic2d renderer,
     }
 }
 
-void renderer_basic2d_free(renderer_basic2d renderer) {
+void rendererBasic2dFree(RendererBasic2D renderer) {
     wgpuBufferRelease(renderer.indexBuffer);
     wgpuBufferRelease(renderer.vertexBuffer);
     wgpuBufferRelease(renderer.uniformBuffer);

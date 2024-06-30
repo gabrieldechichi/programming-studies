@@ -5,26 +5,26 @@
 #include "stb/stb_ds.h"
 #include <stdlib.h>
 
-typedef char *string_t;
+typedef char *String;
 
-RESULT_STRUCT_T(string);
+RESULT_STRUCT(String);
 
-static string_result_t str_new(uint16_t len) {
-    string_t str = {0};
+static StringResult str_new(uint16_t len) {
+    String str = {0};
     arrsetcap(str, len + 1);
     if (str) {
-        return (string_result_t){.value = str};
+        return (StringResult){.value = str};
     }
-    return (string_result_t){.error_code = ERR_CODE_FAIL};
+    return (StringResult){.errorCode = ERR_CODE_FAIL};
 }
 
-static void str_free(string_t *s) {
+static void str_free(String *s) {
     if (s && *s) {
         arrfree(*s);
     }
 }
 
-static bool str_contains(string_t s, char c) {
+static bool str_contains(String s, char c) {
     if (!s || !arrlen(s)) {
         return false;
     }
@@ -43,14 +43,14 @@ static bool str_contains(string_t s, char c) {
 //     return INDEX_INVALID;
 // }
 
-static bool str_eq_c(string_t a, char *b) {
+static bool str_eq_c(String a, char *b) {
     if (a == b) {
         return true;
     }
     return strcmp(a, b) == 0;
 }
 
-static string_t str_trim_start(string_t s) {
+static String str_trim_start(String s) {
     if (s == NULL || arrlen(s) == 0) {
         return s;
     }
@@ -68,8 +68,8 @@ static string_t str_trim_start(string_t s) {
     return s;
 }
 
-string_result_t fileReadLine(FILE *file);
-string_result_t fileReadAllText(const char *filePath);
+StringResult fileReadLine(FILE *file);
+StringResult fileReadAllText(const char *filePath);
 
 // static bool str_eq(string_t a, string_t b) {
 //     if (a== b){return true;}

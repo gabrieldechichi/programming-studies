@@ -19,7 +19,7 @@ typedef struct {
     WGPULimits deviceLimits;
     WGPUQueue queue;
     WGPUSurface surface;
-    renderer_basic2d renderer2d;
+    RendererBasic2D renderer2d;
     WGPUTextureFormat textureFormat;
 } WgpuState;
 
@@ -28,10 +28,10 @@ typedef struct {
     WgpuState wgpu;
 } AppData;
 
-typedef error_code_t (*AppInitCallback)(AppData *app_data);
-typedef void (*AppUpdateCallback)(AppData *app_data);
-typedef bool (*AppIsRunningCallback)(AppData *app_data);
-typedef void (*AppTerminateCallback)(AppData *app_data);
+typedef ErrorCode (*AppInitCallback)(AppData *appData);
+typedef void (*AppUpdateCallback)(AppData *appData);
+typedef bool (*AppIsRunningCallback)(AppData *appData);
+typedef void (*AppTerminateCallback)(AppData *appData);
 
 typedef struct {
     AppInitCallback init;
@@ -107,7 +107,7 @@ void wgpuQueueWorkDoneCallback(WGPUQueueWorkDoneStatus status, void *userdata) {
     printf("Queue %s work finished: 0x%X\n", "default queue", status);
 }
 
-error_code_t appInit(AppData *app_data) {
+ErrorCode appInit(AppData *appData) {
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialize glfw\n");
         return ERR_CODE_FAIL;
@@ -116,9 +116,9 @@ error_code_t appInit(AppData *app_data) {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // Start the window minimized
-    app_data->window =
+    appData->window =
         glfwCreateWindow(WIDTH, HEIGHT, "WebGPU examples", NULL, NULL);
-    if (!app_data->window) {
+    if (!appData->window) {
         fprintf(stderr, "Failed to create wgpu window\n");
         return ERR_CODE_FAIL;
     }
@@ -128,11 +128,11 @@ error_code_t appInit(AppData *app_data) {
     assert(instance);
 
     // surface
-    app_data->wgpu.surface = glfwGetWGPUSurface(instance, app_data->window);
+    appData->wgpu.surface = glfwGetWGPUSurface(instance, appData->window);
 
     // adapter
     WGPURequestAdapterOptions options = {
-        .compatibleSurface = app_data->wgpu.surface,
+        .compatibleSurface = appData->wgpu.surface,
         .powerPreference = WGPUPowerPreference_HighPerformance};
 
     WGPUAdapter adapter = wgpuRequestAdapterSync(instance, &options).adapter;
@@ -152,36 +152,36 @@ error_code_t appInit(AppData *app_data) {
         .requiredLimits = requiredLimits,
     };
 
-    app_data->wgpu.device = wgpuRequestDeviceSync(adapter, &deviceDesc).device;
-    inspectDevice(app_data->wgpu.device);
+    appData->wgpu.device = wgpuRequestDeviceSync(adapter, &deviceDesc).device;
+    inspectDevice(appData->wgpu.device);
 
     WGPUSupportedLimits deviceSupportedLimits = {0};
-    if (!wgpuDeviceGetLimits(app_data->wgpu.device, &deviceSupportedLimits)) {
+    if (!wgpuDeviceGetLimits(appData->wgpu.device, &deviceSupportedLimits)) {
         return ERR_CODE_FAIL;
     }
-    app_data->wgpu.deviceLimits = deviceSupportedLimits.limits;
+    appData->wgpu.deviceLimits = deviceSupportedLimits.limits;
 
     // configure surface
     {
-        app_data->wgpu.textureFormat =
-            wgpuSurfaceGetPreferredFormat(app_data->wgpu.surface, adapter);
-        WGPUSurfaceConfiguration surface_conf = {
+        appData->wgpu.textureFormat =
+            wgpuSurfaceGetPreferredFormat(appData->wgpu.surface, adapter);
+        WGPUSurfaceConfiguration surfaceConf = {
             .nextInChain = NULL,
             .width = WIDTH,
             .height = HEIGHT,
-            .device = app_data->wgpu.device,
-            .format = app_data->wgpu.textureFormat,
+            .device = appData->wgpu.device,
+            .format = appData->wgpu.textureFormat,
             .usage = WGPUTextureUsage_RenderAttachment,
             .presentMode = WGPUPresentMode_Fifo,
             .alphaMode = WGPUCompositeAlphaMode_Auto,
         };
-        wgpuSurfaceConfigure(app_data->wgpu.surface, &surface_conf);
+        wgpuSurfaceConfigure(appData->wgpu.surface, &surfaceConf);
     }
 
     // queue
     {
-        app_data->wgpu.queue = wgpuDeviceGetQueue(app_data->wgpu.device);
-        wgpuQueueOnSubmittedWorkDone(app_data->wgpu.queue,
+        appData->wgpu.queue = wgpuDeviceGetQueue(appData->wgpu.device);
+        wgpuQueueOnSubmittedWorkDone(appData->wgpu.queue,
                                      wgpuQueueWorkDoneCallback, NULL);
     }
 
@@ -191,34 +191,34 @@ error_code_t appInit(AppData *app_data) {
     // pipeline
     {
 
-        renderer_basic2d_result_t rendererResult = renderer_basic2d_create(
-            app_data->wgpu.device, app_data->wgpu.deviceLimits,
-            app_data->wgpu.textureFormat);
-        if (rendererResult.error_code) {
-            return rendererResult.error_code;
+        RendererBasic2DResult rendererResult = rendererBasic2dCreate(
+            appData->wgpu.device, appData->wgpu.deviceLimits,
+            appData->wgpu.textureFormat);
+        if (rendererResult.errorCode) {
+            return rendererResult.errorCode;
         }
-        app_data->wgpu.renderer2d = rendererResult.value;
+        appData->wgpu.renderer2d = rendererResult.value;
     }
 
-    glfwShowWindow(app_data->window);
+    glfwShowWindow(appData->window);
     return ERR_CODE_SUCCESS;
 }
 
-bool appIsRunning(AppData *app_data) {
-    return !glfwWindowShouldClose(app_data->window);
+bool appIsRunning(AppData *appData) {
+    return !glfwWindowShouldClose(appData->window);
 }
 
 // TODO: separate update and render
-void appUpdate(AppData *app_data) {
+void appUpdate(AppData *appData) {
     glfwPollEvents();
-    if (glfwGetKey(app_data->window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        glfwSetWindowShouldClose(app_data->window, GLFW_TRUE);
+    if (glfwGetKey(appData->window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        glfwSetWindowShouldClose(appData->window, GLFW_TRUE);
         return;
     }
 
     // START grab surface texture
     WGPUSurfaceTexture surfaceTex;
-    wgpuSurfaceGetCurrentTexture(app_data->wgpu.surface, &surfaceTex);
+    wgpuSurfaceGetCurrentTexture(appData->wgpu.surface, &surfaceTex);
     if (surfaceTex.status != WGPUSurfaceGetCurrentTextureStatus_Success) {
         return;
     }
@@ -238,10 +238,10 @@ void appUpdate(AppData *app_data) {
     // END grab target tex
 
     // start command encodere
-    WGPUCommandEncoderDescriptor cmdencoder_desc =
+    WGPUCommandEncoderDescriptor cmdencoderDesc =
         (WGPUCommandEncoderDescriptor){.label = "My command encoder"};
     WGPUCommandEncoder cmdencoder =
-        wgpuDeviceCreateCommandEncoder(app_data->wgpu.device, &cmdencoder_desc);
+        wgpuDeviceCreateCommandEncoder(appData->wgpu.device, &cmdencoderDesc);
     // end cmd encoder
 
     // create render pass (only clearing the screen for now)
@@ -261,8 +261,8 @@ void appUpdate(AppData *app_data) {
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
-        renderer_basic2d_render(app_data->wgpu.renderer2d, passEncoder,
-                                app_data->wgpu.queue);
+        rendererBasic2dRender(appData->wgpu.renderer2d, passEncoder,
+                                appData->wgpu.queue);
 
         wgpuRenderPassEncoderEnd(passEncoder);
         wgpuRenderPassEncoderRelease(passEncoder);
@@ -274,26 +274,26 @@ void appUpdate(AppData *app_data) {
     wgpuCommandEncoderRelease(cmdencoder);
 
     // submit queue
-    wgpuQueueSubmit(app_data->wgpu.queue, 1, &cmd);
+    wgpuQueueSubmit(appData->wgpu.queue, 1, &cmd);
     wgpuCommandBufferRelease(cmd);
 
-    wgpuSurfacePresent(app_data->wgpu.surface);
+    wgpuSurfacePresent(appData->wgpu.surface);
     wgpuTextureViewRelease(targetView);
 }
 
-void appTerminate(AppData *app_data) {
-    renderer_basic2d_free(app_data->wgpu.renderer2d);
-    wgpuSurfaceUnconfigure(app_data->wgpu.surface);
-    wgpuSurfaceRelease(app_data->wgpu.surface);
-    wgpuQueueRelease(app_data->wgpu.queue);
-    wgpuDeviceRelease(app_data->wgpu.device);
+void appTerminate(AppData *appData) {
+    rendererBasic2dFree(appData->wgpu.renderer2d);
+    wgpuSurfaceUnconfigure(appData->wgpu.surface);
+    wgpuSurfaceRelease(appData->wgpu.surface);
+    wgpuQueueRelease(appData->wgpu.queue);
+    wgpuDeviceRelease(appData->wgpu.device);
 
     glfwTerminate();
-    glfwDestroyWindow(app_data->window);
+    glfwDestroyWindow(appData->window);
 }
 
 int main(void) {
-    AppData app_data = {0};
+    AppData appData = {0};
     App app = (App){
         .init = appInit,
         .isRunning = appIsRunning,
@@ -301,15 +301,15 @@ int main(void) {
         .terminate = appTerminate,
     };
 
-    error_code_t err = app.init(&app_data);
+    ErrorCode err = app.init(&appData);
     if (err) {
         return err;
     }
 
-    while (app.isRunning(&app_data)) {
-        app.update(&app_data);
+    while (app.isRunning(&appData)) {
+        app.update(&appData);
     }
-    app.terminate(&app_data);
+    app.terminate(&appData);
 
     return ERR_CODE_SUCCESS;
 }

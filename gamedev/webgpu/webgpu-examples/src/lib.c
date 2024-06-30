@@ -22,34 +22,34 @@ typedef enum {
     GFILE_SECT_NONE = 0,
     GFILE_SECT_POINTS,
     GFILE_SECT_INDICES
-} geo_file_section_e;
+} GeometryFileSection;
 
 // Read file line by line
-mesh_result_t loadGeometry(const char *filename) {
-    mesh_result_t result = {0};
+MeshResult loadGeometry(const char *filename) {
+    MeshResult result = {0};
 
     FILE *file = fopen(filename, "r");
     if (!file) {
         fprintf(stderr, "Error opening file %s\n", filename);
         perror("Error");
-        result.error_code = ERR_CODE_FAIL;
+        result.errorCode = ERR_CODE_FAIL;
         return result;
     }
 
-    geo_file_section_e section = GFILE_SECT_NONE;
+    GeometryFileSection section = GFILE_SECT_NONE;
     while (true) {
         if (feof(file)) {
             break;
         }
-        string_result_t lineResult = fileReadLine(file);
-        if (lineResult.error_code != ERR_CODE_SUCCESS) {
-            result.error_code = lineResult.error_code;
+        StringResult lineResult = fileReadLine(file);
+        if (lineResult.errorCode != ERR_CODE_SUCCESS) {
+            result.errorCode = lineResult.errorCode;
             str_free(&lineResult.value);
             fclose(file);
             return result;
         }
 
-        string_t line = str_trim_start(lineResult.value);
+        String line = str_trim_start(lineResult.value);
         if (!arrlen(line)) {
             str_free(&line);
             continue;
@@ -70,7 +70,7 @@ mesh_result_t loadGeometry(const char *filename) {
                 section = GFILE_SECT_INDICES;
             } else {
                 fprintf(stderr, "Unexpected file section: %s", line);
-                return (mesh_result_t){.error_code = ERR_CODE_FAIL};
+                return (MeshResult){.errorCode = ERR_CODE_FAIL};
             }
         } else {
             switch (section) {
@@ -87,7 +87,7 @@ mesh_result_t loadGeometry(const char *filename) {
                                     "Failed parsing number. Invalid character: "
                                     "%s\n",
                                     endptr);
-                            return (mesh_result_t){.error_code = ERR_CODE_FAIL};
+                            return (MeshResult){.errorCode = ERR_CODE_FAIL};
                         }
                         break;
                     } else {
@@ -113,7 +113,7 @@ mesh_result_t loadGeometry(const char *filename) {
                                     "Failed parsing number. Invalid character: "
                                     "%s\n",
                                     endptr);
-                            return (mesh_result_t){.error_code = ERR_CODE_FAIL};
+                            return (MeshResult){.errorCode = ERR_CODE_FAIL};
                         }
                         break;
                     } else {
@@ -130,7 +130,7 @@ mesh_result_t loadGeometry(const char *filename) {
             }
             default:
                 fprintf(stderr, "Unexpected section: %d", section);
-                return (mesh_result_t){.error_code = ERR_CODE_FAIL};
+                return (MeshResult){.errorCode = ERR_CODE_FAIL};
             }
         }
 

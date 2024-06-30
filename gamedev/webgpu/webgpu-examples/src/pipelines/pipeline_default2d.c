@@ -2,17 +2,16 @@
 #include "lib/string.h"
 #include "webgpu/webgpu.h"
 
-shader_default2d_pipeline_result_t
-shader_default2d_createPipeline(WGPUDevice device,
-                                WGPUTextureFormat textureFormat) {
+ShaderDefault2DPipelineResult
+shaderDefault2dCreatePipeline(WGPUDevice device,
+                              WGPUTextureFormat textureFormat) {
 
-    shader_default2d_pipeline pipeline;
+    ShaderDefault2DPipeline pipeline;
 
-    string_result_t shaderSourceResult =
-        fileReadAllText("shaders/default2d.wgsl");
-    if (shaderSourceResult.error_code) {
-        return (shader_default2d_pipeline_result_t){
-            .error_code = shaderSourceResult.error_code};
+    StringResult shaderSourceResult = fileReadAllText("shaders/default2d.wgsl");
+    if (shaderSourceResult.errorCode) {
+        return (ShaderDefault2DPipelineResult){
+            .errorCode = shaderSourceResult.errorCode};
     }
 
     WGPUShaderModuleWGSLDescriptor wgslDesc = {
@@ -83,7 +82,7 @@ shader_default2d_createPipeline(WGPUDevice device,
          .visibility = WGPUShaderStage_Vertex,
          .buffer = {
              .type = WGPUBufferBindingType_Uniform,
-             .minBindingSize = sizeof(shader_default2d_uniforms_t),
+             .minBindingSize = sizeof(ShaderDefault2DUniforms),
              .hasDynamicOffset = true,
          }}};
 
@@ -122,5 +121,5 @@ shader_default2d_createPipeline(WGPUDevice device,
 
     pipeline.pipeline = wgpuDeviceCreateRenderPipeline(device, &pipelineDesc);
 
-    return (shader_default2d_pipeline_result_t){.value = pipeline};
+    return (ShaderDefault2DPipelineResult){.value = pipeline};
 }
