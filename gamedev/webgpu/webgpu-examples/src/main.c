@@ -2,12 +2,12 @@
 #include "glfw3webgpu.h"
 #include "lib.h"
 #include "lib/string.h"
+#include "renderers/renderer_basic2d.h"
 #include "stb_ds.h"
 #include "stdbool.h"
 #include "stdio.h"
 #include "webgpu.h"
 #include "wgpuex.h"
-#include "pipelines/default2d.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -19,7 +19,7 @@ typedef struct {
     WGPULimits deviceLimits;
     WGPUQueue queue;
     WGPUSurface surface;
-    shader_default2d_pipeline pipeline2d;
+    renderer_basic2d renderer2d;
     WGPUTextureFormat textureFormat;
 } WgpuState;
 
@@ -107,7 +107,6 @@ void wgpuQueueWorkDoneCallback(WGPUQueueWorkDoneStatus status, void *userdata) {
     printf("Queue %s work finished: 0x%X\n", "default queue", status);
 }
 
-
 error_code_t appInit(AppData *app_data) {
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialize glfw\n");
@@ -192,14 +191,13 @@ error_code_t appInit(AppData *app_data) {
     // pipeline
     {
 
-        shader_default2d_pipeline_result_t pipeline2dResult =
-            shader_default2d_createPipeline(app_data->wgpu.device,
-                                            app_data->wgpu.deviceLimits,
-                                            app_data->wgpu.textureFormat);
-        if (pipeline2dResult.error_code) {
-            return pipeline2dResult.error_code;
+        renderer_basic2d_result_t rendererResult = renderer_basic2d_create(
+            app_data->wgpu.device, app_data->wgpu.deviceLimits,
+            app_data->wgpu.textureFormat);
+        if (rendererResult.error_code) {
+            return rendererResult.error_code;
         }
-        app_data->wgpu.pipeline2d = pipeline2dResult.value;
+        app_data->wgpu.renderer2d = rendererResult.value;
     }
 
     glfwShowWindow(app_data->window);
@@ -263,8 +261,8 @@ void appUpdate(AppData *app_data) {
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
-        shader_default2d_pipelineRender(app_data->wgpu.pipeline2d, passEncoder,
-                                        app_data->wgpu.queue);
+        renderer_basic2d_render(app_data->wgpu.renderer2d, passEncoder,
+                                app_data->wgpu.queue);
 
         wgpuRenderPassEncoderEnd(passEncoder);
         wgpuRenderPassEncoderRelease(passEncoder);
@@ -284,7 +282,7 @@ void appUpdate(AppData *app_data) {
 }
 
 void appTerminate(AppData *app_data) {
-    shader_default2d_free(app_data->wgpu.pipeline2d);
+    renderer_basic2d_free(app_data->wgpu.renderer2d);
     wgpuSurfaceUnconfigure(app_data->wgpu.surface);
     wgpuSurfaceRelease(app_data->wgpu.surface);
     wgpuQueueRelease(app_data->wgpu.queue);

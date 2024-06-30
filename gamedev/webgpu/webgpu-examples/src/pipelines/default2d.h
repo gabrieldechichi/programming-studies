@@ -22,24 +22,13 @@ typedef struct {
 
 typedef struct {
     WGPURenderPipeline pipeline;
-    WGPUBuffer vertexBuffer;
-    int vertexBufferLen;
-    WGPUBuffer indexBuffer;
-    int indexBufferLen;
-    WGPUBuffer uniformBuffer;
-    int uniformBufferStride;
-    WGPUBindGroup uniformBindGroup;
+    WGPUBindGroupLayout bindGroupLayout;
+    WGPUBindGroupLayoutDescriptor bindGroupLayoutDesc;
 } shader_default2d_pipeline;
 
 RESULT_STRUCT(shader_default2d_pipeline);
 
 shader_default2d_pipeline_result_t
-shader_default2d_createPipeline(WGPUDevice device, WGPULimits deviceLimits,
+shader_default2d_createPipeline(WGPUDevice device,
                                 WGPUTextureFormat textureFormat);
-
-void shader_default2d_pipelineRender(shader_default2d_pipeline pipeline,
-                                     WGPURenderPassEncoder passEncoder,
-                                     WGPUQueue queue);
-
-void shader_default2d_free(shader_default2d_pipeline pipeline);
 #endif
