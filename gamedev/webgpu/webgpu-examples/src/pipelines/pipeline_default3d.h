@@ -15,7 +15,14 @@ typedef struct {
 } ShaderDefault3DVertexOut;
 
 typedef struct {
+    float time;
+    float _time_padding[3];
+} ShaderDefault3DUniforms;
+
+typedef struct {
     WGPURenderPipeline pipeline;
+    WGPUBindGroupLayout uniformsGroupLayout;
+    WGPUBindGroupLayoutDescriptor uniformsGroupLayoutDesc;
 } ShaderDefault3DPipeline;
 
 RESULT_STRUCT(ShaderDefault3DPipeline);

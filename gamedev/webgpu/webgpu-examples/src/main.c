@@ -2,6 +2,7 @@
 #include "glfw3webgpu.h"
 #include "lib.h"
 #include "lib/string.h"
+#include "pipelines/pipeline_default3d.h"
 #include "renderers/renderer_basic3d.h"
 #include "stb_ds.h"
 #include "stdbool.h"
@@ -190,9 +191,8 @@ ErrorCode appInit(AppData *appData) {
 
     // pipeline
     {
-
         RendererBasic3DResult rendererResult = rendererBasic3dCreate(
-            appData->wgpu.device, appData->wgpu.textureFormat);
+            appData->wgpu.device, appData->wgpu.deviceLimits, appData->wgpu.textureFormat);
         if (rendererResult.errorCode) {
             return rendererResult.errorCode;
         }

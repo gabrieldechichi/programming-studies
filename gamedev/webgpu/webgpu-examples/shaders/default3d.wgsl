@@ -8,11 +8,27 @@ struct VertexOut {
     @location(0) col: vec4f,
 };
 
+struct Uniforms {
+    time: f32,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
 @vertex
 fn vs_main(in: VertexIn) -> VertexOut {
     var out: VertexOut;
 
-    out.pos = vec4f(in.pos.x, in.pos.y, in.pos.z, 1.0);
+    let angle = uniforms.time;
+    //let angle = 0.8;
+    let alpha = cos(angle);
+    let beta = sin(angle);
+    var pos = vec3f(
+        in.pos.x,
+        alpha * in.pos.y + beta * in.pos.z,
+        alpha * in.pos.z - beta * in.pos.y,
+    );
+
+    out.pos = vec4f(pos.x, pos.y, pos.z, 1.0);
     out.col = in.col;
     return out;
 }

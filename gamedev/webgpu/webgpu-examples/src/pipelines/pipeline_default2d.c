@@ -96,7 +96,6 @@ shaderDefault2dCreatePipeline(WGPUDevice device,
         wgpuDeviceCreateBindGroupLayout(device, &pipeline.bindGroupLayoutDesc);
 
     WGPUPipelineLayoutDescriptor pipelineLayoutDesc = {
-
         .label = "Default 2D",
         .bindGroupLayoutCount = 1,
         .bindGroupLayouts = &pipeline.bindGroupLayout};

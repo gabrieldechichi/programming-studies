@@ -13,10 +13,7 @@ shaderDefault3dCreatePipeline(WGPUDevice device,
     WGPUShaderModuleResult shaderModuleResult =
         wgpuCreateWGSLShaderModule(device, "shaders/default3d.wgsl");
 
-    if (shaderModuleResult.errorCode) {
-        return (ShaderDefault3DPipelineResult){
-            .errorCode = shaderModuleResult.errorCode};
-    }
+    RETURN_IF_ERROR(shaderModuleResult, ShaderDefault3DPipelineResult);
 
     WGPUVertexAttribute vertexBufAttributes[] = {
         {.format = WGPUVertexFormat_Float32x3,
@@ -64,8 +61,33 @@ shaderDefault3dCreatePipeline(WGPUDevice device,
         .targets = &targetState,
     };
 
+    WGPUBindGroupLayoutEntry uniformEntries[] = {
+        {.binding = 0,
+         .visibility = WGPUShaderStage_Vertex,
+         .buffer = {
+             .type = WGPUBufferBindingType_Uniform,
+             .minBindingSize = sizeof(ShaderDefault3DUniforms),
+             .hasDynamicOffset = false,
+         }}};
+
+    pipeline.uniformsGroupLayoutDesc = (WGPUBindGroupLayoutDescriptor){
+        .label = "Bind group",
+        .entryCount = ARRAY_LEN(uniformEntries),
+        .entries = uniformEntries,
+    };
+
+    pipeline.uniformsGroupLayout = wgpuDeviceCreateBindGroupLayout(
+        device, &pipeline.uniformsGroupLayoutDesc);
+
+    WGPUPipelineLayoutDescriptor pipelineLayoutDesc = {
+        .label = "Default 3D",
+        .bindGroupLayoutCount = 1,
+        .bindGroupLayouts = &pipeline.uniformsGroupLayout,
+    };
+
     WGPURenderPipelineDescriptor pipelineDesc = {
         .label = shaderName,
+        .layout = wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDesc),
         .vertex = vertex,
         .fragment = &fragment,
         .primitive = {.topology = WGPUPrimitiveTopology_TriangleList,

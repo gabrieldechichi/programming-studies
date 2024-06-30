@@ -21,7 +21,7 @@ typedef int ErrorCode;
 #define RESULT_STRUCT(t)                                                       \
     typedef struct {                                                           \
         t value;                                                               \
-        int errorCode;                                                        \
+        int errorCode;                                                         \
     } t##Result
 
 #define CAST_ERROR(v, t)                                                       \
@@ -30,6 +30,11 @@ typedef int ErrorCode;
 #define RETURN_IF_ERROR(r, t)                                                  \
     if (r.errorCode) {                                                         \
         return CAST_ERROR(r, t);                                               \
+    }
+
+#define RETURN_CODE_IF_ERROR(r)                                                \
+    if (r.errorCode) {                                                         \
+        return r.errorCode;                                                    \
     }
 
 typedef struct {

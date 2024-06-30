@@ -4,9 +4,11 @@
 #include "stb/stb_ds.h"
 #include "webgpu/webgpu.h"
 #include "wgpuex.h"
+#include <GLFW/glfw3.h>
 #include <stdint.h>
 
 RendererBasic3DResult rendererBasic3dCreate(WGPUDevice device,
+                                            WGPULimits deviceLimits,
                                             WGPUTextureFormat textureFormat) {
 
     ShaderDefault3DPipelineResult pipelineResult =
@@ -28,12 +30,36 @@ RendererBasic3DResult rendererBasic3dCreate(WGPUDevice device,
         device, "Pyramid Indices", arrlen(mesh.indices), mesh.indices);
     renderer.indexBufferLen = arrlen(mesh.indices);
 
+    int uniformBufferStride =
+        ceilToNextMultiple(sizeof(ShaderDefault3DUniforms),
+                           deviceLimits.minUniformBufferOffsetAlignment);
+
+    renderer.uniformBuffer = createUniformBuffer(
+        device, "Uniforms", uniformBufferStride / sizeof(float));
+    renderer.uniformBufferStride = uniformBufferStride;
+
+    WGPUBindGroupEntry binding = {
+        .binding = 0,
+        .buffer = renderer.uniformBuffer,
+        .offset = 0,
+        .size = sizeof(ShaderDefault3DUniforms),
+    };
+
+    WGPUBindGroupDescriptor uniformBindGroupDesc = {
+        .label = "Uniform bind group",
+        .layout = renderer.pipeline.uniformsGroupLayout,
+        .entryCount = renderer.pipeline.uniformsGroupLayoutDesc.entryCount,
+        .entries = &binding,
+    };
+
+    renderer.uniformBindGroup =
+        wgpuDeviceCreateBindGroup(device, &uniformBindGroupDesc);
+
     return (RendererBasic3DResult){.value = renderer};
 }
 
 void rendererBasic3dRender(RendererBasic3D renderer,
                            WGPURenderPassEncoder passEncoder, WGPUQueue queue) {
-    UNUSED(queue);
     wgpuRenderPassEncoderSetPipeline(passEncoder, renderer.pipeline.pipeline);
     wgpuRenderPassEncoderSetIndexBuffer(
         passEncoder, renderer.indexBuffer, WGPUIndexFormat_Uint16, 0,
@@ -41,6 +67,13 @@ void rendererBasic3dRender(RendererBasic3D renderer,
     wgpuRenderPassEncoderSetVertexBuffer(
         passEncoder, 0, renderer.vertexBuffer, 0,
         renderer.vertexBufferLen * sizeof(float));
+
+    ShaderDefault3DUniforms uniforms = {.time = glfwGetTime()};
+    wgpuQueueWriteBuffer(queue, renderer.uniformBuffer, 0, &uniforms,
+                         sizeof(ShaderDefault3DUniforms));
+
+    wgpuRenderPassEncoderSetBindGroup(passEncoder, 0, renderer.uniformBindGroup,
+                                      0, NULL);
 
     wgpuRenderPassEncoderDrawIndexed(passEncoder, renderer.indexBufferLen, 1, 0,
                                      0, 0);
