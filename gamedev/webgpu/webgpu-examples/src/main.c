@@ -7,6 +7,7 @@
 #include "stdio.h"
 #include "webgpu.h"
 #include "wgpuex.h"
+#include "pipelines/default2d.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -14,24 +15,11 @@ const unsigned int WIDTH = 800;
 const unsigned int HEIGHT = 600;
 
 typedef struct {
-    float time;
-    float _time_padding[3];
-    float color[4];
-} shader_uniforms_t;
-
-typedef struct {
     WGPUDevice device;
     WGPULimits deviceLimits;
     WGPUQueue queue;
     WGPUSurface surface;
-    WGPURenderPipeline pipeline;
-    WGPUBuffer vertexBuffer;
-    int vertexBufferLen;
-    WGPUBuffer indexBuffer;
-    int indexBufferLen;
-    WGPUBuffer uniformBuffer;
-    int uniformBufferStride;
-    WGPUBindGroup uniformBindGroup;
+    shader_default2d_pipeline pipeline2d;
     WGPUTextureFormat textureFormat;
 } WgpuState;
 
@@ -119,6 +107,7 @@ void wgpuQueueWorkDoneCallback(WGPUQueueWorkDoneStatus status, void *userdata) {
     printf("Queue %s work finished: 0x%X\n", "default queue", status);
 }
 
+
 error_code_t appInit(AppData *app_data) {
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialize glfw\n");
@@ -202,165 +191,15 @@ error_code_t appInit(AppData *app_data) {
 
     // pipeline
     {
-        string_result_t shaderSourceResult =
-            fileReadAllText("shaders/default.wgsl");
-        if (shaderSourceResult.error_code) {
-            return shaderSourceResult.error_code;
+
+        shader_default2d_pipeline_result_t pipeline2dResult =
+            shader_default2d_createPipeline(app_data->wgpu.device,
+                                            app_data->wgpu.deviceLimits,
+                                            app_data->wgpu.textureFormat);
+        if (pipeline2dResult.error_code) {
+            return pipeline2dResult.error_code;
         }
-
-        WGPUShaderModuleWGSLDescriptor wgslDesc = {
-            .chain = {.sType = WGPUSType_ShaderModuleWGSLDescriptor},
-            .code = shaderSourceResult.value,
-        };
-
-        WGPUShaderModuleDescriptor moduleDesc = {
-            .nextInChain = &wgslDesc.chain,
-            .label = "Hello WGPU",
-        };
-
-        WGPUShaderModule module =
-            wgpuDeviceCreateShaderModule(app_data->wgpu.device, &moduleDesc);
-
-        str_free(&shaderSourceResult.value);
-
-        WGPUVertexAttribute vertexBuffAttributes[] = {
-            {.format = WGPUVertexFormat_Float32x2,
-             .offset = 0,
-             .shaderLocation = 0},
-            {.format = WGPUVertexFormat_Float32x4,
-             .offset = 2 * sizeof(float),
-             .shaderLocation = 1},
-        };
-
-        WGPUVertexBufferLayout vertexBuffers[1] = {
-            {.arrayStride = (2 + 4) * sizeof(float),
-             .stepMode = WGPUVertexStepMode_Vertex,
-             .attributeCount = ARRAY_LEN(vertexBuffAttributes),
-             .attributes = vertexBuffAttributes}};
-
-        WGPUVertexState vertex = {
-            .module = module,
-            .entryPoint = "vs_main",
-            .bufferCount = 1,
-            .buffers = vertexBuffers,
-        };
-
-        WGPUBlendState blendState = {
-            .color =
-                {
-                    .operation = WGPUBlendOperation_Add,
-                    .srcFactor = WGPUBlendFactor_SrcAlpha,
-                    .dstFactor = WGPUBlendFactor_OneMinusSrcAlpha,
-                },
-            .alpha = {
-                .operation = WGPUBlendOperation_Add,
-                .srcFactor = WGPUBlendFactor_Zero,
-                .dstFactor = WGPUBlendFactor_One,
-            }};
-
-        WGPUColorTargetState targetState = {
-            .format = app_data->wgpu.textureFormat,
-            .blend = &blendState,
-            .writeMask = WGPUColorWriteMask_All,
-        };
-
-        WGPUFragmentState fragment = {
-
-            .module = module,
-            .entryPoint = "fs_main",
-            .targetCount = 1,
-            .targets = &targetState,
-        };
-
-        WGPUBindGroupLayoutEntry uniformEntries[1] = {
-            {.binding = 0,
-             .visibility = WGPUShaderStage_Vertex,
-             .buffer = {
-                 .type = WGPUBufferBindingType_Uniform,
-                 .minBindingSize = sizeof(shader_uniforms_t),
-                 .hasDynamicOffset = true,
-             }}};
-
-        WGPUBindGroupLayoutDescriptor bindGroupLayoutDesc = {
-            .label = "Bind group",
-            .entryCount = 1,
-            .entries = uniformEntries,
-        };
-
-        WGPUBindGroupLayout bindGroupLayout = wgpuDeviceCreateBindGroupLayout(
-            app_data->wgpu.device, &bindGroupLayoutDesc);
-
-        WGPUPipelineLayoutDescriptor pipelineLayoutDesc = {
-
-            .label = "Hello WGPU Pipeline Layout",
-            .bindGroupLayoutCount = 1,
-            .bindGroupLayouts = &bindGroupLayout};
-
-        WGPURenderPipelineDescriptor pipelineDesc = {
-            .label = "Hello Triangle",
-            .layout = wgpuDeviceCreatePipelineLayout(app_data->wgpu.device,
-                                                     &pipelineLayoutDesc),
-            .vertex = vertex,
-            .fragment = &fragment,
-            .primitive =
-                {
-                    .topology = WGPUPrimitiveTopology_TriangleList,
-                    .stripIndexFormat = WGPUIndexFormat_Undefined,
-                    .frontFace = WGPUFrontFace_CCW,
-                    .cullMode = WGPUCullMode_Back,
-                },
-            .depthStencil = NULL,
-            .multisample = {.count = 1,
-                            .mask = ~0,
-                            .alphaToCoverageEnabled = false},
-        };
-        app_data->wgpu.pipeline = wgpuDeviceCreateRenderPipeline(
-            app_data->wgpu.device, &pipelineDesc);
-        wgpuShaderModuleRelease(module);
-
-        mesh_result_t meshResult =
-            loadGeometry("./resources/geometry/wgpu.geo");
-
-        if (meshResult.error_code) {
-            return meshResult.error_code;
-        }
-
-        mesh_t mesh = meshResult.value;
-
-        app_data->wgpu.vertexBuffer =
-            createVertexBuffer(app_data->wgpu.device, "Geometry Buffer",
-                               arrlen(mesh.vertices), mesh.vertices);
-        app_data->wgpu.vertexBufferLen = arrlen(mesh.vertices);
-
-        app_data->wgpu.indexBuffer =
-            createIndexBuffer16(app_data->wgpu.device, "Indices",
-                                arrlen(mesh.indices), mesh.indices);
-        app_data->wgpu.indexBufferLen = arrlen(mesh.indices);
-
-        int uniformBufferStride = ceilToNextMultiple(
-            sizeof(shader_uniforms_t),
-            app_data->wgpu.deviceLimits.minUniformBufferOffsetAlignment);
-        app_data->wgpu.uniformBuffer = createUniformBuffer(
-            app_data->wgpu.device, "Uniform",
-            (uniformBufferStride + sizeof(shader_uniforms_t)) / sizeof(float));
-        app_data->wgpu.uniformBufferStride = uniformBufferStride;
-
-        WGPUBindGroupEntry binding = {
-            .binding = 0,
-            .buffer = app_data->wgpu.uniformBuffer,
-            .offset = 0,
-            .size = sizeof(shader_uniforms_t),
-        };
-
-        WGPUBindGroupDescriptor uniformBindGroupDesc = {
-            .label = "Uniform bind group",
-            .layout = bindGroupLayout,
-            .entryCount = bindGroupLayoutDesc.entryCount,
-            .entries = &binding,
-        };
-
-        app_data->wgpu.uniformBindGroup = wgpuDeviceCreateBindGroup(
-            app_data->wgpu.device, &uniformBindGroupDesc);
+        app_data->wgpu.pipeline2d = pipeline2dResult.value;
     }
 
     glfwShowWindow(app_data->window);
@@ -424,53 +263,8 @@ void appUpdate(AppData *app_data) {
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
 
-        wgpuRenderPassEncoderSetPipeline(passEncoder, app_data->wgpu.pipeline);
-        wgpuRenderPassEncoderSetIndexBuffer(
-            passEncoder, app_data->wgpu.indexBuffer, WGPUIndexFormat_Uint16, 0,
-            app_data->wgpu.indexBufferLen * sizeof(uint16_t));
-        wgpuRenderPassEncoderSetVertexBuffer(
-            passEncoder, 0, app_data->wgpu.vertexBuffer, 0,
-            app_data->wgpu.vertexBufferLen * sizeof(float));
-
-        // draw 1
-        {
-            shader_uniforms_t uniforms = {
-                .time = glfwGetTime(),
-                .color = {0.5, 0.8, 0.5, 1.0},
-            };
-
-            wgpuQueueWriteBuffer(app_data->wgpu.queue,
-                                 app_data->wgpu.uniformBuffer, 0, &uniforms,
-                                 sizeof(uniforms));
-
-            shader_uniforms_t uniforms2 = {
-                .time = 2 * glfwGetTime() + 0.5,
-                .color = {1, 1, 0, 1},
-            };
-
-            wgpuQueueWriteBuffer(app_data->wgpu.queue,
-                                 app_data->wgpu.uniformBuffer,
-                                 app_data->wgpu.uniformBufferStride, &uniforms2,
-                                 sizeof(uniforms2));
-
-            uint32_t dynamicOffsets[1] = {0};
-
-            wgpuRenderPassEncoderSetBindGroup(
-                passEncoder, 0, app_data->wgpu.uniformBindGroup,
-                ARRAY_LEN(dynamicOffsets), dynamicOffsets);
-
-            wgpuRenderPassEncoderDrawIndexed(
-                passEncoder, app_data->wgpu.indexBufferLen, 1, 0, 0, 0);
-
-            dynamicOffsets[0] = app_data->wgpu.uniformBufferStride;
-
-            wgpuRenderPassEncoderSetBindGroup(
-                passEncoder, 0, app_data->wgpu.uniformBindGroup,
-                ARRAY_LEN(dynamicOffsets), dynamicOffsets);
-
-            wgpuRenderPassEncoderDrawIndexed(
-                passEncoder, app_data->wgpu.indexBufferLen, 1, 0, 0, 0);
-        }
+        shader_default2d_pipelineRender(app_data->wgpu.pipeline2d, passEncoder,
+                                        app_data->wgpu.queue);
 
         wgpuRenderPassEncoderEnd(passEncoder);
         wgpuRenderPassEncoderRelease(passEncoder);
@@ -490,9 +284,7 @@ void appUpdate(AppData *app_data) {
 }
 
 void appTerminate(AppData *app_data) {
-    wgpuBufferRelease(app_data->wgpu.indexBuffer);
-    wgpuBufferRelease(app_data->wgpu.vertexBuffer);
-    wgpuRenderPipelineRelease(app_data->wgpu.pipeline);
+    shader_default2d_free(app_data->wgpu.pipeline2d);
     wgpuSurfaceUnconfigure(app_data->wgpu.surface);
     wgpuSurfaceRelease(app_data->wgpu.surface);
     wgpuQueueRelease(app_data->wgpu.queue);

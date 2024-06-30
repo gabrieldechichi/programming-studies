@@ -7,7 +7,7 @@
 
 typedef char *string_t;
 
-RESULT_STRUCT(string);
+RESULT_STRUCT_T(string);
 
 static string_result_t str_new(uint16_t len) {
     string_t str = {0};

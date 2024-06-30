@@ -18,9 +18,15 @@ typedef int error_code_t;
 #define ARRAY_LEN(arr) sizeof(arr) / sizeof(arr[0])
 #define TYPE_NAME(t) #t
 
-#define RESULT_STRUCT(t)                                                       \
+#define RESULT_STRUCT_T(t)                                                       \
     typedef struct {                                                           \
         t##_t value;                                                           \
+        int error_code;                                                        \
+    } t##_result_t
+
+#define RESULT_STRUCT(t)                                                       \
+    typedef struct {                                                           \
+        t value;                                                           \
         int error_code;                                                        \
     } t##_result_t
 
@@ -29,7 +35,7 @@ typedef struct {
     uint16_t *indices;
 } mesh_t;
 
-RESULT_STRUCT(mesh);
+RESULT_STRUCT_T(mesh);
 
 
 void println(const char *__restrict __format, ...);
