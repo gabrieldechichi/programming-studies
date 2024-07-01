@@ -18,17 +18,40 @@ struct Uniforms {
 fn vs_main(in: VertexIn) -> VertexOut {
     var out: VertexOut;
 
-    let angle = uniforms.time;
-    //let angle = 0.8;
-    let alpha = cos(angle);
-    let beta = sin(angle);
-    var pos = vec3f(
-        in.pos.x,
-        alpha * in.pos.y + beta * in.pos.z,
-        alpha * in.pos.z - beta * in.pos.y,
-    );
+    // Rotate the model in the XY plane
+    let angley = uniforms.time;
+    let rot1 = transpose(mat4x4f(
+        cos(angley), 0.0, sin(angley), 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        -sin(angley), 0.0, cos(angley), 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ));
 
-    out.pos = vec4f(pos.x, pos.y, pos.z * 0.5 + 0.5, 1.0);
+    let anglex = -1.0 * 3.14 / 4.0;
+    let rot2 = transpose(mat4x4f(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, cos(anglex), sin(anglex), 0.0,
+        0.0, -sin(anglex), cos(anglex), 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ));
+
+    let trans = transpose(mat4x4f(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, -0.2,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ));
+
+    let scale = transpose(mat4x4f(
+        0.5, 0.0, 0.0, 0.0,
+        0.0, 0.6, 0.0, 0.0,
+        0.0, 0.0, 0.5, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ));
+
+    out.pos = trans * rot2 * rot1 * scale * vec4f(in.pos, 1.0);
+    out.pos.z *= 0.5;
+    out.pos.z += 0.5;
     out.col = in.col;
     return out;
 }
