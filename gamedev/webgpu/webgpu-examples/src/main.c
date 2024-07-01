@@ -92,7 +92,7 @@ void inspectDevice(WGPUDevice device) {
         }
     }
 
-    WGPUSupportedLimits limits = {};
+    WGPUSupportedLimits limits = {0};
     limits.nextInChain = NULL;
 
     WGPUBool success = wgpuDeviceGetLimits(device, &limits);
