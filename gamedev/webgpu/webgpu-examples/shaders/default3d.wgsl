@@ -35,23 +35,33 @@ fn vs_main(in: VertexIn) -> VertexOut {
         0.0, 0.0, 0.0, 1.0,
     ));
 
-    let trans = transpose(mat4x4f(
+    let R = rot2 * rot1;
+
+    let T = transpose(mat4x4f(
         1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, -0.2,
         0.0, 0.0, 1.0, 0.0,
         0.0, 0.0, 0.0, 1.0,
     ));
 
-    let scale = transpose(mat4x4f(
+    let S = transpose(mat4x4f(
         0.5, 0.0, 0.0, 0.0,
         0.0, 0.6, 0.0, 0.0,
         0.0, 0.0, 0.5, 0.0,
         0.0, 0.0, 0.0, 1.0,
     ));
 
-    out.pos = trans * rot2 * rot1 * scale * vec4f(in.pos, 1.0);
-    out.pos.z *= 0.5;
-    out.pos.z += 0.5;
+    let near = -1.0;
+    let far = 1.0;
+    let scale = 0.7;
+    let ortho = transpose(mat4x4f(
+        1.0 / scale, 0.0, 0.0, 0.0,
+        0.0, 1.0 / scale, 0.0, 0.0,
+        0.0, 0.0, 1.0 / (far - near), -near / (far - near),
+        0.0, 0.0, 0.0, 1.0,
+    ));
+
+    out.pos = ortho * T * R * S * vec4f(in.pos, 1.0);
     out.col = in.col;
     return out;
 }
