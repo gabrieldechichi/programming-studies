@@ -85,11 +85,28 @@ shaderDefault3dCreatePipeline(WGPUDevice device,
         .bindGroupLayouts = &pipeline.uniformsGroupLayout,
     };
 
+    WGPUStencilFaceState stencilDefault = {
+
+        .compare = WGPUCompareFunction_Always,
+        .failOp = WGPUStencilOperation_Keep,
+        .depthFailOp = WGPUStencilOperation_Keep,
+        .passOp = WGPUStencilOperation_Keep,
+    };
+    WGPUDepthStencilState depthStencil = {
+        .format = WGPUTextureFormat_Depth24Plus,
+        .depthWriteEnabled = true,
+        .depthCompare = WGPUCompareFunction_Less,
+        .stencilReadMask = 0,
+        .stencilWriteMask = 0,
+        .stencilFront = stencilDefault,
+        .stencilBack = stencilDefault,
+    };
     WGPURenderPipelineDescriptor pipelineDesc = {
         .label = shaderName,
         .layout = wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDesc),
         .vertex = vertex,
         .fragment = &fragment,
+        .depthStencil = &depthStencil,
         .primitive = {.topology = WGPUPrimitiveTopology_TriangleList,
                       .frontFace = WGPUFrontFace_CCW,
                       .cullMode = WGPUCullMode_Back},

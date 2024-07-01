@@ -28,7 +28,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
         alpha * in.pos.z - beta * in.pos.y,
     );
 
-    out.pos = vec4f(pos.x, pos.y, pos.z, 1.0);
+    out.pos = vec4f(pos.x, pos.y, pos.z * 0.5 + 0.5, 1.0);
     out.col = in.col;
     return out;
 }

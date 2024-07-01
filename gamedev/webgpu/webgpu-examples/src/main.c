@@ -2,7 +2,6 @@
 #include "glfw3webgpu.h"
 #include "lib.h"
 #include "lib/string.h"
-#include "pipelines/pipeline_default3d.h"
 #include "renderers/renderer_basic3d.h"
 #include "stb_ds.h"
 #include "stdbool.h"
@@ -21,7 +20,9 @@ typedef struct {
     WGPUQueue queue;
     WGPUSurface surface;
     RendererBasic3D renderer;
+    WGPUTextureView depthTextureView;
     WGPUTextureFormat textureFormat;
+    WGPUTextureFormat depthTextureFormat;
 } WgpuState;
 
 typedef struct {
@@ -192,11 +193,43 @@ ErrorCode appInit(AppData *appData) {
     // pipeline
     {
         RendererBasic3DResult rendererResult = rendererBasic3dCreate(
-            appData->wgpu.device, appData->wgpu.deviceLimits, appData->wgpu.textureFormat);
-        if (rendererResult.errorCode) {
-            return rendererResult.errorCode;
-        }
+            appData->wgpu.device, appData->wgpu.deviceLimits,
+            appData->wgpu.textureFormat);
+        RETURN_CODE_IF_ERROR(rendererResult);
         appData->wgpu.renderer = rendererResult.value;
+    }
+
+    // depth texture
+    {
+        appData->wgpu.depthTextureFormat = WGPUTextureFormat_Depth24Plus;
+        WGPUTextureDescriptor depthTexDescriptor = {
+            .label = "Depth",
+            .usage = WGPUTextureUsage_RenderAttachment,
+            .dimension = WGPUTextureDimension_2D,
+            .size = {.width = WIDTH, .height = HEIGHT, .depthOrArrayLayers = 1},
+            .format = appData->wgpu.depthTextureFormat,
+            .mipLevelCount = 1,
+            .sampleCount = 1,
+            .viewFormatCount = 1,
+            .viewFormats = &appData->wgpu.depthTextureFormat,
+        };
+
+        WGPUTexture depthTexture =
+            wgpuDeviceCreateTexture(appData->wgpu.device, &depthTexDescriptor);
+
+        WGPUTextureViewDescriptor depthTexViewDescriptor = {
+            .label = "Depth texture view",
+            .format = depthTexDescriptor.format,
+            .dimension = WGPUTextureViewDimension_2D,
+            .baseMipLevel = 0,
+            .mipLevelCount = 1,
+            .baseArrayLayer = 0,
+            .arrayLayerCount = 1,
+            .aspect = WGPUTextureAspect_DepthOnly,
+        };
+
+        appData->wgpu.depthTextureView =
+            wgpuTextureCreateView(depthTexture, &depthTexViewDescriptor);
     }
 
     glfwShowWindow(appData->window);
@@ -218,7 +251,7 @@ void appUpdate(AppData *appData) {
     // START grab surface texture
     WGPUSurfaceTexture surfaceTex;
     wgpuSurfaceGetCurrentTexture(appData->wgpu.surface, &surfaceTex);
-    if (surfaceTex.status != WGPUSurfaceGetCurrentTextureStatus_Success) {
+    if (surfaceTex.status) {
         return;
     }
 
@@ -252,10 +285,24 @@ void appUpdate(AppData *appData) {
             .storeOp = WGPUStoreOp_Store,
             .clearValue = {0.5, 0.5, 0.5, 1}};
 
-        WGPURenderPassDescriptor renderPassDesc = {.label = "Frame render pass",
-                                                   .colorAttachmentCount = 1,
-                                                   .colorAttachments =
-                                                       &colorAttachment};
+        WGPURenderPassDepthStencilAttachment depthStencilAttachment = {
+            .view = appData->wgpu.depthTextureView,
+            .depthLoadOp = WGPULoadOp_Clear,
+            .depthStoreOp = WGPUStoreOp_Store,
+            .depthClearValue = 1,
+            .depthReadOnly = false,
+            .stencilLoadOp = WGPULoadOp_Clear,
+            .stencilStoreOp = WGPUStoreOp_Store,
+            .stencilClearValue = 0,
+            .stencilReadOnly = true,
+        };
+
+        WGPURenderPassDescriptor renderPassDesc = {
+            .label = "Frame render pass",
+            .colorAttachmentCount = 1,
+            .colorAttachments = &colorAttachment,
+            .depthStencilAttachment = &depthStencilAttachment,
+        };
 
         WGPURenderPassEncoder passEncoder =
             wgpuCommandEncoderBeginRenderPass(cmdencoder, &renderPassDesc);
