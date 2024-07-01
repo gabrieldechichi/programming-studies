@@ -37,11 +37,10 @@ fn vs_main(in: VertexIn) -> VertexOut {
 
     let R = rot2 * rot1;
 
-    let focalPoint = vec3f(0.0, 0.0, -2.0);
     let T = transpose(mat4x4f(
-        1.0, 0.0, 0.0, -focalPoint.x,
-        0.0, 1.0, 0.0, -focalPoint.y,
-        0.0, 0.0, 1.0, -focalPoint.z,
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.2,
+        0.0, 0.0, 1.0, 0.0,
         0.0, 0.0, 0.0, 1.0,
     ));
 
@@ -66,13 +65,21 @@ fn vs_main(in: VertexIn) -> VertexOut {
     let near = 0.01;
     let far = 100.0;
     let divides = 1.0 / (focalLength * (far - near));
+
+    let focalPoint = vec3f(0.0, 0.0, -2.0);
+    let EYE = transpose(mat4x4f(
+        1.0, 0.0, 0.0, -focalPoint.x,
+        0.0, 1.0, 0.0, -focalPoint.y,
+        0.0, 0.0, 1.0, -focalPoint.z,
+        0.0, 0.0, 0.0, 1.0,
+    ));
 // (no need for a scale parameter now that we have focalLength)
     let P = transpose(mat4x4f(
         focalLength, 0.0, 0.0, 0.0,
         0.0, focalLength, 0.0, 0.0,
         0.0, 0.0, far * divides, -far * near * divides,
         0.0, 0.0, 1.0 / focalLength, 0.0,
-    ));
+    )) * EYE;
 
     out.pos = P * T * R * S * vec4f(in.pos, 1.0);
     out.col = in.col;
