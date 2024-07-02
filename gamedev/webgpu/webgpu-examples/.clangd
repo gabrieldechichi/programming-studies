@@ -9,3 +9,5 @@ CompileFlags:
     - '-I../vendor/stb'
     - '-I../vendor/webgpu'
     - '-I../vendor/glfw3webgpu'
+    - '-I../vendor/cglm/include'
+    - '-I../../vendor/cglm/include'

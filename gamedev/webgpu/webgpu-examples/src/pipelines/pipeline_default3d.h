@@ -3,6 +3,7 @@
 
 #include "lib.h"
 #include "webgpu/webgpu.h"
+#include "cglm/cglm.h"
 
 typedef struct {
     float pos[3];
@@ -15,6 +16,9 @@ typedef struct {
 } ShaderDefault3DVertexOut;
 
 typedef struct {
+    mat4 modelMatrix;
+    mat4 viewMatrix;
+    mat4 projectionMatrix;
     float time;
     float _time_padding[3];
 } ShaderDefault3DUniforms;

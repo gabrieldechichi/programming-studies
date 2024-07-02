@@ -1,10 +1,20 @@
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_LEFT_HANDED
+
 #include "renderer_basic3d.h"
+#include "cglm/affine-pre.h"
+#include "cglm/affine.h"
+#include "cglm/cam.h"
+#include "cglm/mat4.h"
+#include "cglm/types.h"
+#include "cglm/util.h"
 #include "lib.h"
 #include "pipelines/pipeline_default3d.h"
 #include "stb/stb_ds.h"
 #include "webgpu/webgpu.h"
 #include "wgpuex.h"
 #include <GLFW/glfw3.h>
+#include <cglm/util.h>
 #include <stdint.h>
 
 RendererBasic3DResult rendererBasic3dCreate(WGPUDevice device,
@@ -68,7 +78,24 @@ void rendererBasic3dRender(RendererBasic3D renderer,
         passEncoder, 0, renderer.vertexBuffer, 0,
         renderer.vertexBufferLen * sizeof(float));
 
+    mat4 model = GLM_MAT4_IDENTITY_INIT;
+    mat4 view = GLM_MAT4_IDENTITY_INIT;
+    mat4 projection = GLM_MAT4_IDENTITY_INIT;
+    glm_scale(model, (vec3){0.5, 0.6, 0.5});
+    glm_rotate_x(model, glm_rad(45), model);
+    glm_rotate_z(model, glm_rad(20), model);
+    glm_rotate_y(model, glfwGetTime(), model);
+
+    glm_translate(view, (vec3){0.0, 0.0, -2.0});
+
+    glm_perspective(glm_rad(45), 1, 0.01, 10, projection);
+
     ShaderDefault3DUniforms uniforms = {.time = glfwGetTime()};
+
+    glm_mat4_copy(model, uniforms.modelMatrix);
+    glm_mat4_copy(view, uniforms.viewMatrix);
+    glm_mat4_copy(projection, uniforms.projectionMatrix);
+
     wgpuQueueWriteBuffer(queue, renderer.uniformBuffer, 0, &uniforms,
                          sizeof(ShaderDefault3DUniforms));
 
