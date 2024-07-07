@@ -6,14 +6,23 @@ export type DebugPipelineCreateParams = {
 };
 
 export class DebugPipelineUniforms {
-  modelMatrix!: Float32Array;
   viewProjectionMatrix!: Float32Array;
-  static byteSize: number = 32 * Float32Array.BYTES_PER_ELEMENT;
+  //array
+  modelMatrices!: Float32Array;
 
-  static modelMatrixSize: number = 16 * Float32Array.BYTES_PER_ELEMENT;
-  static modelMatrixOffset: number = 0;
-  static viewProjectionMatrixSize: number = 16 * Float32Array.BYTES_PER_ELEMENT;
-  static viewProjectionMatrixOffset: number = this.modelMatrixSize;
+  static instanceCount = 256;
+
+  static viewProjectionMatrixOffset: number = 0;
+  static viewProjectionMatrixFloatCount = 16;
+  static viewProjectionMatrixByteSize = 16 * Float32Array.BYTES_PER_ELEMENT;
+
+  static modelMatricesOffset: number = this.viewProjectionMatrixByteSize;
+  static modelMatricesFloatCount = 16 * this.instanceCount;
+  static modelMatricesByteSize =
+    this.modelMatricesFloatCount * Float32Array.BYTES_PER_ELEMENT;
+
+  static byteSize: number =
+    this.modelMatricesByteSize + this.viewProjectionMatrixByteSize;
 }
 
 export class DebugPipeline {

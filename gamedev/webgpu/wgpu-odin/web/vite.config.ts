@@ -3,7 +3,7 @@ import FullReload from "vite-plugin-full-reload";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [FullReload(["./resources/*.wasm"])],
+  plugins: [FullReload(["./resources/*.wasm", "./resources/shaders/*"])],
   resolve: {
     alias: {
       src: path.resolve(__dirname, "./src"),

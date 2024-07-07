@@ -21,9 +21,26 @@ main :: proc() {
 	)
 }
 
-@(export = true)
+@(export)
 step :: proc(dt: f32) -> bool {
-	wgpu.debugRendererDrawSquare(linalg.matrix4_scale_f32(linalg.Vector3f32{200, 200, 1}))
+	wgpu.debugRendererDrawSquare(
+		linalg.matrix4_scale_f32(lib.vec3{200, 200, 1}),
+	)
+	wgpu.debugRendererDrawSquare(
+		linalg.matrix4_from_trs(
+			lib.vec3{200, 0, 0},
+			linalg.quaternion_from_euler_angle_z(cast(f32)linalg.PI / 4),
+			lib.vec3{100, 200, 1},
+		),
+	)
+
+	wgpu.debugRendererDrawSquare(
+		linalg.matrix4_from_trs(
+			lib.vec3{-200, -100, 0},
+			linalg.quaternion_from_euler_angle_z(cast(f32)-linalg.PI / 4),
+			lib.vec3{100, 200, 1},
+		),
+	)
 	wgpu.render(viewProjection)
 	return true
 }

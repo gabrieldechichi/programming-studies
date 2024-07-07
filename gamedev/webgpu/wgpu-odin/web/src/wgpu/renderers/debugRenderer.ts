@@ -19,11 +19,12 @@ export class DebugRenderer {
   vertexBuffer!: GPUVertexBuffer;
   indexBuffer!: GPUIndexBuffer;
   indexCount!: number;
+  uniformMatricesData!: Float32Array;
   uniformsBuffer!: GPUUniformBuffer;
   uniformsBindGroup!: GPUBindGroup;
 
   //todo: fixed array
-  instances: DebugRenderInstance[] = [];
+  instanceCount: number = 0;
 
   //prettier-ignore
   static SpriteUIGeo = new Float32Array([
@@ -71,11 +72,19 @@ export class DebugRenderer {
     renderer.indexBuffer = WGPUBuffer.createIndexBuffer(device, indexArray);
     renderer.indexCount = indexArray.length;
 
+    renderer.uniformMatricesData = new Float32Array(
+      DebugPipelineUniforms.modelMatricesFloatCount,
+    );
+
     return renderer;
   }
 
   addInstance(instance: DebugRenderInstance) {
-    this.instances.push(instance);
+    if (this.instanceCount < DebugPipelineUniforms.instanceCount) {
+      const offset = this.instanceCount * 16;
+      this.uniformMatricesData.set(instance.modelMatrix, offset);
+      this.instanceCount++;
+    }
   }
 
   render({
@@ -91,26 +100,25 @@ export class DebugRenderer {
     passEncoder.setVertexBuffer(0, this.vertexBuffer);
     passEncoder.setIndexBuffer(this.indexBuffer, "uint16");
     passEncoder.setBindGroup(0, this.uniformsBindGroup);
-    for (let i = 0; i < this.instances.length; i++) {
-      const instance = this.instances[i];
 
-      queue.writeBuffer(
-        this.uniformsBuffer,
-        DebugPipelineUniforms.modelMatrixOffset,
-        instance.modelMatrix,
-      );
+    queue.writeBuffer(
+      this.uniformsBuffer,
+      DebugPipelineUniforms.viewProjectionMatrixOffset,
+      projectionViewMatrix,
+    );
 
-      queue.writeBuffer(
-        this.uniformsBuffer,
-        DebugPipelineUniforms.viewProjectionMatrixOffset,
-        projectionViewMatrix,
-      );
+    queue.writeBuffer(
+      this.uniformsBuffer,
+      DebugPipelineUniforms.modelMatricesOffset,
+      this.uniformMatricesData,
+      0,
+      this.instanceCount * 16,
+    );
 
-      passEncoder.drawIndexed(this.indexCount, 1);
-    }
+    passEncoder.drawIndexed(this.indexCount, this.instanceCount);
   }
 
   endFrame() {
-    this.instances.length = 0;
+    this.instanceCount = 0;
   }
 }
