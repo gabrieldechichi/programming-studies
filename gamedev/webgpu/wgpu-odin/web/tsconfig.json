@@ -19,7 +19,13 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["@webgpu/types"]
+    "types": ["@webgpu/types"],
+
+    "baseUrl": "./",
+    "paths": {
+      "@/*": ["/*"],
+      "resources/*": ["resources/*"]
+    }
   },
   "include": ["src"]
 }

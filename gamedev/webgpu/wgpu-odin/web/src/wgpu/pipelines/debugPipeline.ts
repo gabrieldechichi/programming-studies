@@ -1,4 +1,4 @@
-import shaderSource from "../../../resources/shaders/debug.wgsl?raw";
+import shaderSource from "resources/shaders/debug.wgsl?raw";
 
 export type DebugPipelineCreateParams = {
   device: GPUDevice;

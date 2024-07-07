@@ -3,12 +3,12 @@ import {
   GPUUniformBuffer,
   GPUVertexBuffer,
   WGPUBuffer,
-} from "../buffer";
+} from "src/wgpu/buffer";
 import {
   DebugPipeline,
   DebugPipelineCreateParams,
   DebugPipelineUniforms,
-} from "../pipelines/debugPipeline";
+} from "src/wgpu/pipelines/debugPipeline";
 
 export type DebugRenderInstance = {
   modelMatrix: Float32Array;
