@@ -7,12 +7,18 @@ export type DebugPipelineCreateParams = {
 
 export class DebugPipelineGlobalUniforms {
   viewProjectionMatrix!: Float32Array;
+  colors!: Float32Array;
 
   static viewProjectionMatrixOffset: number = 0;
   static viewProjectionMatrixFloatCount = 16;
   static viewProjectionMatrixByteSize = 16 * Float32Array.BYTES_PER_ELEMENT;
 
-  static byteSize: number = this.viewProjectionMatrixByteSize;
+  static colorCount : number = 4
+  static colorsOffset: number = this.viewProjectionMatrixByteSize;
+  static colorsFloatCount = 4 * this.colorCount;
+  static colorsByteSize = this.colorsFloatCount * Float32Array.BYTES_PER_ELEMENT;
+
+ static byteSize: number = this.viewProjectionMatrixByteSize + this.colorsByteSize;
 }
 
 export class DebugPipelineModelMatrixUniforms {

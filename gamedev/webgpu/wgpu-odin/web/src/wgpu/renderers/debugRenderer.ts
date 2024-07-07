@@ -93,7 +93,8 @@ export class DebugRenderer {
 
   addInstance(instance: DebugRenderInstance) {
     if (this.instanceCount < DebugPipelineModelMatrixUniforms.instanceCount) {
-      const offset = this.instanceCount * DebugPipelineModelMatrixUniforms.elementByteSize;
+      const offset =
+        this.instanceCount * DebugPipelineModelMatrixUniforms.elementByteSize;
       this.modelMatricesData.set(instance.modelMatrix, offset);
       this.instanceCount++;
     }
@@ -120,6 +121,17 @@ export class DebugRenderer {
       this.globalsBuffer,
       DebugPipelineGlobalUniforms.viewProjectionMatrixOffset,
       projectionViewMatrix,
+    );
+    queue.writeBuffer(
+      this.globalsBuffer,
+      DebugPipelineGlobalUniforms.colorsOffset,
+      //prettier-ignore
+      new Float32Array([
+          1,0.5,0,1,
+          0.2,1.0,0.5,1,
+          0.2,1,0.4,1,
+          0.4,0.1,0.4,1,
+      ]),
     );
 
     queue.writeBuffer(
