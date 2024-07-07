@@ -11,7 +11,7 @@ import wasmjs "vendor:wasm/js"
 viewProjection: types.mat4x4
 width: f32 = 600.0
 height: f32 = 900.0
-MAX_INSTANCES :: 256
+MAX_INSTANCES :: 1024
 MAX_SPEED :: 100
 
 balls: #soa[MAX_INSTANCES]Ball

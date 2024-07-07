@@ -99,7 +99,7 @@ async function main() {
             uniformsPtr,
             instanceCount * instanceFloatCount,
           );
-          renderer.debugRenderer.uniformMatricesData.set(uniforms);
+          renderer.debugRenderer.modelMatricesData.set(uniforms);
           renderer.debugRenderer.instanceCount = instanceCount;
         },
       },
