@@ -149,7 +149,7 @@ ErrorCode appInit(AppData *appData) {
     // device
     // TODO: pass reasonable limits when requesting device
     WGPURequiredLimits requiredLimits[1] = {{.limits = adapterLimits.limits}};
-    requiredLimits[0].limits.minUniformBufferOffsetAlignment = 32;
+    requiredLimits[0].limits.minUniformBufferOffsetAlignment = glm_max(32, adapterLimits.limits.minUniformBufferOffsetAlignment);
     WGPUDeviceDescriptor deviceDesc = {
         .requiredLimits = requiredLimits,
     };
