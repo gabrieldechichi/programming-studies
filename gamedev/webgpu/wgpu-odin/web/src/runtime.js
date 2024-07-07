@@ -11,7 +11,7 @@ function stripNewline(str) {
   return str.replace(/\n/, " ");
 }
 
-class WasmMemoryInterface {
+export class WasmMemoryInterface {
   constructor() {
     this.memory = null;
     this.exports = null;
@@ -205,7 +205,7 @@ class WasmMemoryInterface {
   }
 }
 
-class WebGLInterface {
+export class WebGLInterface {
   constructor(wasmMemoryInterface) {
     this.wasmMemoryInterface = wasmMemoryInterface;
     this.ctxElement = null;

@@ -1,4 +1,4 @@
-import { runWasm } from "./runtime";
+import { runWasm } from "./types/runtime";
 import { GPUUniformBuffer, MAT4_BYTE_LENGTH, WGPUBuffer } from "./wgpu/buffer";
 
 type RendererData = {
@@ -83,11 +83,11 @@ async function main() {
   if (!renderer) {
     return;
   }
-  const memoryInterface = new window.odin.WasmMemoryInterface();
-  console.log(memoryInterface.exports);
+  const memoryInterface =
+    new window.odin.WasmMemoryInterface()
   await runWasm(
     "./resources/game.wasm",
-    undefined,
+    null,
     {
       env: {
         //this is a pointer to a mat4x4 defined as an array
@@ -105,7 +105,6 @@ async function main() {
     },
     memoryInterface,
   );
-  console.log("end");
-  console.log(memoryInterface);
 }
+
 main().then(() => console.log("done"));
