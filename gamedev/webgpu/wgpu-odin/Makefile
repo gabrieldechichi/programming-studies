@@ -6,7 +6,7 @@ DEBUGFLAGS=-debug -o:none
 ODIN_COLLECTIONS=-collection:lib=./native
 
 odin-check:
-	odin check $(SRC) -target:js_wasm32
+	odin check $(SRC) -target:js_wasm32 $(ODIN_COLLECTIONS)
 
 build-debug-wasm:
 	mkdir -p $(TARGET)
