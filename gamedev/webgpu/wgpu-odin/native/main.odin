@@ -2,12 +2,11 @@ package main
 
 import "core:fmt"
 import "core:math/linalg"
+import "lib"
 import wasmjs "vendor:wasm/js"
 import "wgpu"
 
-mat4x4 :: linalg.Matrix4x4f32
-
-viewProjection: mat4x4
+viewProjection: lib.mat4x4
 width: f32 = 600.0
 height: f32 = 900.0
 
@@ -24,6 +23,7 @@ main :: proc() {
 
 @(export = true)
 step :: proc(dt: f32) -> bool {
+	wgpu.debugRendererDrawSquare(linalg.matrix4_scale_f32(linalg.Vector3f32{200, 200, 1}))
 	wgpu.render(viewProjection)
 	return true
 }

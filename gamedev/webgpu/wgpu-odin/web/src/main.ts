@@ -1,21 +1,15 @@
-import { runWasm } from "./types/runtime";
-import { GPUUniformBuffer, MAT4_BYTE_LENGTH, WGPUBuffer } from "./wgpu/buffer";
-
-type RendererData = {
-  canvas: HTMLCanvasElement;
-  ctx: GPUCanvasContext;
-  adapter: GPUAdapter;
-  device: GPUDevice;
-  format: GPUTextureFormat;
-  projectionViewBuffer: GPUUniformBuffer;
-};
-
-type FrameData = {
-  projectionViewMatrix: Float32Array;
-};
+import { DebugRenderer } from "./wgpu/renderers/debugRenderer";
 
 class Renderer {
-  static async initialize(): Promise<RendererData | null> {
+  canvas!: HTMLCanvasElement;
+  ctx!: GPUCanvasContext;
+  adapter!: GPUAdapter;
+  device!: GPUDevice;
+  format!: GPUTextureFormat;
+
+  debugRenderer!: DebugRenderer;
+
+  static async initialize(): Promise<Renderer | null> {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
     const ctx = canvas.getContext("webgpu");
     if (!ctx) {
@@ -37,27 +31,24 @@ class Renderer {
     const format = navigator.gpu.getPreferredCanvasFormat();
     ctx.configure({ device, format });
 
-    const projectionViewBuffer = WGPUBuffer.createUniformBuffer(
+    const debugRenderer = DebugRenderer.create({
       device,
-      MAT4_BYTE_LENGTH,
-    );
+      textureFormat: format,
+    });
 
-    const renderer = {
-      canvas,
-      ctx,
-      adapter,
-      device,
-      format,
-      projectionViewBuffer,
-    } as RendererData;
+    const renderer = new Renderer();
+    renderer.canvas = canvas;
+    renderer.ctx = ctx;
+    renderer.adapter = adapter;
+    renderer.device = device;
+    renderer.format = format;
+    renderer.debugRenderer = debugRenderer;
 
     return renderer;
   }
 
-  static render(
-    { projectionViewMatrix }: FrameData,
-    { ctx, device, projectionViewBuffer }: RendererData,
-  ) {
+  render({ projectionViewMatrix }: { projectionViewMatrix: Float32Array }) {
+    const { ctx, device, debugRenderer } = this;
     const targetTexture = ctx.getCurrentTexture();
     const cmdEncoder = device.createCommandEncoder();
     const passEncoder = cmdEncoder.beginRenderPass({
@@ -65,16 +56,19 @@ class Renderer {
       colorAttachments: [
         {
           view: targetTexture.createView(),
-          clearValue: [1, 0, 0, 1],
+          clearValue: [0.2, 0.2, 0.2, 1],
           loadOp: "clear",
           storeOp: "store",
         } as GPURenderPassColorAttachment,
       ],
     });
 
-    device.queue.writeBuffer(projectionViewBuffer, 0, projectionViewMatrix);
+    const queue = device.queue;
+    debugRenderer.render({ passEncoder, queue, projectionViewMatrix });
     passEncoder.end();
-    device.queue.submit([cmdEncoder.finish()]);
+    queue.submit([cmdEncoder.finish()]);
+
+    debugRenderer.endFrame();
   }
 }
 
@@ -83,23 +77,22 @@ async function main() {
   if (!renderer) {
     return;
   }
-  const memoryInterface =
-    new window.odin.WasmMemoryInterface()
-  await runWasm(
+  const memoryInterface = new window.odin.WasmMemoryInterface();
+  await window.odin.runWasm(
     "./resources/game.wasm",
     null,
     {
       env: {
-        //this is a pointer to a mat4x4 defined as an array
         wgpu_render: (viewProjectionPtr: number) => {
           const viewProjectionArray = memoryInterface.loadF32Array(
             viewProjectionPtr,
             16,
           );
-          Renderer.render(
-            { projectionViewMatrix: viewProjectionArray },
-            renderer,
-          );
+          renderer.render({ projectionViewMatrix: viewProjectionArray });
+        },
+        wgpu_debugRendererDrawSquare: (modelMatrixPtr: number) => {
+          const modelMatrix = memoryInterface.loadF32Array(modelMatrixPtr, 16);
+          renderer.debugRenderer.addInstance({ modelMatrix });
         },
       },
     },

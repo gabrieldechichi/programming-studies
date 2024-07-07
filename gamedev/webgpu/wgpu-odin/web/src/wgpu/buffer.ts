@@ -41,10 +41,10 @@ export class WGPUBuffer {
 
   static createUniformBuffer(
     device: GPUDevice,
-    byteLength: number,
+    size: number,
   ): GPUUniformBuffer {
     const buffer = device.createBuffer({
-      size: byteLength,
+      size,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 

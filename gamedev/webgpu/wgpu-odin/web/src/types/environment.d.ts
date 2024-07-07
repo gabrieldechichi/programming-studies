@@ -1,8 +1,9 @@
-import { WasmMemoryInterface, WebGLInterface } from "./runtime";
+import { WasmMemoryInterface, WebGLInterface, runWasm } from "./runtime";
 
 export interface OdinType {
   WasmMemoryInterface: WasmMemoryInterface & { new (): WasmMemoryInterface };
   WebGLInterface: WebGLInterface;
+  runWasm: typeof runWasm;
 }
 
 declare global {
