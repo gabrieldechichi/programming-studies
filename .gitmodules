@@ -24,3 +24,6 @@
 [submodule "programming-languages/c/gui_task_management/leif"]
 	path = programming-languages/c/gui_task_management/leif
 	url = https://github.com/cococry/leif
+[submodule "gamedev/webgpu/webgpu-examples/vendor/cglm"]
+	path = gamedev/webgpu/webgpu-examples/vendor/cglm
+	url = https://github.com/recp/cglm.git
