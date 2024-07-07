@@ -90,9 +90,17 @@ async function main() {
           );
           renderer.render({ projectionViewMatrix: viewProjectionArray });
         },
-        wgpu_debugRendererDrawSquare: (modelMatrixPtr: number) => {
-          const modelMatrix = memoryInterface.loadF32Array(modelMatrixPtr, 16);
-          renderer.debugRenderer.addInstance({ modelMatrix });
+        wgpu_debugRendererSetUniforms: (
+          uniformsPtr: number,
+          instanceCount: number,
+          instanceFloatCount: number,
+        ) => {
+          const uniforms = memoryInterface.loadF32Array(
+            uniformsPtr,
+            instanceCount * instanceFloatCount,
+          );
+          renderer.debugRenderer.uniformMatricesData.set(uniforms);
+          renderer.debugRenderer.instanceCount = instanceCount;
         },
       },
     },

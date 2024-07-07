@@ -1,9 +1,9 @@
 package wgpu
 
-import "../lib"
+import "lib:types"
 
 @(link_prefix = "wgpu_", default_calling_convention = "c")
 foreign _ {
-	render :: proc(viewProjection: lib.mat4x4) ---
-	debugRendererDrawSquare :: proc(modelMatrix: lib.mat4x4) ---
+	render :: proc(viewProjection: types.mat4x4) ---
+	debugRendererSetUniforms :: proc(matrices: [^]types.mat4x4, instanceCount: u32, instanceFloatCount: u32) ---
 }

@@ -23,7 +23,6 @@ export class DebugRenderer {
   uniformsBuffer!: GPUUniformBuffer;
   uniformsBindGroup!: GPUBindGroup;
 
-  //todo: fixed array
   instanceCount: number = 0;
 
   //prettier-ignore
@@ -96,6 +95,9 @@ export class DebugRenderer {
     projectionViewMatrix: Float32Array;
     queue: GPUQueue;
   }) {
+    if (this.instanceCount <= 0) {
+      return;
+    }
     passEncoder.setPipeline(this.pipeline.pipeline);
     passEncoder.setVertexBuffer(0, this.vertexBuffer);
     passEncoder.setIndexBuffer(this.indexBuffer, "uint16");
