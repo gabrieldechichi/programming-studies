@@ -54,6 +54,7 @@ export class DebugRenderer {
   globalUniformsBindGroup!: GPUBindGroup;
 
   instanceBatches: DebugRendererInstanceBatch[] = [];
+  instanceBatchesLen: number = 0;
 
   //prettier-ignore
   static SpriteUIGeo = new Float32Array([
@@ -107,14 +108,40 @@ export class DebugRenderer {
   }
 
   addInstanceBatch(device: GPUDevice, matrices: Float32Array, count: number) {
-    const newBatch = DebugRendererInstanceBatch.create(
-      device,
-      this.pipeline.instanceUniformsGroupLayout,
-    );
+    let newBatch: DebugRendererInstanceBatch | null = null;
+    if (this.instanceBatchesLen < this.instanceBatches.length) {
+      newBatch = this.instanceBatches[this.instanceBatchesLen];
+    } else {
+      newBatch = DebugRendererInstanceBatch.create(
+        device,
+        this.pipeline.instanceUniformsGroupLayout,
+      );
+      this.instanceBatches.push(newBatch);
+    }
+    this.instanceBatchesLen++
+
     newBatch.instanceCount = 0;
     newBatch.modelMatricesData.set(matrices);
     newBatch.instanceCount = count;
-    this.instanceBatches.push(newBatch)
+  }
+
+  setAllBatches(
+    device: GPUDevice,
+    matrices: Float32Array,
+    instanceCount: number,
+    instanceFloatCount: number,
+  ) {
+    const batchSize = DebugPipelineModelMatrixUniforms.instanceCount;
+    for (let i = 0; i < instanceCount; i += batchSize) {
+      const start = i;
+      const end = Math.min(i + batchSize, instanceCount);
+      const count = end - start;
+      this.addInstanceBatch(
+        device,
+        matrices.subarray(start * instanceFloatCount, end * instanceFloatCount),
+        count,
+      );
+    }
   }
 
   render({
@@ -126,7 +153,7 @@ export class DebugRenderer {
     projectionViewMatrix: Float32Array;
     queue: GPUQueue;
   }) {
-    if (this.instanceBatches.length <= 0) {
+    if (this.instanceBatchesLen <= 0) {
       return;
     }
     passEncoder.setPipeline(this.pipeline.pipeline);
@@ -151,10 +178,8 @@ export class DebugRenderer {
       ]),
     );
 
-    let total = 0
-    for (let i = 0; i < this.instanceBatches.length; i++) {
+    for (let i = 0; i < this.instanceBatchesLen; i++) {
       const batch = this.instanceBatches[i];
-        total += batch.instanceCount
       passEncoder.setBindGroup(1, batch.instanceDataBindGroup);
       queue.writeBuffer(
         batch.modelMatricesBuffer,
@@ -165,11 +190,9 @@ export class DebugRenderer {
       );
       passEncoder.drawIndexed(this.indexCount, batch.instanceCount);
     }
-
-    console.log('total rendered: ' + total)
   }
 
   endFrame() {
-    this.instanceBatches.length = 0;
+    this.instanceBatchesLen = 0;
   }
 }

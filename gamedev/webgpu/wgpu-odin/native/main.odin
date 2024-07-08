@@ -11,7 +11,7 @@ import wasmjs "vendor:wasm/js"
 viewProjection: types.mat4x4
 width: f32 = 600.0
 height: f32 = 900.0
-MAX_INSTANCES :: BATCH_SIZE * 100
+MAX_INSTANCES :: BATCH_SIZE * 500
 BATCH_SIZE :: 1024
 MAX_SPEED :: 200
 
@@ -78,16 +78,11 @@ step :: proc(dt: f32) -> bool {
 		)
 	}
 
-	for i := 0; i < len(balls); i += BATCH_SIZE {
-		start := i
-		end := min(i + BATCH_SIZE, len(balls))
-		count := end - start
-		wgpu.debugRendererSetUniforms(
-			raw_data(balls.transform[start:end]),
-			cast(u32)count,
-			16,
-		)
-	}
+	wgpu.debugRendererSetBatches(
+		raw_data(balls.transform[0:len(balls)]),
+		cast(u32)len(balls),
+		16,
+	)
 
 	wgpu.render(viewProjection)
 	return true

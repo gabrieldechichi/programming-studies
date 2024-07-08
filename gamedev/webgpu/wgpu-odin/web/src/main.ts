@@ -90,7 +90,7 @@ async function main() {
           );
           renderer.render({ projectionViewMatrix: viewProjectionArray });
         },
-        wgpu_debugRendererSetUniforms: (
+        wgpu_debugRendererAddBatch: (
           uniformsPtr: number,
           instanceCount: number,
           instanceFloatCount: number,
@@ -103,6 +103,23 @@ async function main() {
             renderer.device,
             uniforms,
             instanceCount,
+          );
+        },
+        wgpu_debugRendererSetBatches: (
+          uniformsPtr: number,
+          instanceCount: number,
+          instanceFloatCount: number,
+        ) => {
+          const uniforms = memoryInterface.loadF32Array(
+            uniformsPtr,
+            instanceCount * instanceFloatCount,
+          );
+
+          renderer.debugRenderer.setAllBatches(
+            renderer.device,
+            uniforms,
+            instanceCount,
+            instanceFloatCount
           );
         },
       },
