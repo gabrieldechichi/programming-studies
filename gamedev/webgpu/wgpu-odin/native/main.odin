@@ -11,10 +11,11 @@ import wasmjs "vendor:wasm/js"
 viewProjection: types.mat4x4
 width: f32 = 600.0
 height: f32 = 900.0
-MAX_INSTANCES :: 1024
-MAX_SPEED :: 100
+MAX_INSTANCES :: BATCH_SIZE * 100
+BATCH_SIZE :: 1024
+MAX_SPEED :: 200
 
-balls: #soa[MAX_INSTANCES]Ball
+balls: #soa[]Ball
 
 Ball :: struct {
 	position:  types.vec2,
@@ -33,7 +34,10 @@ main :: proc() {
 		1,
 	)
 
-	for i in 0 ..< MAX_INSTANCES {
+	balls = make_soa(#soa[]Ball, MAX_INSTANCES)
+
+	rand.reset(1234)
+	for i in 0 ..< len(balls) {
 
 		x := rand.float32_range(-width / 2, width / 2)
 		y := rand.float32_range(-height / 2, height / 2)
@@ -42,7 +46,7 @@ main :: proc() {
 
 		balls[i] = {
 			position = types.vec2{x, y},
-			radius   = 25,
+			radius   = 5,
 			velocity = types.vec2{vx, vy},
 		}
 	}
@@ -53,12 +57,20 @@ step :: proc(dt: f32) -> bool {
 
 	for &ball in balls {
 		ball.position += ball.velocity * dt
-		if (abs(ball.position.x) + ball.radius > width / 2) {
+		if (ball.position.x + ball.radius > width / 2 && ball.velocity.x > 0) {
+			ball.velocity.x *= -1
+		} else if (ball.position.x - ball.radius < -width / 2 &&
+			   ball.velocity.x < 0) {
 			ball.velocity.x *= -1
 		}
-		if (abs(ball.position.y) + ball.radius > height / 2) {
+		if (ball.position.y + ball.radius > height / 2 &&
+			   ball.velocity.y > 0) {
+			ball.velocity.y *= -1
+		} else if (ball.position.y - ball.radius < -height / 2 &&
+			   ball.velocity.y < 0) {
 			ball.velocity.y *= -1
 		}
+
 		ball.transform = linalg.matrix4_from_trs(
 			types.vec3{ball.position.x, ball.position.y, 0},
 			linalg.QUATERNIONF32_IDENTITY,
@@ -66,7 +78,16 @@ step :: proc(dt: f32) -> bool {
 		)
 	}
 
-	wgpu.debugRendererSetUniforms(raw_data(balls.transform[:]), MAX_INSTANCES, 16)
+	for i := 0; i < len(balls); i += BATCH_SIZE {
+		start := i
+		end := min(i + BATCH_SIZE, len(balls))
+		count := end - start
+		wgpu.debugRendererSetUniforms(
+			raw_data(balls.transform[start:end]),
+			cast(u32)count,
+			16,
+		)
+	}
 
 	wgpu.render(viewProjection)
 	return true

@@ -13,12 +13,14 @@ export class DebugPipelineGlobalUniforms {
   static viewProjectionMatrixFloatCount = 16;
   static viewProjectionMatrixByteSize = 16 * Float32Array.BYTES_PER_ELEMENT;
 
-  static colorCount : number = 4
+  static colorCount: number = 4;
   static colorsOffset: number = this.viewProjectionMatrixByteSize;
   static colorsFloatCount = 4 * this.colorCount;
-  static colorsByteSize = this.colorsFloatCount * Float32Array.BYTES_PER_ELEMENT;
+  static colorsByteSize =
+    this.colorsFloatCount * Float32Array.BYTES_PER_ELEMENT;
 
- static byteSize: number = this.viewProjectionMatrixByteSize + this.colorsByteSize;
+  static byteSize: number =
+    this.viewProjectionMatrixByteSize + this.colorsByteSize;
 }
 
 export class DebugPipelineModelMatrixUniforms {
@@ -28,19 +30,20 @@ export class DebugPipelineModelMatrixUniforms {
   static modelMatricesFloatCount = 16 * this.instanceCount;
   static modelMatricesByteSize =
     this.modelMatricesFloatCount * Float32Array.BYTES_PER_ELEMENT;
-  static elementByteSize = 16
+  static elementByteSize = 16;
 
   static byteSize: number = this.modelMatricesByteSize;
 }
 
 export class DebugPipeline {
   pipeline!: GPURenderPipeline;
-  uniformsGroupLayout!: GPUBindGroupLayout;
+  globalUniformsGroupLayout!: GPUBindGroupLayout;
+  instanceUniformsGroupLayout!: GPUBindGroupLayout;
 
   static create({ device, textureFormat }: DebugPipelineCreateParams) {
     const pipeline = new DebugPipeline();
 
-    pipeline.uniformsGroupLayout = device.createBindGroupLayout({
+    pipeline.globalUniformsGroupLayout = device.createBindGroupLayout({
       entries: [
         //global uniforms
         {
@@ -48,9 +51,14 @@ export class DebugPipeline {
           visibility: GPUShaderStage.VERTEX,
           buffer: { type: "uniform" },
         },
+      ],
+    });
+
+    pipeline.instanceUniformsGroupLayout = device.createBindGroupLayout({
+      entries: [
         //model matrices
         {
-          binding: 1,
+          binding: 0,
           visibility: GPUShaderStage.VERTEX,
           buffer: { type: "uniform" },
         },
@@ -106,7 +114,10 @@ export class DebugPipeline {
       fragment,
       primitive: { topology: "triangle-list" },
       layout: device.createPipelineLayout({
-        bindGroupLayouts: [pipeline.uniformsGroupLayout],
+        bindGroupLayouts: [
+          pipeline.globalUniformsGroupLayout,
+          pipeline.instanceUniformsGroupLayout,
+        ],
       }),
     });
     return pipeline;

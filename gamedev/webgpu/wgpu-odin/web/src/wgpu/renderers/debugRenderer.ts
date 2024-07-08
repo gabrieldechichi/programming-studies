@@ -11,9 +11,39 @@ import {
   DebugPipelineModelMatrixUniforms,
 } from "src/wgpu/pipelines/debugPipeline";
 
-export type DebugRenderInstance = {
-  modelMatrix: Float32Array;
-};
+export class DebugRendererInstanceBatch {
+  modelMatricesBuffer!: GPUUniformBuffer;
+  modelMatricesData!: Float32Array;
+  instanceDataBindGroup!: GPUBindGroup;
+
+  instanceCount: number = 0;
+
+  static create(
+    device: GPUDevice,
+    groupLayout: GPUBindGroupLayout,
+  ): DebugRendererInstanceBatch {
+    const batch = new DebugRendererInstanceBatch();
+    batch.modelMatricesBuffer = WGPUBuffer.createUniformBuffer(
+      device,
+      DebugPipelineModelMatrixUniforms.byteSize,
+    );
+    batch.instanceDataBindGroup = device.createBindGroup({
+      layout: groupLayout,
+      entries: [
+        //matrices
+        {
+          binding: 0,
+          resource: { buffer: batch.modelMatricesBuffer },
+        },
+      ],
+    });
+
+    batch.modelMatricesData = new Float32Array(
+      DebugPipelineModelMatrixUniforms.modelMatricesFloatCount,
+    );
+    return batch;
+  }
+}
 
 export class DebugRenderer {
   pipeline!: DebugPipeline;
@@ -21,11 +51,9 @@ export class DebugRenderer {
   indexBuffer!: GPUIndexBuffer;
   indexCount!: number;
   globalsBuffer!: GPUUniformBuffer;
-  modelMatricesBuffer!: GPUUniformBuffer;
-  modelMatricesData!: Float32Array;
-  uniformsBindGroup!: GPUBindGroup;
+  globalUniformsBindGroup!: GPUBindGroup;
 
-  instanceCount: number = 0;
+  instanceBatches: DebugRendererInstanceBatch[] = [];
 
   //prettier-ignore
   static SpriteUIGeo = new Float32Array([
@@ -54,23 +82,14 @@ export class DebugRenderer {
       device,
       DebugPipelineGlobalUniforms.byteSize,
     );
-    renderer.modelMatricesBuffer = WGPUBuffer.createUniformBuffer(
-      device,
-      DebugPipelineModelMatrixUniforms.byteSize,
-    );
 
-    renderer.uniformsBindGroup = device.createBindGroup({
-      layout: renderer.pipeline.uniformsGroupLayout,
+    renderer.globalUniformsBindGroup = device.createBindGroup({
+      layout: renderer.pipeline.globalUniformsGroupLayout,
       entries: [
         //globals
         {
           binding: 0,
           resource: { buffer: renderer.globalsBuffer },
-        },
-        //matrices
-        {
-          binding: 1,
-          resource: { buffer: renderer.modelMatricesBuffer },
         },
       ],
     });
@@ -84,20 +103,18 @@ export class DebugRenderer {
     renderer.indexBuffer = WGPUBuffer.createIndexBuffer(device, indexArray);
     renderer.indexCount = indexArray.length;
 
-    renderer.modelMatricesData = new Float32Array(
-      DebugPipelineModelMatrixUniforms.modelMatricesFloatCount,
-    );
-
     return renderer;
   }
 
-  addInstance(instance: DebugRenderInstance) {
-    if (this.instanceCount < DebugPipelineModelMatrixUniforms.instanceCount) {
-      const offset =
-        this.instanceCount * DebugPipelineModelMatrixUniforms.elementByteSize;
-      this.modelMatricesData.set(instance.modelMatrix, offset);
-      this.instanceCount++;
-    }
+  addInstanceBatch(device: GPUDevice, matrices: Float32Array, count: number) {
+    const newBatch = DebugRendererInstanceBatch.create(
+      device,
+      this.pipeline.instanceUniformsGroupLayout,
+    );
+    newBatch.instanceCount = 0;
+    newBatch.modelMatricesData.set(matrices);
+    newBatch.instanceCount = count;
+    this.instanceBatches.push(newBatch)
   }
 
   render({
@@ -109,13 +126,13 @@ export class DebugRenderer {
     projectionViewMatrix: Float32Array;
     queue: GPUQueue;
   }) {
-    if (this.instanceCount <= 0) {
+    if (this.instanceBatches.length <= 0) {
       return;
     }
     passEncoder.setPipeline(this.pipeline.pipeline);
     passEncoder.setVertexBuffer(0, this.vertexBuffer);
     passEncoder.setIndexBuffer(this.indexBuffer, "uint16");
-    passEncoder.setBindGroup(0, this.uniformsBindGroup);
+    passEncoder.setBindGroup(0, this.globalUniformsBindGroup);
 
     queue.writeBuffer(
       this.globalsBuffer,
@@ -134,18 +151,25 @@ export class DebugRenderer {
       ]),
     );
 
-    queue.writeBuffer(
-      this.modelMatricesBuffer,
-      DebugPipelineModelMatrixUniforms.modelMatricesOffset,
-      this.modelMatricesData,
-      0,
-      this.instanceCount * DebugPipelineModelMatrixUniforms.elementByteSize,
-    );
+    let total = 0
+    for (let i = 0; i < this.instanceBatches.length; i++) {
+      const batch = this.instanceBatches[i];
+        total += batch.instanceCount
+      passEncoder.setBindGroup(1, batch.instanceDataBindGroup);
+      queue.writeBuffer(
+        batch.modelMatricesBuffer,
+        DebugPipelineModelMatrixUniforms.modelMatricesOffset,
+        batch.modelMatricesData,
+        0,
+        batch.instanceCount * DebugPipelineModelMatrixUniforms.elementByteSize,
+      );
+      passEncoder.drawIndexed(this.indexCount, batch.instanceCount);
+    }
 
-    passEncoder.drawIndexed(this.indexCount, this.instanceCount);
+    console.log('total rendered: ' + total)
   }
 
   endFrame() {
-    this.instanceCount = 0;
+    this.instanceBatches.length = 0;
   }
 }

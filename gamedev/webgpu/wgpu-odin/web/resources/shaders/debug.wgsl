@@ -14,7 +14,7 @@ struct Globals {
 }
 
 @group(0) @binding(0) var<uniform> globals: Globals;
-@group(0) @binding(1) var<uniform> modelMatrices: array<mat4x4f, 1024>;
+@group(1) @binding(0) var<uniform> modelMatrices: array<mat4x4f, 1024>;
 
 @vertex
 fn vertexMain(in: VertexIn) -> VertexOut {
