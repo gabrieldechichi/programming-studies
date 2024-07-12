@@ -3,6 +3,7 @@ package vendor_wgpu_example_triangle
 import "base:runtime"
 
 import "core:fmt"
+import wgpuimpl "lib:wgpu"
 
 import "vendor:wgpu"
 
@@ -25,6 +26,8 @@ State :: struct {
 state: State
 
 main :: proc() {
+    p := wgpuimpl.DebugPipelineCreateParams{}
+    fmt.println(p)
 	state.ctx = context
 
 	os_init(&state.os)
