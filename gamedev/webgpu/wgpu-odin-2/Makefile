@@ -1,9 +1,18 @@
+
 GAME_NAME=game
 SRC=native
 TARGET_WEB=web/resources/$(GAME_NAME).wasm
 TARGET=web/resources/pacman
 DEBUGFLAGS=-debug -o:none
 ODIN_COLLECTIONS=-collection:lib=./native
+
+
+INITIAL_MEMORY_PAGES := 2000
+MAX_MEMORY_PAGES     := 65536
+
+PAGE_SIZE := 65536
+INITIAL_MEMORY_BYTES := 131072000
+MAX_MEMORY_BYTES     := 4294967296
 
 # Detect OS
 ifeq ($(OS),Windows_NT)
@@ -21,7 +30,9 @@ build-debug-wasm:
 
 build-release-wasm:
 	$(MKDIR_EXEC)
-	odin build $(SRC) -o:aggressive -out:$(TARGET_WEB) -target:js_wasm32 $(ODIN_COLLECTIONS)
+	odin build $(SRC) -out:$(TARGET_WEB) $(ODIN_COLLECTIONS) \
+		-target:js_wasm32 -o:aggressive \
+        -extra-linker-flags:"--export-table --import-memory --initial-memory=$(INITIAL_MEMORY_BYTES) --max-memory=$(MAX_MEMORY_BYTES)"
 
 run-web: build-debug-wasm
 	npm run dev --prefix ./web
