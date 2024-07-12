@@ -1,10 +1,8 @@
 package wgpuimpl
 
 import "core:math/linalg"
+import "lib:common"
 import "vendor:wgpu"
-
-mat4x4 :: linalg.Matrix4x4f32
-vec2 :: linalg.Vector2f32
 
 @(private = "file")
 shader :: `
@@ -42,7 +40,7 @@ fn fragmentMain(in: VertexOut) -> @location(0) vec4f {
 `
 
 DebugPipelineVertexIn :: struct {
-	pos: vec2,
+	pos: common.vec2,
 }
 
 DebugPipelineCreateParams :: struct {
@@ -51,11 +49,14 @@ DebugPipelineCreateParams :: struct {
 }
 
 DebugPipelineGlobalUniforms :: struct {
-	viewProjectionMatrix: mat4x4,
+	viewProjectionMatrix: common.mat4x4,
 	colors:               []wgpu.Color,
 }
 
-DebugPipelineModelMatrixUniforms :: struct {}
+DEBUGPIPELINE_INSTANCE_COUNT :: 1024
+DebugPipelineModelMatrixUniforms :: struct {
+	mat: common.mat4x4,
+}
 
 DebugPipeline :: struct {
 	pipeline:                    wgpu.RenderPipeline,
