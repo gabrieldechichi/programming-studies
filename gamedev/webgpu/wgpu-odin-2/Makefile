@@ -34,7 +34,7 @@ build-release-wasm:
 		-target:js_wasm32 -o:aggressive \
         -extra-linker-flags:"--export-table --import-memory --initial-memory=$(INITIAL_MEMORY_BYTES) --max-memory=$(MAX_MEMORY_BYTES)"
 
-run-web: build-debug-wasm
+run-web: build-release-wasm
 	npm run dev --prefix ./web
 
 build-native:

@@ -1,23 +1,37 @@
-<!DOCTYPE html>
-<html lang="en" style="height: 100%;">
-	<head>
-		<meta charset="UTF-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1">
-		<title>WGPU WASM Triangle</title>
-	</head>
-	<body id="body" style="height: 100%; padding: 0; margin: 0; overflow: hidden;">
-		<canvas id="wgpu-canvas"></canvas>
-	
-		<script type="text/javascript" src="runtime.js"></script>
-		<script type="text/javascript" src="wgpu.js"></script>
-		<script type="text/javascript">
-			const mem = new WebAssembly.Memory({ initial: 2000, maximum: 65536, shared: false });
-			const memInterface = new odin.WasmMemoryInterface();
-			memInterface.setMemory(mem);
+<!doctype html>
+<html lang="en" style="height: 100%">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WGPU WASM Triangle</title>
+  </head>
+  <body id="body" style="height: 100%; padding: 0; margin: 0; overflow: hidden">
+    <canvas
+      id="wgpu-canvas"
+      width="600"
+      height="900"
+      style="scale: 0.8"
+    ></canvas>
 
-			const wgpuInterface = new odin.WebGPUInterface(memInterface);
+    <script type="text/javascript" src="runtime.js"></script>
+    <script type="text/javascript" src="wgpu.js"></script>
+    <script type="text/javascript">
+      const mem = new WebAssembly.Memory({
+        initial: 2000,
+        maximum: 65536,
+        shared: false,
+      });
+      const memInterface = new odin.WasmMemoryInterface();
+      memInterface.setMemory(mem);
 
-			odin.runWasm("/resources/game.wasm", null, { wgpu: wgpuInterface.getInterface() }, memInterface, /*intSize=8*/);
-		</script>
-	</body>
+      const wgpuInterface = new odin.WebGPUInterface(memInterface);
+
+      odin.runWasm(
+        "/resources/game.wasm",
+        null,
+        { wgpu: wgpuInterface.getInterface() },
+        memInterface /*intSize=8*/,
+      );
+    </script>
+  </body>
 </html>

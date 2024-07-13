@@ -29,9 +29,12 @@ state: State
 
 width: f32 = 600.0
 height: f32 = 900.0
-MAX_INSTANCES :: BATCH_SIZE // * 500
+// MAX_INSTANCES :: BATCH_SIZE * 500
+// MAX_INSTANCES :: BATCH_SIZE * 2
+MAX_INSTANCES :: 10
 BATCH_SIZE :: 1024
 MAX_SPEED :: 200
+BALL_RADIUS :: 5
 
 balls: #soa[]Ball
 
@@ -69,7 +72,7 @@ simInit :: proc() {
 
 		balls[i] = {
 			position = common.vec2{x, y},
-			radius   = 5,
+			radius   = BALL_RADIUS,
 			velocity = common.vec2{vx, vy},
 		}
 	}
@@ -119,12 +122,11 @@ simulate :: proc(dt: f32) {
 		)
 	}
 
-	wgpuimpl.debugRendererAddBatch(
+	wgpuimpl.debugRendererSetAllBatches(
 		&debugRenderer,
 		device,
 		balls.transform[0:len(balls)],
 	)
-
 }
 
 finish :: proc() {
@@ -243,7 +245,7 @@ renderFrame :: proc() {
 				view = frame,
 				loadOp = .Clear,
 				storeOp = .Store,
-				clearValue = {r = 0.2, g = 0, b = 0, a = 1},
+				clearValue = {r = 0.2, g = 0.2, b = 0.2, a = 1},
 			},
 		},
 	)

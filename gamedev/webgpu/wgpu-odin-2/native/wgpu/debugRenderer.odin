@@ -27,18 +27,17 @@ Mesh :: struct {
 	indices:  []u16,
 }
 
-CONSTANT :: 300
 GEO_QUAD_CENTERED :: Mesh {
 	vertices = []f32 {
 		//pos
-		-0.5 * CONSTANT,
-		-0.5 * CONSTANT,
-		0.5 * CONSTANT,
-		-0.5 * CONSTANT,
-		0.5 * CONSTANT,
-		0.5 * CONSTANT,
-		-0.5 * CONSTANT,
-		0.5 * CONSTANT,
+		-0.5,
+		-0.5,
+		0.5,
+		-0.5,
+		0.5,
+		0.5,
+		-0.5,
+		0.5,
 	},
 	indices  = []u16{0, 1, 2, 0, 2, 3},
 }
@@ -215,6 +214,21 @@ debugRendererAddBatch :: proc(
 	}
 	frameBatchCount += 1
 	batch.modelMatrices = matrices
+}
+
+debugRendererSetAllBatches :: proc(
+	using renderer: ^DebugRenderer,
+	device: wgpu.Device,
+	matrices: []common.mat4x4,
+) {
+	batchSize := DEBUGPIPELINE_INSTANCE_COUNT
+	instanceCount := len(matrices)
+	for i := 0; i < instanceCount; i += batchSize {
+		start := i
+		end := min(i + batchSize, instanceCount)
+		count := end - start
+		debugRendererAddBatch(renderer, device, matrices[start:end])
+	}
 }
 
 debugRendererRelease :: proc(using renderer: ^DebugRenderer) {

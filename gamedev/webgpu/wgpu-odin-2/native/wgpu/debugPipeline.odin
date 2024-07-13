@@ -30,14 +30,12 @@ fn vertexMain(in: VertexIn) -> VertexOut {
     let modelMatrix: mat4x4f = modelMatrices[in.instanceIdx];
     out.pos = globals.viewProjectionMatrix * modelMatrix * vec4(in.pos, 0.0, 1.0);
     out.col = globals.colors[in.instanceIdx % 4];
-    out.pos = vec4(in.pos, 0.0, 1.0);
     return out;
 }
 
 @fragment
 fn fragmentMain(in: VertexOut) -> @location(0) vec4f {
-    return vec4f(1,0,0,1);
-    //return in.col;
+    return in.col;
 }
 `
 
@@ -154,6 +152,7 @@ debugPipelineCreate :: proc(
 			[]wgpu.ColorTargetState {
 				{
 					format = textureFormat,
+					writeMask = wgpu.ColorWriteMaskFlags_All,
 					blend = &wgpu.BlendState {
 						color = wgpu.BlendComponent {
 							operation = wgpu.BlendOperation.Add,
