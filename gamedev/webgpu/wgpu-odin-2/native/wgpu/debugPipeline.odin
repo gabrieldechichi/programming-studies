@@ -30,12 +30,14 @@ fn vertexMain(in: VertexIn) -> VertexOut {
     let modelMatrix: mat4x4f = modelMatrices[in.instanceIdx];
     out.pos = globals.viewProjectionMatrix * modelMatrix * vec4(in.pos, 0.0, 1.0);
     out.col = globals.colors[in.instanceIdx % 4];
+    out.pos = vec4(in.pos, 0.0, 1.0);
     return out;
 }
 
 @fragment
 fn fragmentMain(in: VertexOut) -> @location(0) vec4f {
-    return in.col;
+    return vec4f(1,0,0,1);
+    //return in.col;
 }
 `
 
@@ -50,12 +52,12 @@ DebugPipelineCreateParams :: struct {
 
 DebugPipelineGlobalUniforms :: struct {
 	viewProjectionMatrix: common.mat4x4,
-	colors:               []wgpu.Color,
+	colors:               [4]common.Color,
 }
 
 DEBUGPIPELINE_INSTANCE_COUNT :: 1024
 DebugPipelineModelMatrixUniforms :: struct {
-	mat: common.mat4x4,
+	matrices: [DEBUGPIPELINE_INSTANCE_COUNT]common.mat4x4,
 }
 
 DebugPipeline :: struct {
@@ -81,6 +83,9 @@ debugPipelineCreate :: proc(
 						visibility = {wgpu.ShaderStage.Vertex},
 						buffer = wgpu.BufferBindingLayout {
 							type = wgpu.BufferBindingType.Uniform,
+							minBindingSize = size_of(
+								DebugPipelineGlobalUniforms,
+							),
 						},
 					},
 				},
@@ -115,6 +120,7 @@ debugPipelineCreate :: proc(
 			},
 		},
 	)
+	// defer wgpu.ShaderModuleRelease(module)
 
 	vertex := wgpu.VertexState {
 		module      = module,
@@ -174,7 +180,7 @@ debugPipelineCreate :: proc(
 			layout = wgpu.DeviceCreatePipelineLayout(
 				device,
 				&wgpu.PipelineLayoutDescriptor {
-					bindGroupLayoutCount = 1,
+					bindGroupLayoutCount = 2,
 					bindGroupLayouts = raw_data(
 						[]wgpu.BindGroupLayout {
 							pipeline.globalUniformsGroupLayout,
@@ -185,10 +191,10 @@ debugPipelineCreate :: proc(
 			),
 			primitive = wgpu.PrimitiveState {
 				topology = wgpu.PrimitiveTopology.TriangleList,
-				stripIndexFormat = wgpu.IndexFormat.Uint16,
 				frontFace = wgpu.FrontFace.CCW,
 				cullMode = wgpu.CullMode.Back,
 			},
+			multisample = {count = 1, mask = 0xFFFFFFFF},
 		},
 	)
 	return pipeline

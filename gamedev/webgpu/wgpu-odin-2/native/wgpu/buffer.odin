@@ -1,5 +1,6 @@
 package wgpuimpl
 
+import "core:fmt"
 import "core:mem"
 import "vendor:wgpu"
 
@@ -16,12 +17,17 @@ bufferCreateVertex :: proc(
 		device,
 		&wgpu.BufferDescriptor {
 			usage = {wgpu.BufferUsageFlags.Vertex},
-			size = byteLen,
+			size = auto_cast byteLen,
 			mappedAtCreation = true,
 		},
 	)
 
-	bufferData := wgpu.BufferGetMappedRangeSlice(buffer, 0, T, byteLen)
+	bufferData := wgpu.BufferGetMappedRangeSlice(
+		buffer,
+		0,
+		T,
+		len(data)
+	)
 	defer wgpu.BufferUnmap(buffer)
 
 	mem.copy_non_overlapping(raw_data(bufferData), raw_data(data), byteLen)
@@ -39,7 +45,7 @@ _bufferCreateIndex :: proc(
 		device,
 		&wgpu.BufferDescriptor {
 			usage = {wgpu.BufferUsageFlags.Index},
-			size = cast(u64)byteLen,
+			size = auto_cast byteLen,
 			mappedAtCreation = true,
 		},
 	)
@@ -48,32 +54,32 @@ _bufferCreateIndex :: proc(
 		buffer,
 		0,
 		T,
-		cast(uint)byteLen,
+		len(data)
 	)
 	defer wgpu.BufferUnmap(buffer)
 
 	mem.copy_non_overlapping(raw_data(bufferData), raw_data(data), byteLen)
 
-	return cast(WgpuIndexBuffer)buffer
+	return auto_cast buffer
 }
 
-bufferCreateIndex_i16 :: proc(
+bufferCreateIndex_u16 :: proc(
 	device: wgpu.Device,
-	data: []i16,
+	data: []u16,
 ) -> WgpuIndexBuffer {
 	return _bufferCreateIndex(device, data)
 }
 
-bufferCreateIndex_i32 :: proc(
+bufferCreateIndex_u32 :: proc(
 	device: wgpu.Device,
-	data: []i32,
+	data: []u32,
 ) -> WgpuIndexBuffer {
 	return _bufferCreateIndex(device, data)
 }
 
 bufferCreateIndex :: proc {
-	bufferCreateIndex_i16,
-	bufferCreateIndex_i32,
+	bufferCreateIndex_u16,
+	bufferCreateIndex_u32,
 }
 
 bufferCreateUniform :: proc(
@@ -82,6 +88,7 @@ bufferCreateUniform :: proc(
 	len: u32,
 ) -> WgpuUniformBuffer {
 	byteLen := len * size_of(T)
+
 	buffer := wgpu.DeviceCreateBuffer(
 		device,
 		&wgpu.BufferDescriptor {
@@ -89,10 +96,10 @@ bufferCreateUniform :: proc(
 				wgpu.BufferUsageFlags.Uniform,
 				wgpu.BufferUsageFlags.CopyDst,
 			},
-			size = cast(u64)byteLen,
+			size = auto_cast byteLen,
 			mappedAtCreation = false,
 		},
 	)
 
-	return cast(WgpuUniformBuffer)buffer
+	return auto_cast buffer
 }

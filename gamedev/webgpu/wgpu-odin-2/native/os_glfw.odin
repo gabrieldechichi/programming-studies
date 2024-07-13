@@ -17,7 +17,7 @@ os_init :: proc(os: ^OS) {
 	}
 
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
-	os.window = glfw.CreateWindow(960, 540, "WGPU Native Triangle", nil, nil)
+	os.window = glfw.CreateWindow(600, 900, "WGPU Native Triangle", nil, nil)
 
 	glfw.SetFramebufferSizeCallback(os.window, size_callback)
 }

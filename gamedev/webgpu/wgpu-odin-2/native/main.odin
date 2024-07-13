@@ -3,121 +3,75 @@ package vendor_wgpu_example_triangle
 import "base:runtime"
 
 import "core:fmt"
+import "core:math/linalg"
+import "core:math/rand"
+import "lib:common"
 import wgpuimpl "lib:wgpu"
 
 import "vendor:wgpu"
 
 State :: struct {
-	ctx: runtime.Context,
-	os:  OS,
-
-	instance:        wgpu.Instance,
-	surface:         wgpu.Surface,
-	adapter:         wgpu.Adapter,
-	device:          wgpu.Device,
-	config:          wgpu.SurfaceConfiguration,
-	queue:           wgpu.Queue,
-	module:          wgpu.ShaderModule,
-	pipeline_layout: wgpu.PipelineLayout,
-	pipeline:        wgpu.RenderPipeline,
+	ctx:                  runtime.Context,
+	os:                   OS,
+	instance:             wgpu.Instance,
+	surface:              wgpu.Surface,
+	adapter:              wgpu.Adapter,
+	device:               wgpu.Device,
+	renderFormat:         wgpu.TextureFormat,
+	config:               wgpu.SurfaceConfiguration,
+	queue:                wgpu.Queue,
+	debugRenderer:        wgpuimpl.DebugRenderer,
+	viewProjectionMatrix: common.mat4x4,
 }
 
-@(private="file")
+@(private = "file")
 state: State
 
+width: f32 = 600.0
+height: f32 = 900.0
+MAX_INSTANCES :: BATCH_SIZE // * 500
+BATCH_SIZE :: 1024
+MAX_SPEED :: 200
+
+balls: #soa[]Ball
+
+Ball :: struct {
+	position:  common.vec2,
+	radius:    f32,
+	velocity:  common.vec2,
+	transform: common.mat4x4,
+}
+
 main :: proc() {
-    p := wgpuimpl.DebugPipelineCreateParams{}
-    fmt.println(p)
-	state.ctx = context
+	simInit()
+	renderInit()
+}
 
-	os_init(&state.os)
+simInit :: proc() {
+	state.viewProjectionMatrix = linalg.matrix_ortho3d(
+		-width / 2,
+		width / 2,
+		-height / 2,
+		height / 2,
+		-1,
+		1,
+	)
 
-	state.instance = wgpu.CreateInstance(nil)
-	if state.instance == nil {
-		panic("WebGPU is not supported")
-	}
-	state.surface = os_get_surface(&state.os, state.instance)
+	balls = make_soa(#soa[]Ball, MAX_INSTANCES)
 
-	wgpu.InstanceRequestAdapter(state.instance, &{ compatibleSurface = state.surface }, on_adapter, nil)
+	rand.reset(1234)
+	for i in 0 ..< len(balls) {
 
-	on_adapter :: proc "c" (status: wgpu.RequestAdapterStatus, adapter: wgpu.Adapter, message: cstring, userdata: rawptr) {
-		context = state.ctx
-		if status != .Success || adapter == nil {
-			fmt.panicf("request adapter failure: [%v] %s", status, message)
+		x := rand.float32_range(-width / 2, width / 2)
+		y := rand.float32_range(-height / 2, height / 2)
+		vx := rand.float32_range(-1, 1) * MAX_SPEED
+		vy := rand.float32_range(-1, 1) * MAX_SPEED
+
+		balls[i] = {
+			position = common.vec2{x, y},
+			radius   = 5,
+			velocity = common.vec2{vx, vy},
 		}
-		state.adapter = adapter
-		wgpu.AdapterRequestDevice(adapter, nil, on_device)
-	}
-
-	on_device :: proc "c" (status: wgpu.RequestDeviceStatus, device: wgpu.Device, message: cstring, userdata: rawptr) {
-		context = state.ctx
-		if status != .Success || device == nil {
-			fmt.panicf("request device failure: [%v] %s", status, message)
-		}
-		state.device = device 
-
-		width, height := os_get_render_bounds(&state.os)
-
-		state.config = wgpu.SurfaceConfiguration {
-			device      = state.device,
-			usage       = { .RenderAttachment },
-			format      = .BGRA8Unorm,
-			width       = width,
-			height      = height,
-			presentMode = .Fifo,
-			alphaMode   = .Opaque,
-		}
-		wgpu.SurfaceConfigure(state.surface, &state.config)
-
-		state.queue = wgpu.DeviceGetQueue(state.device)
-
-		shader :: `
-	@vertex
-	fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
-		let x = f32(i32(in_vertex_index) - 1);
-		let y = f32(i32(in_vertex_index & 1u) * 2 - 1);
-		return vec4<f32>(x, y, 0.0, 1.0);
-	}
-
-	@fragment
-	fn fs_main() -> @location(0) vec4<f32> {
-		return vec4<f32>(1.0, 0.0, 0.0, 1.0);
-	}`
-
-		state.module = wgpu.DeviceCreateShaderModule(state.device, &{
-			nextInChain = &wgpu.ShaderModuleWGSLDescriptor{
-				sType = .ShaderModuleWGSLDescriptor,
-				code  = shader,
-			},
-		})
-
-		state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(state.device, &{})
-		state.pipeline = wgpu.DeviceCreateRenderPipeline(state.device, &{
-			layout = state.pipeline_layout,
-			vertex = {
-				module     = state.module,
-				entryPoint = "vs_main",
-			},
-			fragment = &{
-				module      = state.module,
-				entryPoint  = "fs_main",
-				targetCount = 1,
-				targets     = &wgpu.ColorTargetState{
-					format    = .BGRA8Unorm,
-					writeMask = wgpu.ColorWriteMaskFlags_All,
-				},
-			},
-			primitive = {
-				topology = .TriangleList,
-
-			},
-			multisample = {
-				count = 1,
-				mask  = 0xFFFFFFFF,
-			},
-		})
-
-		os_run(&state.os)
 	}
 }
 
@@ -131,10 +85,134 @@ resize :: proc "c" () {
 frame :: proc "c" (dt: f32) {
 	context = state.ctx
 
+	simulate(dt)
+
+	renderFrame()
+}
+
+simulate :: proc(dt: f32) {
+
+	using state
+
+	if (len(balls) == 0) {return}
+
+	for &ball in balls {
+		ball.position += ball.velocity * dt
+		if (ball.position.x + ball.radius > width / 2 && ball.velocity.x > 0) {
+			ball.velocity.x *= -1
+		} else if (ball.position.x - ball.radius < -width / 2 &&
+			   ball.velocity.x < 0) {
+			ball.velocity.x *= -1
+		}
+		if (ball.position.y + ball.radius > height / 2 &&
+			   ball.velocity.y > 0) {
+			ball.velocity.y *= -1
+		} else if (ball.position.y - ball.radius < -height / 2 &&
+			   ball.velocity.y < 0) {
+			ball.velocity.y *= -1
+		}
+
+		ball.transform = linalg.matrix4_from_trs(
+			common.vec3{ball.position.x, ball.position.y, 0},
+			linalg.QUATERNIONF32_IDENTITY,
+			common.vec3{ball.radius * 2, ball.radius * 2, 0},
+		)
+	}
+
+	wgpuimpl.debugRendererAddBatch(
+		&debugRenderer,
+		device,
+		balls.transform[0:len(balls)],
+	)
+
+}
+
+finish :: proc() {
+	wgpuimpl.debugRendererRelease(&state.debugRenderer)
+	wgpu.QueueRelease(state.queue)
+	wgpu.DeviceRelease(state.device)
+	wgpu.AdapterRelease(state.adapter)
+	wgpu.SurfaceRelease(state.surface)
+	wgpu.InstanceRelease(state.instance)
+}
+
+renderInit :: proc() {
+	state.ctx = context
+
+	os_init(&state.os)
+
+	state.instance = wgpu.CreateInstance(nil)
+	assert(state.instance != nil)
+	state.surface = os_get_surface(&state.os, state.instance)
+
+	wgpu.InstanceRequestAdapter(
+		state.instance,
+		&{
+			compatibleSurface = state.surface,
+			powerPreference = wgpu.PowerPreference.HighPerformance,
+		},
+		on_adapter,
+		nil,
+	)
+
+	on_adapter :: proc "c" (
+		status: wgpu.RequestAdapterStatus,
+		adapter: wgpu.Adapter,
+		message: cstring,
+		userdata: rawptr,
+	) {
+		context = state.ctx
+		if status != .Success || adapter == nil {
+			fmt.panicf("request adapter failure: [%v] %s", status, message)
+		}
+		state.adapter = adapter
+		wgpu.AdapterRequestDevice(adapter, nil, on_device)
+	}
+
+	on_device :: proc "c" (
+		status: wgpu.RequestDeviceStatus,
+		device: wgpu.Device,
+		message: cstring,
+		userdata: rawptr,
+	) {
+		context = state.ctx
+		if status != .Success || device == nil {
+			fmt.panicf("request device failure: [%v] %s", status, message)
+		}
+		state.device = device
+
+		width, height := os_get_render_bounds(&state.os)
+
+		state.renderFormat = wgpu.SurfaceGetPreferredFormat(
+			state.surface,
+			state.adapter,
+		)
+		state.config = wgpu.SurfaceConfiguration {
+			device      = state.device,
+			usage       = {.RenderAttachment},
+			format      = state.renderFormat,
+			width       = width,
+			height      = height,
+			presentMode = .Fifo,
+			alphaMode   = .Opaque,
+		}
+		wgpu.SurfaceConfigure(state.surface, &state.config)
+
+		state.queue = wgpu.DeviceGetQueue(state.device)
+
+		state.debugRenderer = wgpuimpl.debugRendererCreate(
+			{device = state.device, textureFormat = state.renderFormat},
+		)
+
+		os_run(&state.os)
+	}
+}
+
+renderFrame :: proc() {
 	surface_texture := wgpu.SurfaceGetCurrentTexture(state.surface)
 	switch surface_texture.status {
 	case .Success:
-		// All good, could check for `surface_texture.suboptimal` here.
+	// All good, could check for `surface_texture.suboptimal` here.
 	case .Timeout, .Outdated, .Lost:
 		// Skip this frame, and re-configure surface.
 		if surface_texture.texture != nil {
@@ -144,7 +222,10 @@ frame :: proc "c" (dt: f32) {
 		return
 	case .OutOfMemory, .DeviceLost:
 		// Fatal error
-		fmt.panicf("[triangle] get_current_texture status=%v", surface_texture.status)
+		fmt.panicf(
+			"[triangle] get_current_texture status=%v",
+			surface_texture.status,
+		)
 	}
 	defer wgpu.TextureRelease(surface_texture.texture)
 
@@ -155,36 +236,32 @@ frame :: proc "c" (dt: f32) {
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
-		command_encoder, &{
+		command_encoder,
+		&{
 			colorAttachmentCount = 1,
-			colorAttachments     = &wgpu.RenderPassColorAttachment{
-				view       = frame,
-				loadOp     = .Clear,
-				storeOp    = .Store,
-				clearValue = { r = 0, g = 1, b = 0, a = 1 },
+			colorAttachments = &wgpu.RenderPassColorAttachment {
+				view = frame,
+				loadOp = .Clear,
+				storeOp = .Store,
+				clearValue = {r = 0.2, g = 0, b = 0, a = 1},
 			},
 		},
 	)
 	defer wgpu.RenderPassEncoderRelease(render_pass_encoder)
 
-	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, state.pipeline)
-	wgpu.RenderPassEncoderDraw(render_pass_encoder, vertexCount=3, instanceCount=1, firstVertex=0, firstInstance=0)
+	wgpuimpl.debugRendererRender(
+		state.debugRenderer,
+		render_pass_encoder,
+		state.queue,
+		state.viewProjectionMatrix,
+	)
+	defer wgpuimpl.debugRendererEndFrame(&state.debugRenderer)
+
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
 
 	command_buffer := wgpu.CommandEncoderFinish(command_encoder, nil)
 	defer wgpu.CommandBufferRelease(command_buffer)
 
-	wgpu.QueueSubmit(state.queue, { command_buffer })
+	wgpu.QueueSubmit(state.queue, {command_buffer})
 	wgpu.SurfacePresent(state.surface)
-}
-
-finish :: proc() {
-	wgpu.RenderPipelineRelease(state.pipeline)
-	wgpu.PipelineLayoutRelease(state.pipeline_layout)
-	wgpu.ShaderModuleRelease(state.module)
-	wgpu.QueueRelease(state.queue)
-	wgpu.DeviceRelease(state.device)
-	wgpu.AdapterRelease(state.adapter)
-	wgpu.SurfaceRelease(state.surface)
-	wgpu.InstanceRelease(state.instance)
 }

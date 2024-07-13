@@ -36,3 +36,10 @@ build-release-wasm:
 
 run-web: build-debug-wasm
 	npm run dev --prefix ./web
+
+build-native:
+	odin build $(SRC) $(ODIN_COLLECTIONS) -debug
+
+run-native:
+	odin run $(SRC) $(ODIN_COLLECTIONS) -debug
+	

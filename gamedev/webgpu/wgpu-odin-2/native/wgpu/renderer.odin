@@ -1,0 +1,5 @@
+package wgpuimpl
+
+Renderer :: struct {
+
+}
