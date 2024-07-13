@@ -79,15 +79,15 @@ void rendererBasic3dRender(RendererBasic3D renderer,
         renderer.vertexBufferLen * sizeof(float));
 
     mat4 model = GLM_MAT4_IDENTITY_INIT;
-    mat4 view = GLM_MAT4_IDENTITY_INIT;
-    mat4 projection = GLM_MAT4_IDENTITY_INIT;
     glm_scale(model, (vec3){0.5, 0.6, 0.5});
     glm_rotate_x(model, glm_rad(45), model);
     glm_rotate_z(model, glm_rad(20), model);
     glm_rotate_y(model, glfwGetTime(), model);
 
+    mat4 view = GLM_MAT4_IDENTITY_INIT;
     glm_translate(view, (vec3){0.0, 0.0, -2.0});
 
+    mat4 projection = GLM_MAT4_IDENTITY_INIT;
     glm_perspective(glm_rad(45), 1, 0.01, 10, projection);
 
     ShaderDefault3DUniforms uniforms = {.time = glfwGetTime()};

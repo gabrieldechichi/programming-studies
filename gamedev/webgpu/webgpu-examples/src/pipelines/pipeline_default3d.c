@@ -19,9 +19,12 @@ shaderDefault3dCreatePipeline(WGPUDevice device,
         {.format = WGPUVertexFormat_Float32x3,
          .offset = offsetof(ShaderDefault3DVertexIn, pos),
          .shaderLocation = 0},
+        {.format = WGPUVertexFormat_Float32x3,
+         .offset = offsetof(ShaderDefault3DVertexIn, normal),
+         .shaderLocation = 1},
         {.format = WGPUVertexFormat_Float32x4,
          .offset = offsetof(ShaderDefault3DVertexIn, col),
-         .shaderLocation = 1},
+         .shaderLocation = 2},
     };
 
     WGPUVertexBufferLayout vertexBuffers[] = {
@@ -109,7 +112,7 @@ shaderDefault3dCreatePipeline(WGPUDevice device,
         .depthStencil = &depthStencil,
         .primitive = {.topology = WGPUPrimitiveTopology_TriangleList,
                       .frontFace = WGPUFrontFace_CCW,
-                      .cullMode = WGPUCullMode_Back},
+                      .cullMode = WGPUCullMode_None},
         .multisample = {
             .count = 1, .mask = ~0, .alphaToCoverageEnabled = false}};
 

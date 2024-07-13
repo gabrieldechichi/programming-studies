@@ -6,13 +6,15 @@
 #include "cglm/cglm.h"
 
 typedef struct {
-    float pos[3];
-    float col[4];
+    vec3 pos;
+    vec3 normal;
+    vec4 col;
 } ShaderDefault3DVertexIn;
 
 typedef struct {
-    float pos[4];
-    float col[4];
+    vec4 pos;
+    vec3 normal;
+    vec4 col;
 } ShaderDefault3DVertexOut;
 
 typedef struct {
