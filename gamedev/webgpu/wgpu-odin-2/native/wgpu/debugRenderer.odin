@@ -142,7 +142,7 @@ debugRendererRender :: proc(
 		buffer = auto_cast indexBuffer,
 		format = wgpu.IndexFormat.Uint16,
 		offset = 0,
-		size = auto_cast indexCount * size_of(i32),
+		size = auto_cast indexCount * size_of(u16),
 	)
 
 	wgpu.RenderPassEncoderSetBindGroup(
