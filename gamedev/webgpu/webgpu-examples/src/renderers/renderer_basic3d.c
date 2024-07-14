@@ -25,20 +25,18 @@ RendererBasic3DResult rendererBasic3dCreate(WGPUDevice device,
         shaderDefault3dCreatePipeline(device, textureFormat);
     RETURN_IF_ERROR(pipelineResult, RendererBasic3DResult);
 
-    MeshResult meshResult = loadGeometry("./resources/geometry/pyramid.geo");
+    MeshObjResult meshResult = loadObj("./resources/geometry/pyramid.obj");
     RETURN_IF_ERROR(meshResult, RendererBasic3DResult);
 
     RendererBasic3D renderer = {0};
     renderer.pipeline = pipelineResult.value;
 
-    Mesh mesh = meshResult.value;
+    MeshObj mesh = meshResult.value;
     renderer.vertexBuffer = createVertexBuffer(
-        device, "Pyramid Vertex", arrlen(mesh.vertices), mesh.vertices);
+        device, "Pyramid Vertex",
+        arrlen(mesh.vertices) * sizeof(VertexAttributes) / sizeof(float),
+        (float *)mesh.vertices);
     renderer.vertexBufferLen = arrlen(mesh.vertices);
-
-    renderer.indexBuffer = createIndexBuffer16(
-        device, "Pyramid Indices", arrlen(mesh.indices), mesh.indices);
-    renderer.indexBufferLen = arrlen(mesh.indices);
 
     int uniformBufferStride =
         ceilToNextMultiple(sizeof(ShaderDefault3DUniforms),
@@ -71,12 +69,9 @@ RendererBasic3DResult rendererBasic3dCreate(WGPUDevice device,
 void rendererBasic3dRender(RendererBasic3D renderer,
                            WGPURenderPassEncoder passEncoder, WGPUQueue queue) {
     wgpuRenderPassEncoderSetPipeline(passEncoder, renderer.pipeline.pipeline);
-    wgpuRenderPassEncoderSetIndexBuffer(
-        passEncoder, renderer.indexBuffer, WGPUIndexFormat_Uint16, 0,
-        renderer.indexBufferLen * sizeof(uint16_t));
     wgpuRenderPassEncoderSetVertexBuffer(
         passEncoder, 0, renderer.vertexBuffer, 0,
-        renderer.vertexBufferLen * sizeof(float));
+        renderer.vertexBufferLen * sizeof(VertexAttributes));
 
     mat4 model = GLM_MAT4_IDENTITY_INIT;
     glm_scale(model, (vec3){0.5, 0.6, 0.5});
@@ -102,12 +97,11 @@ void rendererBasic3dRender(RendererBasic3D renderer,
     wgpuRenderPassEncoderSetBindGroup(passEncoder, 0, renderer.uniformBindGroup,
                                       0, NULL);
 
-    wgpuRenderPassEncoderDrawIndexed(passEncoder, renderer.indexBufferLen, 1, 0,
-                                     0, 0);
+    wgpuRenderPassEncoderDraw(passEncoder, renderer.vertexBufferLen, 1, 0,
+                                     0);
 }
 
 void rendererBasic3dFree(RendererBasic3D renderer) {
-    wgpuBufferRelease(renderer.indexBuffer);
     wgpuBufferRelease(renderer.vertexBuffer);
     wgpuRenderPipelineRelease(renderer.pipeline.pipeline);
 }

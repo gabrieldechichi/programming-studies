@@ -10,8 +10,6 @@ typedef struct {
     ShaderDefault3DPipeline pipeline;
     WGPUBuffer vertexBuffer;
     int vertexBufferLen;
-    WGPUBuffer indexBuffer;
-    int indexBufferLen;
     WGPUBuffer uniformBuffer;
     int uniformBufferStride;
     WGPUBindGroup uniformBindGroup;

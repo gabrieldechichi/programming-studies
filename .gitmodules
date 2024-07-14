@@ -27,3 +27,12 @@
 [submodule "gamedev/webgpu/webgpu-examples/vendor/cglm"]
 	path = gamedev/webgpu/webgpu-examples/vendor/cglm
 	url = https://github.com/recp/cglm.git
+[submodule "gamedev/webgpu/webgpu-examples/vendor/tinyobjloader-c"]
+	path = gamedev/webgpu/webgpu-examples/vendor/tinyobjloader-c
+	url = https://github.com/syoyo/tinyobjloader-c.git
+[submodule "gamedev/webgpu/webgpu-examples/fast_obj"]
+	path = gamedev/webgpu/webgpu-examples/fast_obj
+	url = https://github.com/thisistherk/fast_obj
+[submodule "gamedev/webgpu/webgpu-examples/vendor/fast_obj"]
+	path = gamedev/webgpu/webgpu-examples/vendor/fast_obj
+	url = https://github.com/thisistherk/fast_obj

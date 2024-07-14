@@ -2,6 +2,7 @@
 #define LIB_H
 
 #include "assert.h"
+#include "cglm/types.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -44,6 +45,18 @@ typedef struct {
 
 RESULT_STRUCT(Mesh);
 
+typedef struct {
+    vec3 pos;
+    vec3 normal;
+    vec4 col;
+} VertexAttributes;
+
+typedef struct {
+    VertexAttributes* vertices;
+} MeshObj;
+
+RESULT_STRUCT(MeshObj);
+
 void println(const char *__restrict __format, ...);
 
 static inline uint8_t alignTo(uint8_t size, uint8_t alignment) {
@@ -56,5 +69,6 @@ static inline uint32_t ceilToNextMultiple(uint32_t value, uint32_t step) {
 }
 
 MeshResult loadGeometry(const char *filename);
+MeshObjResult loadObj(const char *filename);
 
 #endif

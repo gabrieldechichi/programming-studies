@@ -1,6 +1,8 @@
 #include "lib.h"
+#include "fast_obj/fast_obj.h"
 #include "lib/string.h"
 #include "stb_ds.h"
+#include <cglm/vec4.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -140,4 +142,67 @@ MeshResult loadGeometry(const char *filename) {
     fclose(file);
 
     return result;
+}
+
+MeshObjResult loadObj(const char *filename) {
+    fastObjMesh *fastObjMesh = fast_obj_read(filename);
+    if (!fastObjMesh) {
+        return (MeshObjResult){.errorCode = ERR_CODE_FAIL};
+    }
+
+    MeshObj mesh = {0};
+    // non indexed drawin so we can have different normals per vertex
+    arrsetcap(mesh.vertices, fastObjMesh->face_count * 4);
+
+    int indexIdx = 0;
+    for (int f = 0; f < fastObjMesh->face_count; f++) {
+        int faceVertCount = fastObjMesh->face_vertices[f];
+
+        assert(faceVertCount <= 4);
+        for (int i = 1; i < faceVertCount - 1; i++) {
+            fastObjIndex tri1 = fastObjMesh->indices[0 + indexIdx];
+            fastObjIndex tri2 = fastObjMesh->indices[i + indexIdx];
+            fastObjIndex tri3 = fastObjMesh->indices[i + 1 + indexIdx];
+
+            VertexAttributes v1 = {
+                .pos = {fastObjMesh->positions[3 * tri1.p + 0],
+                        fastObjMesh->positions[3 * tri1.p + 1],
+                        fastObjMesh->positions[3 * tri1.p + 2]},
+                .normal = {fastObjMesh->normals[3 * tri1.n + 0],
+                           fastObjMesh->normals[3 * tri1.n + 1],
+                           fastObjMesh->normals[3 * tri1.n + 2]},
+                .col = {1, 1, 1, 1},
+            };
+
+            VertexAttributes v2 = {
+                .pos = {fastObjMesh->positions[3 * tri2.p + 0],
+                        fastObjMesh->positions[3 * tri2.p + 1],
+                        fastObjMesh->positions[3 * tri2.p + 2]},
+                .normal = {fastObjMesh->normals[3 * tri2.n + 0],
+                           fastObjMesh->normals[3 * tri2.n + 1],
+                           fastObjMesh->normals[3 * tri2.n + 2]},
+                .col = {1, 1, 1, 1},
+            };
+
+            VertexAttributes v3 = {
+                .pos = {fastObjMesh->positions[3 * tri3.p + 0],
+                        fastObjMesh->positions[3 * tri3.p + 1],
+                        fastObjMesh->positions[3 * tri3.p + 2]},
+                .normal = {fastObjMesh->normals[3 * tri3.n + 0],
+                           fastObjMesh->normals[3 * tri3.n + 1],
+                           fastObjMesh->normals[3 * tri3.n + 2]},
+                .col = {1, 1, 1, 1},
+            };
+
+            arrpush(mesh.vertices, v1);
+            arrpush(mesh.vertices, v2);
+            arrpush(mesh.vertices, v3);
+        }
+
+        indexIdx += faceVertCount;
+    }
+
+    fast_obj_destroy(fastObjMesh);
+
+    return (MeshObjResult){.value = mesh};
 }
