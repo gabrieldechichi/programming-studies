@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 # Set to export compile_commands.json
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-project(ImGuiWithGLFW)
+project(raytracing-cherno)
 
 set(CMAKE_CXX_STANDARD 14)
 
@@ -24,14 +24,16 @@ include_directories(${IMGUI_DIR} ${IMGUI_DIR}/backends)
 file(GLOB SRC_FILES src/*.cpp)
 
 # Executable
-add_executable(ImGuiWithGLFW ${SRC_FILES} ${IMGUI_SOURCES})
+add_executable(raytracing-cherno ${SRC_FILES} ${IMGUI_SOURCES})
 
 # Link Libraries
-target_link_libraries(ImGuiWithGLFW glfw ${GLFW_LIBRARIES})
+target_link_libraries(raytracing-cherno glfw ${GLFW_LIBRARIES})
 
 # OpenGL
+
+set(OpenGL_GL_PREFERENCE LEGACY)
 find_package(OpenGL REQUIRED)
 if (OPENGL_FOUND)
-    target_include_directories(ImGuiWithGLFW PUBLIC ${OPENGL_INCLUDE_DIR})
-    target_link_libraries(ImGuiWithGLFW ${OPENGL_gl_LIBRARY})
+    target_include_directories(raytracing-cherno PUBLIC ${OPENGL_INCLUDE_DIR})
+    target_link_libraries(raytracing-cherno ${OPENGL_gl_LIBRARY})
 endif()
