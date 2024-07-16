@@ -20,6 +20,9 @@ file(GLOB IMGUI_SOURCES
 )
 include_directories(${IMGUI_DIR} ${IMGUI_DIR}/backends)
 
+# GLM
+include_directories(${CMAKE_SOURCE_DIR}/vendor/glm)
+
 # Source files
 file(GLOB SRC_FILES src/*.cpp)
 
