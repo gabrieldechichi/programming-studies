@@ -23,4 +23,4 @@ typedef Platform_Glfw_OpenGL Platform;
 void checkGLError(const char *file, int line);
 void clearGLErrors();
 
-#define CHECK_GL_ERROR() checkGLError(__FILE__, __LINE__)
+#define CHECK_GL_ERROR checkGLError(__FILE__, __LINE__)
