@@ -25,7 +25,7 @@ RendererBasic3DResult rendererBasic3dCreate(WGPUDevice device,
         shaderDefault3dCreatePipeline(device, textureFormat);
     RETURN_IF_ERROR(pipelineResult, RendererBasic3DResult);
 
-    MeshObjResult meshResult = loadObj("./resources/geometry/pyramid.obj");
+    MeshObjResult meshResult = loadObj("./resources/geometry/mammoth.obj");
     RETURN_IF_ERROR(meshResult, RendererBasic3DResult);
 
     RendererBasic3D renderer = {0};

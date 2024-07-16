@@ -155,7 +155,7 @@ MeshObjResult loadObj(const char *filename) {
     arrsetcap(mesh.vertices, fastObjMesh->face_count * 4);
 
     int indexIdx = 0;
-    for (int f = 0; f < fastObjMesh->face_count; f++) {
+    for (uint32_t f = 0; f < fastObjMesh->face_count; f++) {
         int faceVertCount = fastObjMesh->face_vertices[f];
 
         assert(faceVertCount <= 4);

@@ -36,3 +36,12 @@
 [submodule "gamedev/webgpu/webgpu-examples/vendor/fast_obj"]
 	path = gamedev/webgpu/webgpu-examples/vendor/fast_obj
 	url = https://github.com/thisistherk/fast_obj
+[submodule "gamedev/graphics/raytracing-cherno/vendor/Walnut"]
+	path = gamedev/graphics/raytracing-cherno/vendor/Walnut
+	url = https://github.com/gabrieldechichi/Walnut.git
+[submodule "gamedev/graphics/raytracing-cherno/vendor/glfw"]
+	path = gamedev/graphics/raytracing-cherno/vendor/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "gamedev/graphics/raytracing-cherno/vendor/imgui"]
+	path = gamedev/graphics/raytracing-cherno/vendor/imgui
+	url = https://github.com/ocornut/imgui.git
