@@ -16,10 +16,13 @@ class Random {
 
     static float Float() {
         return (float)distribution(randomEngine) /
-               (float)std::numeric_limits<uint32_t>::max();
+               (float)std::numeric_limits<unsigned long>::max();
     }
 
     static glm::vec3 Vec3() { return glm::vec3(Float(), Float(), Float()); }
+    static glm::vec4 Vec4() {
+        return glm::vec4(Float(), Float(), Float(), Float());
+    }
 
     static glm::vec3 Vec3(float min, float max) {
         return glm::vec3(Float() * (max - min) + min,

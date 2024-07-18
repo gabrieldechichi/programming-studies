@@ -45,7 +45,6 @@ void Platform_Glfw_OpenGL::beginFrame() {
 }
 
 void Platform_Glfw_OpenGL::beginRender() {
-    ImGui::Render();
     int display_w, display_h;
     glfwGetFramebufferSize(window, &display_w, &display_h);
 
@@ -55,6 +54,7 @@ void Platform_Glfw_OpenGL::beginRender() {
 }
 
 void Platform_Glfw_OpenGL::endRender() {
+    ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     glfwSwapBuffers(window);
     clearGLErrors();
