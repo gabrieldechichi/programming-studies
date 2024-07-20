@@ -9,10 +9,6 @@ const float c_FOVDegrees = 120.f;
 const float c_rayPosNormalNudge = 0.01f;
 const int c_maxBounces = 50;
 
-//random
-
-//
-
 void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 {
     // to move the scene around, since we can't move the camera yet
@@ -138,7 +134,7 @@ vec3 render(in vec2 uv, inout uint seed) {
 
         rayPos = (rayPos + rayDir * hit.dist) + hit.normal *
                     c_rayPosNormalNudge;
-        rayDir = normalize(hit.normal + RandomUnitVector(seed));
+        rayDir = normalize(hit.normal + RandomDirection(seed));
 
         finalColor += hit.emissive * throughput;
         throughput *= hit.albedo;

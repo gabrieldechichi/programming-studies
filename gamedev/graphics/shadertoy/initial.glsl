@@ -11,11 +11,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     uint seed = uint(uint(fragCoord.x) * uint(1973) + uint(fragCoord.y) * uint(9277) + uint(iFrame) * uint(26699)) | uint(1);
 
     // Generate a random point inside the sphere
-    vec3 randPoint = RandomUnitVectorNormalDist(seed);
+    vec3 randPoint = RandomDirection(seed);
 
     // Map the point to the fragment coordinates
-    float pointSize = 1.5; // Adjust the size of the points
-    vec3 projectedPoint = vec3(uv, -1.0); // Let's keep a plane at z=0.5
+    float pointSize = 1.0; // Adjust the size of the points
+    vec3 projectedPoint = vec3(uv, 1.0); // Let's keep a plane at z=0.5
 
     // Check if the generated random point is near the projected point
     if (length(randPoint.xy - projectedPoint.xy) < pointSize) {
