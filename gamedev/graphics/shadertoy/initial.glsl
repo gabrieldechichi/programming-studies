@@ -1,5 +1,7 @@
 #include "./lib/collision.glsl"
 
+#iChannel0 "self"
+
 const float c_FOVDegrees = 120.f;
 const float c_Pi = 3.14159265359f;
 const float c_TwoPi = 2. * c_Pi;
@@ -72,7 +74,7 @@ void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo) {
     }
 }
 
-void render(out vec4 fragColor, in vec2 uv, inout uint seed) {
+vec3 render(in vec2 uv, inout uint seed) {
     float cameraDist = 1.f / tan(c_FOVDegrees * 0.5f * c_Pi / 180.f);
     vec3 rayPos = vec3(0., 0., -cameraDist);
     vec3 rayTarget = vec3(uv, 1.);
@@ -97,7 +99,7 @@ void render(out vec4 fragColor, in vec2 uv, inout uint seed) {
         throughput *= hit.albedo;
     }
 
-    fragColor = vec4(finalColor, 1.);
+    return finalColor;
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
@@ -107,5 +109,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
     uint seed = uint(uint(fragCoord.x) * uint(1973) + uint(fragCoord.y) * uint(9277) + uint(iFrame) * uint(26699)) | uint(1);
 
-    render(fragColor, uv, seed);
+    vec3 lastFrameColor = texture(iChannel0, fragCoord.xy / iResolution.xy).rgb;
+    vec3 color = render(uv, seed);
+    color = mix(lastFrameColor, color, 1. / float(iFrame + 1));
+
+    fragColor = vec4(color, 1.);
 }
