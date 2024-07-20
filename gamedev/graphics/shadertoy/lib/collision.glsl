@@ -4,6 +4,9 @@ const float c_superFar = 10000.0f;
 struct SRayHitInfo {
     float dist;
     vec3 normal;
+
+    vec3 albedo;
+    vec3 emissive;
 };
 
 float ScalarTriple(vec3 u, vec3 v, vec3 w)
