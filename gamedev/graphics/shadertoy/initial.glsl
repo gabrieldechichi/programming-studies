@@ -97,7 +97,7 @@ void palette_1(out vec4 fragColor, in vec2 uv) {
     fragColor = vec4(color, 1.);
 }
 
-void frac_1(out vec4 fragColor, in vec2 uv){
+void frac_1(out vec4 fragColor, in vec2 uv) {
     //frac is < 1, -0.5 centralizes (-0.5, 0.5). multiplier is frequency
     uv = fract(uv * 2.) - 0.5;
 
@@ -108,21 +108,25 @@ void frac_1(out vec4 fragColor, in vec2 uv){
 
 void final(out vec4 fragColor, in vec2 uv) {
     vec2 uv0 = uv;
-    uv = fract(uv * 2.0) - 0.5;
-    float d = length(uv);
 
-    vec3 color = palette(length(uv0) + iTime);
+    float speed = 1.;
+    vec3 finalColor = vec3(0);
 
-    float f1 = 8.;
-    float speed = 2.;
-    d = sin(d * f1 + speed * iTime) / f1;
-    d = abs(d);
+    for (float i = 0.0; i < 4.0; i++) {
+        uv = fract(uv * 1.5) - 0.5;
+        float d = length(uv) * exp(-length(uv0));
+        float f1 = 8.;
+        d = sin(d * f1 + speed * iTime) / f1;
+        d = abs(d);
 
-    //neon colors (inverse function)
-    d = 0.02 / d;
-    color *= d;
+        vec3 colorPalette = palette(length(uv0) + i * .4 + iTime * 0.4);
+        //neon colors (inverse function)
+        d = pow(0.01 / d, 1.2);
 
-    fragColor = vec4(color, 1.);
+        finalColor += colorPalette * d;
+    }
+
+    fragColor = vec4(finalColor, 1.);
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
