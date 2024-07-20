@@ -1,62 +1,69 @@
 struct Sphere {
-    vec2 center;
+    vec3 center;
     float radius;
+    vec3 color;
 };
 
 struct Light {
     vec3 dir;
 };
 
-Sphere spheres[1];
+Light lights[1] = Light[1](
+        Light(normalize(vec3(-0.5, -1., 1.)))
+    );
+
+const int sphereCount = 2;
+Sphere spheres[sphereCount] = Sphere[sphereCount](
+        Sphere(vec3(0.6, 0., -0.4), 0.5, vec3(1.0, 0.0, 0.0)),
+        Sphere(vec3(-0.0, 0., 0.), 0.5, vec3(0., 1., 1.))
+    );
 
 void raytracingSpheres(out vec4 fragColor, in vec2 uv) {
-    Light light;
-    light.dir = normalize(vec3(-0.5, -1., 1.));
+    vec3 finalColor = vec3(0.);
 
-    spheres[0].center = vec2(0., 0.);
-    spheres[0].radius = 0.5f;
-    Sphere sphere = spheres[0];
+    Light light = lights[0];
 
-    vec3 rayOrigin = vec3(0., 0., -2.);
-    vec3 rayDirection = vec3(uv, 1.0f);
+    int closesSphereIndex = -1;
+    float closestT = 10000000.;
+    for (int i = 0; i < sphereCount; i++) {
+        Sphere sphere = spheres[i];
 
-    rayOrigin.xy -= sphere.center;
+        vec3 rayOrigin = vec3(0., 0., -2.);
+        vec3 rayDirection = vec3(uv, 1.0f);
 
-    float a = dot(rayDirection, rayDirection);
-    float b = 2.0 * dot(rayOrigin, rayDirection);
-    float c = dot(rayOrigin, rayOrigin) - sphere.radius * sphere.radius;
+        rayOrigin -= sphere.center;
 
-    float discriminant = b * b - 4.0 * a * c;
-    if (discriminant < 0.) {
-        fragColor = vec4(0.2, 0.2, 0.2, 1);
-        return;
+        float a = dot(rayDirection, rayDirection);
+        float b = 2.0 * dot(rayOrigin, rayDirection);
+        float c = dot(rayOrigin, rayOrigin) - sphere.radius * sphere.radius;
+
+        float discriminant = b * b - 4.0 * a * c;
+        if (discriminant < 0.) {
+            fragColor = vec4(0.2, 0.2, 0.2, 1);
+            continue;
+        }
+
+        float discriminantSqrRoot = sqrt(discriminant);
+        float t = (-b - discriminantSqrRoot) / (2. * a);
+        if (t < closestT) {
+            closestT = t;
+            closesSphereIndex = i;
+        }
     }
 
-    float discriminantSqrRoot = sqrt(discriminant);
-    float t = (-b - discriminantSqrRoot) / (2. * a);
+    if (closesSphereIndex >= 0) {
+        Sphere sphere = spheres[closesSphereIndex];
+        vec3 rayOrigin = vec3(0., 0., -2.);
+        vec3 rayDirection = vec3(uv, 1.0f);
+        rayOrigin -= sphere.center;
 
-    vec3 hitPoint = rayOrigin + rayDirection * t;
-    vec3 normal = normalize(hitPoint);
-    normal *= 0.5 + 0.5;
+        vec3 hitPoint = rayOrigin + rayDirection * closestT;
+        vec3 normal = normalize(hitPoint);
+        float diffuse = max(0., dot(normal, -light.dir));
+        finalColor += sphere.color * diffuse;
+    }
 
-    float diffuse = dot(normal, -light.dir);
-
-    vec3 color = vec3(1.);
-    color *= diffuse;
-    fragColor = vec4(color, 1.);
-
-    // float discriminantSqroot = std::sqrt(discriminant);
-    // // a is always positive so -b - discriminantSqroot is the closest t
-    // float t = (-b - discriminantSqroot) / (2 * a);
-    //
-    // auto hitPoint = rayOrigin + rayDirection * t;
-    // auto normal = glm::normalize(hitPoint);
-    // // normal = normal * 0.5f + 0.5f;
-    // auto diffuse = glm::max(0.0f, glm::dot(normal, -light.dir));
-    // auto color = glm::vec3(1, 0, 1);
-    // color *= diffuse;
-    //
-    // return glm::vec4(color, 1);
+    fragColor = vec4(finalColor, 1.);
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
