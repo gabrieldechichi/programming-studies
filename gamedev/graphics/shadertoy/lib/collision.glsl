@@ -1,3 +1,5 @@
+#ifndef H_COLLISION
+#define H_COLLISION
 const float c_minimumRayHitTime = 0.1f;
 const float c_superFar = 10000.0f;
 
@@ -133,4 +135,4 @@ bool TestSphereTrace(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo info, in 
 
     return false;
 }
-
+#endif

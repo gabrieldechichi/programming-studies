@@ -1,40 +1,16 @@
 #include "./lib/collision.glsl"
+#include "./lib/random.glsl"
+#include "./lib/consts.glsl"
 
 #iChannel0 "self"
 #iChannel1 "https://as1.ftcdn.net/v2/jpg/07/37/64/60/1000_F_737646047_Y10v9bIrRNwxfuQY4s5R2gqtK6xerxa3.jpg"
 
 const float c_FOVDegrees = 120.f;
-const float c_Pi = 3.14159265359f;
-const float c_TwoPi = 2. * c_Pi;
 const float c_rayPosNormalNudge = 0.01f;
 const int c_maxBounces = 50;
 
 //random
 
-uint wang_hash(inout uint seed)
-{
-    seed = uint(seed ^ uint(61)) ^ uint(seed >> uint(16));
-    seed *= uint(9);
-    seed = seed ^ (seed >> 4);
-    seed *= uint(0x27d4eb2d);
-    seed = seed ^ (seed >> 15);
-    return seed;
-}
-
-float RandomFloat01(inout uint state)
-{
-    return float(wang_hash(state)) / 4294967296.0;
-}
-
-vec3 RandomUnitVector(inout uint state)
-{
-    float z = RandomFloat01(state) * 2.0f - 1.0f;
-    float a = RandomFloat01(state) * c_TwoPi;
-    float r = sqrt(1.0f - z * z);
-    float x = r * cos(a);
-    float y = r * sin(a);
-    return vec3(x, y, z);
-}
 //
 
 void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
