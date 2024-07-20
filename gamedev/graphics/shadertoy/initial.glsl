@@ -1,7 +1,12 @@
+struct Material {
+    vec3 albedo;
+    float roughness;
+};
+
 struct Sphere {
     vec3 center;
     float radius;
-    vec3 color;
+    Material material;
 };
 
 struct Light {
@@ -14,9 +19,9 @@ Light lights[1] = Light[1](
 
 const int sphereCount = 2;
 Sphere spheres[sphereCount] = Sphere[sphereCount](
-        Sphere(vec3(0.7, 0., -0.4), 0.5, vec3(1.0, 0.0, 0.0)),
-        // Sphere(vec3(-0.0, 0., 0.), 0.5, vec3(0., 1., 1.)),
-        Sphere(vec3(-0.0, -510.0, 0.), 500.0, vec3(0., 1., .0))
+        Sphere(vec3(0.), 0.5, Material(vec3(1.0, 0.0, 0.0), 0.0)),
+        // Sphere(vec3(-0.1, 0., 0.), 0.5, vec3(0.2, 2., 2.)),
+        Sphere(vec3(-0.0, -100.4, 0.), 100.0, Material(vec3(0., 1., .0), 0.4))
     );
 
 struct RayHit {
@@ -29,6 +34,23 @@ struct Ray {
     vec3 origin;
     vec3 direction;
 };
+
+float randf(vec2 co) {
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float randfRange(vec2 st, float min, float max) {
+    float baseRandom = randf(st);
+    return min + (max - min) * baseRandom;
+}
+
+vec3 randomVec3Range(vec2 st, float min, float max) {
+    return vec3(
+        randfRange(st, min, max),
+        randfRange(st + vec2(1.0), min, max),
+        randfRange(st + vec2(2.0), min, max)
+    );
+}
 
 RayHit traceRay(Ray ray) {
     RayHit hit;
@@ -80,7 +102,7 @@ void raytracingSpheres(out vec4 fragColor, in vec2 uv) {
     float multiplier = 1.;
     const vec3 skyColor = vec3(0.2, 0.6, 0.8);
 
-    const int MAX_BOUNCES = 2;
+    const int MAX_BOUNCES = 5;
     for (int i = 0; i < MAX_BOUNCES; i++) {
         RayHit hit = traceRay(ray);
         if (hit.sphereIndex < 0) {
@@ -90,13 +112,15 @@ void raytracingSpheres(out vec4 fragColor, in vec2 uv) {
 
         float diffuse = max(0., dot(hit.normal, -light.dir));
         Sphere sphere = spheres[hit.sphereIndex];
-        finalColor += sphere.color * diffuse * multiplier;
-        multiplier *= 0.4;
+        finalColor += sphere.material.albedo * diffuse * multiplier;
+        multiplier *= 0.5;
 
         //always reflecting for now
         if (true) {
             ray.origin = hit.hit + 0.0001 * hit.normal;
-            ray.direction = reflect(ray.direction, hit.normal);
+            ray.direction = reflect(
+                    ray.direction,
+                    hit.normal + sphere.material.roughness * randomVec3Range(uv, -0.5, 0.5));
         }
     }
 
@@ -107,5 +131,6 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     vec2 uv = fragCoord / iResolution.xy * 2.0 - 1.0;
     uv.x *= iResolution.x / iResolution.y;
+    //fragColor = vec4(randomVec3Range(uv, 0.,1.), 1.0);
     raytracingSpheres(fragColor, uv);
 }
