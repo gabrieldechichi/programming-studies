@@ -16,13 +16,13 @@ void sdf_1(out vec4 fragColor, in vec2 uv) {
     fragColor = vec4(d, d, d, 1.);
 }
 
-float sdHexagon( in vec2 p, in float r )
+float sdHexagon(in vec2 p, in float r)
 {
-    const vec3 k = vec3(-0.866025404,0.5,0.577350269);
+    const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
     p = abs(p);
-    p -= 2.0*min(dot(k.xy,p),0.0)*k.xy;
-    p -= vec2(clamp(p.x, -k.z*r, k.z*r), r);
-    return length(p)*sign(p.y);
+    p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
+    p -= vec2(clamp(p.x, -k.z * r, k.z * r), r);
+    return length(p) * sign(p.y);
 }
 void sdf_2(out vec4 fragColor, in vec2 uv) {
     //sign distance function
@@ -54,8 +54,7 @@ void neonColors_3(out vec4 fragColor, in vec2 uv) {
     d = sin(d * f1 + speed * iTime) / f1;
     d = abs(d);
 
-    
-    //neon colors
+    //neon colors (inverse function)
     d = 0.02 / d;
     color *= d;
 
@@ -81,11 +80,45 @@ void neonColors_4(out vec4 fragColor, in vec2 uv) {
     fragColor = vec4(color, 1.);
 }
 
+//article: https://iquilezles.org/articles/palettes/
+//palette web: http://dev.thi.ng/gradients/
+vec3 palette(float t) {
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.263, 0.416, 0.557);
+
+    return a + b * cos(6.28318 * (c * t + d));
+}
+
+void palette_1(out vec4 fragColor, in vec2 uv) {
+    float d = length(uv);
+    vec3 color = palette(d);
+    fragColor = vec4(color, 1.);
+}
+
+void final(out vec4 fragColor, in vec2 uv) {
+    float d = length(uv);
+
+    vec3 color = palette(d);
+
+    float f1 = 8.;
+    float speed = 2.;
+    d = sin(d * f1 + speed * iTime) / f1;
+    d = abs(d);
+
+    //neon colors (inverse function)
+    d = 0.02 / d;
+    color *= d;
+
+    fragColor = vec4(color, 1.);
+}
+
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     // -1, 1 range
     vec2 uv = fragCoord / iResolution.xy * 2.0 - 1.0;
     //aspect ratio
     uv.x *= iResolution.x / iResolution.y;
-    sdf_2(fragColor, uv);
+    palette_1(fragColor, uv);
 }
