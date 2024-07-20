@@ -12,11 +12,11 @@ Light lights[1] = Light[1](
         Light(normalize(vec3(-0.5, -1., 1.)))
     );
 
-const int sphereCount = 3;
+const int sphereCount = 2;
 Sphere spheres[sphereCount] = Sphere[sphereCount](
-        Sphere(vec3(0.6, 0., -0.4), 0.5, vec3(1.0, 0.0, 0.0)),
-        Sphere(vec3(-0.0, 0., 0.), 0.5, vec3(0., 1., 1.)),
-        Sphere(vec3(-0.0, -510.0, 0.), 500.0, vec3(0., 1., 1.))
+        Sphere(vec3(0.7, 0., -0.4), 0.5, vec3(1.0, 0.0, 0.0)),
+        // Sphere(vec3(-0.0, 0., 0.), 0.5, vec3(0., 1., 1.)),
+        Sphere(vec3(-0.0, -510.0, 0.), 500.0, vec3(0., 1., .0))
     );
 
 struct RayHit {
@@ -25,7 +25,12 @@ struct RayHit {
     int sphereIndex;
 };
 
-RayHit traceRay(vec3 rayOrigin, vec3 rayDirection) {
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+};
+
+RayHit traceRay(Ray ray) {
     RayHit hit;
     hit.sphereIndex = -1;
 
@@ -34,10 +39,10 @@ RayHit traceRay(vec3 rayOrigin, vec3 rayDirection) {
     for (int i = 0; i < sphereCount; i++) {
         Sphere sphere = spheres[i];
 
-        vec3 rayOriginS = rayOrigin - sphere.center;
+        vec3 rayOriginS = ray.origin - sphere.center;
 
-        float a = dot(rayDirection, rayDirection);
-        float b = 2.0 * dot(rayOriginS, rayDirection);
+        float a = dot(ray.direction, ray.direction);
+        float b = 2.0 * dot(rayOriginS, ray.direction);
         float c = dot(rayOriginS, rayOriginS) - sphere.radius * sphere.radius;
 
         float discriminant = b * b - 4.0 * a * c;
@@ -47,10 +52,7 @@ RayHit traceRay(vec3 rayOrigin, vec3 rayDirection) {
 
         float discriminantSqrRoot = sqrt(discriminant);
         float t = (-b - discriminantSqrRoot) / (2. * a);
-        if (t < 0.) {
-            continue;
-        }
-        if (t < closestT) {
+        if (t > 0. && t < closestT) {
             closestT = t;
             closesSphereIndex = i;
         }
@@ -61,35 +63,40 @@ RayHit traceRay(vec3 rayOrigin, vec3 rayDirection) {
     }
 
     Sphere sphere = spheres[closesSphereIndex];
-    vec3 rayOriginS = rayOrigin - sphere.center;
 
     hit.sphereIndex = closesSphereIndex;
-    hit.hit = rayOriginS + rayDirection * closestT;
-    hit.normal = normalize(hit.hit);
+    hit.hit = ray.origin + ray.direction * closestT;
+    hit.normal = normalize(hit.hit - sphere.center);
     return hit;
 }
 
 void raytracingSpheres(out vec4 fragColor, in vec2 uv) {
-    vec3 rayOrigin = vec3(0.0, 0.0, -2.0);
-    vec3 rayDirection = normalize(vec3(uv, 1.0));
+    Ray ray;
+    ray.origin = vec3(0.0, 0.0, -2.0);
+    ray.direction = normalize(vec3(uv, 1.0));
 
     Light light = lights[0];
     vec3 finalColor = vec3(0.);
-    const int MAX_BOUNCES = 3;
+    float multiplier = 1.;
+    const vec3 skyColor = vec3(0.2, 0.6, 0.8);
+
+    const int MAX_BOUNCES = 2;
     for (int i = 0; i < MAX_BOUNCES; i++) {
-        RayHit hit = traceRay(rayOrigin, rayDirection);
+        RayHit hit = traceRay(ray);
         if (hit.sphereIndex < 0) {
-            continue;
+            finalColor += skyColor * multiplier;
+            break;
         }
 
         float diffuse = max(0., dot(hit.normal, -light.dir));
         Sphere sphere = spheres[hit.sphereIndex];
-        finalColor += sphere.color * diffuse;
+        finalColor += sphere.color * diffuse * multiplier;
+        multiplier *= 0.4;
 
-        //reflect
+        //always reflecting for now
         if (true) {
-            rayOrigin = hit.hit + 0.001 * hit.normal;
-            rayDirection = reflect(rayDirection, hit.normal);
+            ray.origin = hit.hit + 0.0001 * hit.normal;
+            ray.direction = reflect(ray.direction, hit.normal);
         }
     }
 
