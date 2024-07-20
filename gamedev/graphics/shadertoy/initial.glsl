@@ -97,10 +97,21 @@ void palette_1(out vec4 fragColor, in vec2 uv) {
     fragColor = vec4(color, 1.);
 }
 
+void frac_1(out vec4 fragColor, in vec2 uv){
+    //frac is < 1, -0.5 centralizes (-0.5, 0.5). multiplier is frequency
+    uv = fract(uv * 2.) - 0.5;
+
+    float d = length(uv);
+    vec3 color = palette(d);
+    fragColor = vec4(color, 1.);
+}
+
 void final(out vec4 fragColor, in vec2 uv) {
+    vec2 uv0 = uv;
+    uv = fract(uv * 2.0) - 0.5;
     float d = length(uv);
 
-    vec3 color = palette(d);
+    vec3 color = palette(length(uv0) + iTime);
 
     float f1 = 8.;
     float speed = 2.;
@@ -120,5 +131,5 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec2 uv = fragCoord / iResolution.xy * 2.0 - 1.0;
     //aspect ratio
     uv.x *= iResolution.x / iResolution.y;
-    palette_1(fragColor, uv);
+    final(fragColor, uv);
 }
