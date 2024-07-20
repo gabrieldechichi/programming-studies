@@ -1,3 +1,5 @@
+#iChannel0 "self"
+
 struct Material {
     vec3 albedo;
     float roughness;
@@ -21,7 +23,7 @@ const int sphereCount = 2;
 Sphere spheres[sphereCount] = Sphere[sphereCount](
         Sphere(vec3(0.), 0.5, Material(vec3(1.0, 0.0, 0.0), 0.0)),
         // Sphere(vec3(-0.1, 0., 0.), 0.5, vec3(0.2, 2., 2.)),
-        Sphere(vec3(-0.0, -100.4, 0.), 100.0, Material(vec3(0., 1., .0), 0.4))
+        Sphere(vec3(-0.0, -100.4, 0.), 100.0, Material(vec3(0., 1., .0), 0.5))
     );
 
 struct RayHit {
@@ -35,20 +37,21 @@ struct Ray {
     vec3 direction;
 };
 
-float randf(vec2 co) {
-    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+float seed = 0.;
+float randf() {
+    return fract(sin(seed++) * 43758.5453123);
 }
 
-float randfRange(vec2 st, float min, float max) {
-    float baseRandom = randf(st);
+float randfRange(float min, float max) {
+    float baseRandom = randf();
     return min + (max - min) * baseRandom;
 }
 
-vec3 randomVec3Range(vec2 st, float min, float max) {
+vec3 randomVec3Range(float min, float max) {
     return vec3(
-        randfRange(st, min, max),
-        randfRange(st + vec2(1.0), min, max),
-        randfRange(st + vec2(2.0), min, max)
+        randfRange(min, max),
+        randfRange(min, max),
+        randfRange(min, max)
     );
 }
 
@@ -102,7 +105,7 @@ void raytracingSpheres(out vec4 fragColor, in vec2 uv) {
     float multiplier = 1.;
     const vec3 skyColor = vec3(0.2, 0.6, 0.8);
 
-    const int MAX_BOUNCES = 5;
+    const int MAX_BOUNCES = 50;
     for (int i = 0; i < MAX_BOUNCES; i++) {
         RayHit hit = traceRay(ray);
         if (hit.sphereIndex < 0) {
@@ -120,7 +123,7 @@ void raytracingSpheres(out vec4 fragColor, in vec2 uv) {
             ray.origin = hit.hit + 0.0001 * hit.normal;
             ray.direction = reflect(
                     ray.direction,
-                    hit.normal + sphere.material.roughness * randomVec3Range(uv, -0.5, 0.5));
+                    hit.normal + sphere.material.roughness * randomVec3Range(-0.5, 0.5));
         }
     }
 
@@ -129,8 +132,13 @@ void raytracingSpheres(out vec4 fragColor, in vec2 uv) {
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
+    seed = iTime + iResolution.y * fragCoord.x / iResolution.x + fragCoord.y / iResolution.y;
+
     vec2 uv = fragCoord / iResolution.xy * 2.0 - 1.0;
     uv.x *= iResolution.x / iResolution.y;
-    //fragColor = vec4(randomVec3Range(uv, 0.,1.), 1.0);
-    raytracingSpheres(fragColor, uv);
+    vec4 currentFrameColor;
+    raytracingSpheres(currentFrameColor, uv);
+
+    vec4 previousFrameColor = texture(iChannel0, fragCoord / iResolution.xy);
+    fragColor = mix(previousFrameColor, currentFrameColor, 0.1);
 }
