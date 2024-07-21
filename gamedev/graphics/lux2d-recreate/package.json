@@ -12,5 +12,8 @@
     "typescript": "^5.2.2",
     "vite": "^5.3.4",
     "vite-plugin-full-reload": "^1.2.0"
+  },
+  "dependencies": {
+    "npm": "^10.8.2"
   }
 }

@@ -148,10 +148,17 @@ function drawScene(gl: WebGLRenderingContext, { program, buffers }: Pipeline) {
 
 async function main() {
   const canvas = document.getElementById("glCanvas") as HTMLCanvasElement;
+  canvas.width = 512;
+  canvas.height = 512;
   const gl = initWebGL(canvas);
   if (!gl) {
     return;
   }
+
+  //@ts-ignore
+  gl.viewportWidth = 512;
+  //@ts-ignore
+  gl.viewportHeight = 512;
 
   const vertexShader = await loadShaderFromFile(
     gl,
