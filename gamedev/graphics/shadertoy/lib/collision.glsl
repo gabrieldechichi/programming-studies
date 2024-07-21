@@ -6,6 +6,11 @@ const float c_superFar = 10000.0f;
 struct Material {
     vec3 albedo;
     vec3 emissive;
+    //[0, 1], percentage of light that reflects specularly instead of diffusely
+    float percentSpecular;
+    //[0, 1], how rough the surface is, 0 is perfect mirror
+    float roughness;
+    vec3 specularColor;
 };
 
 struct SRayHitInfo {
