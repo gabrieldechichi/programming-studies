@@ -3,12 +3,17 @@
 const float c_minimumRayHitTime = 0.1f;
 const float c_superFar = 10000.0f;
 
+struct Material {
+    vec3 albedo;
+    vec3 emissive;
+};
+
 struct SRayHitInfo {
     float dist;
     vec3 normal;
 
-    vec3 albedo;
-    vec3 emissive;
+    Material material;
+
 };
 
 float ScalarTriple(vec3 u, vec3 v, vec3 w)

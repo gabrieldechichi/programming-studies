@@ -9,12 +9,10 @@ const float c_FOVDegrees = 120.f;
 const float c_rayPosNormalNudge = 0.01f;
 const int c_maxBounces = 8;
 
-#define AA 0
+#define MULTI_SAMPLE 0
 
-#if AA == 1
-const int c_maxRaysPerPixel = 8;
-#else
-const int c_maxRaysPerPixel = 1;
+#if MULTI_SAMPLE == 1
+const int c_maxRaysPerPixel = 32;
 #endif
 
 void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
@@ -31,8 +29,11 @@ void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
         vec3 D = vec3(-12.6f, 12.6f, 25.0f) + sceneTranslation;
         if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
         {
-            hitInfo.albedo = vec3(0.7f, 0.7f, 0.7f);
-            hitInfo.emissive = vec3(0.0f, 0.0f, 0.0f);
+            hitInfo.material.albedo = vec3(0.7f, 0.7f, 0.7f);
+            hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+            // hitInfo.material.percentSpecular = 0.0f;
+            // hitInfo.material.roughness = 0.0f;
+            // hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
         }
     }
 
@@ -44,8 +45,11 @@ void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
         vec3 D = vec3(-12.6f, -12.45f, 15.0f) + sceneTranslation;
         if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
         {
-            hitInfo.albedo = vec3(0.7f, 0.7f, 0.7f);
-            hitInfo.emissive = vec3(0.0f, 0.0f, 0.0f);
+            hitInfo.material.albedo = vec3(0.7f, 0.7f, 0.7f);
+            hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+            // hitInfo.material.percentSpecular = 0.0f;
+            // hitInfo.material.roughness = 0.0f;
+            // hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
         }
     }
 
@@ -57,8 +61,11 @@ void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
         vec3 D = vec3(-12.6f, 12.5f, 15.0f) + sceneTranslation;
         if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
         {
-            hitInfo.albedo = vec3(0.7f, 0.7f, 0.7f);
-            hitInfo.emissive = vec3(0.0f, 0.0f, 0.0f);
+            hitInfo.material.albedo = vec3(0.7f, 0.7f, 0.7f);
+            hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+            // hitInfo.material.percentSpecular = 0.0f;
+            // hitInfo.material.roughness = 0.0f;
+            // hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
         }
     }
 
@@ -70,8 +77,11 @@ void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
         vec3 D = vec3(-12.5f, 12.6f, 25.0f) + sceneTranslation;
         if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
         {
-            hitInfo.albedo = vec3(0.7f, 0.1f, 0.1f);
-            hitInfo.emissive = vec3(0.0f, 0.0f, 0.0f);
+            hitInfo.material.albedo = vec3(0.7f, 0.1f, 0.1f);
+            hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+            // hitInfo.material.percentSpecular = 0.0f;
+            // hitInfo.material.roughness = 0.0f;
+            // hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
         }
     }
 
@@ -83,8 +93,11 @@ void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
         vec3 D = vec3(12.5f, 12.6f, 25.0f) + sceneTranslation;
         if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
         {
-            hitInfo.albedo = vec3(0.1f, 0.7f, 0.1f);
-            hitInfo.emissive = vec3(0.0f, 0.0f, 0.0f);
+            hitInfo.material.albedo = vec3(0.1f, 0.7f, 0.1f);
+            hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+            // hitInfo.material.percentSpecular = 0.0f;
+            // hitInfo.material.roughness = 0.0f;
+            // hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
         }
     }
 
@@ -96,28 +109,96 @@ void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
         vec3 D = vec3(-5.0f, 12.4f, 17.5f) + sceneTranslation;
         if (TestQuadTrace(rayPos, rayDir, hitInfo, A, B, C, D))
         {
-            hitInfo.albedo = vec3(0.0f, 0.0f, 0.0f);
-            hitInfo.emissive = vec3(1.0f, 0.9f, 0.7f) * 20.0f;
+            hitInfo.material.albedo = vec3(0.0f, 0.0f, 0.0f);
+            hitInfo.material.emissive = vec3(1.0f, 0.9f, 0.7f) * 20.0f;
+            // hitInfo.material.percentSpecular = 0.0f;
+            // hitInfo.material.roughness = 0.0f;
+            // hitInfo.material.specularColor = vec3(0.0f, 0.0f, 0.0f);
         }
     }
 
     if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-9.0f, -9.5f, 20.0f, 3.0f) + sceneTranslation4))
     {
-        hitInfo.albedo = vec3(0.9f, 0.9f, 0.75f);
-        hitInfo.emissive = vec3(0.0f, 0.0f, 0.0f);
+        hitInfo.material.albedo = vec3(0.9f, 0.9f, 0.5f);
+        hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+        // hitInfo.material.percentSpecular = 0.1f;
+        // hitInfo.material.roughness = 0.2f;
+        // hitInfo.material.specularColor = vec3(0.9f, 0.9f, 0.9f);
     }
 
     if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(0.0f, -9.5f, 20.0f, 3.0f) + sceneTranslation4))
     {
-        hitInfo.albedo = vec3(0.9f, 0.75f, 0.9f);
-        hitInfo.emissive = vec3(0.0f, 0.0f, 0.0f);
+        hitInfo.material.albedo = vec3(0.9f, 0.5f, 0.9f);
+        hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+        // hitInfo.material.percentSpecular = 0.3f;
+        // hitInfo.material.roughness = 0.2;
+        // hitInfo.material.specularColor = vec3(0.9f, 0.9f, 0.9f);
     }
 
     if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(9.0f, -9.5f, 20.0f, 3.0f) + sceneTranslation4))
     {
-        hitInfo.albedo = vec3(0.75f, 0.9f, 0.9f);
-        hitInfo.emissive = vec3(0.0f, 0.0f, 0.0f);
+        hitInfo.material.albedo = vec3(0.5f, 0.9f, 0.9f);
+        hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
     }
+
+    // // a ball which has blue diffuse but red specular. an example of a "bad material".
+    // // a better lighting model wouldn't let you do this sort of thing
+    // if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(9.0f, -9.5f, 20.0f, 3.0f) + sceneTranslation4))
+    // {
+    //     hitInfo.material.albedo = vec3(0.0f, 0.0f, 1.0f);
+    //     hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+    //     // hitInfo.material.percentSpecular = 0.5f;
+    //     // hitInfo.material.roughness = 0.4f;
+    //     // hitInfo.material.specularColor = vec3(1.0f, 0.0f, 0.0f);
+    // }
+
+    // shiny green balls of varying roughnesses
+    // {
+    //     if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-10.0f, 0.0f, 23.0f, 1.75f) + sceneTranslation4))
+    //     {
+    //         hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
+    //         hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+    //         // hitInfo.material.percentSpecular = 1.0f;
+    //         // hitInfo.material.roughness = 0.0f;
+    //         // hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
+    //     }
+    //
+    //     if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(-5.0f, 0.0f, 23.0f, 1.75f) + sceneTranslation4))
+    //     {
+    //         hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
+    //         hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+    //         // hitInfo.material.percentSpecular = 1.0f;
+    //         // hitInfo.material.roughness = 0.25f;
+    //         // hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
+    //     }
+    //
+    //     if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(0.0f, 0.0f, 23.0f, 1.75f) + sceneTranslation4))
+    //     {
+    //         hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
+    //         hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+    //         // hitInfo.material.percentSpecular = 1.0f;
+    //         // hitInfo.material.roughness = 0.5f;
+    //         // hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
+    //     }
+    //
+    //     if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(5.0f, 0.0f, 23.0f, 1.75f) + sceneTranslation4))
+    //     {
+    //         hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
+    //         hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+    //         // hitInfo.material.percentSpecular = 1.0f;
+    //         // hitInfo.material.roughness = 0.75f;
+    //         // hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
+    //     }
+    //
+    //     if (TestSphereTrace(rayPos, rayDir, hitInfo, vec4(10.0f, 0.0f, 23.0f, 1.75f) + sceneTranslation4))
+    //     {
+    //         hitInfo.material.albedo = vec3(1.0f, 1.0f, 1.0f);
+    //         hitInfo.material.emissive = vec3(0.0f, 0.0f, 0.0f);
+    //         // hitInfo.material.percentSpecular = 1.0f;
+    //         // hitInfo.material.roughness = 1.0f;
+    //         // hitInfo.material.specularColor = vec3(0.3f, 1.0f, 0.3f);
+    //     }
+    // }
 }
 
 vec3 render(in vec2 uv, inout uint seed) {
@@ -136,7 +217,7 @@ vec3 render(in vec2 uv, inout uint seed) {
         traceScene(rayPos, rayDir, hit);
         //no hit
         if (hit.dist == c_superFar) {
-            finalColor += texture(iChannel1, rayDir.xy).rgb * throughput;
+            finalColor += SRGBToLinear(texture(iChannel1, rayDir.xy).rgb) * throughput;
             break;
         }
 
@@ -144,8 +225,8 @@ vec3 render(in vec2 uv, inout uint seed) {
                     c_rayPosNormalNudge;
         rayDir = normalize(hit.normal + RandomDirection(seed));
 
-        finalColor += hit.emissive * throughput;
-        throughput *= hit.albedo;
+        finalColor += hit.material.emissive * throughput;
+        throughput *= hit.material.albedo;
     }
 
     return finalColor;
@@ -153,24 +234,30 @@ vec3 render(in vec2 uv, inout uint seed) {
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
-    vec2 uv = fragCoord / iResolution.xy * 2.0 - 1.0;
-    uv.x *= iResolution.x / iResolution.y;
-
     uint seed = uint(uint(fragCoord.x) * uint(1973) + uint(fragCoord.y) * uint(9277) + uint(iFrame) * uint(26699)) | uint(1);
-
     vec3 frameColor = vec3(0.);
-    #if AA == 1
+
+    //antialiasing
+
+    #if MULTI_SAMPLE == 1
     for (int i = 0; i < c_maxRaysPerPixel; i++) {
-        vec2 uvRand = uv + RandomPointInCircle(seed) * 0.005;
-        frameColor += render(uvRand, seed);
+        vec2 jitter = vec2(RandomValue(seed), RandomValue(seed)) - 0.5f;
+        vec2 uv = ((fragCoord + jitter) / iResolution.xy) * 2.0 - 1.0;
+        uv.x *= iResolution.x / iResolution.y;
+        frameColor += render(uv, seed);
     }
     frameColor = frameColor / float(c_maxRaysPerPixel);
     #else
+
+    vec2 jitter = vec2(RandomValue(seed), RandomValue(seed)) - 0.5f;
+    vec2 uv = ((fragCoord + jitter) / iResolution.xy) * 2.0 - 1.0;
+    uv.x *= iResolution.x / iResolution.y;
     frameColor = render(uv, seed);
     #endif
 
-    vec3 lastFrameColor = texture(iChannel0, fragCoord.xy / iResolution.xy).rgb;
+    vec3 lastFrameColor = SRGBToLinear(texture(iChannel0, fragCoord.xy /
+                    iResolution.xy).rgb);
     frameColor = mix(lastFrameColor, frameColor, 1. / float(iFrame + 1));
 
-    fragColor = vec4(frameColor, 1.);
+    fragColor = vec4(LinearToSRGB(frameColor), 1.);
 }
