@@ -1,24 +1,3 @@
-// Vertex shader program
-const vsSource = `
-  attribute vec2 aVertexPosition;
-  attribute vec3 aVertexColor;
-
-  varying lowp vec3 vColor;
-  void main(void) {
-    gl_Position = vec4(aVertexPosition, 0.0, 1.0);
-    vColor = aVertexColor;
-  }
-`;
-
-// Fragment shader program
-const fsSource = `
-  varying lowp vec3 vColor;
-
-  void main(void) {
-    gl_FragColor = vec4(vColor, 1.0);
-  }
-`;
-
 function initWebGL(canvas: HTMLCanvasElement): WebGLRenderingContext | null {
   const gl = canvas.getContext("webgl") as WebGLRenderingContext;
   if (!gl) {
@@ -28,6 +7,20 @@ function initWebGL(canvas: HTMLCanvasElement): WebGLRenderingContext | null {
     return null;
   }
   return gl;
+}
+
+async function loadShaderFromFile(
+  gl: WebGLRenderingContext,
+  type: number,
+  url: string,
+): Promise<WebGLShader | null> {
+  const r = await fetch(url);
+  if (!r.ok) {
+    console.error(`Failed to loader shader ${url}`);
+    return null;
+  }
+  const source = await r.text();
+  return loadShader(gl, type, source);
 }
 
 function loadShader(
@@ -53,9 +46,12 @@ function loadShader(
 }
 
 type Pipeline = NonNullable<ReturnType<typeof createPipeline>>;
-function createPipeline(gl: WebGLRenderingContext) {
-  const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource)!;
-  const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource)!;
+
+function createPipeline(
+  gl: WebGLRenderingContext,
+  vertexShader: WebGLShader,
+  fragmentShader: WebGLShader,
+) {
   const shaderProgram = gl.createProgram()!;
 
   gl.attachShader(shaderProgram, vertexShader);
@@ -150,14 +146,24 @@ function drawScene(gl: WebGLRenderingContext, { program, buffers }: Pipeline) {
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-function main() {
+async function main() {
   const canvas = document.getElementById("glCanvas") as HTMLCanvasElement;
   const gl = initWebGL(canvas);
   if (!gl) {
     return;
   }
 
-  const pipeline = createPipeline(gl);
+  const vertexShader = await loadShaderFromFile(
+    gl,
+    gl.VERTEX_SHADER,
+    "/resources/shaders/triangleV.glsl",
+  )!;
+  const fragmentShader = await loadShaderFromFile(
+    gl,
+    gl.FRAGMENT_SHADER,
+    "/resources/shaders/triangleF.glsl",
+  )!;
+  const pipeline = createPipeline(gl, vertexShader!, fragmentShader!);
   if (pipeline) {
     drawScene(gl, pipeline);
   }
