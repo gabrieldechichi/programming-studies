@@ -19,7 +19,7 @@ float RandomValue(inout uint state)
 float RandomValueNormalDistribution(inout uint state)
 {
     // Thanks to https://stackoverflow.com/a/6178290
-    float theta = c_TwoPi * RandomValue(state);
+    float theta = PI2 * RandomValue(state);
     float rho = sqrt(-2. * log(RandomValue(state)));
     return rho * cos(theta);
 }
@@ -36,7 +36,7 @@ vec3 RandomDirection(inout uint state)
 
 vec2 RandomPointInCircle(inout uint rngState)
 {
-    float angle = RandomValue(rngState) * c_TwoPi;
+    float angle = RandomValue(rngState) * PI2;
     vec2 pointOnCircle = vec2(cos(angle), sin(angle));
     return pointOnCircle * sqrt(RandomValue(rngState));
 }

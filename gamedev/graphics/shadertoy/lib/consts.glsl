@@ -1,7 +1,8 @@
 #ifndef H_CONSTS
 #define H_CONSTS
-const float c_Pi = 3.14159265359;
-const float c_TwoPi = 2.0 * c_Pi;
+const float PI = 3.14159265359;
+const float PI2 = 2.0 * PI;
+const float EPSILON = 0.001;
 
 vec3 LessThan(vec3 f, float value)
 {

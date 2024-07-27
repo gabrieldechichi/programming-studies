@@ -196,7 +196,7 @@ void traceScene(in vec3 rayPos, in vec3 rayDir, inout SRayHitInfo hitInfo)
 }
 
 vec3 render(in vec2 uv, inout uint seed) {
-    float cameraDist = 1.f / tan(c_FOVDegrees * 0.5f * c_Pi / 180.f);
+    float cameraDist = 1.f / tan(c_FOVDegrees * 0.5f * PI / 180.f);
     vec3 rayPos = vec3(0., 0., -cameraDist);
     vec3 rayTarget = vec3(uv, 1.);
     vec3 rayDir = normalize(rayTarget - rayPos);

@@ -1,24 +1,30 @@
-#include "./lib/collision.glsl"
-#include "./lib/random.glsl"
 #include "./lib/consts.glsl"
+#include "./lib/math.glsl"
 
-#iChannel0 "./buffer0.glsl"
-#iChannel1 "https://as1.ftcdn.net/v2/jpg/07/37/64/60/1000_F_737646047_Y10v9bIrRNwxfuQY4s5R2gqtK6xerxa3.jpg"
+float vignette(vec2 uv, float r) {
+    return min(1.0 - length(uv) + r, 1.0);
+}
 
-const float c_exposure = 0.5f;
+vec3 background(vec2 uv) {
+    uv = rotate2d(uv, PI * 0.25);
+
+    vec2 uvx = mod(uv * 150.0, vec2(4.0, 8.0)) - vec2(2.0, 2.0);
+    vec2 uvy = mod(uv * 150.0 + vec2(2.0, 4.0), vec2(4.0, 8.0)) - vec2(2.0, 2.0);
+    float cx = rectangle(uvx, vec2(1.0, 1.5));
+    float cy = rectangle(uvy, vec2(1.5, 1.0));
+
+    float factor = cx + cy;
+
+    vec3 grid = mix(vec3(0.370, 0.004, 0.011), vec3(0.520, 0.100, 0.018), cx + cy);
+
+    return grid * vignette(uv, 0.4);
+}
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
-    vec3 color = texture(iChannel0, fragCoord / iResolution.xy).rgb;
+    vec2 uv = (2.0 * fragCoord - iResolution.xy) / iResolution.y;
 
-    // apply exposure (how long the shutter is open)
-    color *= c_exposure;
+    vec3 col = background(uv);
 
-    /// convert unbounded HDR color range to SDR color range
-    color = ACESFilm(color);
-
-    // convert from linear to sRGB for display
-    color = LinearToSRGB(color);
-
-    fragColor = vec4(color, 1.0f);
+    fragColor = vec4(col, 1.0);
 }
