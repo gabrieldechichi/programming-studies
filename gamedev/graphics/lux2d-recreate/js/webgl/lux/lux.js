@@ -45,55 +45,55 @@ function drawScene() {
 function draw() {
   drawScene();
 
-  gl.bindFramebuffer(gl.FRAMEBUFFER, blurFramebuffer);
-  gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-  gl.useProgram(blurHProgram);
-  gl.enableVertexAttribArray(blurHProgram.vertexPositionAttribute);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, triangleVertexPositionBuffer);
-  gl.vertexAttribPointer(
-    blurHProgram.vertexPositionAttribute,
-    triangleVertexPositionBuffer.itemSize,
-    gl.FLOAT,
-    false,
-    0,
-    0,
-  );
-
-  gl.uniformMatrix4fv(blurHProgram.projectionUniform, false, projection);
-  gl.uniform1i(blurHProgram.blur, blur);
-
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, textureTarget);
-  gl.uniform1i(blurHProgram.samplerUniform, 0);
-
-  gl.drawArrays(gl.TRIANGLES, 0, triangleVertexPositionBuffer.numItems);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-  gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-  gl.useProgram(blurVProgram);
-  gl.enableVertexAttribArray(blurVProgram.vertexPositionAttribute);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, triangleVertexPositionBuffer);
-  gl.vertexAttribPointer(
-    blurVProgram.vertexPositionAttribute,
-    triangleVertexPositionBuffer.itemSize,
-    gl.FLOAT,
-    false,
-    0,
-    0,
-  );
-
-  gl.uniformMatrix4fv(blurVProgram.projectionUniform, false, projection);
-  gl.uniform1i(blurVProgram.blur, blur);
-
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, blurTarget);
-  gl.uniform1i(blurVProgram.samplerUniform, 0);
+  // gl.bindFramebuffer(gl.FRAMEBUFFER, blurFramebuffer);
+  // gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+  // gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  //
+  // gl.useProgram(blurHProgram);
+  // gl.enableVertexAttribArray(blurHProgram.vertexPositionAttribute);
+  //
+  // gl.bindBuffer(gl.ARRAY_BUFFER, triangleVertexPositionBuffer);
+  // gl.vertexAttribPointer(
+  //   blurHProgram.vertexPositionAttribute,
+  //   triangleVertexPositionBuffer.itemSize,
+  //   gl.FLOAT,
+  //   false,
+  //   0,
+  //   0,
+  // );
+  //
+  // gl.uniformMatrix4fv(blurHProgram.projectionUniform, false, projection);
+  // gl.uniform1i(blurHProgram.blur, blur);
+  //
+  // gl.activeTexture(gl.TEXTURE0);
+  // gl.bindTexture(gl.TEXTURE_2D, textureTarget);
+  // gl.uniform1i(blurHProgram.samplerUniform, 0);
+  //
+  // gl.drawArrays(gl.TRIANGLES, 0, triangleVertexPositionBuffer.numItems);
+  // gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  //
+  // gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+  // gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  //
+  // gl.useProgram(blurVProgram);
+  // gl.enableVertexAttribArray(blurVProgram.vertexPositionAttribute);
+  //
+  // gl.bindBuffer(gl.ARRAY_BUFFER, triangleVertexPositionBuffer);
+  // gl.vertexAttribPointer(
+  //   blurVProgram.vertexPositionAttribute,
+  //   triangleVertexPositionBuffer.itemSize,
+  //   gl.FLOAT,
+  //   false,
+  //   0,
+  //   0,
+  // );
+  //
+  // gl.uniformMatrix4fv(blurVProgram.projectionUniform, false, projection);
+  // gl.uniform1i(blurVProgram.blur, blur);
+  //
+  // gl.activeTexture(gl.TEXTURE0);
+  // gl.bindTexture(gl.TEXTURE_2D, blurTarget);
+  // gl.uniform1i(blurVProgram.samplerUniform, 0);
 
   gl.drawArrays(gl.TRIANGLES, 0, triangleVertexPositionBuffer.numItems);
 }

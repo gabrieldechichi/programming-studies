@@ -228,6 +228,15 @@ vec3 render(in vec2 uv, inout uint seed) {
         finalColor += hit.material.emissive * throughput;
         throughput *= mix(hit.material.albedo, hit.material.specularColor,
                 doSpecular);
+
+        //Russian roulette
+        //As we bounce more (smaller throughput) we increase the chances of the
+        //ray stopping early. Survivors get multiplied effect to compensate
+        float p = max(throughput.r, max(throughput.g, throughput.b));
+        if (RandomValue(seed) > p) {
+            break;
+        }
+        throughput *= 1.0f / p;
     }
 
     return finalColor;
