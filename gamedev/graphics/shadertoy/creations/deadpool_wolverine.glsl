@@ -1,5 +1,5 @@
 /* "Deadpool + Wolverine - https://www.shadertoy.com/view/msj3D3
-   
+
    This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
 
    Got inspired by the new move and decided to make this using raymarching.
@@ -20,6 +20,7 @@ const float MAX_RM_DISTANCE = 200.0;
 const float MIN_RM_DISTANCE = EPSILON;
 const int MAX_RM_IT = 100;
 #define ROTATE 1
+#define ROTATE_SPEED iTime
 
 float opUnion(float d1, float d2)
 {
@@ -100,9 +101,8 @@ RaymarchResult eyeDeadpool(vec3 p, float mult) {
     RaymarchResult r;
 
     p.xy -= vec2(0.55 * mult, 0.1);
-    float prism = sdTriPrismZ(vec3(p.x / 1.7, p.y * 1.2, p.z), vec2(0.23, 0.22));
 
-    float cylinder = sdCylinderZ(vec3(p.x / 1.2, p.y / 1.1, p.z), 0.22, 0.2);
+    float cylinder = sdCylinderZ(vec3(p.x / 1.2, p.y / 1.1, p.z), 0.15, 0.2);
     float cylinder2 = sdCylinderZ(vec3((p.x / 1.2) - 0.22, (p.y / 1.1) - 0.2, p.z), 0.72, 0.3);
 
     r.distance = opSubtraction(cylinder, cylinder2);
@@ -114,20 +114,20 @@ RaymarchResult eyeWolverine(vec3 p, float mult) {
     RaymarchResult r;
     p.xy -= vec2(0.58 * mult, 0.1);
     p.xy = rotate2d(p.xy, PI * 0.75 * mult);
-    r.distance = sdTriPrismZ(vec3(p.x / 1.7, p.y * 1.2, p.z), vec2(0.21, 0.22));
+    r.distance = sdTriPrismZ(vec3(p.x / 1.7, p.y * 1.2, p.z), vec2(0.21, 0.17));
     r.color = vec3(1.0);
     return r;
 }
 
 RaymarchResult logoBase(vec3 p, vec3 innerCol, vec3 outerCol) {
     RaymarchResult r;
-    float innerCylinder = sdCylinderZ(p, 0.15, 1.0);
+    float innerCylinder = sdCylinderZ(p, 0.10, 1.0);
     r.color = innerCol;
     r.distance = innerCylinder;
 
-    float outerCylinder1 = sdCylinderZ(p, 0.2, 1.2);
+    float outerCylinder1 = sdCylinderZ(p, 0.15, 1.2);
     float outerCylinder2 = sdCylinderZ(p, 0.4, 1.0);
-    float outerBox = sdBox(p, vec3(0.15, 1.20 - 0.01, 0.2));
+    float outerBox = sdBox(p, vec3(0.15, 1.20 - 0.01, 0.15));
     float outerCylinder = opSubtraction(outerCylinder1, outerCylinder2);
     outerCylinder = opUnion(outerBox, outerCylinder);
     if (outerCylinder < r.distance) {
@@ -141,7 +141,7 @@ RaymarchResult logoBase(vec3 p, vec3 innerCol, vec3 outerCol) {
 //BEGIN DEADPOOL
 RaymarchResult raymarchDeapool(vec3 p) {
     #if ROTATE==1
-    p = rotateY(p, iTime);
+    p = rotateY(p, ROTATE_SPEED);
     #endif
     RaymarchResult r = logoBase(p, vec3(0.12), vec3(0.7, 0.1, 0.1));
 
@@ -170,6 +170,20 @@ vec3 normalsDeadpool(in vec3 pos)
             e.xxx * raymarchDeapool(pos + e.xxx * eps).distance);
 }
 
+vec3 calculateLighting(vec3 color, vec3 normal, vec3 lightDir, vec3 viewDir, vec3 ambientLight) {
+    float diffuse = max(dot(normal, -lightDir), 0.0);
+    float ambFactor = 0.5 + 0.5 * dot(normal, vec3(0.0, 1.0, 0.0));
+    vec3 diffuseColor = vec3(diffuse) * color;
+
+    vec3 halfDir = normalize(-lightDir + viewDir);
+    float specularStrength = 1.;
+    float shininess = 82.0;
+    float specFactor = pow(max(dot(normal, halfDir), 0.0), shininess);
+    vec3 specular = specularStrength * specFactor * vec3(1.0); // White specular highlight
+
+    return diffuseColor + ambientLight * ambFactor + specular;
+}
+
 void logoDeadPool(in vec3 ro, in vec3 rd,
     in vec3 lightDir, in vec3 ambientLight,
     out vec3 color, out float t)
@@ -186,11 +200,8 @@ void logoDeadPool(in vec3 ro, in vec3 rd,
     if (t < MAX_RM_DISTANCE) {
         vec3 pos = ro + rd * t;
         vec3 normal = normalsDeadpool(pos);
-
-        float diffuse = max(dot(normal, -lightDir), 0.0);
-
-        float ambFactor = 0.5 + 0.5 * dot(normal, vec3(0.0, 1.0, 0.0));
-        color = vec3(diffuse) * r.color + ambientLight * ambFactor;
+        vec3 viewDir = normalize(ro - pos);
+        color = calculateLighting(r.color, normal, lightDir, viewDir, ambientLight);
     }
 }
 //END DEADPOOL
@@ -201,12 +212,12 @@ RaymarchResult eyeFrame(vec3 p, float sign) {
     vec3 p1 = p;
     p1.xy -= baseOffset;
     p1.xy = rotate2d(p1.xy, -PI * 1.75 * sign);
-    float tri1 = sdRhombus(p1, 0.99, 0.35, 0.18, 0.06);
+    float tri1 = sdRhombus(p1, 0.99, 0.35, 0.12, 0.06);
 
     vec3 p2 = p;
     p2.xy -= baseOffset + vec2(0.09 * sign, 0.1);
     p2.xy = rotate2d(p2.xy, -PI * 1.78 * sign);
-    float tri2 = sdRhombus(p2, 1.0, 0.4, 0.18, 0.06);
+    float tri2 = sdRhombus(p2, 1.0, 0.4, 0.12, 0.06);
 
     tri1 = opSmoothUnion(tri1, tri2, 0.15);
     RaymarchResult r;
@@ -217,7 +228,7 @@ RaymarchResult eyeFrame(vec3 p, float sign) {
 
 RaymarchResult raymarchWolverine(vec3 p) {
     #if ROTATE==1
-    p = rotateY(p, iTime);
+    p = rotateY(p, ROTATE_SPEED);
     #endif
     RaymarchResult r = logoBase(p, vec3(.7, .7, 0.0), vec3(0.9, 0.9, 0.1));
 
@@ -273,11 +284,8 @@ void logoWolverine(in vec3 ro, in vec3 rd,
     if (t < MAX_RM_DISTANCE) {
         vec3 pos = ro + rd * t;
         vec3 normal = normalsWolverine(pos);
-
-        float diffuse = max(dot(normal, -lightDir), 0.0);
-
-        float ambFactor = 0.5 + 0.5 * dot(normal, vec3(0.0, 1.0, 0.0));
-        color = vec3(diffuse) * r.color + ambientLight * ambFactor;
+        vec3 viewDir = normalize(ro - pos);
+        color = calculateLighting(r.color, normal, lightDir, viewDir, ambientLight);
     }
 }
 //END WOLVERINE
@@ -289,8 +297,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 ro = vec3(0., 0., -3.5);
     vec3 rd = normalize(vec3(uv.x, uv.y, 1.));
 
-    vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0));
-    vec3 ambientLight = vec3(0.1, 0.05, 0.0);
+    vec3 lightDir = normalize(vec3(-0.4, 0.7, 1.0));
+    vec3 ambientLight = vec3(0.2, 0.1, 0.1);
 
     vec3 col = vec3(0.);
     float t = 0.;

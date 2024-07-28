@@ -3,7 +3,6 @@
 const float MAX_RM_DISTANCE = 200.0;
 const float MIN_RM_DISTANCE = EPSILON;
 const int MAX_RM_IT = 100;
-
 float sdSphere(vec3 p, float radius) {
     return length(p) - radius;
 }
