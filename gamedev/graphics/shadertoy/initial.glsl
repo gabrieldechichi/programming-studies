@@ -2,7 +2,7 @@
 #include "./lib/math.glsl"
 const float MAX_RM_DISTANCE = 200.0;
 const float MIN_RM_DISTANCE = EPSILON;
-const int MAX_RM_IT = 250;
+const int MAX_RM_IT = 100;
 #define ROTATE 1
 
 float opUnion(float d1, float d2)
@@ -138,11 +138,25 @@ struct RaymarchResult {
     vec3 color;
 };
 
-RaymarchResult eye(vec3 p, vec2 offset, float rot) {
+RaymarchResult eyeDeadpool(vec3 p, float mult) {
     RaymarchResult r;
-    p.xy -= offset;
-    p.xy = rotate2d(p.xy, rot);
-    r.distance = sdTriPrismZ(vec3(p.x / 1.7, p.y * 1.2, p.z), vec2(0.23, 0.22));
+
+    p.xy -= vec2(0.55 * mult, 0.1);
+    float prism = sdTriPrismZ(vec3(p.x / 1.7, p.y * 1.2, p.z), vec2(0.23, 0.22));
+
+    float cylinder = sdCylinderZ(vec3(p.x / 1.2, p.y / 1.1, p.z), 0.22, 0.2);
+    float cylinder2 = sdCylinderZ(vec3((p.x / 1.2) - 0.22, (p.y / 1.1) - 0.2, p.z), 0.72, 0.3);
+
+    r.distance = opSubtraction(cylinder, cylinder2);
+    r.color = vec3(1.0);
+    return r;
+}
+
+RaymarchResult eyeWolverine(vec3 p, float mult) {
+    RaymarchResult r;
+    p.xy -= vec2(0.58 * mult, 0.1);
+    p.xy = rotate2d(p.xy, PI * 0.75 * mult);
+    r.distance = sdTriPrismZ(vec3(p.x / 1.7, p.y * 1.2, p.z), vec2(0.21, 0.22));
     r.color = vec3(1.0);
     return r;
 }
@@ -163,16 +177,6 @@ RaymarchResult logoBase(vec3 p, vec3 innerCol, vec3 outerCol) {
         r.distance = outerCylinder;
     }
 
-    RaymarchResult eyeRight = eye(p, vec2(0.58, 0.1), PI * 0.75);
-    RaymarchResult eyeLeft = eye(p, vec2(-0.58, 0.1), -PI * 0.75);
-
-    if (eyeRight.distance < r.distance) {
-        r = eyeRight;
-    }
-    if (eyeLeft.distance < r.distance) {
-        r = eyeLeft;
-    }
-
     return r;
 }
 
@@ -182,6 +186,17 @@ RaymarchResult raymarchDeapool(vec3 p) {
     p = rotateY(p, iTime);
     #endif
     RaymarchResult r = logoBase(p, vec3(0.12), vec3(0.7, 0.1, 0.1));
+
+    RaymarchResult eyeRight = eyeDeadpool(p, 1.);
+    RaymarchResult eyeLeft = eyeDeadpool(p, -1.);
+
+    if (eyeRight.distance < r.distance) {
+        r = eyeRight;
+    }
+    if (eyeLeft.distance < r.distance) {
+        r = eyeLeft;
+    }
+
     float minusBox = sdBox(p - vec3(10.0, 0.0, 0.0), vec3(10., 10., 3.));
     r.distance = opSubtraction(r.distance, minusBox);
     return r;
@@ -247,6 +262,16 @@ RaymarchResult raymarchWolverine(vec3 p) {
     p = rotateY(p, iTime);
     #endif
     RaymarchResult r = logoBase(p, vec3(.7, .7, 0.0), vec3(0.9, 0.9, 0.1));
+
+    RaymarchResult eyeRight = eyeWolverine(p, 1.);
+    RaymarchResult eyeLeft = eyeWolverine(p, -1.);
+
+    if (eyeRight.distance < r.distance) {
+        r = eyeRight;
+    }
+    if (eyeLeft.distance < r.distance) {
+        r = eyeLeft;
+    }
 
     RaymarchResult eyeFrameRight = eyeFrame(p, 1.);
     RaymarchResult eyeFrameLeft = eyeFrame(p, -1.);
