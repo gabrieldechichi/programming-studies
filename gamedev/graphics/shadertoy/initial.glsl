@@ -108,7 +108,7 @@ float vignette(vec2 uv, float r) {
     return min(1.0 - length(uv) + r, 1.0);
 }
 
-vec3 background(vec2 uv) {
+vec3 background(vec2 uv, vec3 col1, vec3 col2) {
     uv = rotate2d(uv, PI * 0.25);
 
     vec2 uvx = mod(uv * 150.0, vec2(4.0, 8.0)) - vec2(2.0, 2.0);
@@ -118,7 +118,7 @@ vec3 background(vec2 uv) {
 
     float factor = cx + cy;
 
-    vec3 grid = mix(vec3(0.370, 0.004, 0.011), vec3(0.520, 0.100, 0.018), cx + cy);
+    vec3 grid = mix(col1, col2, cx + cy);
 
     return grid * vignette(uv, 0.4);
 }
@@ -302,8 +302,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 ro = vec3(0., 0., -3.5);
     vec3 rd = normalize(vec3(uv.x, uv.y, 1.));
 
-    vec3 lightDir = normalize(vec3(0.0, -0.0, 1.0));
-    vec3 ambientLight = vec3(0.0);
+    vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0));
+    vec3 ambientLight = vec3(0.05);
 
     vec3 col = vec3(0.);
     float t = 0.;
@@ -324,7 +324,12 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         t = tWolverine;
     }
 
-    vec3 bg = background(uv);
+    vec3 bgDeadpool = background(uv, vec3(0.370, 0.004, 0.011), vec3(0.520, 0.100, 0.018));
+    vec3 bgWolverine = background(uv, vec3(0.370, 0.30, 0.011), vec3(0.520, 0.420, 0.018));
+    float bgT = uv.x * 0.5 + 0.5;
+    bgT = smoothstep(0., 1., bgT);
+    vec3 bg = mix(bgDeadpool, bgWolverine, bgT);
+
     col = mix(col, bg, step(MAX_RM_DISTANCE, t));
 
     fragColor = vec4(col, 1.0);
