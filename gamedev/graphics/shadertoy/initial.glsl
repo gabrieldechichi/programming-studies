@@ -175,7 +175,7 @@ RaymarchResult logoBase(vec3 p, vec3 innerCol, vec3 outerCol) {
 
 //BEGIN DEADPOOL
 RaymarchResult raymarchDeapool(vec3 p) {
-    p = rotateY(p, iTime);
+    // p = rotateY(p, iTime);
     RaymarchResult r = logoBase(p, vec3(0.12), vec3(0.7, 0.1, 0.1));
     return r;
 }
@@ -215,9 +215,9 @@ void logoDeadPool(in vec3 ro, in vec3 rd,
 
 //BEGIN WOLVERINE
 RaymarchResult raymarchWolverine(vec3 p) {
-    p = rotateY(p, iTime);
+    // p = rotateY(p, iTime);
     // p = rotateY(p, PI * 1.9);
-    RaymarchResult r = logoBase(p, vec3(.8, .8, 0.0), vec3(0.9, 0.9, 0.1));
+    RaymarchResult r = logoBase(p, vec3(.7, .7, 0.0), vec3(0.9, 0.9, 0.1));
 
     vec2 baseOffset = vec2(0.9, 0.45);
     vec3 p1 = p;
@@ -293,8 +293,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 col = vec3(0.);
     float t = 0.;
 
-    // logoDeadPool(ro, rd, lightDir, ambientLight, col, t);
-    logoWolverine(ro, rd, lightDir, ambientLight, col, t);
+    vec3 colDeadpool = vec3(0.);
+    vec3 colWolverine = vec3(0.);
+    logoDeadPool(ro, rd, lightDir, ambientLight, colDeadpool, t);
+    logoWolverine(ro, rd, lightDir, ambientLight, colWolverine, t);
+    col = mix(colDeadpool, colWolverine, step(0., uv.x));
 
     vec3 bg = background(uv);
     col = mix(col, bg, step(MAX_RM_DISTANCE, t));
