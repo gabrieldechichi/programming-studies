@@ -37,6 +37,12 @@ float opSmoothIntersection(float d1, float d2, float k)
     return mix(d2, d1, h) + k * h * (1.0 - h);
 }
 
+float sdTriPrismZ(vec3 p, vec2 h)
+{
+    vec3 q = abs(p);
+    return max(q.z - h.y, max(q.x * 0.866025 + p.y * 0.5, -p.y) - h.x * 0.5);
+}
+
 float sdCylinder(vec3 p, vec3 a, vec3 b, float r)
 {
     vec3 ba = b - a;
@@ -113,8 +119,18 @@ struct RaymarchResult {
     vec3 color;
 };
 
+RaymarchResult eye(vec3 p, vec2 offset, float rot) {
+    RaymarchResult r;
+    p.xy -= offset;
+    p.xy = rotate2d(p.xy, rot);
+    r.distance = sdTriPrismZ(vec3(p.x / 1.7, p.y * 1.2, p.z), vec2(0.25, 0.2));
+    r.color = vec3(1.0);
+    return r;
+}
+
 RaymarchResult map(vec3 p) {
-    p = rotateY(p, iTime);
+    // p = rotateY(p, iTime);
+    // p = rotateY(p, PI / 4.);
     RaymarchResult r;
     float innerCylinder = sdCylinderZ(p, 0.15, 1.0);
     r.color = vec3(0.12);
@@ -125,9 +141,19 @@ RaymarchResult map(vec3 p) {
     float outerBox = sdBox(p, vec3(0.15, 1.20 - 0.01, 0.2));
     float outerCylinder = opSubtraction(outerCylinder1, outerCylinder2);
     outerCylinder = opUnion(outerBox, outerCylinder);
-    if (outerCylinder < innerCylinder) {
+    if (outerCylinder < r.distance) {
         r.color = vec3(1.0, 0.0, 0.0);
         r.distance = outerCylinder;
+    }
+
+    RaymarchResult eyeRight = eye(p, vec2(0.58, 0.1), PI * 0.75);
+    RaymarchResult eyeLeft = eye(p, vec2(-0.58, 0.1), -PI * 0.75);
+
+    if (eyeRight.distance < r.distance) {
+        r = eyeRight;
+    }
+    if (eyeLeft.distance < r.distance) {
+        r = eyeLeft;
     }
 
     return r;
