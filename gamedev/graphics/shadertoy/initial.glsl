@@ -2,7 +2,8 @@
 #include "./lib/math.glsl"
 const float MAX_RM_DISTANCE = 200.0;
 const float MIN_RM_DISTANCE = EPSILON;
-const int MAX_RM_IT = 2500;
+const int MAX_RM_IT = 250;
+#define ROTATE 1
 
 float opUnion(float d1, float d2)
 {
@@ -126,8 +127,10 @@ float sdSphere(vec3 p, float radius) {
     return length(p) - radius;
 }
 
-float sdBox(vec3 p, vec3 bounds) {
-    return length(max(abs(p) - bounds, 0.0));
+float sdBox(vec3 p, vec3 b)
+{
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
 struct RaymarchResult {
@@ -175,8 +178,12 @@ RaymarchResult logoBase(vec3 p, vec3 innerCol, vec3 outerCol) {
 
 //BEGIN DEADPOOL
 RaymarchResult raymarchDeapool(vec3 p) {
-    // p = rotateY(p, iTime);
+    #if ROTATE==1
+    p = rotateY(p, iTime);
+    #endif
     RaymarchResult r = logoBase(p, vec3(0.12), vec3(0.7, 0.1, 0.1));
+    float minusBox = sdBox(p - vec3(10.0, 0.0, 0.0), vec3(10., 10., 3.));
+    r.distance = opSubtraction(r.distance, minusBox);
     return r;
 }
 
@@ -234,8 +241,9 @@ RaymarchResult eyeFrame(vec3 p, float sign) {
 }
 
 RaymarchResult raymarchWolverine(vec3 p) {
-    // p = rotateY(p, iTime);
-    // p = rotateY(p, PI * 1.9);
+    #if ROTATE==1
+    p = rotateY(p, iTime);
+    #endif
     RaymarchResult r = logoBase(p, vec3(.7, .7, 0.0), vec3(0.9, 0.9, 0.1));
 
     RaymarchResult eyeFrameRight = eyeFrame(p, 1.);
@@ -247,6 +255,9 @@ RaymarchResult raymarchWolverine(vec3 p) {
     if (eyeFrameLeft.distance < r.distance) {
         r = eyeFrameLeft;
     }
+
+    float minusBox = sdBox(p + vec3(10.0, 0.0, 0.0), vec3(10., 10., 3.));
+    r.distance = opSubtraction(r.distance, minusBox);
 
     return r;
 }
@@ -297,10 +308,20 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 col = vec3(0.);
     float t = 0.;
 
-    if (uv.x < 0.) {
-        logoDeadPool(ro, rd, lightDir, ambientLight, col, t);
+    vec3 colDeadpool = vec3(0.);
+    float tDeadpool = 0.;
+    vec3 colWolverine = vec3(0.);
+    float tWolverine = 0.;
+
+    logoDeadPool(ro, rd, lightDir, ambientLight, colDeadpool, tDeadpool);
+    logoWolverine(ro, rd, lightDir, ambientLight, colWolverine, tWolverine);
+
+    if (tDeadpool < tWolverine) {
+        col = colDeadpool;
+        t = tDeadpool;
     } else {
-        logoWolverine(ro, rd, lightDir, ambientLight, col, t);
+        col = colWolverine;
+        t = tWolverine;
     }
 
     vec3 bg = background(uv);
