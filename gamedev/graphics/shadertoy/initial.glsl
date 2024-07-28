@@ -14,31 +14,11 @@ float opSubtraction(float d1, float d2)
 {
     return max(-d2, d1);
 }
-float opIntersection(float d1, float d2)
-{
-    return max(d1, d2);
-}
-float opXor(float d1, float d2)
-{
-    return max(min(d1, d2), -max(d1, d2));
-}
 
 float opSmoothUnion(float d1, float d2, float k)
 {
     float h = clamp(0.5 + 0.5 * (d2 - d1) / k, 0.0, 1.0);
     return mix(d2, d1, h) - k * h * (1.0 - h);
-}
-
-float opSmoothSubtraction(float d1, float d2, float k)
-{
-    float h = clamp(0.5 - 0.5 * (d2 + d1) / k, 0.0, 1.0);
-    return mix(d2, -d1, h) + k * h * (1.0 - h);
-}
-
-float opSmoothIntersection(float d1, float d2, float k)
-{
-    float h = clamp(0.5 - 0.5 * (d2 - d1) / k, 0.0, 1.0);
-    return mix(d2, d1, h) + k * h * (1.0 - h);
 }
 
 float sdTriPrismZ(vec3 p, vec2 h)
@@ -60,48 +40,10 @@ float sdRhombus(vec3 p, float la, float lb, float h, float ra)
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0));
 }
 
-float sdCylinder(vec3 p, vec3 a, vec3 b, float r)
-{
-    vec3 ba = b - a;
-    vec3 pa = p - a;
-    float baba = dot(ba, ba);
-    float paba = dot(pa, ba);
-    float x = length(pa * baba - ba * paba) - r * baba;
-    float y = abs(paba - baba * 0.5) - baba * 0.5;
-    float x2 = x * x;
-    float y2 = y * y * baba;
-
-    float d = (max(x, y) < 0.0) ? -min(x2, y2) : (((x > 0.0) ? x2 : 0.0) + ((y > 0.0) ? y2 : 0.0));
-
-    return sign(d) * sqrt(abs(d)) / baba;
-}
-
-float sdCylinderY(vec3 p, float h, float r)
-{
-    vec2 d = abs(vec2(length(p.xz), p.y)) - vec2(r, h);
-    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
-}
-float sdCylinderX(vec3 p, float h, float r)
-{
-    vec2 d = abs(vec2(length(p.yz), p.x)) - vec2(r, h);
-    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
-}
-
 float sdCylinderZ(vec3 p, float h, float r)
 {
     vec2 d = abs(vec2(length(p.xy), p.z)) - vec2(r, h);
     return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
-}
-float sdRoundedCylinderY(vec3 p, float ra, float rb, float h)
-{
-    vec2 d = vec2(length(p.xz) - 2.0 * ra + rb, abs(p.y) - h);
-    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - rb;
-}
-
-float sdRoundedCylinderZ(vec3 p, float ra, float rb, float h)
-{
-    vec2 d = vec2(length(p.xy) - 2.0 * ra + rb, abs(p.z) - h);
-    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - rb;
 }
 
 float vignette(vec2 uv, float r) {
