@@ -212,33 +212,44 @@ void logoDeadPool(in vec3 ro, in vec3 rd,
 
 //BEGIN WOLVERINE
 RaymarchResult raymarchWolverine(vec3 p) {
-    // p = rotateY(p, iTime);
-    p = rotateY(p, PI * 1.9);
+    p = rotateY(p, iTime);
+    // p = rotateY(p, PI * 1.9);
     RaymarchResult r = logoBase(p, vec3(.8, .8, 0.0), vec3(0.9, 0.9, 0.1));
 
     vec2 baseOffset = vec2(1.0, 0.6);
     vec3 p1 = p;
     p1.xy -= baseOffset;
     p1.xy = rotate2d(p1.xy, -PI * 1.7);
-    float tri1 = sdTriPrismZ(vec3(p1.x / 2.1, p1.y / 3.2, p1.z), vec2(0.25, 0.30));
+    float tri1 = sdTriPrismZ(vec3(p1.x / 1.8, p1.y / 3.2, p1.z), vec2(0.25, 0.2));
 
     vec3 p2 = p;
     p2.xy -= baseOffset + vec2(0.4, 0.4);
     p2.xy = rotate2d(p2.xy, -PI * 1.85);
-    float tri2 = sdTriPrismZ(vec3(p2.x / 0.8, p2.y / 1.8, p2.z), vec2(0.25, 0.30));
+    float tri2 = sdTriPrismZ(vec3(p2.x / 0.8, p2.y / 1.8, p2.z), vec2(0.25, 0.20));
 
     vec3 p3 = p;
-    p3.xy -= baseOffset + vec2(-0.5, -0.5);
+    p3.xy -= baseOffset + vec2(-0.45, -0.35);
     p3.xy = rotate2d(p3.xy, PI * 1.25);
-    float tri3 = sdTriPrismZ(vec3(p3.x / 1.3, p3.y / 1.7, p3.z), vec2(0.25, 0.30));
+    float tri3 = sdTriPrismZ(vec3(p3.x / 1.2, p3.y / 1.7, p3.z), vec2(0.25, 0.30));
+
+    vec3 p4 = p;
+    p4.xy -= baseOffset + vec2(-0.5, -0.55);
+    p4.xy = rotate2d(p4.xy, PI * 1.15);
+    float tri4 = sdTriPrismZ(vec3(p4.x / 1.5, p4.y / 1.7, p4.z), vec2(0.25, 0.30));
 
     // p.xy -= vec2(1.0, 0.7);
     // p.xy = rotate2d(p.xy, -PI * 1.85);
     // float tri1 = sdTriPrismZ(vec3(p.x / 1.9, p.y / 3.8, p.z), vec2(0.25, 0.2));
     // float tri2 = sdTriPrismZ(vec3(p.x / 1., p.y / 1.8, p.z), vec2(0.25, 0.2));
-    tri1 = opSmoothUnion(tri1, tri2, 0.4);
-    tri1 = opSmoothUnion(tri1, tri3, 0.2);
+    // tri1 = opSmoothUnion(tri1, tri2, 0.4);
+    // tri1 = opSmoothUnion(tri1, tri3, 0.2);
     // tri1 = tri3;
+    // tri1 = opUnion(tri1, tri2);
+    // tri1 = opUnion(tri1, tri3);
+    // tri1 = opUnion(tri1, tri4);
+    tri1 = opSmoothUnion(tri1, tri2, 0.3);
+    tri1 = opSmoothUnion(tri1, tri3, 0.2);
+    tri1 = opSmoothUnion(tri1, tri4, 0.1);
     if (tri1 < r.distance) {
         r.distance = tri1;
         r.color = vec3(0.1);
@@ -284,7 +295,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     vec2 uv = (2.0 * fragCoord - iResolution.xy) / iResolution.y;
 
-    vec3 ro = vec3(0., 0., -3.);
+    vec3 ro = vec3(0., 0., -3.5);
     vec3 rd = normalize(vec3(uv.x, uv.y, 1.));
 
     vec3 lightDir = normalize(vec3(0.0, -0.0, 1.0));
