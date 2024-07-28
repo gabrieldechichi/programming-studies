@@ -51,8 +51,11 @@ float sdRhombus(vec3 p, float la, float lb, float h, float ra)
 {
     p = abs(p);
     vec2 b = vec2(la, lb);
-    float f = clamp((ndot(b, b - 2.0 * p.xz)) / dot(b, b), -1.0, 1.0);
-    vec2 q = vec2(length(p.xz - 0.5 * b * vec2(1.0 - f, 1.0 + f)) * sign(p.x * b.y + p.z * b.x - b.x * b.y) - ra, p.y - h);
+    float f = clamp((ndot(b, b - 2.0 * p.yx)) / dot(b, b), -1.0, 1.0);
+    vec2 q = vec2(
+            length(p.yx - 0.5 * b * vec2(1.0 - f, 1.0 + f))
+                * sign(p.y * b.y + p.x * b.x - b.x * b.y)
+                - ra, p.z - h);
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0));
 }
 
@@ -136,7 +139,7 @@ RaymarchResult eye(vec3 p, vec2 offset, float rot) {
     RaymarchResult r;
     p.xy -= offset;
     p.xy = rotate2d(p.xy, rot);
-    r.distance = sdTriPrismZ(vec3(p.x / 1.7, p.y * 1.2, p.z), vec2(0.25, 0.2));
+    r.distance = sdTriPrismZ(vec3(p.x / 1.7, p.y * 1.2, p.z), vec2(0.23, 0.22));
     r.color = vec3(1.0);
     return r;
 }
@@ -216,40 +219,26 @@ RaymarchResult raymarchWolverine(vec3 p) {
     // p = rotateY(p, PI * 1.9);
     RaymarchResult r = logoBase(p, vec3(.8, .8, 0.0), vec3(0.9, 0.9, 0.1));
 
-    vec2 baseOffset = vec2(1.0, 0.6);
+    vec2 baseOffset = vec2(0.9, 0.45);
     vec3 p1 = p;
     p1.xy -= baseOffset;
-    p1.xy = rotate2d(p1.xy, -PI * 1.7);
-    float tri1 = sdTriPrismZ(vec3(p1.x / 1.8, p1.y / 3.2, p1.z), vec2(0.25, 0.2));
+    p1.xy = rotate2d(p1.xy, -PI * 1.75);
+    float tri1 = sdRhombus(p1, 0.99, 0.35, 0.18, 0.06);
 
     vec3 p2 = p;
-    p2.xy -= baseOffset + vec2(0.4, 0.4);
-    p2.xy = rotate2d(p2.xy, -PI * 1.85);
-    float tri2 = sdTriPrismZ(vec3(p2.x / 0.8, p2.y / 1.8, p2.z), vec2(0.25, 0.20));
+    p2.xy -= baseOffset + vec2(0.09, 0.1);
+    p2.xy = rotate2d(p2.xy, -PI * 1.78);
+    float tri2 = sdRhombus(p2, 1.0, 0.4, 0.18, 0.06);
 
-    vec3 p3 = p;
-    p3.xy -= baseOffset + vec2(-0.45, -0.35);
-    p3.xy = rotate2d(p3.xy, PI * 1.25);
-    float tri3 = sdTriPrismZ(vec3(p3.x / 1.2, p3.y / 1.7, p3.z), vec2(0.25, 0.30));
-
-    vec3 p4 = p;
-    p4.xy -= baseOffset + vec2(-0.5, -0.55);
-    p4.xy = rotate2d(p4.xy, PI * 1.15);
-    float tri4 = sdTriPrismZ(vec3(p4.x / 1.5, p4.y / 1.7, p4.z), vec2(0.25, 0.30));
-
-    // p.xy -= vec2(1.0, 0.7);
-    // p.xy = rotate2d(p.xy, -PI * 1.85);
-    // float tri1 = sdTriPrismZ(vec3(p.x / 1.9, p.y / 3.8, p.z), vec2(0.25, 0.2));
-    // float tri2 = sdTriPrismZ(vec3(p.x / 1., p.y / 1.8, p.z), vec2(0.25, 0.2));
-    // tri1 = opSmoothUnion(tri1, tri2, 0.4);
-    // tri1 = opSmoothUnion(tri1, tri3, 0.2);
-    // tri1 = tri3;
     // tri1 = opUnion(tri1, tri2);
-    // tri1 = opUnion(tri1, tri3);
-    // tri1 = opUnion(tri1, tri4);
-    tri1 = opSmoothUnion(tri1, tri2, 0.3);
-    tri1 = opSmoothUnion(tri1, tri3, 0.2);
-    tri1 = opSmoothUnion(tri1, tri4, 0.1);
+    tri1 = opSmoothUnion(tri1, tri2, 0.15);
+
+    // vec3 p3 = p;
+    // p3.xy -= vec2(0.58, 0.1);
+    // p3.xy = rotate2d(p3.xy, PI * 0.75);
+    // float eyeRight = sdTriPrismZ(vec3(p3.x / 1.7, p3.y * 1.2, p3.z), vec2(0.25, 0.9));
+    // tri1 = opSubtraction(tri1, eyeRight);
+
     if (tri1 < r.distance) {
         r.distance = tri1;
         r.color = vec3(0.1);
