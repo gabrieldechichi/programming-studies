@@ -51,6 +51,17 @@ float sdCylinderZ(vec3 p, float h, float r)
     vec2 d = abs(vec2(length(p.xy), p.z)) - vec2(r, h);
     return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
 }
+float sdRoundedCylinderY(vec3 p, float ra, float rb, float h)
+{
+    vec2 d = vec2(length(p.xz) - 2.0 * ra + rb, abs(p.y) - h);
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - rb;
+}
+
+float sdRoundedCylinderZ(vec3 p, float ra, float rb, float h)
+{
+    vec2 d = vec2(length(p.xy) - 2.0 * ra + rb, abs(p.z) - h);
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - rb;
+}
 
 float vignette(vec2 uv, float r) {
     return min(1.0 - length(uv) + r, 1.0);
@@ -88,8 +99,6 @@ vec3 rotateYY(vec3 point, float angle)
 }
 
 float map(vec3 p) {
-    // return sdSphere(p, 1.0);
-    // p = rotateYY(p, iTime);
     return sdCylinderZ(p, 0.15, 1.0);
 }
 
@@ -121,7 +130,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 rd = normalize(uv.x * right + uv.y * up + 1.0 * fwd);
 
     vec3 col = vec3(0.);
-    vec3 lightDir = normalize(vec3(1.0, -1.0, -1.0));
+    vec3 lightDir = normalize(vec3(0.0, -0.0, 1.0));
     vec3 lightCol = vec3(1.0);
 
     float t = 0.;
@@ -136,6 +145,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     if (t < MAX_RM_DISTANCE) {
         vec3 pos = ro + rd * t;
         vec3 normal = calcNormal(pos);
+        normal.z = abs(normal.z);
+        lightDir.z = -abs(lightDir.z);
         float diffuse = max(dot(normal, -lightDir), 0.0);
         vec3 amb = vec3(0.2);
         col = vec3(diffuse) + amb;
