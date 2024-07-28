@@ -1,6 +1,24 @@
 #include "./lib/consts.glsl"
 #include "./lib/math.glsl"
 
+float opUnion(float d1, float d2)
+{
+    return min(d1, d2);
+}
+// d1 - d2
+float opSubtraction(float d1, float d2)
+{
+    return max(-d2, d1);
+}
+float opIntersection(float d1, float d2)
+{
+    return max(d1, d2);
+}
+float opXor(float d1, float d2)
+{
+    return max(min(d1, d2), -max(d1, d2));
+}
+
 float opSmoothUnion(float d1, float d2, float k)
 {
     float h = clamp(0.5 + 0.5 * (d2 - d1) / k, 0.0, 1.0);
@@ -90,27 +108,39 @@ float sdBox(vec3 p, vec3 bounds) {
     return length(max(abs(p) - bounds, 0.0));
 }
 
-vec3 rotateYY(vec3 point, float angle)
-{
-    float r = angle;
-    float x = point.x * sin(r) - point.z * cos(r);
-    float z = point.x * cos(r) + point.z * sin(r);
-    return vec3(x, point.y, z);
-}
+struct RaymarchResult {
+    float distance;
+    vec3 color;
+};
 
-float map(vec3 p) {
-    p = rotateYY(p, iTime);
-    return sdCylinderZ(p, 0.15, 1.0);
+RaymarchResult map(vec3 p) {
+    p = rotateY(p, iTime);
+    RaymarchResult r;
+    float innerCylinder = sdCylinderZ(p, 0.15, 1.0);
+    r.color = vec3(0.12);
+    r.distance = innerCylinder;
+
+    float outerCylinder1 = sdCylinderZ(p, 0.2, 1.2);
+    float outerCylinder2 = sdCylinderZ(p, 0.4, 1.0);
+    float outerBox = sdBox(p, vec3(0.15, 1.20 - 0.01, 0.2));
+    float outerCylinder = opSubtraction(outerCylinder1, outerCylinder2);
+    outerCylinder = opUnion(outerBox, outerCylinder);
+    if (outerCylinder < innerCylinder) {
+        r.color = vec3(1.0, 0.0, 0.0);
+        r.distance = outerCylinder;
+    }
+
+    return r;
 }
 
 vec3 calcNormal(in vec3 pos)
 {
     vec2 e = vec2(1.0, -1.0) * 0.5773;
     const float eps = EPSILON;
-    return normalize(e.xyy * map(pos + e.xyy * eps) +
-            e.yyx * map(pos + e.yyx * eps) +
-            e.yxy * map(pos + e.yxy * eps) +
-            e.xxx * map(pos + e.xxx * eps));
+    return normalize(e.xyy * map(pos + e.xyy * eps).distance +
+            e.yyx * map(pos + e.yyx * eps).distance +
+            e.yxy * map(pos + e.yxy * eps).distance +
+            e.xxx * map(pos + e.xxx * eps).distance);
 }
 
 const float MAX_RM_DISTANCE = 200.0;
@@ -126,25 +156,29 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 
     vec3 col = vec3(0.);
     vec3 lightDir = normalize(vec3(0.0, -0.0, 1.0));
-    vec3 lightCol = vec3(1.0);
+    vec3 ambientLight = vec3(0.0);
 
     float t = 0.;
+    RaymarchResult r;
     for (int i = 0; i < MAX_RM_IT; i++) {
         vec3 p = ro + rd * t;
-        float d = map(p);
-        t += d;
-        if (d < MIN_RM_DISTANCE) break;
+        r = map(p);
+        t += r.distance;
+        if (r.distance < MIN_RM_DISTANCE) break;
         if (t > MAX_RM_DISTANCE) break;
     }
 
     if (t < MAX_RM_DISTANCE) {
         vec3 pos = ro + rd * t;
         vec3 normal = calcNormal(pos);
-        normal.z = abs(normal.z);
-        lightDir.z = -abs(lightDir.z);
+        //HACK: raymarching cylinder normal calculation doesn't work that well.
+        //This makes sure normalz point outwards on Z on both faces
+        // normal.z = abs(normal.z);
+        // lightDir.z = -abs(lightDir.z);
+        //
+
         float diffuse = max(dot(normal, -lightDir), 0.0);
-        vec3 amb = vec3(0.2);
-        col = vec3(diffuse) + amb;
+        col = vec3(diffuse) * r.color + ambientLight;
     }
 
     // vec3 bg = background(uv);

@@ -7,8 +7,9 @@ vec2 rotate2d(vec2 v, float a) {
 }
 
 vec3 rotateY(vec3 point, float angle) {
-    float x = point.x * cos(angle) + point.z * sin(angle);
-    float z = -point.x * sin(angle) + point.z * cos(angle);
+    float r = angle;
+    float x = point.x * sin(r) - point.z * cos(r);
+    float z = point.x * cos(r) + point.z * sin(r);
     return vec3(x, point.y, z);
 }
 
