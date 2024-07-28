@@ -215,7 +215,9 @@ void logoDeadPool(in vec3 ro, in vec3 rd,
         vec3 normal = normalsDeadpool(pos);
 
         float diffuse = max(dot(normal, -lightDir), 0.0);
-        color = vec3(diffuse) * r.color + ambientLight;
+
+        float ambFactor = 0.5 + 0.5 * dot(normal, vec3(0.0, 1.0, 0.0));
+        color = vec3(diffuse) * r.color + ambientLight * ambFactor;
     }
 }
 //END DEADPOOL
@@ -290,7 +292,9 @@ void logoWolverine(in vec3 ro, in vec3 rd,
         vec3 normal = normalsWolverine(pos);
 
         float diffuse = max(dot(normal, -lightDir), 0.0);
-        color = vec3(diffuse) * r.color + ambientLight;
+
+        float ambFactor = 0.5 + 0.5 * dot(normal, vec3(0.0, 1.0, 0.0));
+        color = vec3(diffuse) * r.color + ambientLight * ambFactor;
     }
 }
 //END WOLVERINE
@@ -303,7 +307,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 rd = normalize(vec3(uv.x, uv.y, 1.));
 
     vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0));
-    vec3 ambientLight = vec3(0.05);
+    vec3 ambientLight = vec3(0.1, 0.05, 0.0);
 
     vec3 col = vec3(0.);
     float t = 0.;
