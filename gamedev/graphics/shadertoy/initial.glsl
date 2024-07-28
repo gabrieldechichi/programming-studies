@@ -214,34 +214,38 @@ void logoDeadPool(in vec3 ro, in vec3 rd,
 //END DEADPOOL
 
 //BEGIN WOLVERINE
+RaymarchResult eyeFrame(vec3 p, float sign) {
+    vec2 baseOffset = vec2(0.9 * sign, 0.45);
+    vec3 p1 = p;
+    p1.xy -= baseOffset;
+    p1.xy = rotate2d(p1.xy, -PI * 1.75 * sign);
+    float tri1 = sdRhombus(p1, 0.99, 0.35, 0.18, 0.06);
+
+    vec3 p2 = p;
+    p2.xy -= baseOffset + vec2(0.09 * sign, 0.1);
+    p2.xy = rotate2d(p2.xy, -PI * 1.78 * sign);
+    float tri2 = sdRhombus(p2, 1.0, 0.4, 0.18, 0.06);
+
+    tri1 = opSmoothUnion(tri1, tri2, 0.15);
+    RaymarchResult r;
+    r.distance = tri1;
+    r.color = vec3(0.1);
+    return r;
+}
+
 RaymarchResult raymarchWolverine(vec3 p) {
     // p = rotateY(p, iTime);
     // p = rotateY(p, PI * 1.9);
     RaymarchResult r = logoBase(p, vec3(.7, .7, 0.0), vec3(0.9, 0.9, 0.1));
 
-    vec2 baseOffset = vec2(0.9, 0.45);
-    vec3 p1 = p;
-    p1.xy -= baseOffset;
-    p1.xy = rotate2d(p1.xy, -PI * 1.75);
-    float tri1 = sdRhombus(p1, 0.99, 0.35, 0.18, 0.06);
+    RaymarchResult eyeFrameRight = eyeFrame(p, 1.);
+    RaymarchResult eyeFrameLeft = eyeFrame(p, -1.);
 
-    vec3 p2 = p;
-    p2.xy -= baseOffset + vec2(0.09, 0.1);
-    p2.xy = rotate2d(p2.xy, -PI * 1.78);
-    float tri2 = sdRhombus(p2, 1.0, 0.4, 0.18, 0.06);
-
-    // tri1 = opUnion(tri1, tri2);
-    tri1 = opSmoothUnion(tri1, tri2, 0.15);
-
-    // vec3 p3 = p;
-    // p3.xy -= vec2(0.58, 0.1);
-    // p3.xy = rotate2d(p3.xy, PI * 0.75);
-    // float eyeRight = sdTriPrismZ(vec3(p3.x / 1.7, p3.y * 1.2, p3.z), vec2(0.25, 0.9));
-    // tri1 = opSubtraction(tri1, eyeRight);
-
-    if (tri1 < r.distance) {
-        r.distance = tri1;
-        r.color = vec3(0.1);
+    if (eyeFrameRight.distance < r.distance) {
+        r = eyeFrameRight;
+    }
+    if (eyeFrameLeft.distance < r.distance) {
+        r = eyeFrameLeft;
     }
 
     return r;
@@ -293,11 +297,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     vec3 col = vec3(0.);
     float t = 0.;
 
-    vec3 colDeadpool = vec3(0.);
-    vec3 colWolverine = vec3(0.);
-    logoDeadPool(ro, rd, lightDir, ambientLight, colDeadpool, t);
-    logoWolverine(ro, rd, lightDir, ambientLight, colWolverine, t);
-    col = mix(colDeadpool, colWolverine, step(0., uv.x));
+    if (uv.x < 0.) {
+        logoDeadPool(ro, rd, lightDir, ambientLight, col, t);
+    } else {
+        logoWolverine(ro, rd, lightDir, ambientLight, col, t);
+    }
 
     vec3 bg = background(uv);
     col = mix(col, bg, step(MAX_RM_DISTANCE, t));
