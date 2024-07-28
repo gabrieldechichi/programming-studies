@@ -129,8 +129,7 @@ RaymarchResult eye(vec3 p, vec2 offset, float rot) {
 }
 
 RaymarchResult map(vec3 p) {
-    // p = rotateY(p, iTime);
-    // p = rotateY(p, PI / 4.);
+    p = rotateY(p, iTime);
     RaymarchResult r;
     float innerCylinder = sdCylinderZ(p, 0.15, 1.0);
     r.color = vec3(0.12);
@@ -197,18 +196,13 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     if (t < MAX_RM_DISTANCE) {
         vec3 pos = ro + rd * t;
         vec3 normal = calcNormal(pos);
-        //HACK: raymarching cylinder normal calculation doesn't work that well.
-        //This makes sure normalz point outwards on Z on both faces
-        // normal.z = abs(normal.z);
-        // lightDir.z = -abs(lightDir.z);
-        //
 
         float diffuse = max(dot(normal, -lightDir), 0.0);
         col = vec3(diffuse) * r.color + ambientLight;
     }
 
-    // vec3 bg = background(uv);
-    // col = mix(col, bg, step(MAX_RM_DISTANCE, t));
+    vec3 bg = background(uv);
+    col = mix(col, bg, step(MAX_RM_DISTANCE, t));
 
     fragColor = vec4(col, 1.0);
 }
