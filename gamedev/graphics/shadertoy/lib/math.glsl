@@ -30,4 +30,7 @@ float cylinder(vec3 p, vec2 h) {
     return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
 }
 
+float ndot(vec2 a, vec2 b) {
+    return a.x * b.x - a.y * b.y;
+}
 #endif
