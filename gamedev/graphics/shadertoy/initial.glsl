@@ -88,7 +88,8 @@ vec3 rotateYY(vec3 point, float angle)
 }
 
 float map(vec3 p) {
-    p = rotateYY(p, iTime);
+    // return sdSphere(p, 1.0);
+    // p = rotateYY(p, iTime);
     return sdCylinderZ(p, 0.15, 1.0);
 }
 
@@ -110,10 +111,17 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     vec2 uv = (2.0 * fragCoord - iResolution.xy) / iResolution.y;
 
-    vec3 ro = vec3(0., 0., -3.);
-    vec3 rd = normalize(vec3(uv, 1.));
+    float an = 0.5 * (iTime - 10.0);
+    float camDist = 3.0;
+    vec3 ro = vec3(camDist * cos(an), 0.0, camDist * sin(an));
+    vec3 ta = vec3(0.);
+    vec3 fwd = normalize(ta - ro);
+    vec3 right = normalize(cross(fwd, vec3(0., 1., 0.)));
+    vec3 up = normalize(cross(right, fwd));
+    vec3 rd = normalize(uv.x * right + uv.y * up + 1.0 * fwd);
+
     vec3 col = vec3(0.);
-    vec3 lightDir = vec3(0.5773);
+    vec3 lightDir = normalize(vec3(1.0, -1.0, -1.0));
     vec3 lightCol = vec3(1.0);
 
     float t = 0.;
@@ -128,10 +136,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     if (t < MAX_RM_DISTANCE) {
         vec3 pos = ro + rd * t;
         vec3 normal = calcNormal(pos);
-        float diffuse = max(dot(normal, lightDir), 0.0);
+        float diffuse = max(dot(normal, -lightDir), 0.0);
         vec3 amb = vec3(0.2);
         col = vec3(diffuse) + amb;
-        col = normal;
     }
     // vec3 bg = background(uv);
     // col = mix(col, bg, step(MAX_RM_DISTANCE, t));
