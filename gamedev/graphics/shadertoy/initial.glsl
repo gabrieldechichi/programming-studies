@@ -1,5 +1,8 @@
 #include "./lib/consts.glsl"
 #include "./lib/math.glsl"
+const float MAX_RM_DISTANCE = 200.0;
+const float MIN_RM_DISTANCE = EPSILON;
+const int MAX_RM_IT = 2500;
 
 float opUnion(float d1, float d2)
 {
@@ -168,22 +171,10 @@ vec3 calcNormal(in vec3 pos)
             e.xxx * map(pos + e.xxx * eps).distance);
 }
 
-const float MAX_RM_DISTANCE = 200.0;
-const float MIN_RM_DISTANCE = EPSILON;
-const int MAX_RM_IT = 2500;
-
-void mainImage(out vec4 fragColor, in vec2 fragCoord)
+void logoDeadPool(in vec3 ro, in vec3 rd,
+    in vec3 lightDir, in vec3 ambientLight,
+    out vec3 color, out float t)
 {
-    vec2 uv = (2.0 * fragCoord - iResolution.xy) / iResolution.y;
-
-    vec3 ro = vec3(0., 0., -3.);
-    vec3 rd = normalize(vec3(uv.x, uv.y, 1.));
-
-    vec3 col = vec3(0.);
-    vec3 lightDir = normalize(vec3(0.0, -0.0, 1.0));
-    vec3 ambientLight = vec3(0.0);
-
-    float t = 0.;
     RaymarchResult r;
     for (int i = 0; i < MAX_RM_IT; i++) {
         vec3 p = ro + rd * t;
@@ -198,8 +189,47 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         vec3 normal = calcNormal(pos);
 
         float diffuse = max(dot(normal, -lightDir), 0.0);
-        col = vec3(diffuse) * r.color + ambientLight;
+        color = vec3(diffuse) * r.color + ambientLight;
     }
+}
+
+void logoWolverine(in vec3 ro, in vec3 rd,
+    in vec3 lightDir, in vec3 ambientLight,
+    out vec3 color, out float t)
+{
+    RaymarchResult r;
+    for (int i = 0; i < MAX_RM_IT; i++) {
+        vec3 p = ro + rd * t;
+        r = map(p);
+        t += r.distance;
+        if (r.distance < MIN_RM_DISTANCE) break;
+        if (t > MAX_RM_DISTANCE) break;
+    }
+
+    if (t < MAX_RM_DISTANCE) {
+        vec3 pos = ro + rd * t;
+        vec3 normal = calcNormal(pos);
+
+        float diffuse = max(dot(normal, -lightDir), 0.0);
+        color = vec3(diffuse) * r.color + ambientLight;
+    }
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord)
+{
+    vec2 uv = (2.0 * fragCoord - iResolution.xy) / iResolution.y;
+
+    vec3 ro = vec3(0., 0., -3.);
+    vec3 rd = normalize(vec3(uv.x, uv.y, 1.));
+
+    vec3 lightDir = normalize(vec3(0.0, -0.0, 1.0));
+    vec3 ambientLight = vec3(0.0);
+
+    vec3 col = vec3(0.);
+    float t = 0.;
+
+    // logoDeadPool(ro, rd, lightDir, ambientLight, col, t);
+    logoWolverine(ro, rd, lightDir, ambientLight, col, t);
 
     vec3 bg = background(uv);
     col = mix(col, bg, step(MAX_RM_DISTANCE, t));
