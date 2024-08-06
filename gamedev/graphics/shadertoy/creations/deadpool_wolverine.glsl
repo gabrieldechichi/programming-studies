@@ -172,7 +172,6 @@ vec3 normalsDeadpool(in vec3 pos)
 
 vec3 calculateLighting(vec3 color, vec3 normal, vec3 lightDir, vec3 viewDir, vec3 ambientLight) {
     float diffuse = max(dot(normal, -lightDir), 0.0);
-    float ambFactor = 0.5 + 0.5 * dot(normal, vec3(0.0, 1.0, 0.0));
     vec3 diffuseColor = vec3(diffuse) * color;
 
     vec3 halfDir = normalize(-lightDir + viewDir);
@@ -180,6 +179,8 @@ vec3 calculateLighting(vec3 color, vec3 normal, vec3 lightDir, vec3 viewDir, vec
     float shininess = 82.0;
     float specFactor = pow(max(dot(normal, halfDir), 0.0), shininess);
     vec3 specular = specularStrength * specFactor * vec3(1.0); // White specular highlight
+
+    float ambFactor = 0.5 + 0.5 * dot(normal, vec3(0.0, 1.0, 0.0));
 
     return diffuseColor + ambientLight * ambFactor + specular;
 }
