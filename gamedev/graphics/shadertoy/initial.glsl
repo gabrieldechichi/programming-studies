@@ -29,8 +29,8 @@ vec3 calculateLighting(vec3 color, vec3 normal, vec3 viewDir)
 RaymarchResult map(vec3 p) {
     RaymarchResult r;
 
-    float maxDist = 2.;
-    float freq = 1.2;
+    float maxDist = 1.5;
+    float freq = 1.0;
     vec3 pBox = p;
     vec3 pSphere = p + vec3(sin(iTime * freq) * maxDist, 0., 0.);
     vec3 pTri = p + vec3(0., -sin(iTime * freq) * maxDist, 0.);
@@ -38,21 +38,17 @@ RaymarchResult map(vec3 p) {
     float sphere = sdSphere(pSphere, 0.4);
     float triangle = sdTriPrismZ(pTri, vec2(0.5, 0.4));
     float box = sdBox(p, vec3(0.4));
-    float u = opSmoothUnion(triangle, opSmoothUnion(sphere, box, 0.3), 0.3);
+    float u = opSmoothUnion(triangle, opSmoothUnion(sphere, box, 0.4), 0.4);
 
     vec3 colSphere = vec3(1.0, 0.0, 0.0); // Red color for sphere
-    vec3 colTri = vec3(0.0, 1.0, 0.0);    // Green color for triangle
-    vec3 colBox = vec3(0.0, 0.0, 1.0);    // Blue color for box
+    vec3 colTri = vec3(0.0, 1.0, 0.0); // Green color for triangle
+    vec3 colBox = vec3(0.0, 0.0, 1.0); // Blue color for box
 
     r.distance = u;
-    
-    if (abs(u - sphere) < EPSILON) {
-        r.color = colSphere;
-    } else if (abs(u - triangle) < EPSILON) {
-        r.color = colTri;
-    } else {
-        r.color = colBox;
-    }
+
+    r.color = colBox;
+    r.color = mix(colSphere, r.color, smoothstep(0., 0.4, abs(u-sphere)));
+    r.color = mix(colTri, r.color, smoothstep(0., 0.2, abs(u-triangle)));
 
     return r;
 }
@@ -95,7 +91,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
             viewDir);
     }
 
-    color = r.color * 10. / pow(t,3.);
+    color = r.color * 10. / pow(t, 3.);
 
     fragColor = vec4(color, 1.);
 }
