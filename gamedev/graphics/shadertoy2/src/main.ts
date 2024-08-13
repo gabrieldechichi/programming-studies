@@ -88,14 +88,11 @@ async function loadAndCompileShader() {
     };
 }
 
-const programInfo = await loadAndCompileShader();
-const buffers = initBuffers(gl);
-
 function initShaderProgram(gl: WebGLRenderingContext, vsSource: string, fsSource: string): WebGLProgram {
     const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
     const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
 
-    const shaderProgram = gl.createProgram();
+    const shaderProgram = gl.createProgram()!;
     gl.attachShader(shaderProgram, vertexShader);
     gl.attachShader(shaderProgram, fragmentShader);
     gl.linkProgram(shaderProgram);
@@ -109,7 +106,7 @@ function initShaderProgram(gl: WebGLRenderingContext, vsSource: string, fsSource
 }
 
 function loadShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
-    const shader = gl.createShader(type);
+    const shader = gl.createShader(type)!;
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
 

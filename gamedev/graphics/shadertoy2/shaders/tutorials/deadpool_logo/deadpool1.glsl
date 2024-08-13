@@ -80,6 +80,11 @@ RaymarchResult raymarchDeadpool(vec3 p) {
     outerCylinder = opUnion(outerBox, outerCylinder);
     //end 8
 
+    //start 9
+    float minusBox = sdBox(p - vec3(10.0, 0.0, 0.0), vec3(10., 10., 3.));
+    r.distance = opSubtraction(r.distance, minusBox);
+    //end 9
+
     return r;
 }
 
