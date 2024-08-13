@@ -32,12 +32,14 @@ async function loadAndCompileShader() {
     const fsSource = `
     precision mediump float;
     varying vec2 vTexCoord;
-    uniform vec2 uResolution;
+    uniform float iTime;
+    uniform float iTimeDelta;
+    uniform vec2 iResolution;
 
     ${mainImageFunction}
 
     void main(void) {
-      vec2 fragCoord = vTexCoord * uResolution;
+      vec2 fragCoord = vTexCoord * iResolution;
       mainImage(gl_FragColor, fragCoord);
     }
   `;
@@ -50,7 +52,9 @@ async function loadAndCompileShader() {
             vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
         },
         uniformLocations: {
-            resolution: gl.getUniformLocation(shaderProgram, 'uResolution'),
+            time: gl.getUniformLocation(shaderProgram, 'iTime'),
+            timeDelta: gl.getUniformLocation(shaderProgram, 'iTimeDelta'),
+            resolution: gl.getUniformLocation(shaderProgram, 'iResolution'),
         },
     };
 }
@@ -107,10 +111,16 @@ function initBuffers(gl: WebGLRenderingContext) {
     };
 }
 
-function drawScene(gl: WebGLRenderingContext, programInfo: any, buffers: any) {
+let previousTime = 0;
+
+function drawScene(gl: WebGLRenderingContext, programInfo: any, buffers: any, currentTime: number) {
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
+
+    // Compute delta time
+    const deltaTime = (currentTime - previousTime) / 1000;
+    previousTime = currentTime;
 
     {
         const numComponents = 2;
@@ -124,15 +134,29 @@ function drawScene(gl: WebGLRenderingContext, programInfo: any, buffers: any) {
     }
 
     gl.useProgram(programInfo.program);
+
+    // Set the uniforms
+    gl.uniform1f(programInfo.uniformLocations.time, currentTime / 1000);
+    gl.uniform1f(programInfo.uniformLocations.timeDelta, deltaTime);
     gl.uniform2f(programInfo.uniformLocations.resolution, gl.canvas.width, gl.canvas.height);
 
     const offset = 0;
     const vertexCount = 4;
     gl.drawArrays(gl.TRIANGLE_STRIP, offset, vertexCount);
+
+    // Request to draw the next frame
+    requestAnimationFrame((newTime) => drawScene(gl, programInfo, buffers, newTime));
 }
 
 async function main() {
-    drawScene(gl, programInfo, buffers);
+    const programInfo = await loadAndCompileShader();
+    const buffers = initBuffers(gl);
+
+    function render(currentTime: number) {
+        drawScene(gl, programInfo, buffers, currentTime);
+    }
+
+    requestAnimationFrame(render);
 
     const socket = new WebSocket('ws://localhost:8080');
 
@@ -141,9 +165,9 @@ async function main() {
             console.log('Reloading shader...');
             try {
                 const newProgramInfo = await loadAndCompileShader();
-                drawScene(gl, newProgramInfo, buffers);
+                drawScene(gl, newProgramInfo, buffers, performance.now());
             } catch (error) {
-                console.error(error)
+                console.error(error);
             }
         }
     };
