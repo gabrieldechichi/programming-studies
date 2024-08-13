@@ -1,19 +1,3 @@
-/* "Deadpool + Wolverine - https://www.shadertoy.com/view/msj3D3
-
-   This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
-
-   Got inspired by the new move and decided to make this using raymarching.
-   Ended up being a fun challenge, and I had to use several sd functions and operations.
-   Getting Wolverine "eye frame" was particularly challenging.
-
-   Thanks to Inigo Quilez for the distance functions and the amazing educational content.
-   https://iquilezles.org/articles/distfunctions/
-
-   Inspiration:
-   - https://www.shadertoy.com/view/4dcfz7
-   - https://www.pinterest.com/pin/deadpool-x-wolverine-logo-png-in-2024--1006413847967142752/
-*/
-
 #include "./lib/consts.glsl"
 #include "./lib/math.glsl"
 #include "./lib/raymarch.glsl"
@@ -257,7 +241,7 @@ RaymarchResult logoWolverine(in vec3 ro, in vec3 rd)
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = (2.0 * fragCoord - iResolution.xy)
-            / iResolution.x;
+            / iResolution.y;
 
     vec3 ro = vec3(0., 0., -3.5);
     vec3 rd = normalize(vec3(uv.x, uv.y, 1.));
