@@ -3,7 +3,28 @@ async function fetchShader(url: string): Promise<string> {
     if (!response.ok) {
         throw new Error(`Failed to load shader from ${url}`);
     }
-    return await response.text();
+    const shaderSource = await response.text();
+
+    const directoryPath = url.substring(0, url.lastIndexOf('/'));
+    console.log(directoryPath)
+    return resolveIncludes(shaderSource, directoryPath);
+}
+
+async function resolveIncludes(source: string, baseUrl: string): Promise<string> {
+    const includePattern = /#include\s*["'](.+?)["']/g;
+    
+    const promises = [];
+    let match;
+    while ((match = includePattern.exec(source)) !== null) {
+        const includedPath = match[1].replace('./', '');
+        const resolvedUrl = `${baseUrl}/${includedPath}`
+        console.log(resolvedUrl)
+        promises.push(fetchShader(resolvedUrl));
+    }
+
+    const includedSources = await Promise.all(promises);
+    
+    return source.replace(includePattern, () => includedSources.shift()!);
 }
 
 const canvas = document.getElementById('webgl-canvas') as HTMLCanvasElement;
