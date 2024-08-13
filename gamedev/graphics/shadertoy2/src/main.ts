@@ -10,16 +10,18 @@ const canvas = document.getElementById('webgl-canvas') as HTMLCanvasElement;
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-const gl = canvas.getContext('webgl')!;
+const gl = canvas.getContext('webgl2')!;
 if (!gl) {
     console.error('WebGL not supported');
     throw new Error('WebGL not supported');
 }
 
 // Vertex shader program
-const vsSource = `
-  attribute vec4 aVertexPosition;
-  varying vec2 vTexCoord;
+const vsSource = `\
+  #version 300 es
+  in vec4 aVertexPosition;
+  out vec2 vTexCoord;
+
   void main(void) {
     vTexCoord = aVertexPosition.xy * 0.5 + 0.5;
     gl_Position = aVertexPosition;
@@ -29,20 +31,26 @@ const vsSource = `
 async function loadAndCompileShader() {
     const mainImageFunction = await fetchShader('shaders/main.glsl');
 
-    const fsSource = `
-    precision mediump float;
-    varying vec2 vTexCoord;
+    const fsSource = `\
+    #version 300 es
+    precision highp float;
+
+    in vec2 vTexCoord;
     uniform float iTime;
     uniform float iTimeDelta;
     uniform vec2 iResolution;
+
+    out vec4 _fragColor;
 
     ${mainImageFunction}
 
     void main(void) {
       vec2 fragCoord = vTexCoord * iResolution;
-      mainImage(gl_FragColor, fragCoord);
+      mainImage(_fragColor, fragCoord);
     }
   `;
+
+    console.log(fsSource)
 
     const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
 
