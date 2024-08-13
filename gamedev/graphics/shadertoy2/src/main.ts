@@ -114,6 +114,7 @@ function initBuffers(gl: WebGLRenderingContext) {
 let previousTime = 0;
 
 function drawScene(gl: WebGLRenderingContext, programInfo: any, buffers: any, currentTime: number) {
+    // Update viewport and clear
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -122,6 +123,7 @@ function drawScene(gl: WebGLRenderingContext, programInfo: any, buffers: any, cu
     const deltaTime = (currentTime - previousTime) / 1000;
     previousTime = currentTime;
 
+    // Set vertex attributes
     {
         const numComponents = 2;
         const type = gl.FLOAT;
@@ -135,22 +137,36 @@ function drawScene(gl: WebGLRenderingContext, programInfo: any, buffers: any, cu
 
     gl.useProgram(programInfo.program);
 
-    // Set the uniforms
+    // Update uniforms
     gl.uniform1f(programInfo.uniformLocations.time, currentTime / 1000);
     gl.uniform1f(programInfo.uniformLocations.timeDelta, deltaTime);
     gl.uniform2f(programInfo.uniformLocations.resolution, gl.canvas.width, gl.canvas.height);
 
+    // Draw the scene
     const offset = 0;
     const vertexCount = 4;
     gl.drawArrays(gl.TRIANGLE_STRIP, offset, vertexCount);
 
-    // Request to draw the next frame
+    // Request the next frame
     requestAnimationFrame((newTime) => drawScene(gl, programInfo, buffers, newTime));
 }
 
 async function main() {
     const programInfo = await loadAndCompileShader();
     const buffers = initBuffers(gl);
+
+    // Function to resize the canvas to fit the window
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    }
+
+    // Add an event listener to handle window resize
+    window.addEventListener('resize', resizeCanvas);
+
+    // Call it once to set the initial size
+    resizeCanvas();
 
     function render(currentTime: number) {
         drawScene(gl, programInfo, buffers, currentTime);
