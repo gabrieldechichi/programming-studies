@@ -1,4 +1,9 @@
 import { DebugRenderer } from "./wgpu/renderers/debugRenderer";
+import { DiscordSDK } from "@discord/embedded-app-sdk";
+
+const queryParams = new URLSearchParams(window.location.search);
+const isEmbedded = queryParams.has("frame_id")
+let discordSdk: DiscordSDK | undefined;
 
 class Renderer {
   canvas!: HTMLCanvasElement;
@@ -73,6 +78,13 @@ class Renderer {
 }
 
 async function main() {
+  if (isEmbedded) {
+    console.log("wait for discord");
+    discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+    await discordSdk.ready();
+    console.log("finish discord");
+  }
+
   const renderer = await Renderer.initialize();
   if (!renderer) {
     return;
@@ -119,7 +131,7 @@ async function main() {
             renderer.device,
             uniforms,
             instanceCount,
-            instanceFloatCount
+            instanceFloatCount,
           );
         },
       },

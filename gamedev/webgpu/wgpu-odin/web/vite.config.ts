@@ -13,6 +13,7 @@ export default defineConfig({
   server: {
     watch: {
       ignored: ["!web/resources/**/*.wasm"],
+      usePolling: true,
     },
   },
 });

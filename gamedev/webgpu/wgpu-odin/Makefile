@@ -14,7 +14,7 @@ build-debug-wasm:
 
 build-release-wasm:
 	mkdir -p $(TARGET)
-	odin build $(SRC) -o:aggressive -out:$(TARGET_WEB) -target:js_wasm32 $(ODIN_COLLECTIONS)
+	odin build $(SRC) -o:speed -out:$(TARGET_WEB) -target:js_wasm32 $(ODIN_COLLECTIONS)
 
 run-web: build-debug-wasm
 	npm run dev --prefix ./web 

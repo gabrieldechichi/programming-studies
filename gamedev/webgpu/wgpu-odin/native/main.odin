@@ -6,12 +6,11 @@ import "core:math/linalg"
 import "core:math/rand"
 import "lib:types"
 import "lib:wgpu"
-import wasmjs "vendor:wasm/js"
 
 viewProjection: types.mat4x4
 width: f32 = 600.0
 height: f32 = 900.0
-MAX_INSTANCES :: BATCH_SIZE * 100
+MAX_INSTANCES :: BATCH_SIZE * 200
 BATCH_SIZE :: 1024
 MAX_SPEED :: 200
 
