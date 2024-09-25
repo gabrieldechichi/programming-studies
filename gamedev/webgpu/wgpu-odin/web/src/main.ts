@@ -2,7 +2,7 @@ import { DebugRenderer } from "./wgpu/renderers/debugRenderer";
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 
 const queryParams = new URLSearchParams(window.location.search);
-const isEmbedded = queryParams.has("frame_id")
+const isEmbedded = queryParams.has("frame_id");
 let discordSdk: DiscordSDK | undefined;
 
 class Renderer {
@@ -77,9 +77,22 @@ class Renderer {
   }
 }
 
+function proxyPath(s: string): string {
+  if (!s || s.length === 0) {
+    return "";
+  }
+  if (s[0] === '.' || s[0] === '/'){
+      s = s.substring(1)
+  }
+  if (isEmbedded) {
+    return `.proxy/${s}`;
+  }
+  return `./${s}`;
+}
+
 async function main() {
   if (isEmbedded) {
-    console.log("wait for discord");
+    console.log("wait for discord", import.meta.env.VITE_DISCORD_CLIENT_ID);
     discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
     await discordSdk.ready();
     console.log("finish discord");
@@ -91,7 +104,7 @@ async function main() {
   }
   const memoryInterface = new window.odin.WasmMemoryInterface();
   await window.odin.runWasm(
-    "./resources/game.wasm",
+    proxyPath("/resources/game.wasm"),
     null,
     {
       env: {

@@ -1,0 +1,56 @@
+{
+  "version": "4",
+  "specifiers": {
+    "npm:@discord/embedded-app-sdk@^1.4.2": "1.4.2"
+  },
+  "npm": {
+    "@discord/embedded-app-sdk@1.4.2": {
+      "integrity": "sha512-nNeXQ61gT4OGv8fPLG/WEDuzynVLueb9El8yYGNiaTAOWnuuVjrVv0DpU16ixn+d1sgmNnfhW2mG6SBZGrK+Pw==",
+      "dependencies": [
+        "@types/lodash.transform",
+        "@types/uuid",
+        "big-integer",
+        "decimal.js-light",
+        "eventemitter3",
+        "lodash.transform",
+        "uuid",
+        "zod"
+      ]
+    },
+    "@types/lodash.transform@4.6.9": {
+      "integrity": "sha512-1iIn+l7Vrj8hsr2iZLtxRkcV9AtjTafIyxKO9DX2EEcdOgz3Op5dhwKQFhMJgdfIRbYHBUF+SU97Y6P+zyLXNg==",
+      "dependencies": [
+        "@types/lodash"
+      ]
+    },
+    "@types/lodash@4.17.9": {
+      "integrity": "sha512-w9iWudx1XWOHW5lQRS9iKpK/XuRhnN+0T7HvdCCd802FYkT1AMTnxndJHGrNJwRoRHkslGr4S29tjm1cT7x/7w=="
+    },
+    "@types/uuid@10.0.0": {
+      "integrity": "sha512-7gqG38EyHgyP1S+7+xomFtL+ZNHcKv6DwNaCZmJmo1vgMugyF3TCnXVg4t1uk89mLNwnLtnY3TpOpCOyp1/xHQ=="
+    },
+    "big-integer@1.6.52": {
+      "integrity": "sha512-QxD8cf2eVqJOOz63z6JIN9BzvVs/dlySa5HGSBH5xtR8dPteIRQnBxxKqkNTiT6jbDTF6jAfrd4oMcND9RGbQg=="
+    },
+    "decimal.js-light@2.5.1": {
+      "integrity": "sha512-qIMFpTMZmny+MMIitAB6D7iVPEorVw6YQRWkvarTkT4tBeSLLiHzcwj6q0MmYSFCiVpiqPJTJEYIrpcPzVEIvg=="
+    },
+    "eventemitter3@5.0.1": {
+      "integrity": "sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA=="
+    },
+    "lodash.transform@4.6.0": {
+      "integrity": "sha512-LO37ZnhmBVx0GvOU/caQuipEh4GN82TcWv3yHlebGDgOxbxiwwzW5Pcx2AcvpIv2WmvmSMoC492yQFNhy/l/UQ=="
+    },
+    "uuid@10.0.0": {
+      "integrity": "sha512-8XkAphELsDnEGrDxUOHB3RGvXz6TeuYSGEZBOjtTtPm2lwhGBjLgOzLHB63IUWfBpNucQjND6d3AOudO+H3RWQ=="
+    },
+    "zod@3.23.8": {
+      "integrity": "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "npm:@discord/embedded-app-sdk@^1.4.2"
+    ]
+  }
+}

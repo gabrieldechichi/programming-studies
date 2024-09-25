@@ -10,7 +10,7 @@ import "lib:wgpu"
 viewProjection: types.mat4x4
 width: f32 = 600.0
 height: f32 = 900.0
-MAX_INSTANCES :: BATCH_SIZE * 200
+MAX_INSTANCES :: BATCH_SIZE * 100
 BATCH_SIZE :: 1024
 MAX_SPEED :: 200
 
@@ -53,7 +53,6 @@ main :: proc() {
 
 @(export)
 step :: proc(dt: f32) -> bool {
-
 	for &ball in balls {
 		ball.position += ball.velocity * dt
 		if (ball.position.x + ball.radius > width / 2 && ball.velocity.x > 0) {
