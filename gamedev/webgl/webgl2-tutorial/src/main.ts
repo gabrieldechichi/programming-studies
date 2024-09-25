@@ -1,3 +1,7 @@
+class Constants {
+  static readonly Float32Size = Float32Array.BYTES_PER_ELEMENT;
+}
+
 async function loadFile(path: string): Promise<string> {
   const response = await fetch(path);
   if (!response.ok) {
@@ -17,12 +21,15 @@ async function main() {
 
   const vertexSource = `#version 300 es
 
-  uniform float uPointSize;
-  uniform vec2 uPosition;
+  uniform float uScale;
+  in vec2 aPosition;
+  in vec3 aColor;
+
+  out vec3 vColor;
 
   void main() {
-      gl_PointSize = uPointSize;
-      gl_Position = vec4(uPosition, 0.0, 1.0);
+      vColor = aColor;
+      gl_Position = vec4(aPosition * uScale, 0.0, 1.0);
   }
   `;
   const vertexShader = gl.createShader(gl.VERTEX_SHADER)!;
@@ -35,12 +42,12 @@ precision mediump float;
 
 out vec4 fragColor;
 
-uniform vec3 uColor;
+in vec3 vColor;
 
 void main() {
-    fragColor = vec4(uColor, 1.0);
+    fragColor = vec4(vColor, 1.0);
 }
-  `
+  `;
   const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER)!;
   gl.shaderSource(fragmentShader, fragSource);
   gl.compileShader(fragmentShader);
@@ -55,20 +62,47 @@ void main() {
 
   gl.useProgram(program);
 
-  const uPointSize = gl.getUniformLocation(program, "uPointSize");
-  const uPosition = gl.getUniformLocation(program, "uPosition");
-  const uColor = gl.getUniformLocation(program, "uColor");
-  gl.uniform1f(uPointSize, 10);
-  gl.uniform2f(uPosition, 0, -0.2);
-  gl.uniform3f(uColor, 1, 0, 0);
+  // prettier-ignore
+  const vertexBufferData = new Float32Array([
+      //pos    //color
+      -0.5, -0.5,    1, 0, 0,
+      +0.5, -0.5,    0, 1, 0,
+      +0.0, +0.5,    0, 0, 1,
+  ])
+  //number of floats per vertex
+  const strideFloatCount = 5;
+  const strideBytes = strideFloatCount * Constants.Float32Size;
 
-  gl.drawArrays(gl.POINTS, 0, 1);
+  const vertexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vertexBufferData, gl.STATIC_DRAW);
 
-  gl.uniform3f(uColor, 0, 1, 0);
-  gl.uniform1f(uPointSize, 50);
-  gl.uniform2f(uPosition, 0, 0.3);
+  const aPosition = gl.getAttribLocation(program, "aPosition");
+  const aColor = gl.getAttribLocation(program, "aColor");
+  gl.enableVertexAttribArray(aPosition);
+  gl.enableVertexAttribArray(aColor);
 
-  gl.drawArrays(gl.POINTS, 0, 1);
+  gl.vertexAttribPointer(
+    aPosition,
+    2,
+    gl.FLOAT,
+    false,
+    strideBytes,
+    0 * Constants.Float32Size,
+  );
+  gl.vertexAttribPointer(
+    aColor,
+    3,
+    gl.FLOAT,
+    false,
+    strideBytes,
+    2 * Constants.Float32Size,
+  );
+
+  const uScale = gl.getUniformLocation(program, "uScale");
+  gl.uniform1f(uScale, 1.5);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
 main()
