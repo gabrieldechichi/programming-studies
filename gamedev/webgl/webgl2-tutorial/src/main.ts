@@ -1,90 +1,5 @@
-class Constants {
-  static readonly Float32Size = Float32Array.BYTES_PER_ELEMENT;
-}
-
-async function loadImage(
-  src: string,
-  allowCors?: boolean,
-): Promise<HTMLImageElement> {
-  return new Promise((resolve) => {
-    const image = new Image();
-    if (allowCors) {
-      image.crossOrigin = "anonymous";
-    }
-    image.addEventListener("load", () => resolve(image));
-    image.src = src;
-  });
-}
-
-enum TexFormat {
-  RGB = WebGL2RenderingContext.RGB,
-  RGBA = WebGL2RenderingContext.RGBA,
-}
-
-enum TexFiltering {
-  Nearest = WebGL2RenderingContext.NEAREST,
-  Linear = WebGL2RenderingContext.LINEAR,
-}
-
-type CreateTexParamsBase = {
-  gl: WebGL2RenderingContext;
-  texIndex: number;
-
-  skipFlipY?: boolean;
-  format: TexFormat;
-  minFilter: TexFiltering;
-  magFilter: TexFiltering;
-};
-
-type CreateTexFromImgParams = CreateTexParamsBase & {
-  image: HTMLImageElement;
-};
-type CreateTexFromPixelsParams = CreateTexParamsBase & {
-  //todo: other array types
-  pixels: Uint8Array;
-  width: number;
-  height: number;
-};
-
-class graphics {
-  static async createAndBindTexture(
-    params: CreateTexFromImgParams | CreateTexFromPixelsParams,
-  ) {
-    const { gl, texIndex, skipFlipY, format, minFilter, magFilter } = params;
-    gl.activeTexture(gl.TEXTURE0 + texIndex);
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, skipFlipY || true);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter);
-
-    if ("image" in params) {
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        format,
-        params.image.width,
-        params.image.height,
-        0,
-        format,
-        gl.UNSIGNED_BYTE,
-        params.image,
-      );
-    } else if ("pixels" in params) {
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        format,
-        params.width,
-        params.height,
-        0,
-        format,
-        gl.UNSIGNED_BYTE,
-        params.pixels,
-      );
-    }
-  }
-}
+import * as graphics from "./graphics";
+import * as constants from "./constants";
 
 async function main() {
   const canvas = document.getElementById("canvas") as HTMLCanvasElement;
@@ -164,7 +79,7 @@ void main() {
 
   //number of floats per vertex
   const strideFloatCount = 7;
-  const strideBytes = strideFloatCount * Constants.Float32Size;
+  const strideBytes = strideFloatCount * constants.FLOAT_SIZE;
 
   const vertexBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
@@ -183,7 +98,7 @@ void main() {
     gl.FLOAT,
     false,
     strideBytes,
-    0 * Constants.Float32Size,
+    0 * constants.FLOAT_SIZE,
   );
   gl.vertexAttribPointer(
     aTexCoord,
@@ -191,7 +106,7 @@ void main() {
     gl.FLOAT,
     false,
     strideBytes,
-    2 * Constants.Float32Size,
+    2 * constants.FLOAT_SIZE,
   );
 
   gl.vertexAttribPointer(
@@ -200,7 +115,7 @@ void main() {
     gl.FLOAT,
     false,
     strideBytes,
-    (2 + 2) * Constants.Float32Size,
+    (2 + 2) * constants.FLOAT_SIZE,
   );
 
   const uSampler = gl.getUniformLocation(program, "uSampler");
@@ -219,15 +134,15 @@ void main() {
   graphics.createAndBindTexture({
     gl,
     texIndex: 0,
-    format: TexFormat.RGB,
-    minFilter: TexFiltering.Nearest,
-    magFilter: TexFiltering.Nearest,
+    format: graphics.TexFormat.RGB,
+    minFilter: graphics.TexFiltering.Nearest,
+    magFilter: graphics.TexFiltering.Nearest,
     pixels,
     width: 4,
     height: 4,
   });
 
-  const cat = await loadImage(
+  const cat = await graphics.loadImage(
     "https://t4.ftcdn.net/jpg/00/97/58/97/360_F_97589769_t45CqXyzjz0KXwoBZT9PRaWGHRk5hQqQ.jpg",
     true,
   );
@@ -235,9 +150,9 @@ void main() {
   graphics.createAndBindTexture({
     gl,
     texIndex: 1,
-    format: TexFormat.RGBA,
-    minFilter: TexFiltering.Linear,
-    magFilter: TexFiltering.Linear,
+    format: graphics.TexFormat.RGBA,
+    minFilter: graphics.TexFiltering.Linear,
+    magFilter: graphics.TexFiltering.Linear,
     image: cat,
   });
 
