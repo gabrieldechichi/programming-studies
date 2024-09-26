@@ -1,19 +1,14 @@
-// tslint:disable: no-console
-
 const vertexShaderSrc = `#version 300 es
 #pragma vscode_glsllint_stage: vert
 
-layout(location = 1) in float aPointSize;
-layout(location = 0) in vec2 aPosition;
-layout(location = 2) in vec3 aColor;
+layout(location=0) in vec4 aPosition;
+layout(location=1) in vec2 aTexCoord;
 
-out vec3 vColor;
-
+out vec2 vTexCoord;
 void main()
 {
-    vColor = aColor;
-    gl_PointSize = aPointSize;
-    gl_Position = vec4(aPosition, 0.0, 1.0);
+	vTexCoord = aTexCoord;
+    gl_Position = aPosition;
 }`;
 
 const fragmentShaderSrc = `#version 300 es
@@ -21,55 +16,97 @@ const fragmentShaderSrc = `#version 300 es
 
 precision mediump float;
 
-in vec3 vColor;
+in vec2 vTexCoord;
+
+uniform sampler2D uSampler;
 
 out vec4 fragColor;
 
 void main()
 {
-    fragColor = vec4(vColor, 1.0);
+    fragColor = texture(uSampler, vTexCoord);
 }`;
 
 const gl = document.querySelector("canvas").getContext("webgl2");
 
 const program = gl.createProgram();
+{
+  const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vertexShader, vertexShaderSrc);
+  gl.compileShader(vertexShader);
+  gl.attachShader(program, vertexShader);
 
-const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-gl.shaderSource(vertexShader, vertexShaderSrc);
-gl.compileShader(vertexShader);
-gl.attachShader(program, vertexShader);
+  const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fragmentShader, fragmentShaderSrc);
+  gl.compileShader(fragmentShader);
+  gl.attachShader(program, fragmentShader);
 
-const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-gl.shaderSource(fragmentShader, fragmentShaderSrc);
-gl.compileShader(fragmentShader);
-gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
 
-gl.linkProgram(program);
-
-if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-  console.log(gl.getShaderInfoLog(vertexShader));
-  console.log(gl.getShaderInfoLog(fragmentShader));
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.log(gl.getShaderInfoLog(vertexShader));
+    console.log(gl.getShaderInfoLog(fragmentShader));
+  }
 }
 gl.useProgram(program);
 
-const bufferData = new Float32Array([
-  0, 1, 100, 1, 0, 0, -1, -1, 32, 0, 1, 0, 1, -1, 50, 0, 0, 1,
+const vertexBufferData = new Float32Array([
+  -0.9, 0.9, -0.9, -0.9, 0.9, 0.9, 0.9, -0.9,
 ]);
 
-const aPositionLoc = 0;
-const aPointSizeLoc = 1;
-const aColorLoc = 2;
+const texCoordBufferData = new Float32Array([0, 1, 0, 0, 1, 1, 1, 0]);
 
-gl.enableVertexAttribArray(aPositionLoc);
-gl.enableVertexAttribArray(aPointSizeLoc);
-gl.enableVertexAttribArray(aColorLoc);
+const pixels = new Uint8Array([
+  255, 255, 255, 230, 25, 75, 60, 180, 75, 255, 225, 25, 67, 99, 216, 245, 130,
+  49, 145, 30, 180, 70, 240, 240, 240, 50, 230, 188, 246, 12, 250, 190, 190, 0,
+  128, 128, 230, 190, 255, 154, 99, 36, 255, 250, 200, 0, 0, 0,
+]);
 
-const buffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-gl.bufferData(gl.ARRAY_BUFFER, bufferData, gl.STATIC_DRAW);
+const pixelBuffer = gl.createBuffer();
+gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, pixelBuffer);
+gl.bufferData(gl.PIXEL_UNPACK_BUFFER, pixels, gl.STATIC_DRAW);
 
-gl.vertexAttribPointer(aPositionLoc, 2, gl.FLOAT, false, 6 * 4, 0);
-gl.vertexAttribPointer(aPointSizeLoc, 1, gl.FLOAT, false, 6 * 4, 2 * 4);
-gl.vertexAttribPointer(aColorLoc, 3, gl.FLOAT, false, 6 * 4, 3 * 4);
+const vertexBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, vertexBufferData, gl.STATIC_DRAW);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+gl.enableVertexAttribArray(0);
 
-gl.drawArrays(gl.TRIANGLES, 0, 3);
+const texCoordBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, texCoordBufferData, gl.STATIC_DRAW);
+gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
+gl.enableVertexAttribArray(1);
+
+const loadImage = () =>
+  new Promise((resolve) => {
+    const image = new Image();
+    image.addEventListener("load", () => resolve(image));
+    image.src = "./image.png";
+  });
+
+const run = async () => {
+  const image = await loadImage();
+
+  // gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+  const textureSlot = 1;
+  gl.activeTexture(gl.TEXTURE0 + textureSlot);
+  gl.uniform1i(gl.getUniformLocation(program, "uSampler"), textureSlot);
+
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 500,300, 0, gl.RGB, gl.UNSIGNED_BYTE, image);
+  // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 4,4, 0, gl.RGB, gl.UNSIGNED_BYTE, pixels);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 4, 4, 0, gl.RGB, gl.UNSIGNED_BYTE, 0);
+
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+};
+
+run();
