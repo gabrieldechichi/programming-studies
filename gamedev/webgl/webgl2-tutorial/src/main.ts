@@ -2,14 +2,6 @@ class Constants {
   static readonly Float32Size = Float32Array.BYTES_PER_ELEMENT;
 }
 
-async function loadFile(path: string): Promise<string> {
-  const response = await fetch(path);
-  if (!response.ok) {
-    throw new Error(`Failed to load file: ${response.statusText}`);
-  }
-  return await response.text();
-}
-
 async function main() {
   const canvas = document.getElementById("canvas") as HTMLCanvasElement;
   const gl = canvas.getContext("webgl2");
@@ -129,14 +121,25 @@ void main() {
     190, 0, 128, 128, 230, 190, 255, 154, 99, 36, 255, 250, 200, 0, 0, 0,
   ]);
 
-  // const pixelBuffer = gl.createBuffer();
-  // gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, pixelBuffer);
-  // gl.bufferData(gl.PIXEL_UNPACK_BUFFER, pixels, gl.STATIC_DRAW);
+  // bind texture 0
+  gl.activeTexture(gl.TEXTURE0);
+  const uSampler = gl.getUniformLocation(program, "uSampler");
+  gl.uniform1i(uSampler, 0);
 
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 4, 4, 0, gl.RGB, gl.UNSIGNED_BYTE, pixels);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGB,
+    4,
+    4,
+    0,
+    gl.RGB,
+    gl.UNSIGNED_BYTE,
+    pixels,
+  );
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
