@@ -1,15 +1,17 @@
 // tslint:disable: no-console
-
 const vertexShaderSrc = `#version 300 es
 #pragma vscode_glsllint_stage: vert
 
 layout(location=0) in vec4 aPosition;
 layout(location=1) in vec2 aTexCoord;
+layout(location=2) in float aDepth;
 
 out vec2 vTexCoord;
+out float vDepth;
 
 void main()
 {
+    vDepth = aDepth;
     vTexCoord = aTexCoord;
     gl_Position = aPosition;
 }`;
@@ -19,15 +21,16 @@ const fragmentShaderSrc = `#version 300 es
 
 precision mediump float;
 
-uniform sampler2D uSampler;
+uniform mediump sampler2DArray uSampler;
 
 in vec2 vTexCoord;
+in float vDepth;
 
 out vec4 fragColor;
 
 void main()
 {
-    fragColor = texture(uSampler, vTexCoord);
+    fragColor = texture(uSampler, vec3(vTexCoord, vDepth));
 }`;
 
 const gl = document.querySelector("canvas").getContext("webgl2");
@@ -53,95 +56,97 @@ if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
 gl.useProgram(program);
 
 const positionData = new Float32Array([
-  // Quad 1
-  -1, 0, 0, 1, -1, 1, -1, 0, 0, 0, 0, 1,
-
-  // Quad 2
-  0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1,
-
-  // Quad 3
-  -1, -1, 0, 0, -1, 0, -1, -1, 0, -1, 0, 0,
-
-  // Quad 4
-  0, -1, 1, 0, 0, 0, 0, -1, 1, -1, 1, 0,
+  -1, -1, 0, 1, 1, 1, 1, 0, -1, 1, 0, 0, -1, -1, 0, 1, 1, -1, 1, 1, 1, 1, 1, 0,
 ]);
 
-const loadAtlas = () =>
+const loadImage = (name) =>
   new Promise((resolve) => {
     const image = new Image();
-    image.src = "./assets/atlas.png";
+    image.src = `./assets/${name}.png`;
     image.addEventListener("load", () => resolve(image));
   });
-const createUVLookup = async () => {
-  const file = await fetch("./assets/atlas.json");
-  const data = await file.json();
 
-  const w = 128 / 1024;
-  const h = 128 / 2048;
-  const hPadding = 0.25 / 1024;
-  const vPadding = 0.25 / 2048;
+const getImageData = (image) => {
+  // Step 1: get the image width and height
+  const { width, height } = image;
 
-  return (name) => {
-    if (!data[name]) return null;
-    const [u, v] = data[name];
+  // Step 2: create a canvas of the same size
+  const tmpCanvas = document.createElement("canvas");
+  tmpCanvas.width = width;
+  tmpCanvas.height = height;
 
-    return [
-      u + hPadding,
-      v - vPadding + h,
-      u - hPadding + w,
-      v + vPadding,
-      u + hPadding,
-      v + vPadding,
+  // Step 3: get a 2D Rendering Context object (aka Context API context)
+  const context = tmpCanvas.getContext("2d");
 
-      u + hPadding,
-      v - vPadding + h,
-      u - hPadding + w,
-      v - vPadding + h,
-      u - hPadding + w,
-      v + vPadding,
-    ];
-  };
+  // Step 4: upload your image to the GPU
+  context.drawImage(image, 0, 0);
+
+  // Step 5: read the pixel data off the canvas and return it
+  return context.getImageData(0, 0, width, height).data;
 };
 
 const main = async () => {
-  const positionBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, positionData, gl.STATIC_DRAW);
-  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-  gl.enableVertexAttribArray(0);
+  const image = await loadImage("atlas.full");
 
-  const texCoordData = new Float32Array(2 * 4 * 6);
-  const texCoordBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, texCoordData.byteLength, gl.DYNAMIC_DRAW);
-  gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
-  gl.enableVertexAttribArray(1);
-
-  const image = await loadAtlas();
-  const getUVs = await createUVLookup();
-  texCoordData.set(getUVs("medievalTile_04"), 0);
-  texCoordData.set(getUVs("medievalTile_06"), 12);
-  texCoordData.set(getUVs("medievalTile_58"), 24);
-  texCoordData.set(getUVs("medievalTile_31"), 36);
-  gl.bufferSubData(gl.ARRAY_BUFFER, 0, texCoordData);
+  // Step 1: extract the pixel data from the HTMLImageElement object
+  const imageData = getImageData(image);
 
   const texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA,
-    1024,
-    2048,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    image,
-  );
-  gl.generateMipmap(gl.TEXTURE_2D);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, texture);
 
-  gl.drawArrays(gl.TRIANGLES, 0, 24);
+  // Step 2: allocate space on the GPU for your texture data
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 8, gl.RGBA8, 128, 128, 126);
+
+  // Step 3: create a PBO
+  const pbo = gl.createBuffer();
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, pbo);
+  gl.bufferData(gl.PIXEL_UNPACK_BUFFER, imageData, gl.STATIC_DRAW);
+
+  // Step 4: assign a width and height to the PBO
+  gl.pixelStorei(gl.UNPACK_ROW_LENGTH, image.width);
+  gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, image.height);
+
+  // Step 5: Loop through each image in your atlas
+  for (let i = 0; i < 126; i++) {
+    //Step 6: figure out the origin point of the texture at that index
+    const row = Math.floor(i / 8) * 128;
+    const col = (i % 8) * 128;
+
+    // Step 7: Assign that origin point to the PBO
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, col);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, row);
+
+    // Step 8: Tell webgl to use the PBO and write that texture at its own depth
+    gl.texSubImage3D(
+      gl.TEXTURE_2D_ARRAY,
+      0,
+      0,
+      0,
+      i,
+      128,
+      128,
+      1,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      0,
+    );
+  }
+
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, positionData, gl.STATIC_DRAW);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 16, 0);
+  gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 16, 8);
+  gl.vertexAttrib1f(2, 47); // Show the texture found at the depth of 47
+  gl.enableVertexAttribArray(0);
+  gl.enableVertexAttribArray(1);
+
+  gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_BASE_LEVEL, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
 };
 
 main();
