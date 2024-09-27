@@ -1,3 +1,5 @@
+import * as core from "./core";
+
 export enum TexFormat {
   RGB = WebGL2RenderingContext.RGB,
   RGBA = WebGL2RenderingContext.RGBA,
@@ -8,14 +10,52 @@ export enum TexFiltering {
   Linear = WebGL2RenderingContext.LINEAR,
 }
 
+export type SpriteRegion = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+export type Sprite = SpriteRegion & { texture: WebGLTexture };
+
+export async function loadAtlas(
+  path: string,
+): Promise<Record<string, SpriteRegion>> {
+  const atlasStr = await core.loadFile(path);
+  return JSON.parse(atlasStr) as Record<string, SpriteRegion>;
+}
+
+export function getUvsForQuad6(
+  sprite: SpriteRegion,
+  texWidth: number,
+  texHeight: number,
+): number[] {
+  const u = sprite.x / texWidth;
+  const v = sprite.y / texHeight;
+  const w = sprite.w / texWidth;
+  const h = sprite.h / texHeight;
+  console.log(sprite, texWidth, texHeight);
+  //prettier-ignore
+  return [
+    u, v + h,
+    u + w, v + h,
+    u + w, v,
+    u + w, v,
+    u, v,
+    u, v + h,
+  ];
+}
+
 export type CreateTexParamsBase = {
   gl: WebGL2RenderingContext;
   texIndex: number;
 
-  skipFlipY?: boolean;
+  flipY?: boolean;
   format: TexFormat;
   minFilter: TexFiltering;
   magFilter: TexFiltering;
+  generateMipMaps?: boolean;
 };
 
 export type CreateTexFromImgParams = CreateTexParamsBase & {
@@ -32,11 +72,12 @@ export type CreateTexFromPixelsParams = CreateTexParamsBase & {
 export async function createAndBindTexture(
   params: CreateTexFromImgParams | CreateTexFromPixelsParams,
 ) {
-  const { gl, texIndex, skipFlipY, format, minFilter, magFilter } = params;
+  const { gl, texIndex, flipY, format, minFilter, magFilter, generateMipMaps } =
+    params;
   gl.activeTexture(gl.TEXTURE0 + texIndex);
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, skipFlipY || true);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, flipY || false);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter);
 
@@ -64,6 +105,10 @@ export async function createAndBindTexture(
       gl.UNSIGNED_BYTE,
       params.pixels,
     );
+  }
+
+  if (generateMipMaps) {
+    gl.generateMipmap(gl.TEXTURE_2D);
   }
 }
 

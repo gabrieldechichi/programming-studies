@@ -1,4 +1,5 @@
 import * as constants from "./constants";
+import * as graphics from "./graphics";
 
 async function main() {
   const canvas = document.getElementById("canvas") as HTMLCanvasElement;
@@ -12,14 +13,12 @@ async function main() {
   const vertexSource = `#version 300 es
 
   in vec2 aPosition;
-  in float aPointSize;
-  in vec3 aColor;
+  in vec2 aTexCoord;
 
-  out vec3 vColor;
+  out vec2 vTexCoord;
 
   void main() {
-      vColor = aColor;
-      gl_PointSize = aPointSize;
+      vTexCoord = aTexCoord;
       gl_Position = vec4(aPosition, 0.0, 1.0);
   }
   `;
@@ -32,11 +31,13 @@ async function main() {
   const fragSource = `#version 300 es
 precision mediump float;
 
-in vec3 vColor;
+in vec2 vTexCoord;
 out vec4 fragColor;
 
+uniform sampler2D uSampler;
+
 void main() {
-    fragColor = vec4(vColor, 1.0);
+    fragColor = texture(uSampler, vTexCoord);
 }
   `;
 
@@ -55,130 +56,101 @@ void main() {
   gl.useProgram(program);
 
   const aPosition = gl.getAttribLocation(program, "aPosition");
-  const aPointSize = gl.getAttribLocation(program, "aPointSize");
-  const aColor = gl.getAttribLocation(program, "aColor");
+  const aTexCoord = gl.getAttribLocation(program, "aTexCoord");
+  const uSampler = gl.getUniformLocation(program, "uSampler");
 
-  //number of floats per vertex
-  const strideFloatCount = 6;
-  const strideBytes = strideFloatCount * constants.FLOAT_SIZE;
+  const quad = [-1, -1, 1, -1, 1, 1, 1, 1, -1, 1, -1, -1];
+  const positionData = new Float32Array([
+    // Quad 1
+    ...quad.map((v, i) => v / 2 + (i % 2 === 0 ? -0.5 : 0.5)),
+    ...quad.map((v, i) => v / 2 + (i % 2 === 0 ? 0.5 : 0.5)),
+    ...quad.map((v, i) => v / 2 + (i % 2 === 0 ? -0.5 : -0.5)),
+    ...quad.map((v, i) => v / 2 + (i % 2 === 0 ? 0.5 : -0.5)),
+  ]);
 
-  let vao1: WebGLVertexArrayObject | null;
-  //bind vao1
-  {
-    //prettier-ignore
-    const data1 = new Float32Array([
-      //pos         //color         //size
-      -0.8, 0.6,    1, 0.75, 0.75,  125,
-      -0.3, 0.6,    0, 0.75, 1,     32,
-      0.3, 0.6,     0.5, 1, 0.75,   75,
-      0.8, 0.6,     0, 0.75, 0.75,  9,
-    ]);
+  const quadCount = 4;
+  const texCoordData = new Float32Array(2 * quadCount * 6);
 
-    const bufferData1 = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, bufferData1);
-    gl.bufferData(gl.ARRAY_BUFFER, data1, gl.STATIC_DRAW);
+  const positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, positionData, gl.STATIC_DRAW);
 
-    vao1 = gl.createVertexArray();
-    gl.bindVertexArray(vao1);
+  gl.enableVertexAttribArray(aPosition);
+  gl.vertexAttribPointer(
+    aPosition,
+    2,
+    gl.FLOAT,
+    false,
+    2 * constants.FLOAT_SIZE,
+    0,
+  );
 
-    gl.enableVertexAttribArray(aPosition);
-    gl.enableVertexAttribArray(aPointSize);
-    gl.enableVertexAttribArray(aColor);
+  const texCoordBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
 
-    gl.vertexAttribPointer(
-      aPosition,
-      2,
-      gl.FLOAT,
-      false,
-      strideBytes,
-      0 * constants.FLOAT_SIZE,
-    );
-    gl.vertexAttribPointer(
-      aColor,
-      3,
-      gl.FLOAT,
-      false,
-      strideBytes,
-      2 * constants.FLOAT_SIZE,
-    );
+  gl.enableVertexAttribArray(aTexCoord);
+  gl.vertexAttribPointer(
+    aTexCoord,
+    2,
+    gl.FLOAT,
+    false,
+    2 * constants.FLOAT_SIZE,
+    0,
+  );
 
-    gl.vertexAttribPointer(
-      aPointSize,
-      1,
-      gl.FLOAT,
-      false,
-      strideBytes,
-      (2 + 3) * constants.FLOAT_SIZE,
-    );
+  const atlasData = await graphics.loadAtlas("./assets/textures/atlas.json");
+  const atlas = await graphics.loadImage("./assets/textures/atlas.png");
 
-    gl.bindVertexArray(null);
-  }
+  texCoordData.set(
+    graphics.getUvsForQuad6(
+      atlasData["medievalEnvironment_01"],
+      atlas.width,
+      atlas.height,
+    ),
+    0 * 12,
+  );
 
-  let vao2: WebGLVertexArrayObject | null;
-  {
-    //prettier-ignore
-    const data2 = new Float32Array([
-      //position      //color        //size
-      -0.8, -0.6,     0.25, 0, 0,    25,
-      -0.3, -0.6,     0, 0, 0.25,    132,
-      0.3, -0.6,      0, 0.25, 0,    105,
-      0.6, -0.6,      0.25, 0, 0.25, 90,
-    ]);
+  texCoordData.set(
+    graphics.getUvsForQuad6(
+      atlasData["medievalEnvironment_02"],
+      atlas.width,
+      atlas.height,
+    ),
+    1 * 12,
+  );
 
-    const bufferData2 = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, bufferData2);
-    gl.bufferData(gl.ARRAY_BUFFER, data2, gl.STATIC_DRAW);
+  texCoordData.set(
+    graphics.getUvsForQuad6(
+      atlasData["medievalEnvironment_03"],
+      atlas.width,
+      atlas.height,
+    ),
+    2 * 12,
+  );
 
-    vao2 = gl.createVertexArray();
-    gl.bindVertexArray(vao2);
+  texCoordData.set(
+    graphics.getUvsForQuad6(
+      atlasData["medievalEnvironment_04"],
+      atlas.width,
+      atlas.height,
+    ),
+    3 * 12,
+  );
 
-    gl.enableVertexAttribArray(aPosition);
-    gl.enableVertexAttribArray(aColor);
-    gl.enableVertexAttribArray(aPointSize);
+  gl.bufferData(gl.ARRAY_BUFFER, texCoordData, gl.DYNAMIC_DRAW);
 
-    gl.vertexAttribPointer(
-      aPosition,
-      2,
-      gl.FLOAT,
-      false,
-      strideBytes,
-      0 * constants.FLOAT_SIZE,
-    );
-    gl.vertexAttribPointer(
-      aColor,
-      3,
-      gl.FLOAT,
-      false,
-      strideBytes,
-      2 * constants.FLOAT_SIZE,
-    );
-    gl.vertexAttribPointer(
-      aPointSize,
-      1,
-      gl.FLOAT,
-      false,
-      strideBytes,
-      (2 + 3) * constants.FLOAT_SIZE,
-    );
+  graphics.createAndBindTexture({
+    gl,
+    texIndex: 0,
+    format: graphics.TexFormat.RGBA,
+    minFilter: graphics.TexFiltering.Nearest,
+    magFilter: graphics.TexFiltering.Nearest,
+    generateMipMaps: true,
+    image: atlas,
+  });
+  gl.uniform1i(uSampler, 0);
 
-    gl.bindVertexArray(null);
-  }
-
-  function draw() {
-    if (!gl) {
-      return;
-    }
-    gl.bindVertexArray(vao1);
-    gl.drawArrays(gl.POINTS, 0, 4);
-
-    gl.bindVertexArray(vao2);
-    gl.drawArrays(gl.POINTS, 0, 4);
-    gl.bindVertexArray(null);
-
-    requestAnimationFrame(draw);
-  }
-
-  draw();
+  gl.drawArrays(gl.TRIANGLES, 0, quadCount * 6);
 }
 
 main()

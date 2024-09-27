@@ -1,33 +1,33 @@
 // tslint:disable: no-console
 
-const vss1 = `#version 300 es
+const vertexShaderSrc = `#version 300 es
 #pragma vscode_glsllint_stage: vert
 
-layout(location=0) in float aPointSize;
-layout(location=1) in vec2 aPosition;
-layout(location=2) in vec3 aColor;
+layout(location=0) in vec4 aPosition;
+layout(location=1) in vec2 aTexCoord;
 
-out vec3 vColor;
+out vec2 vTexCoord;
 
 void main()
 {
-    vColor = aColor;
-    gl_PointSize = aPointSize;
-    gl_Position = vec4(aPosition, 0.0, 1.0);
+    vTexCoord = aTexCoord;
+    gl_Position = aPosition;
 }`;
 
-const fss1 = `#version 300 es
+const fragmentShaderSrc = `#version 300 es
 #pragma vscode_glsllint_stage: frag
 
 precision mediump float;
 
-in vec3 vColor;
+uniform sampler2D uSampler;
+
+in vec2 vTexCoord;
 
 out vec4 fragColor;
 
 void main()
 {
-    fragColor = vec4(vColor, 1.0);
+    fragColor = texture(uSampler, vTexCoord);
 }`;
 
 const gl = document.querySelector("canvas").getContext("webgl2");
@@ -35,12 +35,12 @@ const gl = document.querySelector("canvas").getContext("webgl2");
 const program = gl.createProgram();
 
 const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-gl.shaderSource(vertexShader, vss1);
+gl.shaderSource(vertexShader, vertexShaderSrc);
 gl.compileShader(vertexShader);
 gl.attachShader(program, vertexShader);
 
 const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-gl.shaderSource(fragmentShader, fss1);
+gl.shaderSource(fragmentShader, fragmentShaderSrc);
 gl.compileShader(fragmentShader);
 gl.attachShader(program, fragmentShader);
 
@@ -49,62 +49,99 @@ gl.linkProgram(program);
 if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
   console.log(gl.getShaderInfoLog(vertexShader));
   console.log(gl.getShaderInfoLog(fragmentShader));
-  console.log(gl.getProgramInfoLog(program));
-  throw new Error("failed to link");
 }
-
 gl.useProgram(program);
 
-const data1 = new Float32Array([
-  -0.8, 0.6, 1, 0.75, 0.75, 125, -0.3, 0.6, 0, 0.75, 1, 32, 0.3, 0.6, 0.5, 1,
-  0.75, 75, 0.8, 0.6, 0, 0.75, 0.75, 9,
+const positionData = new Float32Array([
+  // Quad 1
+  -1, 0, 0, 1, -1, 1, -1, 0, 0, 0, 0, 1,
+
+  // Quad 2
+  0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1,
+
+  // Quad 3
+  -1, -1, 0, 0, -1, 0, -1, -1, 0, -1, 0, 0,
+
+  // Quad 4
+  0, -1, 1, 0, 0, 0, 0, -1, 1, -1, 1, 0,
 ]);
-const buffer1 = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, buffer1);
-gl.bufferData(gl.ARRAY_BUFFER, data1, gl.STATIC_DRAW);
 
-const vao1 = gl.createVertexArray();
-gl.bindVertexArray(vao1);
+const loadAtlas = () =>
+  new Promise((resolve) => {
+    const image = new Image();
+    image.src = "./assets/atlas.png";
+    image.addEventListener("load", () => resolve(image));
+  });
+const createUVLookup = async () => {
+  const file = await fetch("./assets/atlas.json");
+  const data = await file.json();
 
-gl.vertexAttribPointer(0, 1, gl.FLOAT, false, 24, 20);
-gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 24, 0);
-gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 24, 8);
+  const w = 128 / 1024;
+  const h = 128 / 2048;
+  const hPadding = 0.25 / 1024;
+  const vPadding = 0.25 / 2048;
 
-gl.enableVertexAttribArray(0);
-gl.enableVertexAttribArray(1);
-gl.enableVertexAttribArray(2);
+  return (name) => {
+    if (!data[name]) return null;
+    const [u, v] = data[name];
 
-gl.bindVertexArray(null);
+    return [
+      u + hPadding,
+      v - vPadding + h,
+      u - hPadding + w,
+      v + vPadding,
+      u + hPadding,
+      v + vPadding,
 
-const data2 = new Float32Array([
-  -0.8, -0.6, 0.25, 0, 0, 25, -0.3, -0.6, 0, 0, 0.25, 132, 0.3, -0.6, 0, 0.25,
-  0, 105, 0.6, -0.6, 0.25, 0, 0.25, 90,
-]);
-const buffer2 = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, buffer2);
-gl.bufferData(gl.ARRAY_BUFFER, data2, gl.STATIC_DRAW);
-
-const vao2 = gl.createVertexArray();
-gl.bindVertexArray(vao2);
-
-gl.vertexAttribPointer(0, 1, gl.FLOAT, false, 24, 20);
-gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 24, 0);
-gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 24, 8);
-
-gl.enableVertexAttribArray(0);
-gl.enableVertexAttribArray(1);
-gl.enableVertexAttribArray(2);
-
-gl.bindVertexArray(null);
-
-const draw = () => {
-  gl.bindVertexArray(vao1);
-  gl.drawArrays(gl.POINTS, 0, 4);
-  gl.bindVertexArray(vao2);
-  gl.drawArrays(gl.POINTS, 0, 4);
-  gl.bindVertexArray(null);
-
-  requestAnimationFrame(draw);
+      u + hPadding,
+      v - vPadding + h,
+      u - hPadding + w,
+      v - vPadding + h,
+      u - hPadding + w,
+      v + vPadding,
+    ];
+  };
 };
 
-draw();
+const main = async () => {
+  const positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, positionData, gl.STATIC_DRAW);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(0);
+
+  const texCoordData = new Float32Array(2 * 4 * 6);
+  const texCoordBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, texCoordData.byteLength, gl.DYNAMIC_DRAW);
+  gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(1);
+
+  const image = await loadAtlas();
+  const getUVs = await createUVLookup();
+  texCoordData.set(getUVs("medievalTile_04"), 0);
+  texCoordData.set(getUVs("medievalTile_06"), 12);
+  texCoordData.set(getUVs("medievalTile_58"), 24);
+  texCoordData.set(getUVs("medievalTile_31"), 36);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, texCoordData);
+
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA,
+    1024,
+    2048,
+    0,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    image,
+  );
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 24);
+};
+
+main();
