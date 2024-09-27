@@ -87,26 +87,30 @@ void main() {
   {
     //prettier-ignore
     const instanceData = new Float32Array([
+      // pos       //scale     //uv offset and size
+      -0.5, 0.5,   0.5,        0,0,0,0,        
+      // pos       //scale     
+      0.5, 0.5,    0.5,        0,0,0,0,
       // pos       //scale
-      -0.5, 0.5,   0.5,
+      -0.5, -0.5,  0.5,        0,0,0,0,
       // pos       //scale
-      0.5, 0.5,    0.5,
-      // pos       //scale
-      -0.5, -0.5,  0.5,
-      // pos       //scale
-      0.5, -0.5,   0.5,
+      0.5, -0.5,   0.5,        0,0,0,0,
     ]);
 
-    const instanceDataStride = 3 * constants.FLOAT_SIZE;
+    const instancedDataFloatCount = 2 + 1 + 4;
+    const instanceDataStride = instancedDataFloatCount * constants.FLOAT_SIZE;
+    //used lated but keeping this data together as they are related
+    const uvCoordsOffset = 2 + 1;
 
     const instanceBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.STATIC_DRAW);
 
     gl.enableVertexAttribArray(aOffset);
     gl.enableVertexAttribArray(aScale);
+    gl.enableVertexAttribArray(aTexCoord);
     gl.vertexAttribDivisor(aOffset, 1);
     gl.vertexAttribDivisor(aScale, 1);
+    gl.vertexAttribDivisor(aTexCoord, 1);
     gl.vertexAttribPointer(
       aOffset,
       2,
@@ -124,77 +128,70 @@ void main() {
       instanceDataStride,
       2 * constants.FLOAT_SIZE,
     );
-  }
-
-  //vertex (uv)
-  //todo: merge with rest of vertex data
-  {
-    const texCoordData = new Float32Array(4 * instanceCount);
-
-    const texCoordBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-
-    gl.enableVertexAttribArray(aTexCoord);
-    gl.vertexAttribDivisor(aTexCoord, 1);
     gl.vertexAttribPointer(
       aTexCoord,
       4,
       gl.FLOAT,
       false,
-      4 * constants.FLOAT_SIZE,
-      0,
+      instanceDataStride,
+      (2 + 1) * constants.FLOAT_SIZE,
     );
 
-    const atlasData = await graphics.loadAtlas("./assets/textures/atlas.json");
-    const atlas = await graphics.loadImage("./assets/textures/atlas.png");
+    //set vertex uv data vertex (uv)
+    {
+      const atlasData = await graphics.loadAtlas(
+        "./assets/textures/atlas.json",
+      );
+      const atlas = await graphics.loadImage("./assets/textures/atlas.png");
 
-    texCoordData.set(
-      graphics.getUvOffsetAndScale(
-        atlasData["medievalTile_03"],
-        atlas.width,
-        atlas.height,
-      ),
-      0 * 4,
-    );
+      instanceData.set(
+        graphics.getUvOffsetAndScale(
+          atlasData["medievalTile_03"],
+          atlas.width,
+          atlas.height,
+        ),
+        0 * instancedDataFloatCount + uvCoordsOffset,
+      );
 
-    texCoordData.set(
-      graphics.getUvOffsetAndScale(
-        atlasData["medievalTile_17"],
-        atlas.width,
-        atlas.height,
-      ),
-      1 * 4,
-    );
+      instanceData.set(
+        graphics.getUvOffsetAndScale(
+          atlasData["medievalTile_17"],
+          atlas.width,
+          atlas.height,
+        ),
+        1 * instancedDataFloatCount + uvCoordsOffset,
+      );
 
-    texCoordData.set(
-      graphics.getUvOffsetAndScale(
-        atlasData["medievalTile_05"],
-        atlas.width,
-        atlas.height,
-      ),
-      2 * 4,
-    );
+      instanceData.set(
+        graphics.getUvOffsetAndScale(
+          atlasData["medievalTile_05"],
+          atlas.width,
+          atlas.height,
+        ),
+        2 * instancedDataFloatCount + uvCoordsOffset,
+      );
 
-    texCoordData.set(
-      graphics.getUvOffsetAndScale(
-        atlasData["medievalTile_07"],
-        atlas.width,
-        atlas.height,
-      ),
-      3 * 4,
-    );
+      instanceData.set(
+        graphics.getUvOffsetAndScale(
+          atlasData["medievalTile_07"],
+          atlas.width,
+          atlas.height,
+        ),
+        3 * instancedDataFloatCount + uvCoordsOffset,
+      );
 
-    gl.bufferData(gl.ARRAY_BUFFER, texCoordData, gl.DYNAMIC_DRAW);
+      graphics.createAndBindTexture({
+        gl,
+        texIndex: 0,
+        format: graphics.TexFormat.RGBA,
+        minFilter: graphics.TexFiltering.Nearest,
+        magFilter: graphics.TexFiltering.Nearest,
+        generateMipMaps: true,
+        image: atlas,
+      });
+    }
 
-    graphics.createAndBindTexture({
-      gl,
-      texIndex: 0,
-      format: graphics.TexFormat.RGBA,
-      minFilter: graphics.TexFiltering.Nearest,
-      magFilter: graphics.TexFiltering.Nearest,
-      generateMipMaps: true,
-      image: atlas,
-    });
+    gl.bufferData(gl.ARRAY_BUFFER, instanceData, gl.DYNAMIC_DRAW);
   }
 
   gl.uniform1i(uSampler, 0);
