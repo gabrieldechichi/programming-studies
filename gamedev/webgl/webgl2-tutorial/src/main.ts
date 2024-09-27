@@ -103,7 +103,7 @@ void main() {
 
   texCoordData.set(
     graphics.getUvsForQuad6(
-      atlasData["medievalEnvironment_01"],
+      atlasData["medievalTile_03"],
       atlas.width,
       atlas.height,
     ),
@@ -112,7 +112,7 @@ void main() {
 
   texCoordData.set(
     graphics.getUvsForQuad6(
-      atlasData["medievalEnvironment_02"],
+      atlasData["medievalTile_17"],
       atlas.width,
       atlas.height,
     ),
@@ -121,7 +121,7 @@ void main() {
 
   texCoordData.set(
     graphics.getUvsForQuad6(
-      atlasData["medievalEnvironment_03"],
+      atlasData["medievalTile_05"],
       atlas.width,
       atlas.height,
     ),
@@ -130,7 +130,7 @@ void main() {
 
   texCoordData.set(
     graphics.getUvsForQuad6(
-      atlasData["medievalEnvironment_04"],
+      atlasData["medievalTile_07"],
       atlas.width,
       atlas.height,
     ),

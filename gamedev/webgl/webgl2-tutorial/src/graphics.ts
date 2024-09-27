@@ -30,20 +30,26 @@ export function getUvsForQuad6(
   sprite: SpriteRegion,
   texWidth: number,
   texHeight: number,
+  padding?: number
 ): number[] {
   const u = sprite.x / texWidth;
   const v = sprite.y / texHeight;
   const w = sprite.w / texWidth;
   const h = sprite.h / texHeight;
+
+  padding ||= 0.0
+  const hPadding = padding / texWidth;
+  const vPadding = padding / texHeight;
+  
   console.log(sprite, texWidth, texHeight);
   //prettier-ignore
   return [
-    u, v + h,
-    u + w, v + h,
-    u + w, v,
-    u + w, v,
-    u, v,
-    u, v + h,
+    u + hPadding,       v + h - vPadding,
+    u + w - hPadding,   v + h - vPadding,
+    u + w - hPadding,   v + vPadding,
+    u + w - hPadding,   v + vPadding,
+    u + hPadding,       v + vPadding,
+    u + hPadding,       v + h - vPadding,
   ];
 }
 
@@ -78,8 +84,6 @@ export async function createAndBindTexture(
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, flipY || false);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter);
 
   if ("image" in params) {
     gl.texImage2D(
@@ -110,6 +114,8 @@ export async function createAndBindTexture(
   if (generateMipMaps) {
     gl.generateMipmap(gl.TEXTURE_2D);
   }
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter);
 }
 
 export async function loadImage(
