@@ -30,17 +30,17 @@ export function getUvsForQuad6(
   sprite: SpriteRegion,
   texWidth: number,
   texHeight: number,
-  padding?: number
+  padding?: number,
 ): number[] {
   const u = sprite.x / texWidth;
   const v = sprite.y / texHeight;
   const w = sprite.w / texWidth;
   const h = sprite.h / texHeight;
 
-  padding ||= 0.0
+  padding ||= 0.0;
   const hPadding = padding / texWidth;
   const vPadding = padding / texHeight;
-  
+
   console.log(sprite, texWidth, texHeight);
   //prettier-ignore
   return [
@@ -51,6 +51,30 @@ export function getUvsForQuad6(
     u + hPadding,       v + vPadding,
     u + hPadding,       v + h - vPadding,
   ];
+}
+
+/// Returns the uv offset (x,y) and width/height (z,w)
+export function getUvOffsetAndScale(
+  sprite: SpriteRegion,
+  texWidth: number,
+  texHeight: number,
+  padding?: number,
+): number[] {
+  const u = sprite.x / texWidth;
+  const v = sprite.y / texHeight;
+  const w = sprite.w / texWidth;
+  const h = sprite.h / texHeight;
+
+  padding ||= 0.0;
+  const hPadding = padding / texWidth;
+  const vPadding = padding / texHeight;
+  //prettier-ignore
+  return [
+    //offset
+    u + hPadding, v + vPadding,
+    //scale
+    w - hPadding, h - vPadding
+   ]
 }
 
 export type CreateTexParamsBase = {

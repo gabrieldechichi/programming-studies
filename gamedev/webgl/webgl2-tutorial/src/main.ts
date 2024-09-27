@@ -15,13 +15,13 @@ async function main() {
   in vec2 aPosition;
   in vec2 aOffset;
   in float aScale;
-  in vec2 aTexCoord;
+  in vec4 aTexCoord;
 
   out vec2 vTexCoord;
 
   void main() {
-      vTexCoord = aTexCoord;
       gl_Position = vec4(aPosition * aScale + aOffset, 0.0, 1.0);
+      vTexCoord = (aPosition * 0.5 + 0.5) * aTexCoord.zw + aTexCoord.xy ;
   }
   `;
 
@@ -40,7 +40,7 @@ uniform sampler2D uSampler;
 
 void main() {
     fragColor = texture(uSampler, vTexCoord);
-    fragColor = vec4(1,0,0,1);
+    // fragColor = vec4(1,0,0,1);
 }
   `;
 
@@ -83,87 +83,18 @@ void main() {
   }
 
   const instanceCount = 4;
-  //vertex (uv)
-  {
-    const texCoordData = new Float32Array(2 * instanceCount * 6);
-
-    const texCoordBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-
-    gl.enableVertexAttribArray(aTexCoord);
-    gl.vertexAttribPointer(
-      aTexCoord,
-      2,
-      gl.FLOAT,
-      false,
-      2 * constants.FLOAT_SIZE,
-      0,
-    );
-
-    const atlasData = await graphics.loadAtlas("./assets/textures/atlas.json");
-    const atlas = await graphics.loadImage("./assets/textures/atlas.png");
-
-    texCoordData.set(
-      graphics.getUvsForQuad6(
-        atlasData["medievalTile_03"],
-        atlas.width,
-        atlas.height,
-      ),
-      0 * 12,
-    );
-
-    texCoordData.set(
-      graphics.getUvsForQuad6(
-        atlasData["medievalTile_17"],
-        atlas.width,
-        atlas.height,
-      ),
-      1 * 12,
-    );
-
-    texCoordData.set(
-      graphics.getUvsForQuad6(
-        atlasData["medievalTile_05"],
-        atlas.width,
-        atlas.height,
-      ),
-      2 * 12,
-    );
-
-    texCoordData.set(
-      graphics.getUvsForQuad6(
-        atlasData["medievalTile_07"],
-        atlas.width,
-        atlas.height,
-      ),
-      3 * 12,
-    );
-
-    gl.bufferData(gl.ARRAY_BUFFER, texCoordData, gl.DYNAMIC_DRAW);
-
-    graphics.createAndBindTexture({
-      gl,
-      texIndex: 0,
-      format: graphics.TexFormat.RGBA,
-      minFilter: graphics.TexFiltering.Nearest,
-      magFilter: graphics.TexFiltering.Nearest,
-      generateMipMaps: true,
-      image: atlas,
-    });
-  }
-
   //define instance data (offset, scale)
   {
     //prettier-ignore
     const instanceData = new Float32Array([
       // pos       //scale
-      0, 0,        0.1,
+      -0.5, 0.5,   0.5,
       // pos       //scale
-      -0.7, -0.25, 0.2,
+      0.5, 0.5,    0.5,
       // pos       //scale
-      0.6, 0.25,   0.2,
+      -0.5, -0.5,  0.5,
       // pos       //scale
-      -0.5, 0.7,   0.15,
+      0.5, -0.5,   0.5,
     ]);
 
     const instanceDataStride = 3 * constants.FLOAT_SIZE;
@@ -193,6 +124,77 @@ void main() {
       instanceDataStride,
       2 * constants.FLOAT_SIZE,
     );
+  }
+
+  //vertex (uv)
+  //todo: merge with rest of vertex data
+  {
+    const texCoordData = new Float32Array(4 * instanceCount);
+
+    const texCoordBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+
+    gl.enableVertexAttribArray(aTexCoord);
+    gl.vertexAttribDivisor(aTexCoord, 1);
+    gl.vertexAttribPointer(
+      aTexCoord,
+      4,
+      gl.FLOAT,
+      false,
+      4 * constants.FLOAT_SIZE,
+      0,
+    );
+
+    const atlasData = await graphics.loadAtlas("./assets/textures/atlas.json");
+    const atlas = await graphics.loadImage("./assets/textures/atlas.png");
+
+    texCoordData.set(
+      graphics.getUvOffsetAndScale(
+        atlasData["medievalTile_03"],
+        atlas.width,
+        atlas.height,
+      ),
+      0 * 4,
+    );
+
+    texCoordData.set(
+      graphics.getUvOffsetAndScale(
+        atlasData["medievalTile_17"],
+        atlas.width,
+        atlas.height,
+      ),
+      1 * 4,
+    );
+
+    texCoordData.set(
+      graphics.getUvOffsetAndScale(
+        atlasData["medievalTile_05"],
+        atlas.width,
+        atlas.height,
+      ),
+      2 * 4,
+    );
+
+    texCoordData.set(
+      graphics.getUvOffsetAndScale(
+        atlasData["medievalTile_07"],
+        atlas.width,
+        atlas.height,
+      ),
+      3 * 4,
+    );
+
+    gl.bufferData(gl.ARRAY_BUFFER, texCoordData, gl.DYNAMIC_DRAW);
+
+    graphics.createAndBindTexture({
+      gl,
+      texIndex: 0,
+      format: graphics.TexFormat.RGBA,
+      minFilter: graphics.TexFiltering.Nearest,
+      magFilter: graphics.TexFiltering.Nearest,
+      generateMipMaps: true,
+      image: atlas,
+    });
   }
 
   gl.uniform1i(uSampler, 0);
