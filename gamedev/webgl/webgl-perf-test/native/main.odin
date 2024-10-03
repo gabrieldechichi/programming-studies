@@ -22,7 +22,7 @@ MAX_SPEED :: 200
 
 balls: #soa[]Ball
 
-colors: []color = {
+colors: []vec4 = {
 	{1, 0, 0, 1},
 	{0, 1, 0, 1},
 	{0, 0, 1, 1},
@@ -31,7 +31,7 @@ colors: []color = {
 	{0, 1, 1, 1},
 }
 
-@(private="file")
+@(private = "file")
 vertexShaderSource :: `#version 300 es
 void main()
 {
@@ -39,7 +39,7 @@ void main()
     gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
 }`
 
-@(private="file")
+@(private = "file")
 fragmentShaderSource :: `#version 300 es
 precision mediump float;
 
@@ -54,14 +54,16 @@ main :: proc() {
 	success := gl.SetCurrentContextById("canvas")
 	if !success {return}
 
-    spriteRenderer, err := newSpriteRenderer(BATCH_SIZE)
+	spriteRenderer, err := spriteRendererNew(BATCH_SIZE)
+	if err != .None {
+		return
+	}
 
-	program, ok := gl.CreateProgramFromStrings(
-		[]string{vertexShaderSource},
-		[]string{fragmentShaderSource},
+	pixels := [4]byte{1, 1, 1, 1}
+	whiteTex := spriteRendererAddTexturePixels(
+		spriteRenderer = &spriteRenderer,
+		pixels = pixels[:],
+		width = 1,
+		height = 1,
 	)
-	if !ok {return}
-
-	gl.UseProgram(program)
-	gl.DrawArrays(gl.POINTS, 0, 1)
 }

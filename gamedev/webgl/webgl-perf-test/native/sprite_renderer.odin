@@ -48,7 +48,7 @@ void main() {
 }
 `
 
-QUAD :: []vec2{}
+QUAD :: []vec2{{-1, -1}, {1, -1}, {1, 1}, {1, 1}, {-1, 1}, {-1, -1}}
 
 SpriteRenderer :: struct {
 	program:               gl.Program,
@@ -59,7 +59,7 @@ SpriteRenderer :: struct {
 	uSampler:              i32,
 	uViewProjectionMatrix: i32,
 	batchSize:             u32,
-	batches:               []SpriteRenderInstanceBatch,
+	batches:               [dynamic]SpriteRenderInstanceBatch,
 }
 
 SpriteRenderInstance :: struct {
@@ -81,7 +81,7 @@ SpriteRenderInstanceBatch :: struct {
 	instances:              []SpriteRenderInstance,
 }
 
-newSpriteRenderer :: proc(
+spriteRendererNew :: proc(
 	inBatchSize: u32,
 ) -> (
 	spriteRenderer: SpriteRenderer,
@@ -91,7 +91,7 @@ newSpriteRenderer :: proc(
 	using spriteRenderer
 
 	batchSize = inBatchSize
-	batches = make([]SpriteRenderInstanceBatch, batchSize)
+	batches = make([dynamic]SpriteRenderInstanceBatch, 0)
 	program = glCreateProgramFromStrings(vertexSource, fragSource) or_return
 
 	aVertexPos = gl.GetAttribLocation(program, "aVertexPos")
@@ -107,4 +107,131 @@ newSpriteRenderer :: proc(
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
 	return spriteRenderer, .None
+}
+
+
+spriteRendererAddTexturePixels :: proc(
+	spriteRenderer: ^SpriteRenderer,
+	pixels: []byte,
+	width: u32,
+	height: u32,
+) -> gl.Texture {
+	using spriteRenderer
+	//TODO: what if we go above the limit?
+	nextIndex := u32(len(batches))
+	webGLTex := createAndBindTextureFromPixels(
+		texIndex = nextIndex,
+		format = .RGBA,
+		minFilter = .Nearest,
+		magFilter = .Nearest,
+		pixels = pixels,
+		width = width,
+		height = height,
+	)
+
+	spriteRendererAddInstanceBatch(spriteRenderer, webGLTex, width, height, nextIndex)
+
+	return webGLTex
+}
+
+@(private = "file")
+spriteRendererAddInstanceBatch :: proc(
+	spriteRenderer: ^SpriteRenderer,
+	webGLTex: gl.Texture,
+	width: u32,
+	height: u32,
+	nextIndex: u32,
+) {
+	using spriteRenderer
+
+	//initialize buffers
+	vao := gl.CreateVertexArray()
+	gl.BindVertexArray(vao)
+
+	//setup vertex buffer
+	gl.EnableVertexAttribArray(aVertexPos)
+
+	vertexBuffer := gl.CreateBuffer()
+	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
+	gl.BufferData(gl.ARRAY_BUFFER, size_of(QUAD[0]) * len(QUAD), raw_data(QUAD), gl.STATIC_DRAW)
+	gl.VertexAttribPointer(
+		aVertexPos,
+		size = 2,
+		type = gl.FLOAT,
+		normalized = false,
+		stride = 2 * size_of(f32),
+		ptr = 0 * size_of(f32),
+	)
+
+	//setup instance buffer
+	instanceData := make([]SpriteRenderInstance, batchSize)
+
+	buffer := gl.CreateBuffer()
+	gl.BindBuffer(gl.ARRAY_BUFFER, buffer)
+
+	gl.BufferData(
+		target = gl.ARRAY_BUFFER,
+		size = size_of(SpriteRenderInstance) * len(instanceData),
+		data = raw_data(instanceData),
+		usage = gl.DYNAMIC_DRAW,
+	)
+
+	gl.EnableVertexAttribArray(aTexCoord)
+	gl.EnableVertexAttribArray(aColor)
+	gl.VertexAttribDivisor(u32(aTexCoord), 1)
+	gl.VertexAttribDivisor(u32(aColor), 1)
+
+
+	gl.VertexAttribPointer(
+		aTexCoord,
+		size = 4,
+		type = gl.FLOAT,
+		normalized = false,
+		stride = size_of(SpriteRenderInstance),
+		ptr = offset_of(SpriteRenderInstance, uvOffset),
+	)
+
+	gl.VertexAttribPointer(
+		aColor,
+		size = 4,
+		type = gl.FLOAT,
+		normalized = false,
+		stride = size_of(SpriteRenderInstance),
+		ptr = offset_of(SpriteRenderInstance, color),
+	)
+
+
+	for i in i32(0) ..< 4 {
+		gl.EnableVertexAttribArray(aModelMatrix + i)
+
+		// Set the vertex attribute parameters
+		gl.VertexAttribPointer(
+			aModelMatrix + i32(i),
+			size = 4,
+			type = gl.FLOAT,
+			normalized = false,
+			stride = size_of(SpriteRenderInstance),
+			ptr = uintptr(
+				uint(offset_of(SpriteRenderInstance, modelMatrix)) + (uint(i) * size_of(vec4)),
+			),
+		)
+
+		gl.VertexAttribDivisor(u32(aModelMatrix + i), 1)
+	}
+
+	gl.BindVertexArray(0)
+
+	newBatch := SpriteRenderInstanceBatch {
+		texture                = webGLTex,
+		texWidth               = width,
+		texHeight              = height,
+		texIndex               = nextIndex,
+		buffer                 = buffer,
+		instances              = instanceData,
+		vao                    = vao,
+		vertexBuffer           = vertexBuffer,
+		instanceCountThisFrame = 0,
+	}
+
+    append_elem(&batches, newBatch)
 }
