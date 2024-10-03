@@ -4,10 +4,6 @@ import "core:fmt"
 import "core:math/linalg"
 import gl "vendor:wasm/WebGL"
 
-vec2 :: linalg.Vector2f32
-vec3 :: linalg.Vector3f32
-vec4 :: linalg.Vector4f32
-color :: vec4
 
 Ball :: struct {
 	position: vec2,
@@ -35,6 +31,7 @@ colors: []color = {
 	{0, 1, 1, 1},
 }
 
+@(private="file")
 vertexShaderSource :: `#version 300 es
 void main()
 {
@@ -42,6 +39,7 @@ void main()
     gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
 }`
 
+@(private="file")
 fragmentShaderSource :: `#version 300 es
 precision mediump float;
 
@@ -56,9 +54,14 @@ main :: proc() {
 	success := gl.SetCurrentContextById("canvas")
 	if !success {return}
 
-	program, ok := gl.CreateProgramFromStrings([]string{vertexShaderSource}, []string{fragmentShaderSource})
+    spriteRenderer, err := newSpriteRenderer(BATCH_SIZE)
+
+	program, ok := gl.CreateProgramFromStrings(
+		[]string{vertexShaderSource},
+		[]string{fragmentShaderSource},
+	)
 	if !ok {return}
 
-    gl.UseProgram(program)
-    gl.DrawArrays(gl.POINTS, 0, 1);
+	gl.UseProgram(program)
+	gl.DrawArrays(gl.POINTS, 0, 1)
 }
