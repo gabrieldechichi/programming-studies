@@ -3,8 +3,8 @@ package main
 import "core:fmt"
 import "core:math/linalg"
 import "core:math/rand"
+import "core:sys/wasm/js"
 import gl "vendor:wasm/WebGL"
-
 
 Ball :: struct {
 	position:   vec2,
@@ -16,6 +16,7 @@ Ball :: struct {
 BATCH_SIZE :: 1024 * 1
 MAX_INSTANCES :: BATCH_SIZE * 1 - 10
 MAX_SPEED :: 200
+ASPECT_RATIO : f32 = 1080. / 1920.
 
 balls: #soa[]Ball
 
@@ -30,14 +31,7 @@ colors: []vec4 = {
 whiteSprite: Sprite
 width: f32 = 500
 height: f32 = 500
-viewProjectionMatrix := linalg.matrix_ortho3d(
-	-width / 2.,
-	width / 2.,
-	-height / 2.,
-	height / 2.,
-	-1,
-	10,
-)
+viewProjectionMatrix : mat4
 spriteRenderer: SpriteRenderer
 
 main :: proc() {
@@ -99,6 +93,33 @@ main :: proc() {
 			}
 		}
 	}
+
+	resizeCanvas()
+	js.add_window_event_listener(.Resize, nil, onCanvasResize)
+	js.add_window_event_listener(.Load, nil, onCanvasResize)
+}
+
+onCanvasResize :: proc(event: js.Event) {
+    resizeCanvas()
+
+}
+
+resizeCanvas :: proc() {
+	rect := js.window_get_rect()
+    fmt.println(rect)
+	height = f32(rect.height)
+	width = height * ASPECT_RATIO
+	js.set_element_key_f64("canvas", "width", f64(width))
+	js.set_element_key_f64("canvas", "height", f64(height))
+	gl.Viewport(0, 0, auto_cast width, auto_cast height)
+	viewProjectionMatrix = linalg.matrix_ortho3d(
+		-width / 2,
+		width / 2,
+		-height / 2,
+		height / 2,
+		-1,
+		10,
+	)
 }
 
 lastTime: f64
