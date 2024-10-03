@@ -3,7 +3,7 @@ package main
 import "core:fmt"
 import gl "vendor:wasm/WebGL"
 
-GraphicsError :: enum {
+WebGLError :: enum {
 	None,
 	FailedToCreateProgram,
 }
@@ -18,7 +18,22 @@ TexFiltering :: enum gl.Enum {
 	Linear  = gl.LINEAR,
 }
 
-glCreateProgramFromStrings :: proc(vert: string, frag: string) -> (gl.Program, GraphicsError) {
+SpriteRegion :: struct {
+	x, y, w, h: f32,
+}
+
+Sprite :: struct {
+	using region: SpriteRegion,
+	texture:      gl.Texture,
+}
+
+Pivot :: enum {
+	Center = 0,
+	TopLeft,
+	BottomLeft,
+}
+
+glCreateProgramFromStrings :: proc(vert: string, frag: string) -> (gl.Program, WebGLError) {
 	program, ok := gl.CreateProgramFromStrings([]string{vert}, []string{frag})
 	if !ok {
 		return program, .FailedToCreateProgram
@@ -63,4 +78,26 @@ createAndBindTextureFromPixels :: proc(
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, i32(magFilter))
 
 	return texture
+}
+
+getUvOffsetAndScale :: proc(
+	sprite: SpriteRegion,
+	texWidth: u32,
+	texHeight: u32,
+	padding: u32 = 0,
+) -> (
+	offset: vec2,
+	size: vec2,
+) {
+	u := sprite.x / f32(texWidth)
+	v := sprite.y / f32(texHeight)
+	w := sprite.w / f32(texWidth)
+	h := sprite.h / f32(texHeight)
+
+	hPadding := f32(padding) / f32(texWidth)
+	vPadding := f32(padding) / f32(texHeight)
+
+	offset = vec2{u + hPadding, v + vPadding}
+	size = vec2{w - hPadding, h - vPadding}
+	return
 }

@@ -81,12 +81,7 @@ SpriteRenderInstanceBatch :: struct {
 	instances:              []SpriteRenderInstance,
 }
 
-spriteRendererNew :: proc(
-	inBatchSize: u32,
-) -> (
-	spriteRenderer: SpriteRenderer,
-	err: GraphicsError,
-) {
+spriteRendererNew :: proc(inBatchSize: u32) -> (spriteRenderer: SpriteRenderer, err: WebGLError) {
 	spriteRenderer = SpriteRenderer{}
 	using spriteRenderer
 
@@ -233,5 +228,64 @@ spriteRendererAddInstanceBatch :: proc(
 		instanceCountThisFrame = 0,
 	}
 
-    append_elem(&batches, newBatch)
+	append_elem(&batches, newBatch)
+}
+
+drawSprite :: proc(
+	spriteRenderer: ^SpriteRenderer,
+	sprite: Sprite,
+	pos: vec3 = {0, 0, 0},
+	scale: vec2 = {0, 0},
+	color: vec4 = {1, 1, 1, 1},
+	pivot: Pivot = .Center,
+) -> bool {
+	using spriteRenderer
+	index := -1
+	for batch, i in batches {
+		if batch.texture == sprite.texture {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return false
+	}
+
+	batch := batches[index]
+
+	uvOffset, uvSize := getUvOffsetAndScale(
+		sprite,
+		batch.texWidth,
+		batch.texHeight,
+	)
+
+	pos := pos
+	switch (pivot) {
+	case .Center:
+	case .TopLeft:
+		pos.x += scale.x
+		pos.y -= scale.y
+	case .BottomLeft:
+		pos.x += scale.x
+		pos.y += scale.y
+	}
+
+	modelMatrix := linalg.matrix4_from_trs(
+		pos,
+		linalg.quaternion_from_euler_angle_z(f32(0)),
+		vec3{scale.x, scale.y, 1},
+	)
+
+	instanceData := SpriteRenderInstance {
+		uvOffset    = uvOffset,
+		uvSize      = uvSize,
+		color       = color,
+		modelMatrix = modelMatrix,
+	}
+	batch.instances[batch.instanceCountThisFrame] = instanceData
+
+	//todo: guard against MAX_INSTANCE
+	batch.instanceCountThisFrame += 1
+
+	return true
 }
