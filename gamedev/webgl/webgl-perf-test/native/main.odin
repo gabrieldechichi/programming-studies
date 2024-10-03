@@ -13,11 +13,6 @@ Ball :: struct {
 	colorIndex: i32,
 }
 
-Viewport :: struct {
-	width:  f32,
-	height: f32,
-}
-
 BATCH_SIZE :: 1024 * 1
 MAX_INSTANCES :: BATCH_SIZE * 1 - 10
 MAX_SPEED :: 200
@@ -33,13 +28,13 @@ colors: []vec4 = {
 	{0, 1, 1, 1},
 }
 whiteSprite: Sprite
-width: f32 = 1080.0
-height: f32 = 1920.0
+width: f32 = 500
+height: f32 = 500
 viewProjectionMatrix := linalg.matrix_ortho3d(
-	-width / 2,
-	width / 2,
-	-height / 2,
-	height / 2,
+	-width / 2.,
+	width / 2.,
+	-height / 2.,
+	height / 2.,
 	-1,
 	10,
 )
@@ -48,7 +43,7 @@ spriteRenderer: SpriteRenderer
 main :: proc() {
 	//setup graphics
 	{
-		success := gl.SetCurrentContextById("canvas")
+		success := gl.CreateCurrentContextById("canvas", {.disableAntialias})
 		if !success {return}
 
 		err: WebGLError
@@ -73,9 +68,6 @@ main :: proc() {
 			h       = 1,
 		}
 
-		width: f32 = 1080.0
-		height: f32 = 1920.0
-
 		viewProjectionMatrix = linalg.matrix_ortho3d(
 			-width / 2,
 			width / 2,
@@ -84,6 +76,7 @@ main :: proc() {
 			-1,
 			10,
 		)
+		// gl.Viewport(0, 0, auto_cast width, auto_cast height)
 	}
 
 	//setup balls
@@ -108,9 +101,11 @@ main :: proc() {
 	}
 }
 
+lastTime: f64
 @(export)
-step :: proc(dt: f32) -> (keep_going: bool) {
-	fmt.println(dt)
+step :: proc(currentTime: f64) -> (keep_going: bool) {
+	dt := f32(currentTime - lastTime)
+	lastTime = currentTime
 	//update
 	{
 		for &ball in balls {

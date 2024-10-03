@@ -19,8 +19,7 @@ vertexSource :: `#version 300 es
   out vec4 vColor;
 
   void main() {
-      vec4 pos = uViewProjectionMatrix * aModelMatrix * vec4(aVertexPos, 0.0, 1.0);
-
+      vec4 pos = uViewProjectionMatrix * aModelMatrix * vec4(aVertexPos, 0,1);
       gl_Position = pos;
 
       vTexCoord = (aVertexPos * vec2(0.5, -0.5) + 0.5) * aTexCoord.zw + aTexCoord.xy ;
@@ -200,7 +199,7 @@ spriteRendererAddInstanceBatch :: proc(
 
 		// Set the vertex attribute parameters
 		gl.VertexAttribPointer(
-			aModelMatrix + i32(i),
+			aModelMatrix + i,
 			size = 4,
 			type = gl.FLOAT,
 			normalized = false,
