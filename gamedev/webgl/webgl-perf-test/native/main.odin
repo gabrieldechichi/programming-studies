@@ -66,4 +66,28 @@ main :: proc() {
 		width = 1,
 		height = 1,
 	)
+
+	whiteSprite := Sprite {
+		texture = whiteTex,
+		x       = 0,
+		y       = 0,
+		w       = 1,
+		h       = 1,
+	}
+
+	width: f32 = 1080.0
+	height: f32 = 1920.0
+
+	viewProjectionMatrix := linalg.matrix_ortho3d(
+		-width / 2,
+		width / 2,
+		-height / 2,
+		height / 2,
+		-1,
+		10,
+	)
+
+	ok := spriteRendererDrawSprite(&spriteRenderer, whiteSprite, scale = vec2{50, 50})
+    if !ok {return}
+	spriteRendererRender(&spriteRenderer, viewProjectionMatrix)
 }

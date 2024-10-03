@@ -231,7 +231,7 @@ spriteRendererAddInstanceBatch :: proc(
 	append_elem(&batches, newBatch)
 }
 
-drawSprite :: proc(
+spriteRendererDrawSprite :: proc(
 	spriteRenderer: ^SpriteRenderer,
 	sprite: Sprite,
 	pos: vec3 = {0, 0, 0},
@@ -253,11 +253,7 @@ drawSprite :: proc(
 
 	batch := batches[index]
 
-	uvOffset, uvSize := getUvOffsetAndScale(
-		sprite,
-		batch.texWidth,
-		batch.texHeight,
-	)
+	uvOffset, uvSize := getUvOffsetAndScale(sprite, batch.texWidth, batch.texHeight)
 
 	pos := pos
 	switch (pivot) {
@@ -288,4 +284,47 @@ drawSprite :: proc(
 	batch.instanceCountThisFrame += 1
 
 	return true
+}
+
+spriteRendererRender :: proc(spriteRenderer: ^SpriteRenderer, viewProjectionMatrix: mat4) {
+	using spriteRenderer
+
+	gl.ClearColor(0.0, 0.0, 0.0, 1.0)
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+    gl.UseProgram(program)
+	gl.UniformMatrix4fv(uViewProjectionMatrix, viewProjectionMatrix)
+
+	for batch in batches {
+		using batch
+		if instanceCountThisFrame <= 0 {
+			continue
+		}
+
+		gl.BindVertexArray(vao)
+		gl.Uniform1i(uSampler, auto_cast texIndex)
+		gl.BindBuffer(gl.ARRAY_BUFFER, buffer)
+		// gl.bufferSubData(
+		//   gl.ARRAY_BUFFER,
+		//   0,
+		//   instanceData,
+		//   0,
+		//   instanceCountThisFrame * SpriteInstanceData.STRIDE_BYTES,
+		// );
+
+		gl.BufferData(
+			gl.ARRAY_BUFFER,
+			len(instances) * size_of(SpriteRenderInstance),
+			raw_data(instances),
+			gl.DYNAMIC_DRAW,
+		)
+
+		gl.DrawArraysInstanced(gl.TRIANGLES, 0, 6, auto_cast instanceCountThisFrame)
+		gl.BindVertexArray(0)
+	}
+
+	//end frame
+	for &batch in batches {
+		batch.instanceCountThisFrame = 0
+	}
 }
