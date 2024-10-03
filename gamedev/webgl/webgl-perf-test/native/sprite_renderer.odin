@@ -20,7 +20,6 @@ vertexSource :: `#version 300 es
 
   void main() {
       vec4 pos = uViewProjectionMatrix * aModelMatrix * vec4(aVertexPos, 0.0, 1.0);
-      pos = uViewProjectionMatrix * aModelMatrix * vec4(aVertexPos, 0.0, 1.0);
 
       gl_Position = pos;
 
@@ -43,7 +42,6 @@ void main() {
     vec4 color = texture(uSampler, vTexCoord);
     if (color.a < 0.1){discard;}
     color *= vColor;
-    // if (color.a < 0.1){fragColor = vec4(1,0,0,1); return;}
     fragColor = color;
 }
 `
@@ -139,6 +137,7 @@ spriteRendererAddInstanceBatch :: proc(
 ) {
 	using spriteRenderer
 
+	gl.UseProgram(program)
 	//initialize buffers
 	vao := gl.CreateVertexArray()
 	gl.BindVertexArray(vao)
@@ -154,8 +153,8 @@ spriteRendererAddInstanceBatch :: proc(
 		size = 2,
 		type = gl.FLOAT,
 		normalized = false,
-		stride = 2 * size_of(f32),
-		ptr = 0 * size_of(f32),
+		stride = size_of(vec2),
+		ptr = 0,
 	)
 
 	//setup instance buffer
@@ -251,7 +250,7 @@ spriteRendererDrawSprite :: proc(
 		return false
 	}
 
-	batch := batches[index]
+	batch := &batches[index]
 
 	uvOffset, uvSize := getUvOffsetAndScale(sprite, batch.texWidth, batch.texHeight)
 
@@ -292,7 +291,7 @@ spriteRendererRender :: proc(spriteRenderer: ^SpriteRenderer, viewProjectionMatr
 	gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-    gl.UseProgram(program)
+	gl.UseProgram(program)
 	gl.UniformMatrix4fv(uViewProjectionMatrix, viewProjectionMatrix)
 
 	for batch in batches {
@@ -304,14 +303,6 @@ spriteRendererRender :: proc(spriteRenderer: ^SpriteRenderer, viewProjectionMatr
 		gl.BindVertexArray(vao)
 		gl.Uniform1i(uSampler, auto_cast texIndex)
 		gl.BindBuffer(gl.ARRAY_BUFFER, buffer)
-		// gl.bufferSubData(
-		//   gl.ARRAY_BUFFER,
-		//   0,
-		//   instanceData,
-		//   0,
-		//   instanceCountThisFrame * SpriteInstanceData.STRIDE_BYTES,
-		// );
-
 		gl.BufferData(
 			gl.ARRAY_BUFFER,
 			len(instances) * size_of(SpriteRenderInstance),
@@ -320,7 +311,6 @@ spriteRendererRender :: proc(spriteRenderer: ^SpriteRenderer, viewProjectionMatr
 		)
 
 		gl.DrawArraysInstanced(gl.TRIANGLES, 0, 6, auto_cast instanceCountThisFrame)
-		gl.BindVertexArray(0)
 	}
 
 	//end frame

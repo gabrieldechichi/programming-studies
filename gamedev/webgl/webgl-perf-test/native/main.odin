@@ -65,7 +65,7 @@ doInstanceTest :: proc() {
 		return
 	}
 
-	pixels := [4]byte{1, 1, 1, 1}
+	pixels := [4]byte{255,255,255,255}
 	whiteTex := spriteRendererAddTexturePixels(
 		spriteRenderer = &spriteRenderer,
 		pixels = pixels[:],
