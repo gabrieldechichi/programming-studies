@@ -27,11 +27,27 @@ async function main() {
 
   engine = new b.Engine(canvas);
   scene = new b.Scene(engine);
+  // scene.createDefaultLight();
+  scene.ambientColor = new b.Color3(0, 0.6, 0.6)
 
-  scene.createDefaultCameraOrLight(true, false, true);
-  const camera = scene.cameras[0];
-  camera.position = new b.Vector3(0, 1, -5);
-  b.MeshBuilder.CreateBox("box");
+  const camera = new b.UniversalCamera("camera", new b.Vector3(0, 1, -5));
+  camera.setTarget(new b.Vector3(0, 0, 0));
+  camera.attachControl(true)
+  camera.inputs.addMouseWheel()
+  const box = b.MeshBuilder.CreateBox("box");
+  box.position.y += box.getBoundingInfo().boundingBox.extendSizeWorld.y;
+
+  const ground = b.MeshBuilder.CreateGround("ground", {
+    width: 10,
+    height: 10,
+    subdivisions: 30,
+  });
+
+  const groundMat = new b.StandardMaterial("ground mat");
+  groundMat.diffuseColor = b.Color3.White()
+  ground.material =groundMat
+  groundMat.ambientColor = b.Color3.White()
+  groundMat.emissiveColor = new b.Color3(0.2)
 
   engine.runRenderLoop(update);
 }
