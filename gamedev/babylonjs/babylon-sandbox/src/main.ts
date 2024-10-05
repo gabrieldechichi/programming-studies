@@ -1,4 +1,5 @@
 import * as b from "@babylonjs/core";
+import "@babylonjs/loaders";
 
 const ASPECT_RATIO = 1920 / 1080;
 
@@ -34,10 +35,19 @@ async function main() {
   const light = new b.DirectionalLight("dir light", new b.Vector3(-2, -3, 0));
   light.intensity = 1;
 
-  const camera = new b.UniversalCamera("camera", new b.Vector3(0, 2.5, -3));
-  camera.setTarget(new b.Vector3(0, 1, 0));
+  const camera = new b.ArcRotateCamera(
+    "camera",
+    0,
+    0,
+    10,
+    new b.Vector3(0, 0, 0),
+    scene,
+  );
   camera.attachControl(true);
-  camera.inputs.addMouseWheel();
+  // //camera.inputs.addMouseWheel();
+  // //camera.setTarget(b.Vector3.Zero());
+
+  camera.setPosition(new b.Vector3(0, 0, -2));
 
   const utilLayer = new b.UtilityLayerRenderer(scene);
 
@@ -71,7 +81,7 @@ async function main() {
 
   scene.fogMode = b.Scene.FOGMODE_LINEAR;
   scene.fogStart = -10;
-  scene.fogEnd = 40;
+  scene.fogEnd = 80;
 
   scene.onPointerDown = () => {
     const hit = scene.pick(scene.pointerX, scene.pointerY);
@@ -86,6 +96,14 @@ async function main() {
       hit.pickedMesh.material = mat;
     }
   };
+
+  const loadResult = await b.SceneLoader.ImportMeshAsync(
+    "",
+    "/",
+    "Cow.gltf",
+    scene,
+    (progress) => console.log(progress),
+  );
 
   engine.runRenderLoop(update);
 }
