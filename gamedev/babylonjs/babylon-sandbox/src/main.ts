@@ -69,6 +69,10 @@ async function main() {
   shadowGeneraor.blurKernel = 128
   ground.receiveShadows = true
 
+  scene.fogMode = b.Scene.FOGMODE_LINEAR
+  scene.fogStart = -10
+  scene.fogEnd = 40
+
   engine.runRenderLoop(update);
 }
 
