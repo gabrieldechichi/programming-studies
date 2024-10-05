@@ -32,7 +32,7 @@ async function main() {
 
   // const light = new b.PointLight("point light", new b.Vector3(0, 2, 0));
   const light = new b.DirectionalLight("dir light", new b.Vector3(-2, -3, 0));
-  light.intensity = 1
+  light.intensity = 1;
 
   const camera = new b.UniversalCamera("camera", new b.Vector3(0, 2.5, -3));
   camera.setTarget(new b.Vector3(0, 1, 0));
@@ -46,7 +46,7 @@ async function main() {
     { segments: 50, diameter: 1 },
     scene,
   );
-  sphere.position.y += 1
+  sphere.position.y += 1;
 
   const ground = b.MeshBuilder.CreateGround("ground", {
     width: 10,
@@ -62,16 +62,30 @@ async function main() {
   const lightGizmos = new b.LightGizmo(utilLayer);
   lightGizmos.light = light;
 
-  const shadowGeneraor = new b.ShadowGenerator(1024, light)
-  shadowGeneraor.addShadowCaster(sphere)
-  shadowGeneraor.useBlurExponentialShadowMap = true
-  shadowGeneraor.useKernelBlur = true
-  shadowGeneraor.blurKernel = 128
-  ground.receiveShadows = true
+  const shadowGeneraor = new b.ShadowGenerator(1024, light);
+  shadowGeneraor.addShadowCaster(sphere);
+  shadowGeneraor.useBlurExponentialShadowMap = true;
+  shadowGeneraor.useKernelBlur = true;
+  shadowGeneraor.blurKernel = 128;
+  ground.receiveShadows = true;
 
-  scene.fogMode = b.Scene.FOGMODE_LINEAR
-  scene.fogStart = -10
-  scene.fogEnd = 40
+  scene.fogMode = b.Scene.FOGMODE_LINEAR;
+  scene.fogStart = -10;
+  scene.fogEnd = 40;
+
+  scene.onPointerDown = () => {
+    const hit = scene.pick(scene.pointerX, scene.pointerY);
+    if (hit.pickedMesh && hit.pickedMesh.name === sphere.name) {
+      const mat = (hit.pickedMesh.material ||
+        new b.StandardMaterial("sphere")) as b.StandardMaterial;
+      if (mat.diffuseColor.b === 0) {
+        mat.diffuseColor = b.Color3.White();
+      } else {
+        mat.diffuseColor = b.Color3.Red();
+      }
+      hit.pickedMesh.material = mat;
+    }
+  };
 
   engine.runRenderLoop(update);
 }
