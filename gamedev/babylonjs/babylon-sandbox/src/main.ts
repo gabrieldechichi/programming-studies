@@ -30,40 +30,44 @@ async function main() {
   // scene.createDefaultLight();
   // scene.ambientColor = new b.Color3(0, 0.6, 0.6);
 
-  const light = new b.PointLight("point light", new b.Vector3(0, 2, 0));
-  light.range = 100;
-  light.intensity = 0.5;
+  // const light = new b.PointLight("point light", new b.Vector3(0, 2, 0));
+  const light = new b.DirectionalLight("dir light", new b.Vector3(-2, -3, 0));
+  light.intensity = 1
 
-  const camera = new b.UniversalCamera("camera", new b.Vector3(0, 1, -5));
-  camera.setTarget(new b.Vector3(0, 0, 0));
+  const camera = new b.UniversalCamera("camera", new b.Vector3(0, 2.5, -3));
+  camera.setTarget(new b.Vector3(0, 1, 0));
   camera.attachControl(true);
   camera.inputs.addMouseWheel();
-  const box = b.MeshBuilder.CreateBox("box");
-  box.position.y += box.getBoundingInfo().boundingBox.extendSizeWorld.y;
-
-  const boxMat = new b.StandardMaterial("box mat");
-  boxMat.diffuseColor = b.Color3.White();
-  boxMat.ambientColor = b.Color3.White();
-  box.material = boxMat;
 
   const utilLayer = new b.UtilityLayerRenderer(scene);
-  const positionGizmos = new b.PositionGizmo(utilLayer);
-  positionGizmos.attachedMesh = box;
+
+  const sphere = b.MeshBuilder.CreateSphere(
+    "sphere",
+    { segments: 50, diameter: 1 },
+    scene,
+  );
+  sphere.position.y += 1
 
   const ground = b.MeshBuilder.CreateGround("ground", {
     width: 10,
     height: 10,
     subdivisions: 30,
   });
-
   const groundMat = new b.StandardMaterial("ground mat");
   groundMat.diffuseColor = b.Color3.White();
-  groundMat.ambientColor = b.Color3.White();
-  groundMat.emissiveColor = new b.Color3(0.2);
+  // groundMat.ambientColor = b.Color3.White();
+  // groundMat.emissiveColor = new b.Color3(0.2);
   ground.material = groundMat;
 
   const lightGizmos = new b.LightGizmo(utilLayer);
   lightGizmos.light = light;
+
+  const shadowGeneraor = new b.ShadowGenerator(1024, light)
+  shadowGeneraor.addShadowCaster(sphere)
+  shadowGeneraor.useBlurExponentialShadowMap = true
+  shadowGeneraor.useKernelBlur = true
+  shadowGeneraor.blurKernel = 128
+  ground.receiveShadows = true
 
   engine.runRenderLoop(update);
 }
