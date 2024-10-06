@@ -1,5 +1,6 @@
 import * as b from "@babylonjs/core";
 import "@babylonjs/loaders";
+import { Inspector } from "@babylonjs/inspector";
 
 const ASPECT_RATIO = 1920 / 1080;
 
@@ -110,12 +111,13 @@ async function main() {
   loadResult.animationGroups[2].loopAnimation = false;
   console.log(loadResult);
 
-  new b.Sound("mySong", "DivKid.mp3", scene, null, {
-    loop: true,
-    autoplay: true,
-  });
+  // new b.Sound("mySong", "DivKid.mp3", scene, null, {
+  //   loop: true,
+  //   autoplay: true,
+  // });
 
   engine.runRenderLoop(update);
+  Inspector.Show(scene, {});
 }
 
 main();
