@@ -22,6 +22,23 @@ function update() {
   cam.beta = 1.3;
 }
 
+function buildHierarchyDict(rootNodes: b.Node[]) {
+  const dict: Record<string, b.Node> = {};
+
+  for (const root of rootNodes) {
+    buildHierarchyDictRecursive(root);
+  }
+
+  function buildHierarchyDictRecursive(node: b.Node) {
+    dict[node.name] = node;
+    for (const child of node.getChildren()) {
+      buildHierarchyDictRecursive(child);
+    }
+  }
+
+  return dict;
+}
+
 async function main() {
   canvas = document.getElementById("canvas") as HTMLCanvasElement;
   window.addEventListener("resize", (_) => {
@@ -66,40 +83,29 @@ async function main() {
   const lightGizmos = new b.LightGizmo(utilLayer);
   lightGizmos.light = light;
 
-  // const xbotAc = await b.SceneLoader.LoadAssetContainerAsync(
-  //   "/models/",
-  //   "XBot.glb",
-  // );
-  //
-  // const idleAnimAc = await b.SceneLoader.LoadAssetContainerAsync(
-  //   "/animations/",
-  //   "Idle.glb",
-  // );
-  //
-  const xbot = await b.SceneLoader.ImportMeshAsync(
-    "",
+  const xbotAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/models/",
     "XBot.glb",
-    scene,
   );
 
-  const idle = await b.SceneLoader.ImportMeshAsync(
-    "",
+  const idleAnimAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/animations/",
     "Idle.glb",
-    scene,
   );
 
+  const xbot = xbotAc.instantiateModelsToScene((name) => name);
+  const transformDict = buildHierarchyDict(xbot.rootNodes);
+  console.log(transformDict);
+
+  const idle = idleAnimAc.instantiateModelsToScene((name) => name);
   for (const group of idle.animationGroups) {
     for (const anim of group.targetedAnimations) {
-      const other = xbot.transformNodes.find(
-        (n) => n.name === anim.target.name,
-      );
-      anim.target = other;
+      const other = transformDict[anim.target.name];
+      anim.target = other
     }
   }
-  idle.animationGroups[0].stop();
-  idle.animationGroups[0].play();
+  idle.animationGroups[0].stop()
+  idle.animationGroups[0].play()
 
   engine.runRenderLoop(update);
   Inspector.Show(scene, {});
