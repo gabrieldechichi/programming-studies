@@ -1,6 +1,6 @@
 import * as b from "@babylonjs/core";
 import "@babylonjs/loaders";
-import { Inspector } from "@babylonjs/inspector";
+import * as e from "./engine/prelude";
 
 const ASPECT_RATIO = 1920 / 1080;
 
@@ -8,20 +8,12 @@ let canvas: HTMLCanvasElement;
 let engine: b.Engine;
 let scene: b.Scene;
 
-function enforceAspectRatio() {
-  const width = window.innerWidth;
-  const height = width / ASPECT_RATIO;
-  canvas.width = width;
-  canvas.height = height;
-}
-
 function update() {
   scene.render();
-  const cam = scene.cameras[0] as b.ArcRotateCamera;
 }
 
-function buildHierarchyDict(rootNodes: b.Node[]) {
-  const dict: Record<string, b.Node> = {};
+function buildHierarchyDict(rootNodes: b.Node[]): e.TransformHierarchyDict {
+  const dict: e.TransformHierarchyDict = {};
 
   for (const root of rootNodes) {
     buildHierarchyDictRecursive(root);
@@ -40,10 +32,10 @@ function buildHierarchyDict(rootNodes: b.Node[]) {
 async function main() {
   canvas = document.getElementById("canvas") as HTMLCanvasElement;
   window.addEventListener("resize", (_) => {
-    enforceAspectRatio();
+    e.enforceAspectRatio(canvas, ASPECT_RATIO);
     engine.resize();
   });
-  enforceAspectRatio();
+  e.enforceAspectRatio(canvas, ASPECT_RATIO);
 
   engine = new b.Engine(canvas);
   scene = new b.Scene(engine);
@@ -86,7 +78,7 @@ async function main() {
     "XBot.glb",
   );
 
-  const idleAnimAc = await b.SceneLoader.LoadAssetContainerAsync(
+  const idleAnim = await e.loadTargetedAnimationData(
     "/animations/",
     "Idle.glb",
   );
@@ -95,20 +87,19 @@ async function main() {
   const xbotMesh = xbotAc.instantiateModelsToScene((name) => name);
   const transformDict = buildHierarchyDict(xbotMesh.rootNodes);
 
-  xbotMesh.rootNodes[0].parent = xbot
-  xbotMesh.rootNodes[0].name = 'graphics'
+  xbotMesh.rootNodes[0].parent = xbot;
+  xbotMesh.rootNodes[0].name = "graphics";
 
-  for (const group of idleAnimAc.animationGroups) {
-    const newGroup = new b.AnimationGroup(group.name);
-    for (const anim of group.targetedAnimations) {
-      const other = transformDict[anim.target.name];
-      newGroup.addTargetedAnimation(anim.animation, other);
-    }
-    xbotMesh.animationGroups.push(newGroup);
-  }
+  e.addTargetedAnimationGroup(
+    xbotMesh.animationGroups,
+    idleAnim,
+    transformDict,
+  );
+
   xbotMesh.animationGroups[0].stop();
   xbotMesh.animationGroups[0].loopAnimation = true;
   xbotMesh.animationGroups[0].play();
+  xbotMesh.animationGroups[0].loopAnimation = true;
 
   camera.alpha = 1.3;
   camera.beta = 1.3;
