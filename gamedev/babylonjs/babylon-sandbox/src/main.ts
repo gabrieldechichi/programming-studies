@@ -78,6 +78,10 @@ async function main() {
     "XBot.glb",
   );
 
+  const idleAnim = await e.loadTargetedAnimationData(
+    "/animations/",
+    "Idle.glb",
+  );
   const runAnim = await e.loadTargetedAnimationData(
     "/animations/",
     "Fast Run.glb",
@@ -92,14 +96,24 @@ async function main() {
 
   e.addTargetedAnimationGroup(
     xbotMesh.animationGroups,
+    idleAnim,
+    transformDict,
+  );
+  e.addTargetedAnimationGroup(
+    xbotMesh.animationGroups,
     runAnim,
     transformDict,
   );
 
   xbotMesh.animationGroups[0].stop();
-  xbotMesh.animationGroups[0].loopAnimation = true;
+  xbotMesh.animationGroups[0].weight = 0.5
   xbotMesh.animationGroups[0].play();
   xbotMesh.animationGroups[0].loopAnimation = true;
+
+  xbotMesh.animationGroups[1].stop();
+  xbotMesh.animationGroups[1].weight = 0.5
+  xbotMesh.animationGroups[1].play();
+  xbotMesh.animationGroups[1].loopAnimation = true;
 
   camera.alpha = 1.3;
   camera.beta = 1.3;
