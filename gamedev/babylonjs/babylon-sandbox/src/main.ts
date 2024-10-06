@@ -17,6 +17,9 @@ function enforceAspectRatio() {
 
 function update() {
   scene.render();
+  const cam = scene.cameras[0] as b.ArcRotateCamera;
+  cam.alpha = 1.3;
+  cam.beta = 1.3;
 }
 
 async function main() {
@@ -29,19 +32,16 @@ async function main() {
 
   engine = new b.Engine(canvas);
   scene = new b.Scene(engine);
-  // scene.createDefaultLight();
-  // scene.ambientColor = new b.Color3(0, 0.6, 0.6);
 
-  // const light = new b.PointLight("point light", new b.Vector3(0, 2, 0));
   const light = new b.DirectionalLight("dir light", new b.Vector3(-2, -3, 0));
   light.intensity = 1;
 
   const camera = new b.ArcRotateCamera(
     "camera",
-    0,
-    0,
+    1.3,
+    1.3,
     10,
-    new b.Vector3(0, 0, 0),
+    new b.Vector3(0, 1, 0),
     scene,
   );
   camera.attachControl(true);
@@ -51,13 +51,6 @@ async function main() {
   camera.setPosition(new b.Vector3(0, 0, -2));
 
   const utilLayer = new b.UtilityLayerRenderer(scene);
-
-  const sphere = b.MeshBuilder.CreateSphere(
-    "sphere",
-    { segments: 50, diameter: 1 },
-    scene,
-  );
-  sphere.position.y += 1;
 
   const ground = b.MeshBuilder.CreateGround("ground", {
     width: 10,
@@ -73,48 +66,40 @@ async function main() {
   const lightGizmos = new b.LightGizmo(utilLayer);
   lightGizmos.light = light;
 
-  const shadowGeneraor = new b.ShadowGenerator(1024, light);
-  shadowGeneraor.addShadowCaster(sphere);
-  shadowGeneraor.useBlurExponentialShadowMap = true;
-  shadowGeneraor.useKernelBlur = true;
-  shadowGeneraor.blurKernel = 128;
-  ground.receiveShadows = true;
-
-  scene.fogMode = b.Scene.FOGMODE_LINEAR;
-  scene.fogStart = -10;
-  scene.fogEnd = 80;
-
-  scene.onPointerDown = () => {
-    const hit = scene.pick(scene.pointerX, scene.pointerY);
-    if (hit.pickedMesh && hit.pickedMesh.name === sphere.name) {
-      const mat = (hit.pickedMesh.material ||
-        new b.StandardMaterial("sphere")) as b.StandardMaterial;
-      if (mat.diffuseColor.b === 0) {
-        mat.diffuseColor = b.Color3.White();
-      } else {
-        mat.diffuseColor = b.Color3.Red();
-      }
-      hit.pickedMesh.material = mat;
-    }
-  };
-
-  const loadResult = await b.SceneLoader.ImportMeshAsync(
+  // const xbotAc = await b.SceneLoader.LoadAssetContainerAsync(
+  //   "/models/",
+  //   "XBot.glb",
+  // );
+  //
+  // const idleAnimAc = await b.SceneLoader.LoadAssetContainerAsync(
+  //   "/animations/",
+  //   "Idle.glb",
+  // );
+  //
+  const xbot = await b.SceneLoader.ImportMeshAsync(
     "",
-    "/",
-    "Cow.gltf",
+    "/models/",
+    "XBot.glb",
     scene,
-    (progress) => console.log(progress),
   );
-  loadResult.meshes[0].scaling.set(0.1, 0.1, 0.1);
-  loadResult.animationGroups[0].stop();
-  loadResult.animationGroups[2].play();
-  loadResult.animationGroups[2].loopAnimation = false;
-  console.log(loadResult);
 
-  // new b.Sound("mySong", "DivKid.mp3", scene, null, {
-  //   loop: true,
-  //   autoplay: true,
-  // });
+  const idle = await b.SceneLoader.ImportMeshAsync(
+    "",
+    "/animations/",
+    "Idle.glb",
+    scene,
+  );
+
+  for (const group of idle.animationGroups) {
+    for (const anim of group.targetedAnimations) {
+      const other = xbot.transformNodes.find(
+        (n) => n.name === anim.target.name,
+      );
+      anim.target = other;
+    }
+  }
+  idle.animationGroups[0].stop();
+  idle.animationGroups[0].play();
 
   engine.runRenderLoop(update);
   Inspector.Show(scene, {});
