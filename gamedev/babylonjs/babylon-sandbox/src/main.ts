@@ -18,8 +18,6 @@ function enforceAspectRatio() {
 function update() {
   scene.render();
   const cam = scene.cameras[0] as b.ArcRotateCamera;
-  cam.alpha = 1.3;
-  cam.beta = 1.3;
 }
 
 function buildHierarchyDict(rootNodes: b.Node[]) {
@@ -93,22 +91,30 @@ async function main() {
     "Idle.glb",
   );
 
-  const xbot = xbotAc.instantiateModelsToScene((name) => name);
-  const transformDict = buildHierarchyDict(xbot.rootNodes);
-  console.log(transformDict);
+  const xbot = new b.TransformNode("xbot");
+  const xbotMesh = xbotAc.instantiateModelsToScene((name) => name);
+  const transformDict = buildHierarchyDict(xbotMesh.rootNodes);
 
-  const idle = idleAnimAc.instantiateModelsToScene((name) => name);
-  for (const group of idle.animationGroups) {
+  xbotMesh.rootNodes[0].parent = xbot
+  xbotMesh.rootNodes[0].name = 'graphics'
+
+  for (const group of idleAnimAc.animationGroups) {
+    const newGroup = new b.AnimationGroup(group.name);
     for (const anim of group.targetedAnimations) {
       const other = transformDict[anim.target.name];
-      anim.target = other
+      newGroup.addTargetedAnimation(anim.animation, other);
     }
+    xbotMesh.animationGroups.push(newGroup);
   }
-  idle.animationGroups[0].stop()
-  idle.animationGroups[0].play()
+  xbotMesh.animationGroups[0].stop();
+  xbotMesh.animationGroups[0].loopAnimation = true;
+  xbotMesh.animationGroups[0].play();
+
+  camera.alpha = 1.3;
+  camera.beta = 1.3;
 
   engine.runRenderLoop(update);
-  Inspector.Show(scene, {});
+  // Inspector.Show(scene, {});
 }
 
 main();
