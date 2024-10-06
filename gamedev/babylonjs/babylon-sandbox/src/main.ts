@@ -104,11 +104,16 @@ async function main() {
     scene,
     (progress) => console.log(progress),
   );
-    loadResult.meshes[0].scaling.set(0.1, 0.1, 0.1)
-    loadResult.animationGroups[0].stop()
-    loadResult.animationGroups[2].play()
-    loadResult.animationGroups[2].loopAnimation =false
-    console.log(loadResult)
+  loadResult.meshes[0].scaling.set(0.1, 0.1, 0.1);
+  loadResult.animationGroups[0].stop();
+  loadResult.animationGroups[2].play();
+  loadResult.animationGroups[2].loopAnimation = false;
+  console.log(loadResult);
+
+  new b.Sound("mySong", "DivKid.mp3", scene, null, {
+    loop: true,
+    autoplay: true,
+  });
 
   engine.runRenderLoop(update);
 }
