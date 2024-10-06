@@ -12,6 +12,8 @@
     "@babylonjs/core": "^7.28.0",
     "@babylonjs/inspector": "^7.28.0",
     "@babylonjs/loaders": "^7.28.0",
+    "@types/node": "^22.7.4",
+    "fbx2gltf": "^0.9.7-p1",
     "typescript": "^5.5.3",
     "vite": "^5.4.8",
     "vite-plugin-full-reload": "^1.2.0"

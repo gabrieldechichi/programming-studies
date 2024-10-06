@@ -78,9 +78,9 @@ async function main() {
     "XBot.glb",
   );
 
-  const idleAnim = await e.loadTargetedAnimationData(
+  const runAnim = await e.loadTargetedAnimationData(
     "/animations/",
-    "Idle.glb",
+    "Fast Run.glb",
   );
 
   const xbot = new b.TransformNode("xbot");
@@ -92,7 +92,7 @@ async function main() {
 
   e.addTargetedAnimationGroup(
     xbotMesh.animationGroups,
-    idleAnim,
+    runAnim,
     transformDict,
   );
 
