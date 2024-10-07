@@ -79,20 +79,47 @@ async function main() {
 
   // const lightGizmos = new b.LightGizmo(utilLayer);
   // lightGizmos.light = light;
+  //
+  const xBotAc = await b.SceneLoader.LoadAssetContainerAsync(
+    "/models/",
+    "XBot.glb",
+  );
+  const xBotTransformDict = buildHierarchyDict(xBotAc.rootNodes);
 
-  const xbotAc = await b.SceneLoader.LoadAssetContainerAsync(
+  const runAnim = await e.loadTargetedAnimationData(
+    "/animations/",
+    "Fast Run.glb",
+  );
+
+  const xbotMesh = xBotAc.instantiateModelsToScene((name) => name);
+
+  e.addTargetedAnimationGroup(
+    xbotMesh.animationGroups,
+    runAnim,
+    xBotTransformDict,
+  );
+
+  xbotMesh.animationGroups[0].stop();
+  xbotMesh.animationGroups[0].loopAnimation = true;
+  xbotMesh.animationGroups[0].play();
+  xbotMesh.animationGroups[0].loopAnimation = true;
+
+  const cartoonAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/models/",
     "Body_4.glb",
   );
-  xbotAc.materials[0].dispose()
+
+  const transformDict = buildHierarchyDict(cartoonAc.rootNodes);
+  console.log(transformDict);
+  cartoonAc.materials[0].dispose();
   const pbrMat = new b.StandardMaterial("Main");
-  pbrMat.specularColor = b.Color3.Black()
+  pbrMat.specularColor = b.Color3.Black();
   const mainTex = new b.Texture("/textures/Colors_Tex.png");
   mainTex.vScale = -1;
   pbrMat.diffuseTexture = mainTex;
   // pbrMat.albedoTexture = mainTex;
   // pbrMat.albedoColor = b.Color3.White();
-  xbotAc.materials = [pbrMat];
+  cartoonAc.materials = [pbrMat];
 
   // (xbotAc.materials[0] as b.PBRMaterial).albedoColor = b.Color3.Green();
   // const idleAnim = await e.loadTargetedAnimationData(
@@ -104,10 +131,10 @@ async function main() {
   //   "Fast Run.glb",
   // );
 
-  const xbot = xbotAc.instantiateModelsToScene((name) => name);
-  xbot.rootNodes[0].getChildMeshes()[0].material = pbrMat;
+  const cartoon = cartoonAc.instantiateModelsToScene((name) => name);
+  cartoon.rootNodes[0].getChildMeshes()[0].material = pbrMat;
   console.log();
-  const mesh = xbot.rootNodes[0] as b.Mesh;
+  const mesh = cartoon.rootNodes[0] as b.Mesh;
 
   console.log(mesh);
 
