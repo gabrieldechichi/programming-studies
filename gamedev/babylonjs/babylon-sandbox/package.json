@@ -15,6 +15,7 @@
     "@gltf-transform/cli": "^4.0.10",
     "@types/node": "^22.7.4",
     "fbx2gltf": "^0.9.7-p1",
+    "js-yaml": "^4.1.0",
     "typescript": "^5.5.3",
     "vite": "^5.4.8",
     "vite-plugin-full-reload": "^1.2.0"

@@ -1,7 +1,6 @@
 import * as b from "@babylonjs/core";
 import "@babylonjs/loaders";
 import * as e from "./engine/prelude";
-import { Inspector } from "@babylonjs/inspector";
 
 const ASPECT_RATIO = 1920 / 1080;
 
@@ -84,19 +83,26 @@ async function main() {
     "/models/",
     "XBot.glb",
   );
-  const xBotTransformDict = buildHierarchyDict(xBotAc.rootNodes);
 
-  const runAnim = await e.loadTargetedAnimationData(
+  const xBotHumanoidDef = await e.loadJson<e.AnimationRetargetDef>(
+    "/animations/XBot.ht.json",
+  );
+
+  const runAnim = await e.loadHumanoidAnimationData(
     "/animations/",
-    "Fast Run.glb",
+    "Idle.glb",
+    xBotHumanoidDef,
   );
 
   const xbotMesh = xBotAc.instantiateModelsToScene((name) => name);
+  const xBotTransformDict = buildHierarchyDict(xbotMesh.rootNodes);
+  (xbotMesh.rootNodes[0] as b.TransformNode).position.x += 2;
 
   e.addTargetedAnimationGroup(
     xbotMesh.animationGroups,
     runAnim,
     xBotTransformDict,
+    xBotHumanoidDef,
   );
 
   xbotMesh.animationGroups[0].stop();
@@ -109,38 +115,40 @@ async function main() {
     "Body_4.glb",
   );
 
-  const transformDict = buildHierarchyDict(cartoonAc.rootNodes);
-  console.log(transformDict);
   cartoonAc.materials[0].dispose();
   const pbrMat = new b.StandardMaterial("Main");
   pbrMat.specularColor = b.Color3.Black();
   const mainTex = new b.Texture("/textures/Colors_Tex.png");
   mainTex.vScale = -1;
   pbrMat.diffuseTexture = mainTex;
-  // pbrMat.albedoTexture = mainTex;
-  // pbrMat.albedoColor = b.Color3.White();
-  cartoonAc.materials = [pbrMat];
 
-  // (xbotAc.materials[0] as b.PBRMaterial).albedoColor = b.Color3.Green();
-  // const idleAnim = await e.loadTargetedAnimationData(
-  //   "/animations/",
-  //   "Idle.glb",
-  // );
-  // const runAnim = await e.loadTargetedAnimationData(
-  //   "/animations/",
-  //   "Fast Run.glb",
-  // );
-
+  const cartoonRoot = new b.TransformNode("cartoon");
   const cartoon = cartoonAc.instantiateModelsToScene((name) => name);
-  cartoon.rootNodes[0].getChildMeshes()[0].material = pbrMat;
-  console.log();
-  const mesh = cartoon.rootNodes[0] as b.Mesh;
+  const cartoonMesh = cartoon.rootNodes[0] as b.Mesh;
+  cartoonMesh.getChildMeshes()[0].material = pbrMat;
+  cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
+  cartoonMesh.parent = cartoonRoot;
 
-  console.log(mesh);
+  const cartoonTransformDict = buildHierarchyDict(cartoon.rootNodes);
+  const cartomMixamoRetarget = await e.loadJson<e.AnimationRetargetDef>(
+    "/animations/Body_1.ht.json",
+  );
 
-  camera.alpha = -1.3;
+  e.addTargetedAnimationGroup(
+    cartoon.animationGroups,
+    runAnim,
+    cartoonTransformDict,
+    cartomMixamoRetarget,
+  );
+
+  cartoon.animationGroups[0].stop();
+  cartoon.animationGroups[0].loopAnimation = true;
+  cartoon.animationGroups[0].play();
+  cartoon.animationGroups[0].loopAnimation = true;
+
+  camera.alpha = 1.3;
   camera.beta = 1.3;
-  camera.radius = 10.3;
+  camera.radius = 8.3;
 
   engine.runRenderLoop(update);
   // Inspector.Show(scene, {});

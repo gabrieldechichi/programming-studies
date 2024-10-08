@@ -13,3 +13,16 @@ export function enforceAspectRatio(
 export function waitForMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export async function loadFile(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load file: ${response.statusText}`);
+  }
+  return await response.text();
+}
+
+export async function loadJson<T>(url: string): Promise<T> {
+  const str = await loadFile(url);
+  return JSON.parse(str) as T;
+}
