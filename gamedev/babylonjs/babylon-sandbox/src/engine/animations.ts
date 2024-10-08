@@ -195,7 +195,7 @@ function retargetAnimationForBone(
         );
 
         const poseOffsetQuaternion = srcRestPoseQuaternion
-          .conjugate()
+          .invert()
           .multiply(dstRestPoseQuaternion);
 
         quat.multiplyInPlace(poseOffsetQuaternion);
@@ -208,8 +208,18 @@ function retargetAnimationForBone(
         //
         // newMat.decompose(undefined, quat, undefined);
 
-        poseOffsetQuaternion.normalize()
-        // key.value = srcRestPoseQuaternion;
+        // if (
+        //   dstBone.name === "RightArm" ||
+        //   dstBone.name === "LeftArm" ||
+        //   dstBone.name === "RightShoulder" ||
+        //   dstBone.name === "LeftShoulder"
+        // ) {
+        //   const diff = dstRestPoseQuaternion
+        //     .conjugate()
+        //     .multiply(srcRestPoseQuaternion);
+        //   quat.multiplyInPlace(diff);
+        // }
+        key.value = quat;
         break;
       }
       case "scaling": {

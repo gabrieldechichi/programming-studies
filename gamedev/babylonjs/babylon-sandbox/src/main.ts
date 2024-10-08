@@ -103,12 +103,12 @@ async function main() {
 
   {
     const posGizmos = new b.PositionGizmo(utilLayer);
-    posGizmos.attachedNode = xBotTransformDict["mixamorig:RightShoulder"];
+    posGizmos.attachedNode = xBotTransformDict["mixamorig:RightArm"];
   }
 
   {
     const posGizmos = new b.PositionGizmo(utilLayer);
-    posGizmos.attachedNode = xbotMesh.rootNodes[0];
+    posGizmos.attachedNode = xBotTransformDict["mixamorig:LeftArm"];
   }
 
   e.addTargetedAnimationGroup(
@@ -118,10 +118,10 @@ async function main() {
     xBotHumanoidDef,
   );
 
-  xbotMesh.animationGroups[0].stop();
-  xbotMesh.animationGroups[0].loopAnimation = true;
-  xbotMesh.animationGroups[0].play();
-  xbotMesh.animationGroups[0].loopAnimation = true;
+  // xbotMesh.animationGroups[0].stop();
+  // xbotMesh.animationGroups[0].loopAnimation = true;
+  // xbotMesh.animationGroups[0].play();
+  // xbotMesh.animationGroups[0].loopAnimation = true;
 
   const cartoonAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/models/",
@@ -136,32 +136,32 @@ async function main() {
   pbrMat.diffuseTexture = mainTex;
 
   {
-    const cartoonSimpleRetarget = cartoonAc.instantiateModelsToScene(
-      (name) => name,
-    );
-    (cartoonSimpleRetarget.rootNodes[0] as b.TransformNode).position.x -= 1.5;
-    const cartoonMesh = cartoonSimpleRetarget.rootNodes[0] as b.Mesh;
-    cartoonMesh.getChildMeshes()[0].material = pbrMat;
-    // cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
-
-    const cartoonTransformDict = buildHierarchyDict(
-      cartoonSimpleRetarget.rootNodes,
-    );
-    const cartomMixamoRetarget = await e.loadJson<e.HumanoidSkeletonDef>(
-      "/animations/Body_1.ht.json",
-    );
-
-    e.addTargetedAnimationGroup(
-      cartoonSimpleRetarget.animationGroups,
-      runAnim,
-      cartoonTransformDict,
-      cartomMixamoRetarget,
-    );
-
-    cartoonSimpleRetarget.animationGroups[0].stop();
-    cartoonSimpleRetarget.animationGroups[0].loopAnimation = true;
-    cartoonSimpleRetarget.animationGroups[0].play();
-    cartoonSimpleRetarget.animationGroups[0].loopAnimation = true;
+    // const cartoonSimpleRetarget = cartoonAc.instantiateModelsToScene(
+    //   (name) => name,
+    // );
+    // (cartoonSimpleRetarget.rootNodes[0] as b.TransformNode).position.x -= 1.5;
+    // const cartoonMesh = cartoonSimpleRetarget.rootNodes[0] as b.Mesh;
+    // cartoonMesh.getChildMeshes()[0].material = pbrMat;
+    // // cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
+    //
+    // const cartoonTransformDict = buildHierarchyDict(
+    //   cartoonSimpleRetarget.rootNodes,
+    // );
+    // const cartomMixamoRetarget = await e.loadJson<e.HumanoidSkeletonDef>(
+    //   "/animations/Body_1.ht.json",
+    // );
+    //
+    // e.addTargetedAnimationGroup(
+    //   cartoonSimpleRetarget.animationGroups,
+    //   runAnim,
+    //   cartoonTransformDict,
+    //   cartomMixamoRetarget,
+    // );
+    //
+    // cartoonSimpleRetarget.animationGroups[0].stop();
+    // cartoonSimpleRetarget.animationGroups[0].loopAnimation = true;
+    // cartoonSimpleRetarget.animationGroups[0].play();
+    // cartoonSimpleRetarget.animationGroups[0].loopAnimation = true;
   }
 
   {
@@ -181,11 +181,11 @@ async function main() {
 
     {
       const posGizmos = new b.PositionGizmo(utilLayer);
-      posGizmos.attachedNode = cartoonTransformDict["RightShoulder"];
+      posGizmos.attachedNode = cartoonTransformDict["RightArm"];
     }
     {
       const posGizmos = new b.PositionGizmo(utilLayer);
-      posGizmos.attachedNode = cartoonMesh;
+      posGizmos.attachedNode = cartoonTransformDict["LeftArm"];
     }
 
     const runRetargeted = await e.loadAnimationWithRetarget(
@@ -203,10 +203,10 @@ async function main() {
       cartoonTransformDict,
     );
 
-    cartoonRetargeted.animationGroups[0].stop();
-    cartoonRetargeted.animationGroups[0].loopAnimation = true;
-    cartoonRetargeted.animationGroups[0].play();
-    cartoonRetargeted.animationGroups[0].loopAnimation = true;
+    // cartoonRetargeted.animationGroups[0].stop();
+    // cartoonRetargeted.animationGroups[0].loopAnimation = true;
+    // cartoonRetargeted.animationGroups[0].play();
+    // cartoonRetargeted.animationGroups[0].loopAnimation = true;
   }
 
   camera.alpha = 1.5;
@@ -214,6 +214,7 @@ async function main() {
   camera.radius = 5.3;
 
   engine.runRenderLoop(update);
+  // utilLayer.shouldRender = false
   // Inspector.Show(scene, {});
 }
 
