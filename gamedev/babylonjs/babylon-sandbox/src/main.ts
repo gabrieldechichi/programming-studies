@@ -1,6 +1,7 @@
 import * as b from "@babylonjs/core";
 import "@babylonjs/loaders";
 import * as e from "./engine/prelude";
+import {Inspector} from '@babylonjs/inspector'
 
 const ASPECT_RATIO = 1920 / 1080;
 
@@ -35,6 +36,7 @@ function buildHierarchyDict(rootNodes: b.Node[]): e.TransformHierarchyDict {
 }
 
 async function main() {
+
   canvas = document.getElementById("canvas") as HTMLCanvasElement;
   window.addEventListener("resize", (_) => {
     e.enforceAspectRatio(canvas, ASPECT_RATIO);
@@ -63,8 +65,6 @@ async function main() {
 
   camera.setPosition(new b.Vector3(0, 0, -2));
 
-  const utilLayer = new b.UtilityLayerRenderer(scene);
-
   const ground = b.MeshBuilder.CreateGround("ground", {
     width: 10,
     height: 10,
@@ -84,7 +84,7 @@ async function main() {
     "XBot.glb",
   );
 
-  const xBotHumanoidDef = await e.loadJson<e.AnimationRetargetDef>(
+  const xBotHumanoidDef = await e.loadJson<e.HumanoidSkeletonDef>(
     "/animations/XBot.ht.json",
   );
 
@@ -96,7 +96,7 @@ async function main() {
 
   const xbotMesh = xBotAc.instantiateModelsToScene((name) => name);
   const xBotTransformDict = buildHierarchyDict(xbotMesh.rootNodes);
-  (xbotMesh.rootNodes[0] as b.TransformNode).position.x += 2;
+  (xbotMesh.rootNodes[0] as b.TransformNode).position.x += 3;
 
   e.addTargetedAnimationGroup(
     xbotMesh.animationGroups,
@@ -122,36 +122,77 @@ async function main() {
   mainTex.vScale = -1;
   pbrMat.diffuseTexture = mainTex;
 
-  const cartoonRoot = new b.TransformNode("cartoon");
-  const cartoon = cartoonAc.instantiateModelsToScene((name) => name);
-  const cartoonMesh = cartoon.rootNodes[0] as b.Mesh;
-  cartoonMesh.getChildMeshes()[0].material = pbrMat;
-  cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
-  cartoonMesh.parent = cartoonRoot;
+  {
+    const cartoonRetargeted = cartoonAc.instantiateModelsToScene(
+      (name) => name,
+    );
+    const cartoonMesh = cartoonRetargeted.rootNodes[0] as b.Mesh;
+    cartoonMesh.getChildMeshes()[0].material = pbrMat;
+    cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
 
-  const cartoonTransformDict = buildHierarchyDict(cartoon.rootNodes);
-  const cartomMixamoRetarget = await e.loadJson<e.AnimationRetargetDef>(
-    "/animations/Body_1.ht.json",
-  );
+    const cartoonTransformDict = buildHierarchyDict(
+      cartoonRetargeted.rootNodes,
+    );
+    const cartomMixamoRetarget = await e.loadJson<e.HumanoidSkeletonDef>(
+      "/animations/Body_1.ht.json",
+    );
 
-  e.addTargetedAnimationGroup(
-    cartoon.animationGroups,
-    runAnim,
-    cartoonTransformDict,
-    cartomMixamoRetarget,
-  );
+    const runRetargeted = await e.loadAnimationWithRetarget(
+      "/animations/",
+      "Idle.glb",
+      xBotAc.skeletons[0],
+      xBotHumanoidDef,
+      cartoonAc.skeletons[0]!,
+      cartomMixamoRetarget,
+    );
 
-  cartoon.animationGroups[0].stop();
-  cartoon.animationGroups[0].loopAnimation = true;
-  cartoon.animationGroups[0].play();
-  cartoon.animationGroups[0].loopAnimation = true;
+    e.addTargetedAnimationGroup(
+      cartoonRetargeted.animationGroups,
+      runRetargeted,
+      cartoonTransformDict,
+    );
+
+    cartoonRetargeted.animationGroups[0].stop();
+    cartoonRetargeted.animationGroups[0].loopAnimation = true;
+    cartoonRetargeted.animationGroups[0].play();
+    cartoonRetargeted.animationGroups[0].loopAnimation = true;
+  }
+
+  {
+    const cartoonSimpleRetarget = cartoonAc.instantiateModelsToScene(
+      (name) => name,
+    );
+    (cartoonSimpleRetarget.rootNodes[0] as b.TransformNode).position.x += 1.5;
+    const cartoonMesh = cartoonSimpleRetarget.rootNodes[0] as b.Mesh;
+    cartoonMesh.getChildMeshes()[0].material = pbrMat;
+    cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
+
+    const cartoonTransformDict = buildHierarchyDict(
+      cartoonSimpleRetarget.rootNodes,
+    );
+    const cartomMixamoRetarget = await e.loadJson<e.HumanoidSkeletonDef>(
+      "/animations/Body_1.ht.json",
+    );
+
+    e.addTargetedAnimationGroup(
+      cartoonSimpleRetarget.animationGroups,
+      runAnim,
+      cartoonTransformDict,
+      cartomMixamoRetarget,
+    );
+
+    cartoonSimpleRetarget.animationGroups[0].stop();
+    cartoonSimpleRetarget.animationGroups[0].loopAnimation = true;
+    cartoonSimpleRetarget.animationGroups[0].play();
+    cartoonSimpleRetarget.animationGroups[0].loopAnimation = true;
+  }
 
   camera.alpha = 1.3;
   camera.beta = 1.3;
   camera.radius = 8.3;
 
   engine.runRenderLoop(update);
-  // Inspector.Show(scene, {});
+  Inspector.Show(scene, {});
 }
 
 main();
