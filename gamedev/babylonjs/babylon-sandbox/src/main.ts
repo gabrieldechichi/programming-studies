@@ -64,6 +64,8 @@ async function main() {
 
   camera.setPosition(new b.Vector3(0, 0, -2));
 
+  const utilLayer = new b.UtilityLayerRenderer(scene);
+
   const ground = b.MeshBuilder.CreateGround("ground", {
     width: 10,
     height: 10,
@@ -78,6 +80,8 @@ async function main() {
   // const lightGizmos = new b.LightGizmo(utilLayer);
   // lightGizmos.light = light;
   //
+
+  const animName = "Idle.glb";
   const xBotAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/models/",
     "XBot.glb",
@@ -89,13 +93,23 @@ async function main() {
 
   const runAnim = await e.loadHumanoidAnimationData(
     "/animations/",
-    "Idle.glb",
+    animName,
     xBotHumanoidDef,
   );
 
   const xbotMesh = xBotAc.instantiateModelsToScene((name) => name);
   const xBotTransformDict = buildHierarchyDict(xbotMesh.rootNodes);
   (xbotMesh.rootNodes[0] as b.TransformNode).position.x += 1.5;
+
+  {
+    const posGizmos = new b.PositionGizmo(utilLayer);
+    posGizmos.attachedNode = xBotTransformDict["mixamorig:RightShoulder"];
+  }
+
+  {
+    const posGizmos = new b.PositionGizmo(utilLayer);
+    posGizmos.attachedNode = xbotMesh.rootNodes[0];
+  }
 
   e.addTargetedAnimationGroup(
     xbotMesh.animationGroups,
@@ -125,7 +139,7 @@ async function main() {
     const cartoonSimpleRetarget = cartoonAc.instantiateModelsToScene(
       (name) => name,
     );
-    // (cartoonSimpleRetarget.rootNodes[0] as b.TransformNode).position.x += 1.5;
+    (cartoonSimpleRetarget.rootNodes[0] as b.TransformNode).position.x -= 1.5;
     const cartoonMesh = cartoonSimpleRetarget.rootNodes[0] as b.Mesh;
     cartoonMesh.getChildMeshes()[0].material = pbrMat;
     // cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
@@ -154,7 +168,6 @@ async function main() {
     const cartoonRetargeted = cartoonAc.instantiateModelsToScene(
       (name) => name,
     );
-    (cartoonRetargeted.rootNodes[0] as b.TransformNode).position.x -= 1.5;
     const cartoonMesh = cartoonRetargeted.rootNodes[0] as b.Mesh;
     cartoonMesh.getChildMeshes()[0].material = pbrMat;
     // cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
@@ -166,9 +179,18 @@ async function main() {
       "/animations/Body_1.ht.json",
     );
 
+    {
+      const posGizmos = new b.PositionGizmo(utilLayer);
+      posGizmos.attachedNode = cartoonTransformDict["RightShoulder"];
+    }
+    {
+      const posGizmos = new b.PositionGizmo(utilLayer);
+      posGizmos.attachedNode = cartoonMesh;
+    }
+
     const runRetargeted = await e.loadAnimationWithRetarget(
       "/animations/",
-      "Idle.glb",
+      animName,
       xBotAc.skeletons[0],
       xBotHumanoidDef,
       cartoonAc.skeletons[0]!,
@@ -188,11 +210,11 @@ async function main() {
   }
 
   camera.alpha = 1.5;
-  camera.beta = 1.5;
+  camera.beta = 1.3;
   camera.radius = 5.3;
 
   engine.runRenderLoop(update);
-  Inspector.Show(scene, {});
+  // Inspector.Show(scene, {});
 }
 
 main();

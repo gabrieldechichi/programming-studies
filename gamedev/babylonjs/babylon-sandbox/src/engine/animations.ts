@@ -178,15 +178,38 @@ function retargetAnimationForBone(
         break;
       }
       case "rotationQuaternion": {
-        key.value = key.value.clone();
-        const mat = b.Matrix.FromQuaternionToRef(key.value, boneMatrix);
+        const quat = key.value.clone() as b.Quaternion;
 
-        // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
-        const newMat = mat
-          .multiplyToRef(srcNodeLTW, mat)
-          .multiplyToRef(dstNodeWTL, mat);
+        // const srcRestPoseQuaternion = srcBone.getRotationQuaternion(
+        //   b.Space.WORLD,
+        // );
+        // const dstRestPoseQuaternion = dstBone.getRotationQuaternion(
+        //   b.Space.WORLD,
+        // );
 
-        newMat.decompose(undefined, key.value, undefined);
+        const srcRestPoseQuaternion = b.Quaternion.FromRotationMatrix(
+          srcBone.getRestMatrix(),
+        );
+        const dstRestPoseQuaternion = b.Quaternion.FromRotationMatrix(
+          dstBone.getRestMatrix(),
+        );
+
+        const poseOffsetQuaternion = srcRestPoseQuaternion
+          .conjugate()
+          .multiply(dstRestPoseQuaternion);
+
+        quat.multiplyInPlace(poseOffsetQuaternion);
+        quat.normalize();
+
+        // const mat = b.Matrix.FromQuaternionToRef(quat, boneMatrix);
+        // const newMat = mat
+        //   .multiplyToRef(srcNodeLTW, mat)
+        //   .multiplyToRef(dstNodeWTL, mat);
+        //
+        // newMat.decompose(undefined, quat, undefined);
+
+        poseOffsetQuaternion.normalize()
+        // key.value = srcRestPoseQuaternion;
         break;
       }
       case "scaling": {
