@@ -10,6 +10,7 @@ HumanTemplate:
   m_BoneTemplate:
     Chest: Spine1
     Head: Head
+    Hips: Hips
     LeftFoot: LeftFoot
     LeftHand: LeftHand
     LeftLowerArm: LeftForeArm

@@ -99,7 +99,11 @@ export async function loadAnimationWithRetarget(
             );
           }
 
-          retargetAnimationForBone(a.animation, sourceBone, targetBone);
+          retargetAnimationForBone(
+            a.animation,
+            sourceBone,
+            targetBone,
+          );
 
           return {
             targetName: targetBoneName,
@@ -140,19 +144,15 @@ function retargetAnimationForBone(
   srcBone: b.Bone,
   dstBone: b.Bone,
 ) {
-  const tmpMatrix = b.TmpVectors.Matrix[0];
-  const tmpMatrix2 = b.TmpVectors.Matrix[1];
-  const tmpMatrix3 = b.TmpVectors.Matrix[2];
-
-  const srcInvLocalBindMatrix = srcBone.getBindMatrix().invertToRef(tmpMatrix);
-  const dstLocalBindMatrix = dstBone.getBindMatrix();
-
-  //dstBone.getInvertedAbsoluteTransform().copyFrom(b.Matrix.IdentityReadOnly);
+  let boneMatrix = b.TmpVectors.Matrix[0];
+  const srcNodeLTW = srcBone.getWorldMatrix();
+  const dstNodeWTL = dstBone
+    .getWorldMatrix()
+    .invertToRef(b.TmpVectors.Matrix[1]);
 
   const keys = animation.getKeys();
   for (let keyIndex = 0; keyIndex < keys.length; ++keyIndex) {
     const keySrc = keys[keyIndex];
-
     const key = {
       frame: keySrc.frame,
       value: keySrc.value,
@@ -166,45 +166,48 @@ function retargetAnimationForBone(
     switch (animation.targetProperty) {
       case "position": {
         key.value = key.value.clone();
-
         const mat = b.Matrix.TranslationToRef(
           key.value.x,
           key.value.y,
           key.value.z,
-          tmpMatrix3,
+          boneMatrix,
         );
-        const matr = dstLocalBindMatrix
-          .multiplyToRef(srcInvLocalBindMatrix, tmpMatrix2)
-          .multiplyToRef(mat, tmpMatrix2);
-        //const matr = srcInvLocalBindMatrix.multiply(mat);
-        matr.decompose(undefined, undefined, key.value);
+
+        // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
+        const newMat = mat
+          .multiply(srcNodeLTW)
+          .multiply(dstNodeWTL);
+        newMat.decompose(undefined, undefined, key.value);
+
         break;
       }
       case "rotationQuaternion": {
         key.value = key.value.clone();
+        const mat = b.Matrix.FromQuaternionToRef(key.value, boneMatrix);
 
-        const mat = b.Matrix.FromQuaternionToRef(key.value, tmpMatrix3);
-        const matr = dstLocalBindMatrix
-          .multiplyToRef(srcInvLocalBindMatrix, tmpMatrix2)
-          .multiplyToRef(mat, tmpMatrix2);
-        //const matr = srcInvLocalBindMatrix.multiply(mat);
-        matr.decompose(undefined, key.value, undefined);
+        // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
+        const newMat = mat
+          .multiply(srcBone.getBindMatrix())
+          .multiply(dstBone.getBindMatrix().invert());
+
+        // newMat.decompose(undefined, key.value, undefined);
         break;
       }
       case "scaling": {
         key.value = key.value.clone();
-
         const mat = b.Matrix.ScalingToRef(
           key.value.x,
           key.value.y,
           key.value.z,
-          tmpMatrix3,
+          boneMatrix,
         );
-        const matr = dstLocalBindMatrix
-          .multiplyToRef(srcInvLocalBindMatrix, tmpMatrix2)
-          .multiplyToRef(mat, tmpMatrix2);
-        //const matr = srcInvLocalBindMatrix.multiply(mat);
-        matr.decompose(key.value, undefined, undefined);
+
+        // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
+        const newMat = mat
+          .multiply(srcBone.getBindMatrix())
+          .multiply(dstBone.getBindMatrix().invert());
+
+        newMat.decompose(key.value, undefined, undefined);
         break;
       }
     }

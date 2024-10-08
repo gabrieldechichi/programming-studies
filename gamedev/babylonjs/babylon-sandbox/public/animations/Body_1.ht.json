@@ -2,6 +2,7 @@
   "boneToHuman": {
     "Spine1": "Chest",
     "Head": "Head",
+    "Hips": "Hips",
     "LeftFoot": "LeftFoot",
     "LeftHand": "LeftHand",
     "LeftForeArm": "LeftLowerArm",
@@ -25,6 +26,7 @@
   "humanToBone": {
     "Chest": "Spine1",
     "Head": "Head",
+    "Hips": "Hips",
     "LeftFoot": "LeftFoot",
     "LeftHand": "LeftHand",
     "LeftLowerArm": "LeftForeArm",
