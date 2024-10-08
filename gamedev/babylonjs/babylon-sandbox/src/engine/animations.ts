@@ -99,11 +99,7 @@ export async function loadAnimationWithRetarget(
             );
           }
 
-          retargetAnimationForBone(
-            a.animation,
-            sourceBone,
-            targetBone,
-          );
+          retargetAnimationForBone(a.animation, sourceBone, targetBone);
 
           return {
             targetName: targetBoneName,
@@ -145,9 +141,9 @@ function retargetAnimationForBone(
   dstBone: b.Bone,
 ) {
   let boneMatrix = b.TmpVectors.Matrix[0];
-  const srcNodeLTW = srcBone.getWorldMatrix();
+  const srcNodeLTW = srcBone.getRestMatrix();
   const dstNodeWTL = dstBone
-    .getWorldMatrix()
+    .getRestMatrix()
     .invertToRef(b.TmpVectors.Matrix[1]);
 
   const keys = animation.getKeys();
@@ -175,8 +171,8 @@ function retargetAnimationForBone(
 
         // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
         const newMat = mat
-          .multiply(srcNodeLTW)
-          .multiply(dstNodeWTL);
+          .multiplyToRef(srcNodeLTW, mat)
+          .multiplyToRef(dstNodeWTL, mat);
         newMat.decompose(undefined, undefined, key.value);
 
         break;
@@ -187,10 +183,10 @@ function retargetAnimationForBone(
 
         // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
         const newMat = mat
-          .multiply(srcBone.getBindMatrix())
-          .multiply(dstBone.getBindMatrix().invert());
+          .multiplyToRef(srcNodeLTW, mat)
+          .multiplyToRef(dstNodeWTL, mat);
 
-        // newMat.decompose(undefined, key.value, undefined);
+        newMat.decompose(undefined, key.value, undefined);
         break;
       }
       case "scaling": {
@@ -204,8 +200,8 @@ function retargetAnimationForBone(
 
         // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
         const newMat = mat
-          .multiply(srcBone.getBindMatrix())
-          .multiply(dstBone.getBindMatrix().invert());
+          .multiplyToRef(srcNodeLTW, mat)
+          .multiplyToRef(dstNodeWTL, mat);
 
         newMat.decompose(key.value, undefined, undefined);
         break;

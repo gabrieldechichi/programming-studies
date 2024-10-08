@@ -192,7 +192,7 @@ async function main() {
   camera.radius = 5.3;
 
   engine.runRenderLoop(update);
-  // Inspector.Show(scene, {});
+  Inspector.Show(scene, {});
 }
 
 main();
