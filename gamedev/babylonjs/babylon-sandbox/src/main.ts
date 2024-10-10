@@ -81,7 +81,7 @@ async function main() {
   // lightGizmos.light = light;
   //
 
-  const animName = "Fast Run.glb";
+  const animName = "Idle.glb";
   const xBotAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/models/",
     "XBot.glb",
@@ -125,7 +125,7 @@ async function main() {
 
   const cartoonAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/models/",
-    "Body_4.glb",
+    "Character_Base.glb",
   );
 
   cartoonAc.materials[0].dispose();
@@ -169,14 +169,17 @@ async function main() {
       (name) => name,
     );
     const cartoonMesh = cartoonRetargeted.rootNodes[0] as b.Mesh;
-    cartoonMesh.getChildMeshes()[0].material = pbrMat;
+    for (const mesh of cartoonMesh.getChildMeshes()) {
+      mesh.material = pbrMat;
+      console.log(mesh.subMeshes[0])
+    }
     // cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
 
     const cartoonTransformDict = buildHierarchyDict(
       cartoonRetargeted.rootNodes,
     );
     const cartomMixamoRetarget = await e.loadJson<e.HumanoidSkeletonDef>(
-      "/animations/Body_1.ht.json",
+      "/animations/Character_Base.ht.json",
     );
 
     {
@@ -216,7 +219,7 @@ async function main() {
 
   engine.runRenderLoop(update);
   // utilLayer.shouldRender = false
-  // Inspector.Show(scene, {});
+  Inspector.Show(scene, {});
 }
 
 main();
