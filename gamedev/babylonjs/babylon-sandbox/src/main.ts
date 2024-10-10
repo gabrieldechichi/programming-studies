@@ -81,7 +81,7 @@ async function main() {
   // lightGizmos.light = light;
   //
 
-  const animName = "Idle.glb";
+  const animName = "Fast Run.glb";
   const xBotAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/models/",
     "XBot.glb",
@@ -195,6 +195,7 @@ async function main() {
       xBotHumanoidDef,
       cartoonAc.skeletons[0]!,
       cartomMixamoRetarget,
+      ["LeftUpperArm", "LeftShoulder", "RightUpperArm", "RightShoulder"],
     );
 
     e.addTargetedAnimationGroup(

@@ -65,6 +65,7 @@ export async function loadAnimationWithRetarget(
   sourceHumanoidDef: HumanoidSkeletonDef,
   targetSkeleton: b.Skeleton,
   targetHumanoidDef: HumanoidSkeletonDef,
+  skipRetargetBoneNames?: string[],
 ) {
   const asset = await b.SceneLoader.LoadAssetContainerAsync(path, glb);
   const groups = asset.animationGroups.map((g) => {
@@ -84,6 +85,7 @@ export async function loadAnimationWithRetarget(
           if (!humanBoneName) {
             throw new Error(`No humanoid definition for bone ${a.target.name}`);
           }
+
           const targetBoneName = targetHumanoidDef.humanToBone[humanBoneName];
 
           if (!targetBoneName) {
@@ -99,7 +101,12 @@ export async function loadAnimationWithRetarget(
             );
           }
 
-          retargetAnimationForBone(a.animation, sourceBone, targetBone);
+          if (
+            !skipRetargetBoneNames ||
+            skipRetargetBoneNames.indexOf(humanBoneName) === -1
+          ) {
+            retargetAnimationForBone(a.animation, sourceBone, targetBone);
+          }
 
           return {
             targetName: targetBoneName,
@@ -183,11 +190,13 @@ function retargetAnimationForBone(
   srcBone: b.Bone,
   dstBone: b.Bone,
 ) {
-  let boneMatrix = b.TmpVectors.Matrix[0];
-  const srcNodeLTW = srcBone.getRestMatrix();
-  const dstNodeWTL = dstBone
-    .getRestMatrix()
-    .invertToRef(b.TmpVectors.Matrix[1]);
+  const bindMatrix = srcBone.getRestMatrix();
+  const inverseBindMatrix = bindMatrix.invertToRef(b.TmpVectors.Matrix[0]);
+  const targetMatrix = dstBone.getRestMatrix();
+  const inverseParentMatrix = computeInverseParentMatrixRecursiveBoneToTarget(
+    dstBone,
+    b.TmpVectors.Matrix[1],
+  );
 
   const keys = animation.getKeys();
   for (let keyIndex = 0; keyIndex < keys.length; ++keyIndex) {
@@ -205,18 +214,24 @@ function retargetAnimationForBone(
     switch (animation.targetProperty) {
       case "position": {
         key.value = key.value.clone();
-        const mat = b.Matrix.TranslationToRef(
-          key.value.x,
-          key.value.y,
-          key.value.z,
-          boneMatrix,
+        const mat = mat4Trs(
+          key.value as b.Vector3,
+          b.Quaternion.FromEulerVector(srcBone.rotation),
+          srcBone.scaling,
+        );
+
+        let localMatrix = mat4Multiply(
+          inverseBindMatrix,
+          computeWorldMatrixRecursiveBone(srcBone, mat),
+        );
+
+        localMatrix = mat4Multiply(
+          targetMatrix,
+          mat4Multiply(localMatrix, inverseParentMatrix),
         );
 
         // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
-        const newMat = mat
-          .multiplyToRef(srcNodeLTW, mat)
-          .multiplyToRef(dstNodeWTL, mat);
-        newMat.decompose(undefined, undefined, key.value);
+        localMatrix.decompose(undefined, undefined, key.value);
 
         break;
       }
@@ -237,22 +252,41 @@ function retargetAnimationForBone(
         quat.multiplyInPlace(poseOffsetQuaternion);
         quat.normalize();
         key.value = quat;
+
+        //stuff
+        {
+          // const mat = mat4Trs(srcBone.position, quat, srcBone.scaling);
+          //
+          // let localMatrix = mat4Multiply(
+          //   inverseBindMatrix,
+          //   computeWorldMatrixRecursiveBone(srcBone, mat),
+          // );
+          //
+          // localMatrix = mat4Multiply(
+          //   targetMatrix,
+          //   mat4Multiply(localMatrix, inverseParentMatrix),
+          // );
+          //
+          // // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
+          // localMatrix.decompose(undefined, key.value, undefined);
+        }
+
         break;
       }
       case "scaling": {
-        key.value = key.value.clone();
-        const mat = b.Matrix.ScalingToRef(
-          key.value.x,
-          key.value.y,
-          key.value.z,
-          boneMatrix,
-        );
-
-        // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
-        const newMat = mat
-          .multiplyToRef(srcNodeLTW, mat)
-          .multiplyToRef(dstNodeWTL, mat);
-        newMat.decompose(key.value, undefined, undefined);
+        // key.value = key.value.clone();
+        // const mat = b.Matrix.ScalingToRef(
+        //   key.value.x,
+        //   key.value.y,
+        //   key.value.z,
+        //   boneMatrix,
+        // );
+        //
+        // // Apply the retargeting formula: dstBindPose * srcBindPoseInverse * sourceLocalTransform * srcBindPose * dstBindPoseInverse
+        // const newMat = mat
+        //   .multiplyToRef(bindMatrix, mat)
+        //   .multiplyToRef(dstNodeWTL, mat);
+        // newMat.decompose(key.value, undefined, undefined);
         break;
       }
       default:
@@ -406,6 +440,34 @@ function computeInverseParentMatrixRecursive(srcBone: b.TransformNode) {
     while (parent) {
       matrix = mat4Multiply(matrix, getLocalMatrix(parent));
       parent = parent.parent as b.TransformNode;
+    }
+    matrix.invert();
+  }
+  return matrix;
+}
+
+function computeWorldMatrixRecursiveBone(
+  srcBone: b.Bone,
+  startingMatrix: b.Matrix,
+) {
+  let matrix = startingMatrix.clone();
+  let parent = srcBone.parent;
+  while (parent) {
+    matrix = mat4Multiply(matrix, parent.getLocalMatrix());
+    parent = parent.parent;
+  }
+  return matrix;
+}
+
+function computeInverseParentMatrixRecursiveBoneToTarget(
+  srcBone: b.Bone,
+  matrix: b.Matrix,
+) {
+  let parent = srcBone.parent;
+  if (parent) {
+    while (parent) {
+      matrix = mat4Multiply(matrix, parent.getLocalMatrix());
+      parent = parent.parent;
     }
     matrix.invert();
   }
