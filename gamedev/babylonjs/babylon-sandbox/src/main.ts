@@ -118,10 +118,10 @@ async function main() {
     xBotHumanoidDef,
   );
 
-  // xbotMesh.animationGroups[0].stop();
-  // xbotMesh.animationGroups[0].loopAnimation = true;
-  // xbotMesh.animationGroups[0].play();
-  // xbotMesh.animationGroups[0].loopAnimation = true;
+  xbotMesh.animationGroups[0].stop();
+  xbotMesh.animationGroups[0].loopAnimation = true;
+  xbotMesh.animationGroups[0].play();
+  xbotMesh.animationGroups[0].loopAnimation = true;
 
   const cartoonAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/models/",
@@ -203,10 +203,10 @@ async function main() {
       cartoonTransformDict,
     );
 
-    // cartoonRetargeted.animationGroups[0].stop();
-    // cartoonRetargeted.animationGroups[0].loopAnimation = true;
-    // cartoonRetargeted.animationGroups[0].play();
-    // cartoonRetargeted.animationGroups[0].loopAnimation = true;
+    cartoonRetargeted.animationGroups[0].stop();
+    cartoonRetargeted.animationGroups[0].loopAnimation = true;
+    cartoonRetargeted.animationGroups[0].play();
+    cartoonRetargeted.animationGroups[0].loopAnimation = true;
   }
 
   camera.alpha = 1.5;
