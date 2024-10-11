@@ -164,53 +164,82 @@ async function main() {
     // cartoonSimpleRetarget.animationGroups[0].loopAnimation = true;
   }
 
+  const cartoonRetargeted = cartoonAc.instantiateModelsToScene((name) => name);
+  const cartoonMesh = cartoonRetargeted.rootNodes[0] as b.Mesh;
+  for (const mesh of cartoonMesh.getChildMeshes()) {
+    mesh.material = pbrMat;
+    if (mesh.name !== "BODIES") {
+      for (const submesh of mesh.subMeshes) {
+        submesh.dispose();
+      }
+      mesh.subMeshes = [];
+    }
+  }
+  // cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
+
+  const cartoonTransformDict = buildHierarchyDict(cartoonRetargeted.rootNodes);
+  const cartomMixamoRetarget = await e.loadJson<e.HumanoidSkeletonDef>(
+    "/animations/Character_Base.ht.json",
+  );
+
   {
-    const cartoonRetargeted = cartoonAc.instantiateModelsToScene(
-      (name) => name,
+    const posGizmos = new b.PositionGizmo(utilLayer);
+    posGizmos.attachedNode = cartoonTransformDict["RightArm"];
+  }
+  {
+    const posGizmos = new b.PositionGizmo(utilLayer);
+    posGizmos.attachedNode = cartoonTransformDict["LeftArm"];
+  }
+
+  const runRetargeted = await e.loadAnimationWithRetarget(
+    "/animations/",
+    animName,
+    xBotAc.skeletons[0],
+    xBotHumanoidDef,
+    cartoonAc.skeletons[0]!,
+    cartomMixamoRetarget,
+    ["LeftUpperArm", "LeftShoulder", "RightUpperArm", "RightShoulder"],
+  );
+
+  e.addTargetedAnimationGroup(
+    cartoonRetargeted.animationGroups,
+    runRetargeted,
+    cartoonTransformDict,
+  );
+
+  cartoonRetargeted.animationGroups[0].stop();
+  cartoonRetargeted.animationGroups[0].loopAnimation = true;
+  cartoonRetargeted.animationGroups[0].play();
+  cartoonRetargeted.animationGroups[0].loopAnimation = true;
+
+  //load costume
+  {
+    const shirtAc = await b.SceneLoader.LoadAssetContainerAsync(
+      "/models/",
+      "Shirt_1_Purple.glb",
     );
-    const cartoonMesh = cartoonRetargeted.rootNodes[0] as b.Mesh;
+
+    shirtAc.materials[0].dispose();
+    // const shirtInstance = shirtAc.instantiateModelsToScene((name) => name);
+    // const shirtMesh = shirtInstance.rootNodes[0].getChildMeshes()[0] as b.Mesh;
+    scene.addMesh(shirtAc.meshes[1]);
+    // const shirtMesh = scene.getMeshByUniqueId(shirtAc.meshes[1].uniqueId)!;
+    const shirtMesh = scene.getLastMeshById(shirtAc.meshes[1].id)!;
+    console.log(scene.getMeshesById(shirtAc.meshes[1].id))
+    shirtMesh.skeleton?.dispose();
+    shirtMesh.material = pbrMat;
     for (const mesh of cartoonMesh.getChildMeshes()) {
-      mesh.material = pbrMat;
-      console.log(mesh.subMeshes[0])
+      if (mesh.name === "GLASSES") {
+        for (const submesh of mesh.subMeshes) {
+          if (submesh) {
+            submesh.dispose();
+          }
+        }
+        mesh.subMeshes = shirtMesh.subMeshes;
+        shirtMesh.skeleton = mesh.skeleton;
+        break;
+      }
     }
-    // cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
-
-    const cartoonTransformDict = buildHierarchyDict(
-      cartoonRetargeted.rootNodes,
-    );
-    const cartomMixamoRetarget = await e.loadJson<e.HumanoidSkeletonDef>(
-      "/animations/Character_Base.ht.json",
-    );
-
-    {
-      const posGizmos = new b.PositionGizmo(utilLayer);
-      posGizmos.attachedNode = cartoonTransformDict["RightArm"];
-    }
-    {
-      const posGizmos = new b.PositionGizmo(utilLayer);
-      posGizmos.attachedNode = cartoonTransformDict["LeftArm"];
-    }
-
-    const runRetargeted = await e.loadAnimationWithRetarget(
-      "/animations/",
-      animName,
-      xBotAc.skeletons[0],
-      xBotHumanoidDef,
-      cartoonAc.skeletons[0]!,
-      cartomMixamoRetarget,
-      ["LeftUpperArm", "LeftShoulder", "RightUpperArm", "RightShoulder"],
-    );
-
-    e.addTargetedAnimationGroup(
-      cartoonRetargeted.animationGroups,
-      runRetargeted,
-      cartoonTransformDict,
-    );
-
-    cartoonRetargeted.animationGroups[0].stop();
-    cartoonRetargeted.animationGroups[0].loopAnimation = true;
-    cartoonRetargeted.animationGroups[0].play();
-    cartoonRetargeted.animationGroups[0].loopAnimation = true;
   }
 
   camera.alpha = 1.5;
