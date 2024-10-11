@@ -58,6 +58,66 @@ export async function loadHumanoidAnimationData(
   return groups;
 }
 
+export async function retargetAnimation(
+  asset: b.AssetContainer,
+  sourceSkeleton: b.Skeleton,
+  sourceHumanoidDef: HumanoidSkeletonDef,
+  targetSkeleton: b.Skeleton,
+  targetHumanoidDef: HumanoidSkeletonDef,
+  skipRetargetBoneNames?: string[],
+) {
+  const groups = asset.animationGroups.map((g) => {
+    return {
+      name: g.name,
+      targetedAnimations: g.targetedAnimations
+        .map((a) => {
+          const sourceBone = sourceSkeleton.bones.find(
+            (b) => b.name === a.target.name,
+          );
+          if (!sourceBone) {
+            throw new Error(
+              `Couldn't find source bone with name ${a.target.name}`,
+            );
+          }
+          const humanBoneName = sourceHumanoidDef.boneToHuman[a.target.name];
+          if (!humanBoneName) {
+            throw new Error(`No humanoid definition for bone ${a.target.name}`);
+          }
+
+          const targetBoneName = targetHumanoidDef.humanToBone[humanBoneName];
+
+          if (!targetBoneName) {
+            return null;
+          }
+          const targetBone = targetSkeleton.bones.find(
+            (b) => b.name === targetBoneName,
+          );
+
+          if (!targetBone) {
+            throw new Error(
+              `Couldn't find bone with name ${targetBoneName} on target skeleton`,
+            );
+          }
+
+          const animation = a.animation.clone()
+          if (
+            !skipRetargetBoneNames ||
+            skipRetargetBoneNames.indexOf(humanBoneName) === -1
+          ) {
+            retargetAnimationForBone(animation, sourceBone, targetBone);
+          }
+
+          return {
+            targetName: targetBoneName,
+            animation,
+          };
+        })
+        .filter((a) => a),
+    } as TargetAnimationGroupData;
+  });
+  return groups;
+}
+
 export async function loadAnimationWithRetarget(
   path: string,
   glb: string,

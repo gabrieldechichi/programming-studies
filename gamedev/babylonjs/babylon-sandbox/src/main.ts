@@ -1,16 +1,28 @@
 import * as b from "@babylonjs/core";
+import * as gui from "@babylonjs/gui";
 import "@babylonjs/loaders";
 import * as e from "./engine/prelude";
 import { Inspector } from "@babylonjs/inspector";
+import { FlowGraphAsyncExecutionBlock } from "@babylonjs/core/FlowGraph/flowGraphAsyncExecutionBlock";
 
 const ASPECT_RATIO = 1920 / 1080;
 
 let canvas: HTMLCanvasElement;
 let engine: b.Engine;
 let scene: b.Scene;
+let fpsText: gui.TextBlock;
+let fpsContainer: gui.Container;
 
 function update() {
   scene.render();
+  fpsText.text = `dt: ${engine.getDeltaTime()}ms\nfps: ${engine.getFps().toFixed(1)}`;
+
+  fpsText.horizontalAlignment = gui.TextBlock.HORIZONTAL_ALIGNMENT_LEFT;
+  fpsText.verticalAlignment = gui.TextBlock.VERTICAL_ALIGNMENT_TOP;
+  fpsText.leftInPixels =
+    -fpsContainer.widthInPixels / 2 + fpsText.widthInPixels / 2;
+  fpsText.topInPixels =
+    -fpsContainer.heightInPixels / 2 + fpsText.heightInPixels / 2;
 
   // const camera = scene.cameras[0] as b.ArcRotateCamera
   // camera.alpha = -1.3;
@@ -91,37 +103,37 @@ async function main() {
     "/animations/XBot.ht.json",
   );
 
-  const runAnim = await e.loadHumanoidAnimationData(
-    "/animations/",
-    animName,
-    xBotHumanoidDef,
-  );
+  // const runAnim = await e.loadHumanoidAnimationData(
+  //   "/animations/",
+  //   animName,
+  //   xBotHumanoidDef,
+  // );
 
-  const xbotMesh = xBotAc.instantiateModelsToScene((name) => name);
-  const xBotTransformDict = buildHierarchyDict(xbotMesh.rootNodes);
-  (xbotMesh.rootNodes[0] as b.TransformNode).position.x += 1.5;
-
-  {
-    const posGizmos = new b.PositionGizmo(utilLayer);
-    posGizmos.attachedNode = xBotTransformDict["mixamorig:RightArm"];
-  }
-
-  {
-    const posGizmos = new b.PositionGizmo(utilLayer);
-    posGizmos.attachedNode = xBotTransformDict["mixamorig:LeftArm"];
-  }
-
-  e.addTargetedAnimationGroup(
-    xbotMesh.animationGroups,
-    runAnim,
-    xBotTransformDict,
-    xBotHumanoidDef,
-  );
-
-  xbotMesh.animationGroups[0].stop();
-  xbotMesh.animationGroups[0].loopAnimation = true;
-  xbotMesh.animationGroups[0].play();
-  xbotMesh.animationGroups[0].loopAnimation = true;
+  // const xbotMesh = xBotAc.instantiateModelsToScene((name) => name);
+  // const xBotTransformDict = buildHierarchyDict(xbotMesh.rootNodes);
+  // (xbotMesh.rootNodes[0] as b.TransformNode).position.x += 1.5;
+  //
+  // {
+  //   const posGizmos = new b.PositionGizmo(utilLayer);
+  //   posGizmos.attachedNode = xBotTransformDict["mixamorig:RightArm"];
+  // }
+  //
+  // {
+  //   const posGizmos = new b.PositionGizmo(utilLayer);
+  //   posGizmos.attachedNode = xBotTransformDict["mixamorig:LeftArm"];
+  // }
+  //
+  // e.addTargetedAnimationGroup(
+  //   xbotMesh.animationGroups,
+  //   runAnim,
+  //   xBotTransformDict,
+  //   xBotHumanoidDef,
+  // );
+  //
+  // xbotMesh.animationGroups[0].stop();
+  // xbotMesh.animationGroups[0].loopAnimation = true;
+  // xbotMesh.animationGroups[0].play();
+  // xbotMesh.animationGroups[0].loopAnimation = true;
 
   const cartoonAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/models/",
@@ -164,82 +176,115 @@ async function main() {
     // cartoonSimpleRetarget.animationGroups[0].loopAnimation = true;
   }
 
-  const cartoonRetargeted = cartoonAc.instantiateModelsToScene((name) => name);
-  const cartoonMesh = cartoonRetargeted.rootNodes[0] as b.Mesh;
-  for (const mesh of cartoonMesh.getChildMeshes()) {
-    mesh.material = pbrMat;
-    if (mesh.name !== "BODIES") {
-      for (const submesh of mesh.subMeshes) {
-        submesh.dispose();
-      }
-      mesh.subMeshes = [];
-    }
-  }
-  // cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
-
-  const cartoonTransformDict = buildHierarchyDict(cartoonRetargeted.rootNodes);
   const cartomMixamoRetarget = await e.loadJson<e.HumanoidSkeletonDef>(
     "/animations/Character_Base.ht.json",
   );
 
-  {
-    const posGizmos = new b.PositionGizmo(utilLayer);
-    posGizmos.attachedNode = cartoonTransformDict["RightArm"];
-  }
-  {
-    const posGizmos = new b.PositionGizmo(utilLayer);
-    posGizmos.attachedNode = cartoonTransformDict["LeftArm"];
-  }
-
-  const runRetargeted = await e.loadAnimationWithRetarget(
+  const idleAnimAc = await b.SceneLoader.LoadAssetContainerAsync(
     "/animations/",
     animName,
-    xBotAc.skeletons[0],
-    xBotHumanoidDef,
-    cartoonAc.skeletons[0]!,
-    cartomMixamoRetarget,
-    ["LeftUpperArm", "LeftShoulder", "RightUpperArm", "RightShoulder"],
   );
+  const count = 100;
+  const maxPerRow = 10;
+  const rows = count / maxPerRow;
+  for (let x = -maxPerRow / 2; x <= maxPerRow / 2; x++) {
+    for (let y = -rows / 2; y <= rows / 2; y++) {
+      const cartoonRetargeted = cartoonAc.instantiateModelsToScene(
+        (name) => name,
+      );
+      const cartoonMesh = cartoonRetargeted.rootNodes[0] as b.Mesh;
+      cartoonMesh.position.y = 0;
+      cartoonMesh.position.x += x;
+      cartoonMesh.position.z += y;
+      for (const mesh of cartoonMesh.getChildMeshes()) {
+        mesh.material = pbrMat;
+        // if (mesh.name !== "BODIES") {
+        //   for (const submesh of mesh.subMeshes) {
+        //     submesh.dispose();
+        //   }
+        //   mesh.subMeshes = [];
+        // }
+      }
+      // cartoonMesh.scaling = new b.Vector3(0.5, 0.5, 0.5);
 
-  e.addTargetedAnimationGroup(
-    cartoonRetargeted.animationGroups,
-    runRetargeted,
-    cartoonTransformDict,
-  );
+      const cartoonTransformDict = buildHierarchyDict(
+        cartoonRetargeted.rootNodes,
+      );
 
-  cartoonRetargeted.animationGroups[0].stop();
-  cartoonRetargeted.animationGroups[0].loopAnimation = true;
-  cartoonRetargeted.animationGroups[0].play();
-  cartoonRetargeted.animationGroups[0].loopAnimation = true;
+      const runRetargeted = await e.retargetAnimation(
+        idleAnimAc,
+        xBotAc.skeletons[0],
+        xBotHumanoidDef,
+        cartoonAc.skeletons[0]!,
+        cartomMixamoRetarget,
+        ["LeftUpperArm", "LeftShoulder", "RightUpperArm", "RightShoulder"],
+      );
+
+      e.addTargetedAnimationGroup(
+        cartoonRetargeted.animationGroups,
+        runRetargeted,
+        cartoonTransformDict,
+      );
+
+      cartoonRetargeted.animationGroups[0].stop();
+      cartoonRetargeted.animationGroups[0].loopAnimation = true;
+      cartoonRetargeted.animationGroups[0].play();
+      cartoonRetargeted.animationGroups[0].loopAnimation = true;
+    }
+  }
 
   //load costume
   {
-    const shirtAc = await b.SceneLoader.LoadAssetContainerAsync(
-      "/models/",
-      "Shirt_1_Purple.glb",
-    );
+    // const shirtAc = await b.SceneLoader.LoadAssetContainerAsync(
+    //   "/models/",
+    //   "Shirt_1_Purple.glb",
+    // );
+    //
+    // shirtAc.materials[0].dispose();
+    // // const shirtInstance = shirtAc.instantiateModelsToScene((name) => name);
+    // // const shirtMesh = shirtInstance.rootNodes[0].getChildMeshes()[0] as b.Mesh;
+    // scene.addMesh(shirtAc.meshes[1]);
+    // // const shirtMesh = scene.getMeshByUniqueId(shirtAc.meshes[1].uniqueId)!;
+    // const shirtMesh = scene.getLastMeshById(shirtAc.meshes[1].id)!;
+    // console.log(scene.getMeshesById(shirtAc.meshes[1].id))
+    // shirtMesh.skeleton?.dispose();
+    // shirtMesh.material = pbrMat;
+    // for (const mesh of cartoonMesh.getChildMeshes()) {
+    //   if (mesh.name === "GLASSES") {
+    //     for (const submesh of mesh.subMeshes) {
+    //       if (submesh) {
+    //         submesh.dispose();
+    //       }
+    //     }
+    //     mesh.subMeshes = shirtMesh.subMeshes;
+    //     shirtMesh.skeleton = mesh.skeleton;
+    //     break;
+    //   }
+    // }
+  }
 
-    shirtAc.materials[0].dispose();
-    // const shirtInstance = shirtAc.instantiateModelsToScene((name) => name);
-    // const shirtMesh = shirtInstance.rootNodes[0].getChildMeshes()[0] as b.Mesh;
-    scene.addMesh(shirtAc.meshes[1]);
-    // const shirtMesh = scene.getMeshByUniqueId(shirtAc.meshes[1].uniqueId)!;
-    const shirtMesh = scene.getLastMeshById(shirtAc.meshes[1].id)!;
-    console.log(scene.getMeshesById(shirtAc.meshes[1].id))
-    shirtMesh.skeleton?.dispose();
-    shirtMesh.material = pbrMat;
-    for (const mesh of cartoonMesh.getChildMeshes()) {
-      if (mesh.name === "GLASSES") {
-        for (const submesh of mesh.subMeshes) {
-          if (submesh) {
-            submesh.dispose();
-          }
-        }
-        mesh.subMeshes = shirtMesh.subMeshes;
-        shirtMesh.skeleton = mesh.skeleton;
-        break;
-      }
-    }
+  //ui
+  {
+    const uiTex = gui.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+    fpsContainer = new gui.Container();
+    fpsContainer.background = "black";
+    fpsContainer.width = 0.5;
+    fpsContainer.height = 0.5;
+    fpsContainer.horizontalAlignment = gui.Container.HORIZONTAL_ALIGNMENT_LEFT;
+    fpsContainer.verticalAlignment = gui.Container.VERTICAL_ALIGNMENT_TOP;
+    uiTex.addControl(fpsContainer);
+
+    fpsText = new gui.TextBlock();
+    fpsText.text = "FPS";
+    fpsText.color = "white";
+    fpsText.fontSize = "24";
+    fpsText.fontFamily = "Montserrat Black";
+    fpsText.horizontalAlignment = gui.TextBlock.HORIZONTAL_ALIGNMENT_LEFT;
+    fpsText.verticalAlignment = gui.TextBlock.VERTICAL_ALIGNMENT_TOP;
+    fpsText.left = fpsContainer.widthInPixels / 2;
+    fpsContainer.addControl(fpsText);
+    fpsContainer.widthInPixels = 100;
+    fpsContainer.heightInPixels = 100;
   }
 
   camera.alpha = 1.5;
@@ -247,8 +292,8 @@ async function main() {
   camera.radius = 5.3;
 
   engine.runRenderLoop(update);
-  // utilLayer.shouldRender = false
-  Inspector.Show(scene, {});
+  utilLayer.shouldRender = false;
+  // Inspector.Show(scene, {});
 }
 
 main();
