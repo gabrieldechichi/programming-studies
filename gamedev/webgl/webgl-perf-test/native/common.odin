@@ -1,6 +1,8 @@
 package main
 
+import "core:encoding/xml"
 import "core:fmt"
+import "core:sys/wasm/js"
 import gl "vendor:wasm/WebGL"
 
 WebGLError :: enum {
@@ -100,4 +102,32 @@ getUvOffsetAndScale :: proc(
 	offset = vec2{u + hPadding, v + vPadding}
 	size = vec2{w - hPadding, h - vPadding}
 	return
+}
+
+
+FontChar :: struct {
+	id:      u32,
+	xy:      vec2,
+	wh:      vec2,
+	offset:  vec2,
+	advance: f32,
+}
+
+Font :: struct {
+	texture:    gl.Texture,
+	lineHeight: f32,
+	size:       f32,
+	characters: map[u32]FontChar,
+}
+
+charToSprite :: proc(c: u32, font: Font) -> Sprite {
+	fontChar := font.characters[c]
+
+	return Sprite {
+		texture = font.texture,
+		x = fontChar.xy[0],
+		y = fontChar.xy[1],
+		w = fontChar.wh[0],
+		h = fontChar.wh[1],
+	}
 }

@@ -99,7 +99,7 @@ void main() {
 
     const instancedDataFloatCount = 2 + 1 + 4;
     const instanceDataStride = instancedDataFloatCount * constants.FLOAT_SIZE;
-    //used lated but keeping this data together as they are related
+    //used later but keeping this data together as they are related
     const uvCoordsOffset = 2 + 1;
 
     const instanceBuffer = gl.createBuffer();

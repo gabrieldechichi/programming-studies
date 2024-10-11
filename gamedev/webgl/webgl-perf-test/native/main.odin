@@ -13,13 +13,12 @@ Ball :: struct {
 	colorIndex: i32,
 }
 
-BATCH_SIZE :: 1024 * 1
+BATCH_SIZE :: 1024 * 100
 MAX_INSTANCES :: BATCH_SIZE * 1 - 10
 MAX_SPEED :: 200
 ASPECT_RATIO : f32 = 1080. / 1920.
 
 balls: #soa[]Ball
-
 colors: []vec4 = {
 	{1, 0, 0, 1},
 	{0, 1, 0, 1},
@@ -33,6 +32,7 @@ width: f32 = 500
 height: f32 = 500
 viewProjectionMatrix : mat4
 spriteRenderer: SpriteRenderer
+lastTime: f64
 
 main :: proc() {
 	//setup graphics
@@ -106,7 +106,6 @@ onCanvasResize :: proc(event: js.Event) {
 
 resizeCanvas :: proc() {
 	rect := js.window_get_rect()
-    fmt.println(rect)
 	height = f32(rect.height)
 	width = height * ASPECT_RATIO
 	js.set_element_key_f64("canvas", "width", f64(width))
@@ -122,7 +121,6 @@ resizeCanvas :: proc() {
 	)
 }
 
-lastTime: f64
 @(export)
 step :: proc(currentTime: f64) -> (keep_going: bool) {
 	dt := f32(currentTime - lastTime)
@@ -146,7 +144,6 @@ step :: proc(currentTime: f64) -> (keep_going: bool) {
 
 	//render
 	{
-
 		for ball in balls {
 			using ball
 			spriteRendererDrawSprite(
