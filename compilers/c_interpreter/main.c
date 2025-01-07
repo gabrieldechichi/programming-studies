@@ -1,3 +1,4 @@
+#include "./token_test.c"
 #include <stdio.h>
 
-int main() { printf("Hello Sailor"); }
+int main() { test_token(); }
