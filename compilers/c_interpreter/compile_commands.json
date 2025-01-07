@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-g",
+      "-Wall",
+      "-o",
+      "out/debug/cint",
+      "unity.c"
+    ],
+    "directory": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/compilers/c_interpreter",
+    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/compilers/c_interpreter/unity.c",
+    "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/compilers/c_interpreter/out/debug/cint"
+  }
+]
