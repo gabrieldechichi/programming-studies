@@ -27,6 +27,9 @@ typedef char bool;
 #define TRUE 1
 #define FALSE 0
 
+
+#define ASSERT assert
+
 #define ASSERT_WITH_MSG(expr, msg, ...)                                        \
   if (!(expr)) {                                                               \
     fprintf(stderr, (msg), __VA_ARGS__);                                       \

@@ -5,6 +5,7 @@
       "-c",
       "-g",
       "-Wall",
+      "-DDEBUG",
       "-o",
       "out/debug/cint",
       "unity.c"

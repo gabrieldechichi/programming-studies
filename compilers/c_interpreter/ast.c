@@ -3,8 +3,22 @@
 
 #include "token.c"
 #include "utils.c"
+#include <string.h>
+
+struct Ast;
+
+typedef struct {
+  Token token;
+  string_const value;
+} Identifier;
 
 #define AST_KINDS                                                              \
+  AST_KIND(                                                                    \
+      Let, "Let", struct {                                                     \
+        Token token;                                                           \
+        Identifier identifier;                                                 \
+        struct Ast *expression;                                                \
+      })                                                                       \
   AST_KIND(                                                                    \
       Identifier, "Identifier", struct {                                       \
         Token token;                                                           \
@@ -28,12 +42,16 @@ AST_KINDS
 
 // Ast union
 typedef struct {
+  AstKind kind;
   union {
 #define AST_KIND(kind, name, ...) GD_JOIN2(Ast, kind) kind;
     AST_KINDS
 #undef AST_KIND
   };
-
 } Ast;
+
+typedef struct {
+  Ast *statements;
+} AstProgram;
 
 #endif
