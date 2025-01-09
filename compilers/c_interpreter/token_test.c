@@ -73,23 +73,23 @@ return;\
     TokenType expectedType;
     char *literal;
   } tests[] = {
-      {TP_LET, "let"},     //
-      {TP_IDENT, "five"},  //
-      {TP_SEMICOLON, ";"}, //
-      {TP_FUNC, "fn"},     //
-      {TP_SEMICOLON, ";"}, //
-      {TP_STRING, "foo"},  //
-      {TP_SEMICOLON, ";"}, //
-      {TP_TRUE, "true"},  //
-      {TP_SEMICOLON, ";"}, //
-      {TP_FALSE, "false"},  //
-      {TP_SEMICOLON, ";"}, //
-      {TP_IF, "if"},  //
-      {TP_SEMICOLON, ";"}, //
-      {TP_ELSE, "else"},  //
-      {TP_SEMICOLON, ";"}, //
-      {TP_RETURN, "return"},  //
-      {TP_SEMICOLON, ";"}, //
+      {TP_LET, "let"},       //
+      {TP_IDENT, "five"},    //
+      {TP_SEMICOLON, ";"},   //
+      {TP_FUNC, "fn"},       //
+      {TP_SEMICOLON, ";"},   //
+      {TP_STRING, "foo"},    //
+      {TP_SEMICOLON, ";"},   //
+      {TP_TRUE, "true"},     //
+      {TP_SEMICOLON, ";"},   //
+      {TP_FALSE, "false"},   //
+      {TP_SEMICOLON, ";"},   //
+      {TP_IF, "if"},         //
+      {TP_SEMICOLON, ";"},   //
+      {TP_ELSE, "else"},     //
+      {TP_SEMICOLON, ";"},   //
+      {TP_RETURN, "return"}, //
+      {TP_SEMICOLON, ";"},   //
   };
 
   Lexer l = lexer_new(input);
@@ -246,5 +246,5 @@ if (5 < 10) { \
 void test_lexer() {
   test_lexer_reserved();
   test_lexer_identifiers();
-  // test_lexer_all();
+  test_lexer_all();
 }

@@ -7,46 +7,55 @@
 #include <stdio.h>
 #include <string.h>
 
+#define TOKEN_KINDS \
+  TOKEN_KIND(TP_ILLEGAL,"Illegal"), \
+  TOKEN_KIND(TP_EOF,"Eof"), \
+  TOKEN_KIND(TP_IDENT,"Ident"), \
+  TOKEN_KIND(TP_INT,"Int"), \
+  TOKEN_KIND(TP_STRING,"String"), \
+\
+  TOKEN_KIND(TP_ASSIGN,"Assign"), \
+  TOKEN_KIND(TP_PLUS,"Plus"), \
+  TOKEN_KIND(TP_MINUS,"Minus"), \
+  TOKEN_KIND(TP_BANG,"Bang"), \
+  TOKEN_KIND(TP_ASTERISK,"Asterisk"), \
+  TOKEN_KIND(TP_SLASH,"Slash"), \
+  TOKEN_KIND(TP_LT,"Lt"), \
+  TOKEN_KIND(TP_GT,"Gt"), \
+  TOKEN_KIND(TP_LTOREQ,"Ltoreq"), \
+  TOKEN_KIND(TP_GTOREQ,"Gtoreq"), \
+  TOKEN_KIND(TP_EQ,"Eq"), \
+  TOKEN_KIND(TP_NOT_EQ,"Not_eq"), \
+\
+  TOKEN_KIND(TP_COMMA,"Comma"), \
+  TOKEN_KIND(TP_SEMICOLON,"Semicolon"), \
+\
+  TOKEN_KIND(TP_LPAREN,"Lparen"), \
+  TOKEN_KIND(TP_RPAREN,"Rparen"), \
+  TOKEN_KIND(TP_LBRACE,"Lbrace"), \
+  TOKEN_KIND(TP_RBRACE,"Rbrace"), \
+  TOKEN_KIND(TP_LBRACKET,"Lbracket"), \
+  TOKEN_KIND(TP_RBRACKET,"Rbracket"), \
+\
+  TOKEN_KIND(TP_FUNC,"Func"), \
+  TOKEN_KIND(TP_LET,"Let"), \
+  TOKEN_KIND(TP_TRUE,"True"), \
+  TOKEN_KIND(TP_FALSE,"False"), \
+  TOKEN_KIND(TP_IF,"If"), \
+  TOKEN_KIND(TP_ELSE,"Else"), \
+  TOKEN_KIND(TP_RETURN,"Return"), \
+
 typedef enum {
-  TP_ILLEGAL = 0,
-  TP_EOF,
-
-  TP_IDENT,
-  TP_INT,
-
-  TP_STRING,
-
-  TP_ASSIGN,
-  TP_PLUS,
-  TP_MINUS,
-  TP_BANG,
-  TP_ASTERISK,
-  TP_SLASH,
-  TP_LT,
-  TP_GT,
-  TP_LTOREQ,
-  TP_GTOREQ,
-  TP_EQ,
-  TP_NOT_EQ,
-
-  TP_COMMA,
-  TP_SEMICOLON,
-
-  TP_LPAREN,
-  TP_RPAREN,
-  TP_LBRACE,
-  TP_RBRACE,
-  TP_LBRACKET,
-  TP_RBRACKET,
-
-  TP_FUNC,
-  TP_LET,
-  TP_TRUE,
-  TP_FALSE,
-  TP_IF,
-  TP_ELSE,
-  TP_RETURN,
+#define TOKEN_KIND(e,s) e
+    TOKEN_KINDS
+#undef TOKEN_KIND
 } TokenType;
+
+static const char* g_token_names[] = {
+#define TOKEN_KIND(e,s) s
+    TOKEN_KINDS
+#undef TOKEN_KIND
+};
 
 typedef struct {
   TokenType type;
@@ -267,73 +276,6 @@ Token lexer_next_token(Lexer *l) {
 }
 
 const char *token_type_to_str(TokenType type) {
-  switch (type) {
-  case TP_ILLEGAL:
-    return "ILLEGAL";
-  case TP_EOF:
-    return "EOF";
-  case TP_IDENT:
-    return "IDENT";
-  case TP_INT:
-    return "INT";
-  case TP_STRING:
-    return "STRING";
-  case TP_ASSIGN:
-    return "=";
-  case TP_PLUS:
-    return "+";
-  case TP_MINUS:
-    return "-";
-  case TP_BANG:
-    return "!";
-  case TP_ASTERISK:
-    return "*";
-  case TP_SLASH:
-    return "/";
-  case TP_LT:
-    return "<";
-  case TP_GT:
-    return ">";
-  case TP_LTOREQ:
-    return "<=";
-  case TP_GTOREQ:
-    return ">=";
-  case TP_EQ:
-    return "==";
-  case TP_NOT_EQ:
-    return "!=";
-  case TP_COMMA:
-    return ",";
-  case TP_SEMICOLON:
-    return ";";
-  case TP_LPAREN:
-    return "(";
-  case TP_RPAREN:
-    return ")";
-  case TP_LBRACE:
-    return "{";
-  case TP_RBRACE:
-    return "}";
-  case TP_LBRACKET:
-    return "[";
-  case TP_RBRACKET:
-    return "]";
-  case TP_FUNC:
-    return "FUNC";
-  case TP_LET:
-    return "LET";
-  case TP_TRUE:
-    return "TRUE";
-  case TP_FALSE:
-    return "FALSE";
-  case TP_IF:
-    return "IF";
-  case TP_ELSE:
-    return "ELSE";
-  case TP_RETURN:
-    return "RETURN";
-  default:
-    return "UNKNOWN";
-  }
+    return g_token_names[(int)type];
 }
 #endif
