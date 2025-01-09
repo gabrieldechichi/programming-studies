@@ -7,6 +7,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#define internal static
+
+#define GD_JOIN2(a, b) a##b
+#define GD_JOIN3(a, b, c) GD_JOIN2(a, GD_JOIN2(b, c))
+#define GD_JOIN4(a, b, c, d) GD_JOIN2(a, GD_JOIN2(b, GD_JOIN2(c, d)))
+
 typedef struct {
   const char *value;
   int len;

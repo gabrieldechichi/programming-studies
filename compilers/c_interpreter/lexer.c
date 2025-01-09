@@ -1,5 +1,8 @@
-#include "utils.c"
+#ifndef H_LEXER
+#define H_LEXER
+
 #include "token.c"
+#include "utils.c"
 
 typedef struct {
   int pos;
@@ -73,7 +76,7 @@ static string_const read_digit(Lexer *l) {
 static string_const read_string(Lexer *l) {
   lexer_read_char(l);
   int start = l->pos;
-  while (l-> c != '"') {
+  while (l->c != '"') {
     lexer_read_char(l);
   }
 
@@ -198,3 +201,4 @@ Token lexer_next_token(Lexer *l) {
   }
   return token;
 }
+#endif /* ifndef H_LEXER */
