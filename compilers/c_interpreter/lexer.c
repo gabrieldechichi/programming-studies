@@ -21,6 +21,7 @@ Lexer lexer_new(const char *input) {
 void lexer_read_char(Lexer *l) {
   if (l->readPos >= l->input.len) {
     l->c = 0;
+    return;
   } else {
     l->c = l->input.value[l->readPos];
   }
@@ -59,7 +60,7 @@ static string_const read_identifier(Lexer *l) {
   }
   lexer_go_back(l);
 
-  return string_const_from_slice(l->input.value, start, l->pos + 1);
+  return string_const_from_slice(l->input.value, start, l->pos);
 }
 
 static bool is_digit(char c) { return c >= '0' && c <= '9'; }
@@ -70,7 +71,8 @@ static string_const read_digit(Lexer *l) {
     lexer_read_char(l);
   }
   lexer_go_back(l);
-  return string_const_from_slice(l->input.value, start, l->pos + 1);
+
+  return string_const_from_slice(l->input.value, start, l->pos);
 }
 
 static string_const read_string(Lexer *l) {
@@ -80,7 +82,7 @@ static string_const read_string(Lexer *l) {
     lexer_read_char(l);
   }
 
-  return string_const_from_slice(l->input.value, start, l->pos);
+  return string_const_from_slice(l->input.value, start, l->pos - 1);
 }
 
 TokenType identifier_to_token_type(string_const s) {

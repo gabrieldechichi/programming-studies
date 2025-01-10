@@ -1,5 +1,6 @@
 #import "./token.c"
 #import "./utils.c"
+#import "./lexer.c"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

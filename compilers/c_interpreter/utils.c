@@ -27,7 +27,6 @@ typedef char bool;
 #define TRUE 1
 #define FALSE 0
 
-
 #define ASSERT assert
 
 #define ASSERT_WITH_MSG(expr, msg, ...)                                        \
@@ -36,6 +35,9 @@ typedef char bool;
     fprintf(stderr, "\n");                                                     \
     assert(expr);                                                              \
   }
+
+#define ASSERT_EQ_INT(a, b)                                                    \
+  ASSERT_WITH_MSG((int)a == (int)b, "Expected %d to equal %d", (int)a, (int)b)
 
 #ifdef DEBUG
 #define DEBUG_ASSERT(expr) assert(expr)
@@ -71,7 +73,7 @@ string_const string_const_from_slice(const char *str, int start, int end) {
   }
 
   s.value = &str[start];
-  s.len = (end - start);
+  s.len = (end - start) + 1;
 
   return s;
 }
@@ -101,11 +103,37 @@ bool string_const_eq_s(string_const a, char *b) {
   return TRUE;
 }
 
-void string_const_print(string_const s) {
-  for (int i = 0; i < s.len; i++) {
-    printf("%c", s.value[i]);
+int parse_int(const char *str, int len, int *out_num) {
+  if (str == NULL || out_num == NULL || len <= 0) {
+    return -1; // Invalid input
   }
-  printf(" (len: %d)\n", s.len);
+
+  int num = 0;
+  int sign = 1;
+  int i = 0;
+
+  // Check for a leading sign
+  if (str[0] == '-') {
+    sign = -1;
+    i++;
+  } else if (str[0] == '+') {
+    i++;
+  }
+
+  for (; i < len; i++) {
+    char ch = str[i];
+
+    if (ch < '0' || ch > '9') {
+      return -1; // Invalid character, not a number
+    }
+
+    // Shift the current number by one decimal place to the left and add the new
+    // digit
+    num = num * 10 + (ch - '0');
+  }
+
+  *out_num = num * sign;
+  return 0; // Success
 }
 
 #endif

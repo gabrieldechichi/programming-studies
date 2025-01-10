@@ -20,7 +20,7 @@ let foobar = 838383;\
   Parser parser = parser_new(&lexer);
   AstProgram ast = parse_program(&parser);
 
-  ASSERT(arrlen(ast.statements) == ARRAY_LEN(tests));
+  ASSERT_EQ_INT(arrlen(ast.statements), ARRAY_LEN(tests));
 
   for (int i = 0; i < ARRAY_LEN(tests); i++) {
     Ast statement = ast.statements[i];
@@ -31,4 +31,28 @@ let foobar = 838383;\
   }
 }
 
-void test_parser() { test_let_statements(); }
+void test_integer_expression() {
+  const char *input = "5";
+
+  struct {
+    int expectedValue;
+  } tests[] = {{5}};
+
+  Lexer lexer = lexer_new(input);
+  Parser parser = parser_new(&lexer);
+  AstProgram ast = parse_program(&parser);
+
+  ASSERT_EQ_INT(arrlen(ast.statements), ARRAY_LEN(tests));
+
+  for (int i = 0; i < ARRAY_LEN(tests); i++) {
+    Ast statement = ast.statements[i];
+    ASSERT(statement.kind == Ast_Integer);
+
+    ASSERT(statement.Integer.value == tests[i].expectedValue);
+  }
+}
+
+void test_parser() {
+  test_let_statements();
+  test_integer_expression();
+}

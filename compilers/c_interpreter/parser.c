@@ -7,12 +7,15 @@
 #include "utils.c"
 #include "vendor/stb/stb_ds.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 typedef struct {
   Lexer *lexer;
   Token curToken;
   Token peekToken;
 } Parser;
+
+typedef Ast (*ParsePrefixExpressionFn)(Parser *p);
 
 internal void next_token(Parser *p) {
   p->curToken = p->peekToken;
@@ -35,6 +38,47 @@ internal bool peek_token_is(const Parser *p, TokenType tokType) {
   return p->peekToken.type == tokType;
 }
 
+internal Ast parse_integer_literal(Parser *p) {
+  Ast statement = {0};
+  statement.kind = Ast_Integer;
+  statement.Integer.token = p->curToken;
+
+  if (parse_int(p->curToken.literal.value, p->curToken.literal.len,
+                &statement.Integer.value)) {
+    // todo: error
+  }
+
+  return statement;
+}
+
+internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
+  switch (tokType) {
+  case TP_INT:
+    return parse_integer_literal;
+    break;
+  default:
+    return NULL;
+  }
+}
+
+internal Ast parse_expression(Parser *p) {
+  Ast statement = {0};
+  statement.kind = Ast_Invalid;
+
+  ParsePrefixExpressionFn prefix_parse_fn =
+      get_prefix_parse_fn(p->curToken.type);
+  if (prefix_parse_fn == NULL) {
+    // todo: error
+    return statement;
+  }
+
+  statement = prefix_parse_fn(p);
+  while (!cur_token_is(p, TP_SEMICOLON) && !cur_token_is(p, TP_EOF)) {
+    next_token(p);
+  }
+  return statement;
+}
+
 internal Ast parse_return_statement(Parser *p) {
   Ast ret_statement = {0};
   ret_statement.kind = Ast_Return;
@@ -44,15 +88,6 @@ internal Ast parse_return_statement(Parser *p) {
     next_token(p);
   }
   return ret_statement;
-}
-
-internal Ast parse_expression(Parser *p) {
-  Ast statement = {0};
-  statement.kind = Ast_Invalid;
-  while (!cur_token_is(p, TP_SEMICOLON)) {
-    next_token(p);
-  }
-  return statement;
 }
 
 internal Ast parse_let_statement(Parser *p) {
@@ -74,9 +109,10 @@ internal Ast parse_let_statement(Parser *p) {
     return let_statement;
   }
   next_token(p);
+  next_token(p);
 
-  parse_expression(p);
-  let_statement.Let.expression = NULL;
+  let_statement.Let.expression = (Ast *)malloc(sizeof(Ast));
+  *let_statement.Let.expression = parse_expression(p);
 
   return let_statement;
 }
@@ -100,6 +136,7 @@ AstProgram parse_program(Parser *parser) {
   program.statements = NULL;
 
   while (!cur_token_is(parser, TP_EOF)) {
+
     Ast statement = parse_statement(parser);
     arrpush(program.statements, statement);
     next_token(parser);
