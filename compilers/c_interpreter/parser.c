@@ -76,9 +76,10 @@ internal Ast parse_prefix_operator(Parser *p) {
   statement.kind = Ast_PrefixOperator;
   statement.PrefixOperator.token = p->curToken;
   statement.PrefixOperator.operator= p->curToken.literal;
+
+  next_token(p);
   statement.PrefixOperator.right =
       arena_alloc(&global_ctx()->arena_alloc, sizeof(Ast));
-  next_token(p);
   *statement.PrefixOperator.right = parse_expression(p);
 
   return statement;
@@ -127,8 +128,11 @@ internal Ast parse_return_statement(Parser *p) {
   Ast ret_statement = {0};
   ret_statement.kind = Ast_Return;
   ret_statement.Return.token = p->curToken;
-  // todo: support pointers
-  //  ret_statement.Return.expression = parse_expression(p);
+
+  next_token(p);
+  ret_statement.Return.expression =
+      arena_alloc(&global_ctx()->arena_alloc, sizeof(Ast));
+  *ret_statement.Return.expression = parse_expression(p);
 
   if (peek_token_is(p, TP_SEMICOLON)) {
     next_token(p);

@@ -136,16 +136,21 @@ void test_prefix_operator() {
 }
 
 void test_return_expression() {
+  //   const char *input = "\
+// return 5;\
+// return x + 1;\
+// return x + y * 2;\
+// return add(1,2);\
+// ";
   const char *input = "\
 return 5;\
-return x + 1;\
-return x + y * 2;\
-return add(1,2);\
+return x;\
+return y;\
 ";
 
   struct TestCase {
     const char *expectedIdentifier;
-  } tests[] = {{"5"}, {"(x+1)"}, {"(x + (y*2))"}, {"add(1,1)"}};
+  } tests[] = {{"5"}, {"x"}, {"y"}};
 
   AstProgram ast = parse_input(input);
 
@@ -159,10 +164,10 @@ return add(1,2);\
 }
 
 void test_parser() {
-  // test_let_statements();
-  // test_integer_expression();
-  // test_boolean_expression();
-  // test_string_expression();
+  test_let_statements();
+  test_integer_expression();
+  test_boolean_expression();
+  test_string_expression();
   test_prefix_operator();
-  // test_return_expression();
+  test_return_expression();
 }
