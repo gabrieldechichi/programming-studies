@@ -17,7 +17,9 @@ typedef struct {
 } Parser;
 
 typedef Ast (*ParsePrefixExpressionFn)(Parser *p);
-internal Ast parse_expression(Parser *p);
+typedef Ast (*ParseInfixExpressionFn)(Parser *p, Ast left);
+
+internal Ast parse_expression(Parser *p, TokenPrecedence precedence);
 
 internal void next_token(Parser *p) {
   p->curToken = p->peekToken;
@@ -38,6 +40,14 @@ internal bool cur_token_is(const Parser *p, TokenType tokType) {
 
 internal bool peek_token_is(const Parser *p, TokenType tokType) {
   return p->peekToken.type == tokType;
+}
+
+internal TokenPrecedence parser_peek_precedence(Parser *p) {
+  return get_token_precedence(p->peekToken.type);
+}
+
+internal TokenPrecedence parser_current_precedence(Parser *p) {
+  return get_token_precedence(p->curToken.type);
 }
 
 internal Ast parse_identifier(Parser *p) {
@@ -89,9 +99,41 @@ internal Ast parse_prefix_operator(Parser *p) {
   next_token(p);
   statement.PrefixOperator.right =
       arena_alloc(&global_ctx()->arena_alloc, sizeof(Ast));
-  *statement.PrefixOperator.right = parse_expression(p);
+  *statement.PrefixOperator.right = parse_expression(p, P_PREFIX);
 
   return statement;
+}
+
+Ast parse_expr_infix(Parser *p, Ast left) {
+  Ast infix_expr = {0};
+  infix_expr.kind = Ast_InfixExpression;
+  infix_expr.InfixExpression.token = p->curToken;
+  infix_expr.InfixExpression.left = GD_ARENA_ALLOC_T(Ast);
+  *infix_expr.InfixExpression.left = left;
+  next_token(p);
+  infix_expr.InfixExpression.right = GD_ARENA_ALLOC_T(Ast);
+  TokenPrecedence precedence = parser_current_precedence(p);
+  *infix_expr.InfixExpression.right = parse_expression(p, precedence);
+  next_token(p);
+  return infix_expr;
+}
+
+internal ParseInfixExpressionFn get_infix_parse_fn(TokenType tokType) {
+  switch (tokType) {
+  case TP_EQ:
+  case TP_NOT_EQ:
+  case TP_GT:
+  case TP_LT:
+  case TP_LTOREQ:
+  case TP_GTOREQ:
+  case TP_PLUS:
+  case TP_MINUS:
+  case TP_ASTERISK:
+  case TP_SLASH:
+    return parse_expr_infix;
+  default:
+    return NULL;
+  }
 }
 
 internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
@@ -113,22 +155,31 @@ internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
   }
 }
 
-internal Ast parse_expression(Parser *p) {
-  Ast statement = {0};
-  statement.kind = Ast_Invalid;
+internal Ast parse_expression(Parser *p, TokenPrecedence precedence) {
+  Ast leftExpr = {0};
+  leftExpr.kind = Ast_Invalid;
 
   ParsePrefixExpressionFn prefix_parse_fn =
       get_prefix_parse_fn(p->curToken.type);
   if (prefix_parse_fn == NULL) {
     // todo: error
-    return statement;
+    return leftExpr;
   }
 
-  statement = prefix_parse_fn(p);
-  while (!cur_token_is(p, TP_SEMICOLON) && !cur_token_is(p, TP_EOF)) {
+  leftExpr = prefix_parse_fn(p);
+  while (!cur_token_is(p, TP_SEMICOLON) &&
+         precedence < parser_peek_precedence(p)) {
+    ParseInfixExpressionFn infix_parse_fn =
+        get_infix_parse_fn(p->peekToken.type);
+    if (!infix_parse_fn) {
+      // todo error
+      return leftExpr;
+    }
     next_token(p);
+    leftExpr = infix_parse_fn(p, leftExpr);
   }
-  return statement;
+
+  return leftExpr;
 }
 
 internal Ast parse_return_statement(Parser *p) {
@@ -138,7 +189,7 @@ internal Ast parse_return_statement(Parser *p) {
 
   next_token(p);
   ret_statement.Return.expression = GD_ARENA_ALLOC_T(Ast);
-  *ret_statement.Return.expression = parse_expression(p);
+  *ret_statement.Return.expression = parse_expression(p, P_LOWEST);
 
   if (peek_token_is(p, TP_SEMICOLON)) {
     next_token(p);
@@ -168,7 +219,7 @@ internal Ast parse_let_statement(Parser *p) {
   next_token(p);
 
   let_statement.Let.expression = (Ast *)malloc(sizeof(Ast));
-  *let_statement.Let.expression = parse_expression(p);
+  *let_statement.Let.expression = parse_expression(p, P_LOWEST);
 
   return let_statement;
 }
@@ -182,7 +233,7 @@ internal Ast parse_statement(Parser *p) {
     return parse_return_statement(p);
     break;
   default: {
-    return parse_expression(p);
+    return parse_expression(p, P_LOWEST);
   }
   }
 }
@@ -195,6 +246,10 @@ AstProgram parse_program(Parser *parser) {
     Ast statement = parse_statement(parser);
     arrpush(program.statements, statement);
     next_token(parser);
+
+    while (cur_token_is(parser, TP_SEMICOLON)) {
+      next_token(parser);
+    }
   }
   return program;
 }

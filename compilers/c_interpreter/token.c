@@ -43,6 +43,17 @@ static const char *g_token_names[] = {
 #undef TOKEN_KIND
 };
 
+typedef enum {
+  P_LOWEST = 0,
+  P_EQUALS,      // ==
+  P_LESSGREATER, // > or <
+  P_SUM,         // +
+  P_PRODUCT,     // *
+  P_PREFIX,      // -X or !X
+  P_CALL,        // myFunction(X)
+  P_INDEXING,    // [
+} TokenPrecedence;
+
 typedef struct {
   TokenType type;
   StringSlice literal;
@@ -66,6 +77,31 @@ Token new_token_from_c_str(TokenType type, const char *literal) {
 
 const char *token_type_to_str(TokenType type) {
   return g_token_names[(int)type];
+}
+
+TokenPrecedence get_token_precedence(TokenType type) {
+  switch (type) {
+  case TP_EQ:
+  case TP_NOT_EQ:
+    return P_EQUALS;
+  case TP_GT:
+  case TP_LT:
+  case TP_GTOREQ:
+  case TP_LTOREQ:
+    return P_LESSGREATER;
+  case TP_PLUS:
+  case TP_MINUS:
+    return P_SUM;
+  case TP_ASTERISK:
+  case TP_SLASH:
+    return P_PRODUCT;
+  case TP_LBRACKET:
+    return P_INDEXING;
+  case TP_LPAREN:
+    return P_CALL;
+  default:
+    return P_LOWEST;
+  }
 }
 
 #undef TOKEN_KINDS

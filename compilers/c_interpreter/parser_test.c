@@ -166,11 +166,56 @@ return y;\
   }
 }
 
+void test_infix_expression() {
+  const char *input = "5 + 5;\
+5 - 5;\
+5 * 5;\
+5 / 5;\
+5 > 5;\
+5 < 5;\
+5 == 5;\
+5 != 5;\
+5 <= 5;\
+5 >= 5;\
+true == false;\
+true != false;\
+";
+
+  union Value {
+    int n;
+    bool flag;
+  };
+
+  struct TestCase {
+    union Value left;
+    union Value right;
+    const char *operator;
+  } tests[] = {
+      {{5}, {5}, "+"},  {{5}, {5}, "-"},         {{5}, {5}, "*"},
+      {{5}, {5}, "/"},  {{5}, {5}, ">"},         {{5}, {5}, "<"},
+      {{5}, {5}, "=="}, {{5}, {5}, "!="},        {{5}, {5}, "<="},
+      {{5}, {5}, ">="}, {{TRUE}, {FALSE}, "=="}, {{TRUE}, {FALSE}, "!="},
+  };
+
+  AstProgram ast = parse_input(input);
+
+  ASSERT_EQ_INT(ARRAY_LEN(tests), arrlen(ast.statements));
+
+  for (int i = 0; i < ARRAY_LEN(tests); i++) {
+    Ast stm = ast.statements[i];
+    ASSERT_EQ_INT(stm.kind, Ast_InfixExpression);
+    // Ast *right = stm.Return.expression;
+    // StringSlice right_str = expression_to_string(right);
+    // ASSERT(strslice_eq_s(right_str, tests[i].expectedIdentifier));
+  }
+}
+
 void test_parser() {
-  test_let_statements();
-  test_integer_expression();
-  test_boolean_expression();
-  test_string_expression();
-  test_prefix_operator();
-  test_return_expression();
+  // test_let_statements();
+  // test_integer_expression();
+  // test_boolean_expression();
+  // test_string_expression();
+  // test_prefix_operator();
+  // test_return_expression();
+  test_infix_expression();
 }

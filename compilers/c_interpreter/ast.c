@@ -53,6 +53,13 @@ typedef struct {
       Identifier, "Identifier", struct {                                       \
         Token token;                                                           \
         StringSlice value;                                                     \
+      })                                                                       \
+  AST_KIND(                                                                    \
+      InfixExpression, "Infix Expression", struct {                            \
+        Token token;                                                           \
+        Ast *left;                                                             \
+        Ast *right;                                                            \
+        StringSlice operator;                                                  \
       })
 
 // Ast enums
@@ -122,6 +129,8 @@ StringSlice expression_to_string(const Ast *ast) {
     sb_append_slice(sb, ast->Identifier.value);
     break;
   case Ast_Count:
+    break;
+  case Ast_InfixExpression:
     break;
   }
 
