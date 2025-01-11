@@ -36,8 +36,9 @@ typedef char bool;
     assert(expr);                                                              \
   }
 
-#define ASSERT_EQ_INT(expected, actual)                                                    \
-  ASSERT_WITH_MSG((int)expected == (int)actual, "Expected %d but got %d", (int)expected, (int)actual)
+#define ASSERT_EQ_INT(expected, actual)                                        \
+  ASSERT_WITH_MSG((int)expected == (int)actual, "Expected %d but got %d",      \
+                  (int)expected, (int)actual)
 
 #ifdef DEBUG
 #define DEBUG_ASSERT(expr) assert(expr)
@@ -134,6 +135,26 @@ int parse_int(const char *str, int len, int *out_num) {
 
   *out_num = num * sign;
   return 0; // Success
+}
+
+bool is_power_of_two(uintptr_t x) { return (x & (x - 1)) == 0; }
+
+uintptr_t align_forward(uintptr_t ptr, size_t align) {
+  uintptr_t p, a, modulo;
+
+  assert(is_power_of_two(align));
+
+  p = ptr;
+  a = (uintptr_t)align;
+  // Same as (p % a) but faster as 'a' is a power of two
+  modulo = p & (a - 1);
+
+  if (modulo != 0) {
+    // If 'p' address is not aligned, push the address to the
+    // next value which is aligned
+    p += a - modulo;
+  }
+  return p;
 }
 
 #endif

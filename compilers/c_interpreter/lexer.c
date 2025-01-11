@@ -123,7 +123,7 @@ Token lexer_next_token(Lexer *l) {
       token = new_token_s(TP_NOT_EQ, "!=");
       lexer_read_char(l);
     } else {
-      token = new_token_c(TP_BANG, l->c);
+      token = new_token_c(TP_BANG, '!');
     }
     break;
   case '<':

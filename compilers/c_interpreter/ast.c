@@ -20,6 +20,11 @@ typedef struct {
         Ast *expression;                                                       \
       })                                                                       \
   AST_KIND(                                                                    \
+      Return, "Return", struct {                                               \
+        Token token;                                                           \
+        Ast *expression;                                                       \
+      })                                                                       \
+  AST_KIND(                                                                    \
       Integer, "Integer", struct {                                             \
         Token token;                                                           \
         int value;                                                             \
@@ -35,7 +40,7 @@ typedef struct {
         string_const value;                                                    \
       })                                                                       \
   AST_KIND(                                                                    \
-      PrefixOperator, "Prefix Operator", struct {                          \
+      PrefixOperator, "Prefix Operator", struct {                              \
         Token token;                                                           \
         string_const operator;                                                 \
         Ast *right;                                                            \
@@ -44,8 +49,7 @@ typedef struct {
       Identifier, "Identifier", struct {                                       \
         Token token;                                                           \
         string_const value;                                                    \
-      })                                                                       \
-  AST_KIND(Return, "Return", struct { Token token; })
+      })
 
 // Ast enums
 typedef enum {
