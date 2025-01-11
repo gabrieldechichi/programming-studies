@@ -17,7 +17,7 @@ typedef struct {
       Let, "Let", struct {                                                     \
         Token token;                                                           \
         Identifier identifier;                                                 \
-        Ast *expression;                                                \
+        Ast *expression;                                                       \
       })                                                                       \
   AST_KIND(                                                                    \
       Integer, "Integer", struct {                                             \
@@ -27,7 +27,18 @@ typedef struct {
   AST_KIND(                                                                    \
       Boolean, "Boolean", struct {                                             \
         Token token;                                                           \
-        bool value;                                                             \
+        bool value;                                                            \
+      })                                                                       \
+  AST_KIND(                                                                    \
+      String, "String", struct {                                               \
+        Token token;                                                           \
+        string_const value;                                                    \
+      })                                                                       \
+  AST_KIND(                                                                    \
+      PrefixOperator, "Prefix Operator", struct {                          \
+        Token token;                                                           \
+        string_const operator;                                                 \
+        Ast *right;                                                            \
       })                                                                       \
   AST_KIND(                                                                    \
       Identifier, "Identifier", struct {                                       \

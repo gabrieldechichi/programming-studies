@@ -42,12 +42,12 @@ void test_integer_expression() {
   const char *input = "\
 5;\
 6;\
--1;\
+1;\
 ";
 
   struct {
     int expectedValue;
-  } tests[] = {{5}, {6}, {-1}};
+  } tests[] = {{5}, {6}, {1}};
 
   Lexer lexer = lexer_new(input);
   Parser parser = parser_new(&lexer);
@@ -83,8 +83,57 @@ false;\
   }
 }
 
+void test_string_expression() {
+  const char *input = "\
+\"foobar\";\
+\"foo bar\";\
+";
+  struct {
+    const char *expectedValue;
+  } tests[] = {{"foobar"}, {"foo bar"}};
+
+  AstProgram ast = parse_input(input);
+
+  ASSERT_EQ_INT(arrlen(ast.statements), ARRAY_LEN(tests));
+
+  for (int i = 0; i < ARRAY_LEN(tests); i++) {
+    Ast stm = ast.statements[i];
+    ASSERT_EQ_INT(stm.kind, Ast_String);
+    ASSERT(string_const_eq_s(stm.String.value, tests[i].expectedValue));
+  }
+}
+
+void test_prefix_operator() {
+  const char *input = "\
+!5;\
+-10;\
+!true;\
+!false;\
+";
+
+  struct TestCase {
+    const char *operator;
+    union {
+      int number;
+      bool flag;
+    } value;
+  } tests[] = {{"!", {5}}, {"-", {10}}, {"!", {TRUE}}, {"!", {FALSE}}};
+
+  AstProgram ast = parse_input(input);
+
+  ASSERT_EQ_INT(arrlen(ast.statements), ARRAY_LEN(tests));
+
+  for (int i = 0; i < ARRAY_LEN(tests); i++) {
+    Ast stm = ast.statements[i];
+    ASSERT_EQ_INT(stm.kind, Ast_PrefixOperator);
+    // todo: test prefix expression
+  }
+}
+
 void test_parser() {
   test_let_statements();
   test_integer_expression();
   test_boolean_expression();
+  test_string_expression();
+  test_prefix_operator();
 }

@@ -90,7 +90,7 @@ bool string_const_eq(string_const a, string_const b) {
   return TRUE;
 }
 
-bool string_const_eq_s(string_const a, char *b) {
+bool string_const_eq_s(string_const a, const char *b) {
   int len_b = strlen(b);
   if (a.len != len_b) {
     return FALSE;

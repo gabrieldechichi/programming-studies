@@ -16,6 +16,7 @@ typedef struct {
 } Parser;
 
 typedef Ast (*ParsePrefixExpressionFn)(Parser *p);
+internal Ast parse_expression(Parser *p);
 
 internal void next_token(Parser *p) {
   p->curToken = p->peekToken;
@@ -60,6 +61,26 @@ internal Ast parse_boolean_literal(Parser *p) {
   return statement;
 }
 
+internal Ast parse_string_literal(Parser *p) {
+  Ast statement = {0};
+  statement.kind = Ast_String;
+  statement.String.token = p->curToken;
+  statement.String.value = p->curToken.literal;
+
+  return statement;
+}
+
+internal Ast parse_prefix_operator(Parser *p) {
+  Ast statement = {0};
+  statement.kind = Ast_PrefixOperator;
+  statement.PrefixOperator.token = p->curToken;
+  statement.PrefixOperator.operator= p->curToken.literal;
+  // todo: support pointer
+  //  statement.PrefixOperator.right = parse_expression(p);
+
+  return statement;
+}
+
 internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
   switch (tokType) {
   case TP_INT:
@@ -68,6 +89,13 @@ internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
   case TP_TRUE:
   case TP_FALSE:
     return parse_boolean_literal;
+    break;
+  case TP_STRING:
+    return parse_string_literal;
+    break;
+  case TP_BANG:
+  case TP_MINUS:
+    return parse_prefix_operator;
     break;
   default:
     return NULL;
