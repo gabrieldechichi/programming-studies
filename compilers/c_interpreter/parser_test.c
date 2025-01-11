@@ -159,17 +159,17 @@ return y;\
   for (int i = 0; i < ARRAY_LEN(tests); i++) {
     Ast stm = ast.statements[i];
     ASSERT_EQ_INT(stm.kind, Ast_Return);
-    // Ast *right = stm.Return.expression;
-    printf("%.*s\n", STR_LEN_CHAR(expression_to_string(&stm)));
-    // todo: test expression
+    Ast *right = stm.Return.expression;
+    string_const right_str = expression_to_string(right);
+    ASSERT(string_const_eq_s(right_str, tests[i].expectedIdentifier));
   }
 }
 
 void test_parser() {
-  // test_let_statements();
-  // test_integer_expression();
-  // test_boolean_expression();
-  // test_string_expression();
-  // test_prefix_operator();
+  test_let_statements();
+  test_integer_expression();
+  test_boolean_expression();
+  test_string_expression();
+  test_prefix_operator();
   test_return_expression();
 }
