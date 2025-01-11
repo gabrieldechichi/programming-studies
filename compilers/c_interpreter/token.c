@@ -1,7 +1,7 @@
 #ifndef H_TOKEN
 #define H_TOKEN
 
-#include "./utils.c"
+#include "./string.c"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -45,7 +45,7 @@ static const char *g_token_names[] = {
 
 typedef struct {
   TokenType type;
-  string_const literal;
+  StringSlice literal;
 } Token;
 
 Token new_token(TokenType type, const char *literal, int len) {

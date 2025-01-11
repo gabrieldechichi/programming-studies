@@ -1,6 +1,7 @@
 #ifndef H_STRING_BUILDER
 #define H_STRING_BUILDER
 
+#include "string.c"
 #include <stddef.h>
 #include <string.h>
 
@@ -42,6 +43,10 @@ void sb_append_len(StringBuilder *sb, const char *text, size_t text_length) {
 
 void sb_append(StringBuilder *sb, const char *text) {
   return sb_append_len(sb, text, strlen(text));
+}
+
+void sb_append_slice(StringBuilder *sb, const StringSlice text) {
+  return sb_append_len(sb, text.value, text.len);
 }
 
 #endif

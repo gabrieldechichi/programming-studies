@@ -1,20 +1,20 @@
 #ifndef H_LEXER
 #define H_LEXER
 
+#include "string.c"
 #include "token.c"
-#include "utils.c"
 
 typedef struct {
   int pos;
   int readPos;
   char c;
-  string_const input;
+  StringSlice input;
 } Lexer;
 
 Lexer lexer_new(const char *input) {
   Lexer lexer;
   lexer.pos = lexer.readPos = lexer.c = 0;
-  lexer.input = new_string_const(input);
+  lexer.input = strslice_from_char_str(input);
   return lexer;
 }
 
@@ -53,52 +53,52 @@ static bool is_identifier(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-static string_const read_identifier(Lexer *l) {
+static StringSlice read_identifier(Lexer *l) {
   int start = l->pos;
   while (is_identifier(l->c)) {
     lexer_read_char(l);
   }
   lexer_go_back(l);
 
-  return string_const_from_slice(l->input.value, start, l->pos);
+  return strslice_new(l->input.value, start, l->pos);
 }
 
 static bool is_digit(char c) { return c >= '0' && c <= '9'; }
 
-static string_const read_digit(Lexer *l) {
+static StringSlice read_digit(Lexer *l) {
   int start = l->pos;
   while (is_digit(l->c)) {
     lexer_read_char(l);
   }
   lexer_go_back(l);
 
-  return string_const_from_slice(l->input.value, start, l->pos);
+  return strslice_new(l->input.value, start, l->pos);
 }
 
-static string_const read_string(Lexer *l) {
+static StringSlice read_string(Lexer *l) {
   lexer_read_char(l);
   int start = l->pos;
   while (l->c != '"') {
     lexer_read_char(l);
   }
 
-  return string_const_from_slice(l->input.value, start, l->pos - 1);
+  return strslice_new(l->input.value, start, l->pos - 1);
 }
 
-TokenType identifier_to_token_type(string_const s) {
-  if (string_const_eq_s(s, "let")) {
+TokenType identifier_to_token_type(StringSlice s) {
+  if (strslice_eq_s(s, "let")) {
     return TP_LET;
-  } else if (string_const_eq_s(s, "fn")) {
+  } else if (strslice_eq_s(s, "fn")) {
     return TP_FUNC;
-  } else if (string_const_eq_s(s, "true")) {
+  } else if (strslice_eq_s(s, "true")) {
     return TP_TRUE;
-  } else if (string_const_eq_s(s, "false")) {
+  } else if (strslice_eq_s(s, "false")) {
     return TP_FALSE;
-  } else if (string_const_eq_s(s, "if")) {
+  } else if (strslice_eq_s(s, "if")) {
     return TP_IF;
-  } else if (string_const_eq_s(s, "else")) {
+  } else if (strslice_eq_s(s, "else")) {
     return TP_ELSE;
-  } else if (string_const_eq_s(s, "return")) {
+  } else if (strslice_eq_s(s, "return")) {
     return TP_RETURN;
   }
   return TP_IDENT;
@@ -184,11 +184,11 @@ Token lexer_next_token(Lexer *l) {
     break;
   case 0:
     token.type = TP_EOF;
-    token.literal = new_string_const("");
+    token.literal = strslice_from_char_str("");
     break;
   default: {
     if (is_identifier(l->c)) {
-      string_const literal = read_identifier(l);
+      StringSlice literal = read_identifier(l);
       token.type = identifier_to_token_type(literal);
       token.literal = literal;
     } else if (is_digit(l->c)) {
@@ -196,7 +196,7 @@ Token lexer_next_token(Lexer *l) {
       token.literal = read_digit(l);
     } else {
       token.type = TP_ILLEGAL;
-      token.literal = new_string_const("");
+      token.literal = strslice_from_char_str("");
     }
     break;
   }

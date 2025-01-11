@@ -1,6 +1,8 @@
 #ifndef H_MACROS
 #define H_MACROS
 
+#include "assert.h"
+
 typedef char bool;
 
 #define internal static

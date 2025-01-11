@@ -1,7 +1,7 @@
 #include "ast.c"
 #include "lexer.c"
 #include "parser.c"
-#include "utils.c"
+#include "string.c"
 #include "vendor/stb/stb_ds.h"
 #include <stdio.h>
 
@@ -33,8 +33,8 @@ let foobar = 838383;\
     Ast statement = ast.statements[i];
     ASSERT(statement.kind == Ast_Let);
 
-    ASSERT(string_const_eq_s(statement.Let.identifier.value,
-                             tests[i].expectedIdentifier));
+    ASSERT(strslice_eq_s(statement.Let.identifier.value,
+                         tests[i].expectedIdentifier));
   }
 }
 
@@ -99,7 +99,7 @@ void test_string_expression() {
   for (int i = 0; i < ARRAY_LEN(tests); i++) {
     Ast stm = ast.statements[i];
     ASSERT_EQ_INT(stm.kind, Ast_String);
-    ASSERT(string_const_eq_s(stm.String.value, tests[i].expectedValue));
+    ASSERT(strslice_eq_s(stm.String.value, tests[i].expectedValue));
   }
 }
 
@@ -128,9 +128,10 @@ void test_prefix_operator() {
     ASSERT_EQ_INT(stm.kind, Ast_PrefixOperator);
 
     ASSERT_WITH_MSG(
-        string_const_eq_s(stm.PrefixOperator.operator, tests[i].operator),
-        "Expected %s got %.*s", tests[i].operator,
-        stm.PrefixOperator.operator.len, stm.PrefixOperator.operator.value);
+        strslice_eq_s(stm.PrefixOperator.operator, tests[i].operator),
+        "Expected %s got %.*s",
+        tests[i].operator,(int) stm.PrefixOperator.operator.len,
+        stm.PrefixOperator.operator.value);
     // todo: test prefix expression
   }
 }
@@ -160,8 +161,8 @@ return y;\
     Ast stm = ast.statements[i];
     ASSERT_EQ_INT(stm.kind, Ast_Return);
     Ast *right = stm.Return.expression;
-    string_const right_str = expression_to_string(right);
-    ASSERT(string_const_eq_s(right_str, tests[i].expectedIdentifier));
+    StringSlice right_str = expression_to_string(right);
+    ASSERT(strslice_eq_s(right_str, tests[i].expectedIdentifier));
   }
 }
 

@@ -4,8 +4,8 @@
 #include "global.c"
 #include "macros.h"
 #include "str_builder.c"
+#include "string.c"
 #include "token.c"
-#include "utils.c"
 #include <stdio.h>
 #include <string.h>
 
@@ -13,7 +13,7 @@ typedef struct Ast Ast;
 
 typedef struct {
   Token token;
-  string_const value;
+  StringSlice value;
 } Identifier;
 
 #define AST_KINDS                                                              \
@@ -41,18 +41,18 @@ typedef struct {
   AST_KIND(                                                                    \
       String, "String", struct {                                               \
         Token token;                                                           \
-        string_const value;                                                    \
+        StringSlice value;                                                     \
       })                                                                       \
   AST_KIND(                                                                    \
       PrefixOperator, "Prefix Operator", struct {                              \
         Token token;                                                           \
-        string_const operator;                                                 \
+        StringSlice operator;                                                  \
         Ast *right;                                                            \
       })                                                                       \
   AST_KIND(                                                                    \
       Identifier, "Identifier", struct {                                       \
         Token token;                                                           \
-        string_const value;                                                    \
+        StringSlice value;                                                     \
       })
 
 // Ast enums
@@ -83,8 +83,8 @@ typedef struct {
   Ast *statements;
 } AstProgram;
 
-string_const expression_to_string(const Ast *ast) {
-  string_const ret_val = {0};
+StringSlice expression_to_string(const Ast *ast) {
+  StringSlice ret_val = {0};
 
   DEBUG_ASSERT(ast);
   if (!ast) {
@@ -100,9 +100,9 @@ string_const expression_to_string(const Ast *ast) {
   case Ast_Let:
     break;
   case Ast_Return: {
-    string_const right_string = expression_to_string(ast->Return.expression);
+    StringSlice right_string = expression_to_string(ast->Return.expression);
     sb_append(sb, "return ");
-    sb_append_len(sb, STR_CHAR_LEN(right_string));
+    sb_append_slice(sb, right_string);
     sb_append(sb, ";");
     break;
   }
@@ -119,7 +119,7 @@ string_const expression_to_string(const Ast *ast) {
   case Ast_PrefixOperator:
     break;
   case Ast_Identifier:
-    sb_append_len(sb, STR_CHAR_LEN(ast->Identifier.value));
+    sb_append_slice(sb, ast->Identifier.value);
     break;
   case Ast_Count:
     break;

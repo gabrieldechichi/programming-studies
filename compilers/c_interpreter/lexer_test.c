@@ -1,6 +1,6 @@
-#import "./token.c"
-#import "./utils.c"
 #import "./lexer.c"
+#import "./string.c"
+#import "./token.c"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -101,7 +101,7 @@ return;\
         t.type == tests[i].expectedType, "Test %d failed. Expected %s found %s",
         i, token_type_to_str(tests[i].expectedType), token_type_to_str(t.type));
 
-    ASSERT_WITH_MSG(string_const_eq_s(t.literal, tests[i].literal),
+    ASSERT_WITH_MSG(strslice_eq_s(t.literal, tests[i].literal),
                     "Test %d failed. Expected %s found %s", i, tests[i].literal,
                     t.literal.value);
   }
@@ -238,7 +238,7 @@ if (5 < 10) { \
         t.type == tests[i].expectedType, "Test %d failed. Expected %s found %s",
         i, token_type_to_str(tests[i].expectedType), token_type_to_str(t.type));
 
-    ASSERT_WITH_MSG(string_const_eq_s(t.literal, tests[i].literal),
+    ASSERT_WITH_MSG(strslice_eq_s(t.literal, tests[i].literal),
                     "Test %d failed. Expected %s found %s", i, tests[i].literal,
                     t.literal.value);
   }
