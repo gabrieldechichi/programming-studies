@@ -1,50 +1,26 @@
 #ifndef H_UTILS
 #define H_UTILS
 
+#include "macros.h"
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-#define internal static
-
-#define GD_JOIN2(a, b) a##b
-#define GD_JOIN3(a, b, c) GD_JOIN2(a, GD_JOIN2(b, c))
-#define GD_JOIN4(a, b, c, d) GD_JOIN2(a, GD_JOIN2(b, GD_JOIN2(c, d)))
+typedef struct {
+  int kind;
+  char *msg;
+} Error;
 
 typedef struct {
   const char *value;
   int len;
 } string_const;
 
-typedef char bool;
-
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-
-#define ARRAY_LEN(array) (sizeof(array) / sizeof((array)[0]))
-#define TRUE 1
-#define FALSE 0
-
-#define ASSERT assert
-
-#define ASSERT_WITH_MSG(expr, msg, ...)                                        \
-  if (!(expr)) {                                                               \
-    fprintf(stderr, (msg), __VA_ARGS__);                                       \
-    fprintf(stderr, "\n");                                                     \
-    assert(expr);                                                              \
-  }
-
-#define ASSERT_EQ_INT(expected, actual)                                        \
-  ASSERT_WITH_MSG((int)expected == (int)actual, "Expected %d but got %d",      \
-                  (int)expected, (int)actual)
-
-#ifdef DEBUG
-#define DEBUG_ASSERT(expr) assert(expr)
-#else
-#define DEBUG_ASSERT(expr) ((void)0)
-#endif
+#define STR_PRINT_ARGS(s) (int)s.len, s.value
+#define STR_CHAR_LEN(s) s.value, s.len
+#define STR_LEN_CHAR(s) (int)s.len, s.value
 
 string_const new_string_const(const char *str) {
   string_const s = {0};
@@ -135,6 +111,31 @@ int parse_int(const char *str, int len, int *out_num) {
 
   *out_num = num * sign;
   return 0; // Success
+}
+
+size_t calculate_int_string_size(int n) {
+  size_t size = 0;
+
+  if (n == 0) {
+    return 2;
+  }
+
+  if (n < 0) {
+    size++;
+    if (n == -2147483648) {
+      // Return size for "-2147483648" (11 characters plus null terminator)
+      return 12;
+    }
+    n = -n;
+  }
+
+  // Count the digits
+  while (n != 0) {
+    size++;
+    n /= 10;
+  }
+
+  return size + 1;
 }
 
 bool is_power_of_two(uintptr_t x) { return (x & (x - 1)) == 0; }

@@ -1,8 +1,12 @@
 #ifndef H_AST
 #define H_AST
 
+#include "global.c"
+#include "macros.h"
+#include "str_builder.c"
 #include "token.c"
 #include "utils.c"
+#include <stdio.h>
 #include <string.h>
 
 typedef struct Ast Ast;
@@ -78,5 +82,51 @@ struct Ast {
 typedef struct {
   Ast *statements;
 } AstProgram;
+
+string_const expression_to_string(const Ast *ast) {
+  string_const ret_val = {0};
+
+  DEBUG_ASSERT(ast);
+  if (!ast) {
+    return ret_val;
+  }
+
+  StringBuilder *sb = GD_TEMP_ALLOC_T(StringBuilder);
+  sb_init(sb, gd_temp_realloc);
+
+  switch (ast->kind) {
+  case Ast_Invalid:
+    break;
+  case Ast_Let:
+    break;
+  case Ast_Return: {
+    string_const right_string = expression_to_string(ast->Return.expression);
+    sb_append(sb, "return ");
+    sb_append_len(sb, STR_CHAR_LEN(right_string));
+    sb_append(sb, ";");
+    break;
+  }
+  case Ast_Integer: {
+    char temp_s[16];
+    sprintf(temp_s, "%d", ast->Integer.value);
+    sb_append(sb, temp_s);
+    break;
+  }
+  case Ast_Boolean:
+    break;
+  case Ast_String:
+    break;
+  case Ast_PrefixOperator:
+    break;
+  case Ast_Identifier:
+    break;
+  case Ast_Count:
+    break;
+  }
+
+  ret_val.value = sb->str;
+  ret_val.len = sb->length;
+  return ret_val;
+}
 
 #endif

@@ -130,8 +130,7 @@ internal Ast parse_return_statement(Parser *p) {
   ret_statement.Return.token = p->curToken;
 
   next_token(p);
-  ret_statement.Return.expression =
-      arena_alloc(&global_ctx()->arena_alloc, sizeof(Ast));
+  ret_statement.Return.expression = GD_ARENA_ALLOC_T(Ast);
   *ret_statement.Return.expression = parse_expression(p);
 
   if (peek_token_is(p, TP_SEMICOLON)) {

@@ -1,7 +1,6 @@
 #include "./lexer_test.c"
 #include "./parser_test.c"
 #include "global.c"
-#include "utils.c"
 #include <stdio.h>
 
 int main() {
