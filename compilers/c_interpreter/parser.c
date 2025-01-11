@@ -51,10 +51,23 @@ internal Ast parse_integer_literal(Parser *p) {
   return statement;
 }
 
+internal Ast parse_boolean_literal(Parser *p) {
+  Ast statement = {0};
+  statement.kind = Ast_Boolean;
+  statement.Boolean.token = p->curToken;
+  statement.Boolean.value = p->curToken.type == TP_TRUE;
+
+  return statement;
+}
+
 internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
   switch (tokType) {
   case TP_INT:
     return parse_integer_literal;
+    break;
+  case TP_TRUE:
+  case TP_FALSE:
+    return parse_boolean_literal;
     break;
   default:
     return NULL;

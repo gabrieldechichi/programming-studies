@@ -86,5 +86,5 @@ false;\
 void test_parser() {
   test_let_statements();
   test_integer_expression();
-  // test_boolean_expression();
+  test_boolean_expression();
 }
