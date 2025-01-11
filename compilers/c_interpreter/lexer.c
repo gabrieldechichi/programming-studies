@@ -67,6 +67,9 @@ static bool is_digit(char c) { return c >= '0' && c <= '9'; }
 
 static string_const read_digit(Lexer *l) {
   int start = l->pos;
+  if (l->c == '-') {
+    lexer_read_char(l);
+  }
   while (is_digit(l->c)) {
     lexer_read_char(l);
   }
@@ -146,7 +149,12 @@ Token lexer_next_token(Lexer *l) {
     token = new_token_c(TP_PLUS, l->c);
     break;
   case '-':
-    token = new_token_c(TP_MINUS, l->c);
+    if (is_digit(lexer_peek_char(l))) {
+      token.type = TP_INT;
+      token.literal = read_digit(l);
+    } else {
+      token = new_token_c(TP_MINUS, l->c);
+    }
     break;
   case '*':
     token = new_token_c(TP_ASTERISK, l->c);

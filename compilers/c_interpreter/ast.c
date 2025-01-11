@@ -25,6 +25,11 @@ typedef struct {
         int value;                                                             \
       })                                                                       \
   AST_KIND(                                                                    \
+      Boolean, "Boolean", struct {                                             \
+        Token token;                                                           \
+        bool value;                                                             \
+      })                                                                       \
+  AST_KIND(                                                                    \
       Identifier, "Identifier", struct {                                       \
         Token token;                                                           \
         string_const value;                                                    \

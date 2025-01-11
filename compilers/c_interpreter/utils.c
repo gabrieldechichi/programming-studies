@@ -36,8 +36,8 @@ typedef char bool;
     assert(expr);                                                              \
   }
 
-#define ASSERT_EQ_INT(a, b)                                                    \
-  ASSERT_WITH_MSG((int)a == (int)b, "Expected %d to equal %d", (int)a, (int)b)
+#define ASSERT_EQ_INT(expected, actual)                                                    \
+  ASSERT_WITH_MSG((int)expected == (int)actual, "Expected %d but got %d", (int)expected, (int)actual)
 
 #ifdef DEBUG
 #define DEBUG_ASSERT(expr) assert(expr)
