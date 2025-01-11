@@ -127,11 +127,10 @@ void test_prefix_operator() {
     Ast stm = ast.statements[i];
     ASSERT_EQ_INT(stm.kind, Ast_PrefixOperator);
 
-    printf("%d\n", stm.PrefixOperator.operator.len);
     ASSERT_WITH_MSG(
         string_const_eq_s(stm.PrefixOperator.operator, tests[i].operator),
-        "Expected %s got %c", tests[i].operator,
-        stm.PrefixOperator.operator.value[0]);
+        "Expected %s got %.*s", tests[i].operator,
+        stm.PrefixOperator.operator.len, stm.PrefixOperator.operator.value);
     // todo: test prefix expression
   }
 }
