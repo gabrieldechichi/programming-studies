@@ -40,6 +40,15 @@ internal bool peek_token_is(const Parser *p, TokenType tokType) {
   return p->peekToken.type == tokType;
 }
 
+internal Ast parse_identifier(Parser *p) {
+  Ast statement = {0};
+  statement.kind = Ast_Identifier;
+  statement.Identifier.token = p->curToken;
+  statement.Identifier.value = p->curToken.literal;
+
+  return statement;
+}
+
 internal Ast parse_integer_literal(Parser *p) {
   Ast statement = {0};
   statement.kind = Ast_Integer;
@@ -87,20 +96,18 @@ internal Ast parse_prefix_operator(Parser *p) {
 
 internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
   switch (tokType) {
+  case TP_IDENT:
+    return parse_identifier;
   case TP_INT:
     return parse_integer_literal;
-    break;
   case TP_TRUE:
   case TP_FALSE:
     return parse_boolean_literal;
-    break;
   case TP_STRING:
     return parse_string_literal;
-    break;
   case TP_BANG:
   case TP_MINUS:
     return parse_prefix_operator;
-    break;
   default:
     return NULL;
   }

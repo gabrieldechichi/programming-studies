@@ -119,6 +119,7 @@ string_const expression_to_string(const Ast *ast) {
   case Ast_PrefixOperator:
     break;
   case Ast_Identifier:
+    sb_append_len(sb, STR_CHAR_LEN(ast->Identifier.value));
     break;
   case Ast_Count:
     break;

@@ -161,7 +161,6 @@ return y;\
     ASSERT_EQ_INT(stm.kind, Ast_Return);
     // Ast *right = stm.Return.expression;
     printf("%.*s\n", STR_LEN_CHAR(expression_to_string(&stm)));
-    break;
     // todo: test expression
   }
 }
