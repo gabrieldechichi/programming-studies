@@ -4,6 +4,7 @@
 #include "ast.c"
 #include "global.c"
 #include "lexer.c"
+#include "macros.h"
 #include "token.c"
 #include "utils.c"
 #include "vendor/stb/stb_ds.h"
@@ -107,6 +108,42 @@ internal Ast parse_prefix_operator(Parser *p) {
 Ast parse_expr_infix(Parser *p, Ast left) {
   Ast infix_expr = {0};
   infix_expr.kind = Ast_InfixExpression;
+  switch (p->curToken.type) {
+  case TP_PLUS:
+    infix_expr.InfixExpression.operator= OP_ADD;
+    break;
+  case TP_MINUS:
+    infix_expr.InfixExpression.operator= OP_SUB;
+    break;
+  case TP_ASTERISK:
+    infix_expr.InfixExpression.operator= OP_MUL;
+    break;
+  case TP_SLASH:
+    infix_expr.InfixExpression.operator= OP_DIV;
+    break;
+  case TP_LT:
+    infix_expr.InfixExpression.operator= OP_LT;
+    break;
+  case TP_GT:
+    infix_expr.InfixExpression.operator= OP_GT;
+    break;
+  case TP_LTOREQ:
+    infix_expr.InfixExpression.operator= OP_LTOREQ;
+    break;
+  case TP_GTOREQ:
+    infix_expr.InfixExpression.operator= OP_GTOREQ;
+    break;
+  case TP_EQ:
+    infix_expr.InfixExpression.operator= OP_EQ;
+    break;
+  case TP_NOT_EQ:
+    infix_expr.InfixExpression.operator= OP_NOTEQ;
+    break;
+  default:
+    // should not arrive here
+    DEBUG_ASSERT(FALSE);
+    break;
+  };
   infix_expr.InfixExpression.token = p->curToken;
   infix_expr.InfixExpression.left = GD_ARENA_ALLOC_T(Ast);
   *infix_expr.InfixExpression.left = left;

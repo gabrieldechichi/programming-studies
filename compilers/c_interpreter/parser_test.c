@@ -1,7 +1,9 @@
 #include "ast.c"
 #include "lexer.c"
+#include "macros.h"
 #include "parser.c"
 #include "string.c"
+#include "token.c"
 #include "vendor/stb/stb_ds.h"
 #include <stdio.h>
 
@@ -181,20 +183,24 @@ true == false;\
 true != false;\
 ";
 
-  union Value {
+  typedef union {
     int n;
     bool flag;
-  };
+  } Value;
 
-  struct TestCase {
-    union Value left;
-    union Value right;
-    const char *operator;
-  } tests[] = {
-      {{5}, {5}, "+"},  {{5}, {5}, "-"},         {{5}, {5}, "*"},
-      {{5}, {5}, "/"},  {{5}, {5}, ">"},         {{5}, {5}, "<"},
-      {{5}, {5}, "=="}, {{5}, {5}, "!="},        {{5}, {5}, "<="},
-      {{5}, {5}, ">="}, {{TRUE}, {FALSE}, "=="}, {{TRUE}, {FALSE}, "!="},
+  typedef struct {
+    Value left;
+    Value right;
+    const TokenOperation operator;
+  } TestCase;
+
+  TestCase tests[] = {
+      {{5}, {5}, OP_ADD},       {{5}, {5}, OP_SUB},
+      {{5}, {5}, OP_MUL},       {{5}, {5}, OP_DIV},
+      {{5}, {5}, OP_GT},        {{5}, {5}, OP_LT},
+      {{5}, {5}, OP_EQ},        {{5}, {5}, OP_NOTEQ},
+      {{5}, {5}, OP_LTOREQ},    {{5}, {5}, OP_GTOREQ},
+      {{TRUE}, {FALSE}, OP_EQ}, {{TRUE}, {FALSE}, OP_NOTEQ},
   };
 
   AstProgram ast = parse_input(input);
@@ -203,19 +209,21 @@ true != false;\
 
   for (int i = 0; i < ARRAY_LEN(tests); i++) {
     Ast stm = ast.statements[i];
+    TestCase test = tests[i];
     ASSERT_EQ_INT(stm.kind, Ast_InfixExpression);
-    // Ast *right = stm.Return.expression;
-    // StringSlice right_str = expression_to_string(right);
-    // ASSERT(strslice_eq_s(right_str, tests[i].expectedIdentifier));
+    ASSERT_EQ_INT(stm.InfixExpression.operator, test.operator);
+
+    ASSERT_EQ_INT(test.left.n, stm.InfixExpression.left->Integer.value);
+    ASSERT_EQ_INT(test.right.n, stm.InfixExpression.right->Integer.value);
   }
 }
 
 void test_parser() {
-  // test_let_statements();
-  // test_integer_expression();
-  // test_boolean_expression();
-  // test_string_expression();
-  // test_prefix_operator();
-  // test_return_expression();
+  test_let_statements();
+  test_integer_expression();
+  test_boolean_expression();
+  test_string_expression();
+  test_prefix_operator();
+  test_return_expression();
   test_infix_expression();
 }

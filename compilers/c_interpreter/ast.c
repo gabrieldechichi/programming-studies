@@ -59,7 +59,7 @@ typedef struct {
         Token token;                                                           \
         Ast *left;                                                             \
         Ast *right;                                                            \
-        StringSlice operator;                                                  \
+        TokenOperation operator;                                               \
       })
 
 // Ast enums

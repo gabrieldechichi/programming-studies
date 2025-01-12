@@ -54,6 +54,19 @@ typedef enum {
   P_INDEXING,    // [
 } TokenPrecedence;
 
+typedef enum {
+  OP_ADD,
+  OP_SUB,
+  OP_MUL,
+  OP_DIV,
+  OP_EQ,
+  OP_NOTEQ,
+  OP_GT,
+  OP_LT,
+  OP_GTOREQ,
+  OP_LTOREQ,
+} TokenOperation;
+
 typedef struct {
   TokenType type;
   StringSlice literal;
