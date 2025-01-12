@@ -123,15 +123,31 @@ StringSlice expression_to_string(const Ast *ast) {
     break;
   case Ast_String:
     break;
-  case Ast_PrefixOperator:
+  case Ast_PrefixOperator: {
+    sb_append(sb, "(");
+    sb_append_slice(sb, ast->PrefixOperator.operator);
+    sb_append_slice(sb, expression_to_string(ast->PrefixOperator.right));
+    sb_append(sb, ")");
     break;
+  }
   case Ast_Identifier:
     sb_append_slice(sb, ast->Identifier.value);
     break;
   case Ast_Count:
     break;
-  case Ast_InfixExpression:
+  case Ast_InfixExpression: {
+    sb_append(sb, "(");
+    StringSlice left = expression_to_string(ast->InfixExpression.left);
+    StringSlice right = expression_to_string(ast->InfixExpression.right);
+    StringSlice operator= ast->InfixExpression.token.literal;
+    sb_append_slice(sb, left);
+    sb_append(sb, " ");
+    sb_append_slice(sb, operator);
+    sb_append(sb, " ");
+    sb_append_slice(sb, right);
+    sb_append(sb, ")");
     break;
+  }
   }
 
   ret_val.value = sb->str;

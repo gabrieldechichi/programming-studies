@@ -30,7 +30,7 @@ void lexer_read_char(Lexer *l) {
 }
 
 void lexer_go_back(Lexer *l) {
-  if (l->pos > 0) {
+  if (l->pos >= 0) {
     l->readPos = l->pos;
     l->pos--;
   }
@@ -58,9 +58,17 @@ static StringSlice read_identifier(Lexer *l) {
   while (is_identifier(l->c)) {
     lexer_read_char(l);
   }
-  lexer_go_back(l);
 
-  return strslice_new(l->input.value, start, l->pos);
+  if (l->c) {
+    lexer_go_back(l);
+  }
+
+  int end = l->pos;
+  if (start >= end) {
+    return strslice_new_len(&l->input.value[start], 1);
+  }
+
+  return strslice_new(l->input.value, start, end);
 }
 
 static bool is_digit(char c) { return c >= '0' && c <= '9'; }

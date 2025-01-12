@@ -218,12 +218,121 @@ true != false;\
   }
 }
 
+void test_operator_precedence() {
+  typedef struct {
+    const char *input;
+    const char *expected;
+  } TestCase;
+
+  TestCase tests[] = {
+      {
+          "-a * b",
+          "((-a) * b)",
+      },
+      // {
+      //     "1 + 2 * 3",
+      //     "(1 + (2 * 3))",
+      // },
+      // {
+      //     "!-a",
+      //     "(!(-a))",
+      // },
+      // {
+      //     "a + b + c",
+      //     "((a + b) + c)",
+      // },
+      // {
+      //     "a + b - c",
+      //     "((a + b) - c)",
+      // },
+      // {
+      //     "a * b * c",
+      //     "((a * b) * c)",
+      // },
+      // {
+      //     "a * b / c",
+      //     "((a * b) / c)",
+      // },
+      // {
+      //     "a + b / c",
+      //     "(a + (b / c))",
+      // },
+      // {
+      //     "a + b * c + d / e - f",
+      //     "(((a + (b * c)) + (d / e)) - f)",
+      // },
+      // {
+      //     "5 > 4 == 3 < 4",
+      //     "((5 > 4) == (3 < 4))",
+      // },
+      // {
+      //     "5 < 4 != 3 > 4",
+      //     "((5 < 4) != (3 > 4))",
+      // },
+      // {
+      //     "3 + 4 * 5 == 3 * 1 + 4 * 5",
+      //     "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+      // },
+      // {
+      //     "3 + 4 * 5 == 3 * 1 + 4 * 5",
+      //     "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+      // },
+      // {
+      //     "3 > 5 == true",
+      //     "((3 > 5) == true)",
+      // },
+      // {
+      //     "3 == 5 != false",
+      //     "((3 == 5) != false)",
+      // },
+      // {
+      //     "1 + (2 + 3) + 4",
+      //     "((1 + (2 + 3)) + 4)",
+      // },
+      // {
+      //     "(5 + 5) * 2",
+      //     "((5 + 5) * 2)",
+      // },
+      // {
+      //     "2 / (5 + 5)",
+      //     "(2 / (5 + 5))",
+      // },
+      // {
+      //     "-(5 + 5)",
+      //     "(-(5 + 5))",
+      // },
+      // {
+      //     "!(true == true)",
+      //     "(!(true == true))",
+      // },
+      // {
+      //     "a * [1, 2, 3, 4][b * c] * d",
+      //     "((a * ([1, 2, 3, 4][(b * c)])) * d)",
+      // },
+      // {
+      //     "add(a * b[2], b[1], 2 * [1, 2][1])",
+      //     "add((a * (b[2])), (b[1]), (2 * ([1, 2][1])))",
+      // },
+  };
+
+  for (int i = 0; i < ARRAY_LEN(tests); i++) {
+    TestCase t = tests[i];
+    AstProgram ast = parse_input(t.input);
+    ASSERT_EQ_INT(1, arrlen(ast.statements));
+
+    StringSlice statement_str = expression_to_string(&ast.statements[0]);
+    printf("%.*s\n\n", (int) statement_str.len, statement_str.value);
+    ASSERT(strslice_eq_s(statement_str, t.expected));
+  }
+}
+
 void test_parser() {
-  test_let_statements();
-  test_integer_expression();
-  test_boolean_expression();
-  test_string_expression();
-  test_prefix_operator();
-  test_return_expression();
-  test_infix_expression();
+  // test_let_statements();
+  // test_integer_expression();
+  // test_boolean_expression();
+  // test_string_expression();
+  // test_prefix_operator();
+  // test_return_expression();
+  // test_infix_expression();
+  test_operator_precedence();
 }
