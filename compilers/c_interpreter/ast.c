@@ -120,6 +120,7 @@ StringSlice expression_to_string(const Ast *ast) {
     break;
   }
   case Ast_Boolean:
+    sb_append(sb, ast->Boolean.value ? "true" : "false");
     break;
   case Ast_String:
     break;
@@ -154,5 +155,4 @@ StringSlice expression_to_string(const Ast *ast) {
   ret_val.len = sb->length;
   return ret_val;
 }
-
 #endif

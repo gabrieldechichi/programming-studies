@@ -78,7 +78,9 @@ static StringSlice read_digit(Lexer *l) {
   while (is_digit(l->c)) {
     lexer_read_char(l);
   }
-  lexer_go_back(l);
+  if (l->c) {
+    lexer_go_back(l);
+  }
 
   return strslice_new(l->input.value, start, l->pos);
 }

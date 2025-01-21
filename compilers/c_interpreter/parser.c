@@ -144,14 +144,14 @@ Ast parse_expr_infix(Parser *p, Ast left) {
     DEBUG_ASSERT(FALSE);
     break;
   };
+
+  TokenPrecedence precedence = parser_current_precedence(p);
   infix_expr.InfixExpression.token = p->curToken;
   infix_expr.InfixExpression.left = GD_ARENA_ALLOC_T(Ast);
   *infix_expr.InfixExpression.left = left;
   next_token(p);
   infix_expr.InfixExpression.right = GD_ARENA_ALLOC_T(Ast);
-  TokenPrecedence precedence = parser_current_precedence(p);
   *infix_expr.InfixExpression.right = parse_expression(p, precedence);
-  next_token(p);
   return infix_expr;
 }
 
@@ -173,6 +173,16 @@ internal ParseInfixExpressionFn get_infix_parse_fn(TokenType tokType) {
   }
 }
 
+internal Ast parse_group_expression(Parser *p) {
+  next_token(p);
+  Ast statement = parse_expression(p, P_LOWEST);
+  if (!peek_token_is(p, TP_RPAREN)) {
+    DEBUG_ASSERT(0);
+  }
+  next_token(p);
+  return statement;
+}
+
 internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
   switch (tokType) {
   case TP_IDENT:
@@ -187,6 +197,8 @@ internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
   case TP_BANG:
   case TP_MINUS:
     return parse_prefix_operator;
+  case TP_LPAREN:
+    return parse_group_expression;
   default:
     return NULL;
   }
@@ -199,6 +211,7 @@ internal Ast parse_expression(Parser *p, TokenPrecedence precedence) {
   ParsePrefixExpressionFn prefix_parse_fn =
       get_prefix_parse_fn(p->curToken.type);
   if (prefix_parse_fn == NULL) {
+    DEBUG_ASSERT(0);
     // todo: error
     return leftExpr;
   }
