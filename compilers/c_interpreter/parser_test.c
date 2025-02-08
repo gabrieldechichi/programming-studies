@@ -148,12 +148,13 @@ void test_return_expression() {
 return 5;\
 return x + 1;\
 return x + y * 2;\
+return add(1,2);\
 ";
   // return add(1,2);
 
   struct TestCase {
     const char *expectedIdentifier;
-  } tests[] = {{"5"}, {"(x + 1)"}, {"(x + (y * 2))"}};
+  } tests[] = {{"5"}, {"(x + 1)"}, {"(x + (y * 2))"}, {"add(1, 2)"}};
 
   //   const char *input = "\
 // return 5;\
@@ -372,13 +373,13 @@ add(pow(2,3), 3);\
 }
 
 void test_parser() {
-  // test_let_statements();
-  // test_integer_expression();
-  // test_boolean_expression();
-  // test_string_expression();
-  // test_prefix_operator();
-  // test_return_expression();
-  // test_infix_expression();
-  // test_operator_precedence();
+  test_let_statements();
+  test_integer_expression();
+  test_boolean_expression();
+  test_string_expression();
+  test_prefix_operator();
+  test_return_expression();
+  test_infix_expression();
+  test_operator_precedence();
   test_func_call_expression();
 }
