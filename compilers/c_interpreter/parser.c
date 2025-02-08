@@ -21,6 +21,7 @@ typedef Ast (*ParsePrefixExpressionFn)(Parser *p);
 typedef Ast (*ParseInfixExpressionFn)(Parser *p, Ast left);
 
 internal Ast parse_expression(Parser *p, TokenPrecedence precedence);
+internal Ast parse_statement(Parser *p);
 
 internal void next_token(Parser *p) {
   p->curToken = p->peekToken;
@@ -220,6 +221,66 @@ internal Ast parse_group_expression(Parser *p) {
   return statement;
 }
 
+internal Ast parse_block_statement(Parser *p) {
+  Ast expr = {0};
+  expr.kind = Ast_BlockStatement;
+  DEBUG_ASSERT(p->curToken.type == TP_LBRACE);
+  next_token(p);
+
+  // note: write a real array class or use sb?
+  size_t statements_cap = 16;
+  size_t statements_len = 0;
+  Ast *temp_statements = GD_TEMP_ALLOC_ARRAY(Ast, statements_cap);
+  while (p->curToken.type != TP_RBRACE && p->curToken.type != TP_EOF) {
+    if (statements_len == statements_cap) {
+      statements_cap *= 2;
+      temp_statements =
+          GD_TEMP_REALLOC_ARRAY(Ast, temp_statements, statements_cap);
+    }
+    Ast statement = parse_statement(p);
+    temp_statements[statements_len++] = statement;
+  }
+
+  if (statements_len > 0) {
+    expr.BlockStatement.statement_len = statements_len;
+    expr.BlockStatement.statements = GD_ARENA_ALLOC_ARRAY(Ast, statements_len);
+    MEMCPY_ARRAY(Ast, expr.BlockStatement.statements, temp_statements,
+                 statements_len);
+  }
+
+  return expr;
+}
+
+internal Ast parse_if_expression(Parser *p) {
+  Ast expr = {0};
+  expr.kind = Ast_IfExpression;
+  expr.IfExpression.token = p->curToken;
+  next_token(p);
+  DEBUG_ASSERT(p->curToken.type == TP_LPAREN);
+  next_token(p);
+  Ast condition = parse_expression(p, P_LOWEST);
+  expr.IfExpression.condition = GD_ARENA_ALLOC_T(Ast);
+  *expr.IfExpression.condition = condition;
+  next_token(p);
+
+  DEBUG_ASSERT(p->curToken.type == TP_RPAREN);
+  next_token(p);
+  DEBUG_ASSERT(p->curToken.type == TP_LBRACE);
+  Ast consequence = parse_block_statement(p);
+  expr.IfExpression.consequence = GD_ARENA_ALLOC_T(Ast);
+  *expr.IfExpression.consequence = consequence;
+
+  if (p->peekToken.type == TP_ELSE) {
+    next_token(p);
+    next_token(p);
+    DEBUG_ASSERT(p->curToken.type == TP_LBRACE);
+    Ast alternative = parse_block_statement(p);
+    expr.IfExpression.alternative = GD_ARENA_ALLOC_T(Ast);
+    *expr.IfExpression.alternative = alternative;
+  }
+  return expr;
+}
+
 internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
   switch (tokType) {
   case TP_IDENT:
@@ -236,6 +297,8 @@ internal ParsePrefixExpressionFn get_prefix_parse_fn(TokenType tokType) {
     return parse_prefix_operator;
   case TP_LPAREN:
     return parse_group_expression;
+  case TP_IF:
+    return parse_if_expression;
   default:
     return NULL;
   }
@@ -312,17 +375,22 @@ internal Ast parse_let_statement(Parser *p) {
 }
 
 internal Ast parse_statement(Parser *p) {
+  Ast statement = {0};
   switch (p->curToken.type) {
   case TP_LET:
-    return parse_let_statement(p);
+    statement = parse_let_statement(p);
     break;
   case TP_RETURN:
-    return parse_return_statement(p);
+    statement = parse_return_statement(p);
     break;
   default: {
-    return parse_expression(p, P_LOWEST);
+    statement = parse_expression(p, P_LOWEST);
   }
   }
+  while (cur_token_is(p, TP_SEMICOLON)) {
+    next_token(p);
+  }
+  return statement;
 }
 
 AstProgram parse_program(Parser *parser) {
@@ -333,10 +401,6 @@ AstProgram parse_program(Parser *parser) {
     Ast statement = parse_statement(parser);
     arrpush(program.statements, statement);
     next_token(parser);
-
-    while (cur_token_is(parser, TP_SEMICOLON)) {
-      next_token(parser);
-    }
   }
   return program;
 }

@@ -43,4 +43,8 @@ void gd_temp_free() { arena_free_all(&global_ctx()->temp_alloc); }
 #define GD_TEMP_ALLOC_ARRAY(type, size)                                        \
   (type *)gd_temp_alloc(sizeof(type) * size)
 #define GD_TEMP_FREEALL gd_temp_free
+
+#define GD_TEMP_REALLOC_ARRAY(type, arr, size)                                        \
+  (type *)gd_temp_realloc(arr, sizeof(type) * size)
+
 #endif

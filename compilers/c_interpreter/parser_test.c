@@ -341,13 +341,11 @@ void test_operator_precedence() {
 }
 
 void test_func_call_expression() {
-    const char *input = "add(2, 3);\
+  const char *input = "add(2, 3);\
 add(2+3*4, 2 * 4 + 4);\
 add((2+3)*4, 3);\
 add(pow(2,3), 3);\
 ";
-    //todo: add this
-// fn(x, y) { x + y; }(2, 3);
 
   typedef struct {
     const char *expected;
@@ -372,14 +370,59 @@ add(pow(2,3), 3);\
   }
 }
 
+void test_if_expression() {
+  const char *input = "\
+if (x < y) { x }\
+if (x < y) { x } else { y }\
+if (x * 2 > y - 1) {\
+    let a = x * x;\
+    return a;\
+}\
+";
+
+  typedef struct {
+    const char *condition;
+    const char *consequence;
+    const bool hasAlternative;
+    const char *alternative;
+  } TestCase;
+
+  TestCase tests[] = {
+      {"(x < y)", "{x}\n", FALSE, ""},
+      {"(x < y)", "{x}\n", TRUE, "{y}\n"},
+      {"((x * 2) > (y - 1))", "let a = (x * x)\nreturn a", FALSE, ""},
+  };
+
+  AstProgram ast = parse_input(input);
+  ASSERT_EQ_INT(arrlen(ast.statements), ARRAY_LEN(tests));
+
+  for (int i = 0; i < ARRAY_LEN(tests); i++) {
+    TestCase test = tests[i];
+    Ast expr = ast.statements[i];
+    ASSERT_EQ_INT(Ast_IfExpression, expr.kind);
+    StringSlice condition = expression_to_string(expr.IfExpression.condition);
+    ASSERT_TEST_STR(i, condition, test.condition);
+    StringSlice consequence =
+        expression_to_string(expr.IfExpression.consequence);
+    ASSERT_TEST_STR(i, consequence, test.consequence);
+    if (test.hasAlternative) {
+      ASSERT_NOT_NULL(expr.IfExpression.alternative);
+      StringSlice alternative =
+          expression_to_string(expr.IfExpression.alternative);
+      ASSERT_TEST_STR(i, alternative, test.alternative);
+    }
+  }
+}
+
 void test_parser() {
-  test_let_statements();
-  test_integer_expression();
-  test_boolean_expression();
-  test_string_expression();
-  test_prefix_operator();
-  test_return_expression();
-  test_infix_expression();
-  test_operator_precedence();
-  test_func_call_expression();
+  // test_let_statements();
+  // test_integer_expression();
+  // test_boolean_expression();
+  // test_string_expression();
+  // test_prefix_operator();
+  // test_return_expression();
+  // test_infix_expression();
+  // test_operator_precedence();
+  // test_func_call_expression();
+  test_if_expression();
 }

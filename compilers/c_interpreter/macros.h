@@ -31,6 +31,12 @@ typedef char bool;
   ASSERT_WITH_MSG((int)expected == (int)actual, "Expected %d but got %d",      \
                   (int)expected, (int)actual)
 
+#define ASSERT_NOT_NULL(ptr)                                                   \
+  ASSERT_WITH_MSG(ptr != 0, "Expected ptr not to be null%d", 0)
+
+#define ASSERT_NULL(ptr)                                                       \
+  ASSERT_WITH_MSG(ptr == 0, "Expected ptr to be null%d", 0)
+
 #ifdef DEBUG
 #define DEBUG_ASSERT(expr) assert(expr)
 #else

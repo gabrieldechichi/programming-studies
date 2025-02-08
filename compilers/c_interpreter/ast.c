@@ -67,6 +67,18 @@ typedef struct {
         Ast *functionName;                                                     \
         Ast *arguments;                                                        \
         size_t arguments_len;                                                  \
+      })                                                                       \
+  AST_KIND(                                                                    \
+      BlockStatement, "Block Statement", struct {                              \
+        Ast *statements;                                                       \
+        size_t statement_len;                                                  \
+      })                                                                       \
+  AST_KIND(                                                                    \
+      IfExpression, "If Expression", struct {                                  \
+        Token token;                                                           \
+        Ast *condition;                                                        \
+        Ast *consequence;                                                      \
+        Ast *alternative;                                                      \
       })
 
 // Ast enums
@@ -170,6 +182,43 @@ StringSlice expression_to_string(const Ast *ast) {
       }
     }
     sb_append(sb, ")");
+    break;
+  }
+  case Ast_BlockStatement: {
+    sb_append(sb, "{");
+    if (ast->BlockStatement.statement_len > 1) {
+      sb_append(sb, "\n");
+    }
+    for (size_t i = 0; i < ast->BlockStatement.statement_len; i++) {
+      StringSlice statement =
+          expression_to_string(&ast->BlockStatement.statements[i]);
+      sb_append_slice(sb, statement);
+      if (i < ast->BlockStatement.statement_len - 1) {
+        sb_append(sb, "\n");
+      }
+    }
+    if (ast->BlockStatement.statement_len > 1) {
+      sb_append(sb, "\n");
+    }
+    sb_append(sb, "}\n");
+    break;
+  }
+  case Ast_IfExpression: {
+    sb_append(sb, "if (");
+    StringSlice condition = expression_to_string(ast->IfExpression.condition);
+    sb_append_slice(sb, condition);
+    sb_append(sb, ") ");
+    StringSlice consequence =
+        expression_to_string(ast->IfExpression.consequence);
+    sb_append_slice(sb, consequence);
+
+    if (ast->IfExpression.alternative) {
+      sb_append(sb, "else ");
+      StringSlice alternative =
+          expression_to_string(ast->IfExpression.alternative);
+      sb_append_slice(sb, alternative);
+    }
+    break;
   }
   }
 
