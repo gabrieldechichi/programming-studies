@@ -5,8 +5,8 @@ OUTDIR_RELEASE = out/release
 TARGET_DEBUG = $(OUTDIR_DEBUG)/$(PROJNAME)
 TARGET_RELEASE = $(OUTDIR_RELEASE)/$(PROJNAME)
 CC = gcc
-CFLAGS_DEBUG = -g -Wall -DDEBUG
-CFLAGS_RELEASE = -O2 -Wall
+CFLAGS_DEBUG = -O0 -g -Wall -Werror -DDEBUG
+CFLAGS_RELEASE = -O2 -Wall -Werror
 
 # Ensure output directories exist
 $(shell mkdir -p $(OUTDIR_DEBUG))

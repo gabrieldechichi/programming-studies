@@ -60,6 +60,13 @@ typedef struct {
         Ast *left;                                                             \
         Ast *right;                                                            \
         TokenOperation operator;                                               \
+      })                                                                       \
+  AST_KIND(                                                                    \
+      FunctionCallExpression, "Function Call Expression", struct {             \
+        Token token;                                                           \
+        Ast *functionName;                                                     \
+        Ast *arguments;                                                        \
+        size_t arguments_len;                                                  \
       })
 
 // Ast enums
@@ -148,6 +155,21 @@ StringSlice expression_to_string(const Ast *ast) {
     sb_append_slice(sb, right);
     sb_append(sb, ")");
     break;
+  }
+  case Ast_FunctionCallExpression: {
+    StringSlice funcName =
+        expression_to_string(ast->FunctionCallExpression.functionName);
+    sb_append_slice(sb, funcName);
+    sb_append(sb, "(");
+    for (size_t i = 0; i < ast->FunctionCallExpression.arguments_len; i++) {
+      Ast arg_expr = ast->FunctionCallExpression.arguments[i];
+      StringSlice arg = expression_to_string(&arg_expr);
+      sb_append_slice(sb, arg);
+      if (i < ast->FunctionCallExpression.arguments_len - 1) {
+        sb_append(sb, ",");
+      }
+    }
+    sb_append(sb, ")");
   }
   }
 

@@ -10,6 +10,8 @@ typedef struct {
   size_t len;
 } StringSlice;
 
+#define STRING_SLICE_PRINTARGS(s) (int) s.len, s.value
+
 StringSlice strslice_new(const char *str, int start, int end) {
   StringSlice s = {0};
 

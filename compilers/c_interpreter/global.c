@@ -35,7 +35,11 @@ void *gd_temp_alloc(size_t size) {
 void *gd_temp_realloc(void *ptr, size_t size) {
   return arena_realloc(&global_ctx()->temp_alloc, ptr, size);
 }
+void gd_temp_free() { arena_free_all(&global_ctx()->temp_alloc); }
 
 #define GD_ARENA_ALLOC_T(type) (type *)gd_alloc(sizeof(type))
 #define GD_TEMP_ALLOC_T(type) (type *)gd_temp_alloc(sizeof(type))
+#define GD_TEMP_ALLOC_ARRAY(type, size)                                        \
+  (type *)gd_temp_alloc(sizeof(type) * size)
+#define GD_TEMP_FREEALL gd_temp_free
 #endif

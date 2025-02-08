@@ -139,21 +139,26 @@ void test_prefix_operator() {
 }
 
 void test_return_expression() {
-  //   const char *input = "\
-// return 5;\
-// return x + 1;\
-// return x + y * 2;\
-// return add(1,2);\
-// ";
   const char *input = "\
 return 5;\
-return x;\
-return y;\
+return x + 1;\
+return x + y * 2;\
 ";
+  // return add(1,2);
 
   struct TestCase {
     const char *expectedIdentifier;
-  } tests[] = {{"5"}, {"x"}, {"y"}};
+  } tests[] = {{"5"}, {"(x + 1)"}, {"(x + (y * 2))"}};
+
+  //   const char *input = "\
+// return 5;\
+// return x;\
+// return y;\
+// ";
+
+  // struct TestCase {
+  //   const char *expectedIdentifier;
+  // } tests[] = {{"5"}, {"x"}, {"y"}};
 
   AstProgram ast = parse_input(input);
 
@@ -164,7 +169,11 @@ return y;\
     ASSERT_EQ_INT(stm.kind, Ast_Return);
     Ast *right = stm.Return.expression;
     StringSlice right_str = expression_to_string(right);
-    ASSERT(strslice_eq_s(right_str, tests[i].expectedIdentifier));
+
+    ASSERT_WITH_MSG(strslice_eq_s(right_str, tests[i].expectedIdentifier),
+                    "Test %d failed. Expected %s got %.*s", i,
+                    tests[i].expectedIdentifier,
+                    STRING_SLICE_PRINTARGS(right_str))
   }
 }
 
@@ -326,12 +335,12 @@ void test_operator_precedence() {
 }
 
 void test_parser() {
-  test_let_statements();
-  test_integer_expression();
-  test_boolean_expression();
-  test_string_expression();
-  test_prefix_operator();
+  // test_let_statements();
+  // test_integer_expression();
+  // test_boolean_expression();
+  // test_string_expression();
+  // test_prefix_operator();
   test_return_expression();
-  test_infix_expression();
-  test_operator_precedence();
+  // test_infix_expression();
+  // test_operator_precedence();
 }

@@ -155,6 +155,29 @@ Ast parse_expr_infix(Parser *p, Ast left) {
   return infix_expr;
 }
 
+Ast parse_expr_function_call(Parser *p, Ast left) {
+  DEBUG_ASSERT(p->curToken.type == TP_LPAREN);
+  Ast expr = {0};
+  expr.kind = Ast_FunctionCallExpression;
+  expr.FunctionCallExpression.functionName = GD_ARENA_ALLOC_T(Ast);
+  *expr.FunctionCallExpression.functionName = left;
+
+  next_token(p);
+
+  expr.FunctionCallExpression.arguments_len = 0;
+  expr.FunctionCallExpression.arguments =
+      GD_TEMP_ALLOC_ARRAY(Ast, 32); // 32 arguments ought to be enough!
+  while (p->curToken.type != TP_RPAREN && p->curToken.type != TP_EOF) {
+    Ast argument = parse_expression(p, P_LOWEST);
+    int i = expr.FunctionCallExpression.arguments_len++;
+    expr.FunctionCallExpression.arguments[i] = argument;
+  }
+  GD_TEMP_FREEALL();
+  next_token(p);
+
+  return expr;
+}
+
 internal ParseInfixExpressionFn get_infix_parse_fn(TokenType tokType) {
   switch (tokType) {
   case TP_EQ:
@@ -168,6 +191,8 @@ internal ParseInfixExpressionFn get_infix_parse_fn(TokenType tokType) {
   case TP_ASTERISK:
   case TP_SLASH:
     return parse_expr_infix;
+  case TP_LPAREN:
+    return parse_expr_function_call;
   default:
     return NULL;
   }
