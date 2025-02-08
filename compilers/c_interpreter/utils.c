@@ -91,4 +91,6 @@ uintptr_t align_forward(uintptr_t ptr, size_t align) {
   return p;
 }
 
+#define MEMCPY_ARRAY(type, dest, src, count) memcpy(dest, src, sizeof(type) * count)
+
 #endif

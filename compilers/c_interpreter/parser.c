@@ -164,14 +164,27 @@ Ast parse_expr_function_call(Parser *p, Ast left) {
 
   next_token(p);
 
-  expr.FunctionCallExpression.arguments_len = 0;
-  expr.FunctionCallExpression.arguments =
+  size_t args_len = 0;
+  Ast *temp_arguments =
       GD_TEMP_ALLOC_ARRAY(Ast, 32); // 32 arguments ought to be enough!
   while (p->curToken.type != TP_RPAREN && p->curToken.type != TP_EOF) {
     Ast argument = parse_expression(p, P_LOWEST);
-    int i = expr.FunctionCallExpression.arguments_len++;
-    expr.FunctionCallExpression.arguments[i] = argument;
+    int i = args_len++;
+    temp_arguments[i] = argument;
+    next_token(p);
+    if (p->curToken.type == TP_COMMA) {
+      next_token(p);
+    }
   }
+
+  // copy actual params
+  if (args_len > 0) {
+    expr.FunctionCallExpression.arguments = GD_ARENA_ALLOC_ARRAY(Ast, args_len);
+    expr.FunctionCallExpression.arguments_len = args_len;
+    MEMCPY_ARRAY(Ast, expr.FunctionCallExpression.arguments, temp_arguments,
+                 args_len);
+  }
+
   GD_TEMP_FREEALL();
   next_token(p);
 

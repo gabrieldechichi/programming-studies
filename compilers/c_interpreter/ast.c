@@ -166,7 +166,7 @@ StringSlice expression_to_string(const Ast *ast) {
       StringSlice arg = expression_to_string(&arg_expr);
       sb_append_slice(sb, arg);
       if (i < ast->FunctionCallExpression.arguments_len - 1) {
-        sb_append(sb, ",");
+        sb_append(sb, ", ");
       }
     }
     sb_append(sb, ")");

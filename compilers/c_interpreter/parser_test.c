@@ -7,6 +7,11 @@
 #include "vendor/stb/stb_ds.h"
 #include <stdio.h>
 
+#define ASSERT_TEST_STR(i, actual, expected)                                   \
+  ASSERT_WITH_MSG(strslice_eq_s(actual, expected),                             \
+                  "Test %d failed. Expected %s got %.*s", i, expected,         \
+                  STRING_SLICE_PRINTARGS(actual))
+
 AstProgram parse_input(const char *input) {
   Lexer lexer = lexer_new(input);
   Parser parser = parser_new(&lexer);
@@ -334,13 +339,41 @@ void test_operator_precedence() {
   }
 }
 
+void test_func_call_expression() {
+  //   const char *input = "add(2, 3);\
+// add(2+3*4, 2 * 4 + 4);\
+// add((2+3)*4, 3);\
+// fn(x, y) { x + y; }(2, 3);\
+// add(pow(2,3), 3);\
+// ";
+  const char *input = "add(2, 3);";
+
+  typedef struct {
+    const char *expected;
+  } TestCase;
+
+  TestCase tests[] = {{"add(2, 3)"}};
+
+  AstProgram ast = parse_input(input);
+  ASSERT_EQ_INT(arrlen(ast.statements), ARRAY_LEN(tests));
+
+  for (int i = 0; i < ARRAY_LEN(tests); i++) {
+    TestCase t = tests[i];
+    Ast expr = ast.statements[i];
+    ASSERT_EQ_INT(Ast_FunctionCallExpression, expr.kind);
+    StringSlice func = expression_to_string(&expr);
+    ASSERT_TEST_STR(i, func, t.expected);
+  }
+}
+
 void test_parser() {
   // test_let_statements();
   // test_integer_expression();
   // test_boolean_expression();
   // test_string_expression();
   // test_prefix_operator();
-  test_return_expression();
+  // test_return_expression();
   // test_infix_expression();
   // test_operator_precedence();
+  test_func_call_expression();
 }
