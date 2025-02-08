@@ -340,19 +340,24 @@ void test_operator_precedence() {
 }
 
 void test_func_call_expression() {
-  //   const char *input = "add(2, 3);\
-// add(2+3*4, 2 * 4 + 4);\
-// add((2+3)*4, 3);\
-// fn(x, y) { x + y; }(2, 3);\
-// add(pow(2,3), 3);\
-// ";
-  const char *input = "add(2, 3);";
+    const char *input = "add(2, 3);\
+add(2+3*4, 2 * 4 + 4);\
+add((2+3)*4, 3);\
+add(pow(2,3), 3);\
+";
+    //todo: add this
+// fn(x, y) { x + y; }(2, 3);
 
   typedef struct {
     const char *expected;
   } TestCase;
 
-  TestCase tests[] = {{"add(2, 3)"}};
+  TestCase tests[] = {
+      {"add(2, 3)"},
+      {"add((2 + (3 * 4)), ((2 * 4) + 4))"},
+      {"add(((2 + 3) * 4), 3)"},
+      {"add(pow(2, 3), 3)"},
+  };
 
   AstProgram ast = parse_input(input);
   ASSERT_EQ_INT(arrlen(ast.statements), ARRAY_LEN(tests));

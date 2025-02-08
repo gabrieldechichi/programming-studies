@@ -185,7 +185,6 @@ Ast parse_expr_function_call(Parser *p, Ast left) {
                  args_len);
   }
 
-  GD_TEMP_FREEALL();
   next_token(p);
 
   return expr;

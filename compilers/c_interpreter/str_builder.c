@@ -37,7 +37,7 @@ void sb_append_len(StringBuilder *sb, const char *text, size_t text_length) {
     sb->capaciy = (sb->capaciy + text_length) * 2;
     sb->str = sb->realloc(sb->str, sb->capaciy);
   }
-  strcpy(sb->str + sb->length, text);
+  strncpy(sb->str + sb->length, text, text_length);
   sb->length += text_length;
 }
 
