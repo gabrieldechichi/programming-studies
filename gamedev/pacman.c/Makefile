@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS_DEBUG = -O0 -g -Wall -Werror -DDEBUG
+CFLAGS_DEBUG = -O0 -g -Wall -DDEBUG
 CFLAGS_RELEASE = -O2 -Wall -Werror
 
 SOURCE = ./main.c
