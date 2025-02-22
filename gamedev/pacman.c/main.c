@@ -38,12 +38,17 @@ Color u32_to_color(uint32_t color) {
   };
 }
 
-void draw_tile(uint16_t x, uint16_t y, uint32_t color, uint8_t tile_size) {
-  for (uint16_t yy = 0; yy < tile_size; yy++) {
-    for (uint16_t xx = 0; xx < tile_size; xx++) {
+#define COORD_TO_INDEX(x, y) y *DISPLAY_RES_X + x
+
+void draw_tile(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
+  uint16_t x = tile_x * TILE_SIZE;
+  uint16_t y = tile_y * TILE_SIZE;
+
+  for (uint16_t yy = 0; yy < TILE_SIZE; yy++) {
+    for (uint16_t xx = 0; xx < TILE_SIZE; xx++) {
       uint16_t py = y + yy;
       uint16_t px = x + xx;
-      int16_t pi = py * DISPLAY_RES_Y + px;
+      int16_t pi = COORD_TO_INDEX(px, py);
       game_state.frame_buffer[pi] = color;
     }
   }
@@ -52,13 +57,12 @@ void draw_tile(uint16_t x, uint16_t y, uint32_t color, uint8_t tile_size) {
 void draw_color_palette() {
   uint16_t x = 0;
   uint16_t y = 0;
-  uint8_t tile_size = 8;
   for (size_t i = 0; i < ARRAY_SIZE(game_state.rom.color_palette); i++) {
-    draw_tile(x, y, game_state.rom.color_palette[i], tile_size);
-    x += tile_size;
-    if (x >= DISPLAY_RES_X) {
+    draw_tile(x, y, game_state.rom.color_palette[i]);
+    x++;
+    if (x >= DISPLAY_TILES_X) {
       x = 0;
-      y += tile_size;
+      y++;
     }
   }
 }
@@ -79,7 +83,7 @@ int main(void) {
 
     for (uint16_t y = 0; y < DISPLAY_RES_Y; y++) {
       for (uint16_t x = 0; x < DISPLAY_RES_X; x++) {
-        uint16_t i = y * DISPLAY_RES_X + x;
+        uint16_t i = COORD_TO_INDEX(x, y);
         uint32_t color = game_state.frame_buffer[i];
         Color rl_color = u32_to_color(color);
         for (uint16_t yy = 0; yy < PIXEL_SCALE; yy++) {
