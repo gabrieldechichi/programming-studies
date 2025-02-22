@@ -38,26 +38,27 @@ Color u32_to_color(uint32_t color) {
   };
 }
 
-void draw_color_palette() {
-  const size_t tile_size = 1;
-  const size_t padding = 0;
-  size_t offset_x = padding;
-  size_t offset_y = 100;
-  for (size_t i = 0; i < ARRAY_SIZE(game_state.rom.color_palette); i++) {
-    Color color = u32_to_color(game_state.rom.color_palette[i]);
-    for (size_t y = 0; y < tile_size; y++) {
-      for (size_t x = 0; x < tile_size; x++) {
-        size_t px = x + offset_x;
-        size_t py = y + offset_y;
-        DrawPixel(px, py, color);
-      }
+void draw_tile(uint16_t x, uint16_t y, uint32_t color, uint8_t tile_size) {
+  for (uint16_t yy = 0; yy < tile_size; yy++) {
+    for (uint16_t xx = 0; xx < tile_size; xx++) {
+      uint16_t py = y + yy;
+      uint16_t px = x + xx;
+      int16_t pi = py * DISPLAY_RES_Y + px;
+      game_state.frame_buffer[pi] = color;
     }
+  }
+}
 
-    offset_x += tile_size + padding;
-
-    if (offset_x + tile_size > SCREEN_WIDTH) {
-      offset_x = padding;
-      offset_y += tile_size + padding;
+void draw_color_palette() {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  uint8_t tile_size = 8;
+  for (size_t i = 0; i < ARRAY_SIZE(game_state.rom.color_palette); i++) {
+    draw_tile(x, y, game_state.rom.color_palette[i], tile_size);
+    x += tile_size;
+    if (x >= DISPLAY_RES_X) {
+      x = 0;
+      y += tile_size;
     }
   }
 }
@@ -74,20 +75,13 @@ int main(void) {
 
     ClearBackground(GRAY);
 
-    for (size_t y = 0; y < DISPLAY_RES_Y; y++) {
-      for (size_t x = 0; x < DISPLAY_RES_X; x++) {
-        size_t i = y * DISPLAY_RES_X + x;
-        game_state.frame_buffer[i] = game_state.rom.color_palette[COLOR_PACMAN];
-      }
-    }
+    draw_color_palette();
 
     for (uint16_t y = 0; y < DISPLAY_RES_Y; y++) {
       for (uint16_t x = 0; x < DISPLAY_RES_X; x++) {
         uint16_t i = y * DISPLAY_RES_X + x;
         uint32_t color = game_state.frame_buffer[i];
         Color rl_color = u32_to_color(color);
-        rl_color = RED;
-
         for (uint16_t yy = 0; yy < PIXEL_SCALE; yy++) {
           for (uint16_t xx = 0; xx < PIXEL_SCALE; xx++) {
             uint16_t py = y * PIXEL_SCALE + yy;
