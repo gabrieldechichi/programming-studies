@@ -20,6 +20,7 @@
 #define SCREEN_HEIGHT DISPLAY_RES_Y *PIXEL_SCALE
 
 typedef struct {
+  uint32_t tick;
   PacmanRom rom;
   uint32_t frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
 } GameState;
@@ -31,11 +32,17 @@ typedef struct {
   bool8 flip_y;
 } PacmanSprite;
 
-global GameState game_state;
+typedef enum { DIR_RIGHT, DIR_LEFT, DIR_UP, DIR_DOWN } Direction;
 
-PacmanSprite sprite_pacman = {SPRITETILE_PACMAN_CLOSED_MOUTH, COLOR_PACMAN};
+typedef struct {
+  float x;
+  float y;
+  Direction dir;
 
-void draw_sprite(uint16_t sprite_x, uint16_t sprite_y, PacmanSprite sprite);
+  uint8_t move_speed;
+} Pacman;
+
+global GameState game_state = {};
 
 Color u32_to_color(uint32_t color) {
   return (Color){
@@ -55,6 +62,40 @@ void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
       uint16_t py = y + yy;
       uint16_t px = x + xx;
       game_state.frame_buffer[py][px] = color;
+    }
+  }
+}
+
+void draw_sprite(uint16_t sprite_x, uint16_t sprite_y,
+                 const PacmanSprite *sprite) {
+  uint32_t tile_code = sprite->tile_code * SPRITE_SIZE;
+  uint32_t color_code = sprite->color_code;
+
+  uint8_t tile_offset_x = sprite->flip_x ? SPRITE_SIZE : 0;
+  int8_t sign_x = sprite->flip_x ? -1 : 1;
+
+  uint8_t tile_offset_y = sprite->flip_y ? SPRITE_SIZE - 1 : 0;
+  int8_t sign_y = sprite->flip_y ? -1 : 1;
+  for (uint16_t y = 0; y < SPRITE_SIZE; y++) {
+    for (uint16_t x = 0; x < SPRITE_SIZE; x++) {
+      uint8_t tile_i =
+          game_state.rom.sprite_atlas[tile_offset_y + y * sign_y]
+                                     [tile_code + tile_offset_x + sign_x * x];
+      uint8_t color_i = color_code * 4 + tile_i;
+      uint32_t color = game_state.rom.color_palette[color_i];
+      game_state.frame_buffer[y + sprite_y][x + sprite_x] = color;
+    }
+  }
+}
+
+void draw_tile(uint16_t tile_x, uint16_t tile_y, uint32_t tile_code,
+               uint8_t color_code) {
+  for (uint16_t y = 0; y < TILE_SIZE; y++) {
+    for (uint16_t x = 0; x < TILE_SIZE; x++) {
+      uint8_t tile_i = game_state.rom.tile_atlas[y][tile_code + x];
+      uint8_t color_i = color_code * 4 + tile_i;
+      uint32_t color = game_state.rom.color_palette[color_i];
+      game_state.frame_buffer[y + tile_y][x + tile_x] = color;
     }
   }
 }
@@ -82,57 +123,13 @@ void draw_all_sprites() {
     sprite.tile_code = i;
     sprite.color_code = 14;
 
-    draw_sprite(x, y, sprite);
+    draw_sprite(x, y, &sprite);
     x += SPRITE_SIZE;
     if (x >= DISPLAY_RES_X) {
       x = 0;
       y += SPRITE_SIZE;
     }
   }
-}
-
-void draw_from_atlas(uint16_t offset_x, uint16_t offset_y, uint8_t *atlas,
-                     uint16_t atlas_width, uint8_t tile_size,
-                     uint32_t tile_code, uint8_t color_code) {
-  for (uint16_t y = 0; y < tile_size; y++) {
-    for (uint16_t x = 0; x < tile_size; x++) {
-      uint8_t tile_i = atlas[XY_TO_INDEX(tile_code + x, y, atlas_width)];
-      uint8_t color_i = color_code * 4 + tile_i;
-      uint32_t color = game_state.rom.color_palette[color_i];
-      game_state.frame_buffer[y + offset_y][x + offset_x] = color;
-    }
-  }
-}
-
-void draw_sprite(uint16_t sprite_x, uint16_t sprite_y, PacmanSprite sprite) {
-  // draw_from_atlas(sprite_x, sprite_y, (uint8_t *)game_state.rom.sprite_atlas,
-  //                 TILE_TEXTURE_WIDTH, SPRITE_SIZE,
-  //                 sprite.tile_code * SPRITE_SIZE, sprite.color_code);
-
-  uint32_t tile_code = sprite.tile_code * SPRITE_SIZE;
-  uint32_t color_code = sprite.color_code;
-
-  uint8_t tile_offset_x = sprite.flip_x ? SPRITE_SIZE : 0;
-  int8_t sign_x = sprite.flip_x ? -1 : 1;
-
-  uint8_t tile_offset_y = sprite.flip_y ? SPRITE_SIZE - 1 : 0;
-  int8_t sign_y = sprite.flip_y ? -1 : 1;
-  for (uint16_t y = 0; y < SPRITE_SIZE; y++) {
-    for (uint16_t x = 0; x < SPRITE_SIZE; x++) {
-      uint8_t tile_i =
-          game_state.rom.sprite_atlas[tile_offset_y + y * sign_y]
-                                     [tile_code + tile_offset_x + sign_x * x];
-      uint8_t color_i = color_code * 4 + tile_i;
-      uint32_t color = game_state.rom.color_palette[color_i];
-      game_state.frame_buffer[y + sprite_y][x + sprite_x] = color;
-    }
-  }
-}
-
-void draw_tile(uint16_t tile_x, uint16_t tile_y, uint32_t tile_code,
-               uint8_t color_code) {
-  draw_from_atlas(tile_x, tile_y, (uint8_t *)game_state.rom.tile_atlas,
-                  TILE_TEXTURE_WIDTH, TILE_SIZE, tile_code, color_code);
 }
 
 void render_frame_buffer() {
@@ -149,6 +146,50 @@ void render_frame_buffer() {
       }
     }
   }
+
+  // clear frame buffer
+  memset(&game_state.frame_buffer, 0, sizeof(game_state.frame_buffer));
+}
+
+void draw_pacman(Pacman *pacman) {
+  local_persist const uint8_t pacman_anim[2][4] = {
+      {44, 46, 48, 46}, // horizontal (needs flipx)
+      {45, 47, 48, 47}  // vertical (needs flipy)
+  };
+
+  PacmanSprite pacman_sprite = {};
+  uint8_t anim_tick = (game_state.tick / 2) % 4;
+  bool8 is_horizontal = pacman->dir == DIR_RIGHT || pacman->dir == DIR_LEFT;
+  pacman_sprite.tile_code = pacman_anim[is_horizontal ? 0 : 1][anim_tick];
+  pacman_sprite.color_code = COLOR_PACMAN;
+  pacman_sprite.flip_x = pacman->dir == DIR_LEFT;
+  pacman_sprite.flip_y = pacman->dir == DIR_UP;
+  draw_sprite(pacman->x, pacman->y, &pacman_sprite);
+}
+
+void update_pacman(Pacman *pacman, float dt) {
+  int move_dir[2] = {};
+  if (IsKeyDown(KEY_A)) {
+    move_dir[0] -= 1;
+    pacman->dir = DIR_LEFT;
+  }
+  if (IsKeyDown(KEY_D)) {
+    move_dir[0] += 1;
+    pacman->dir = DIR_RIGHT;
+  }
+  if (IsKeyDown(KEY_W)) {
+    move_dir[1] -= 1;
+    pacman->dir = DIR_UP;
+  }
+  if (IsKeyDown(KEY_S)) {
+    move_dir[1] += 1;
+    pacman->dir = DIR_DOWN;
+  }
+
+  int ds[2] = {move_dir[0] * pacman->move_speed,
+               move_dir[1] * pacman->move_speed};
+  pacman->x += ds[0] * dt;
+  pacman->y += ds[1] * dt;
 }
 
 int main(void) {
@@ -158,19 +199,20 @@ int main(void) {
 
   pm_init_rom(&game_state.rom);
 
-  static const uint8_t tiles[2][4] = {
-      {44, 46, 48, 46}, // horizontal (needs flipx)
-      {45, 47, 48, 47}  // vertical (needs flipy)
-  };
+  Pacman pacman = {};
+  pacman.move_speed = 20;
 
   while (!WindowShouldClose()) {
+    float dt = GetFrameTime();
+    update_pacman(&pacman, dt);
+    draw_pacman(&pacman);
+
     BeginDrawing();
-
     ClearBackground(BLACK);
-    draw_sprite(10, 100, (PacmanSprite){tiles[1][0], COLOR_PACMAN, TRUE, TRUE});
     render_frame_buffer();
-
     EndDrawing();
+
+    game_state.tick++;
   }
 
   CloseWindow();
