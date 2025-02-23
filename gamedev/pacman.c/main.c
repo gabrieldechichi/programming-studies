@@ -37,8 +37,8 @@ typedef struct game_state_t {
 typedef struct pacman_sprite_t {
   uint32_t tile_code;
   uint32_t color_code;
-  bool8 flip_x;
-  bool8 flip_y;
+  bool8_t flip_x;
+  bool8_t flip_y;
 } pacman_sprite_t;
 
 typedef struct int2_t {
@@ -71,7 +71,7 @@ int2_t dir_to_vec(dir_t dir) {
   return dir_map[dir];
 }
 
-bool8 dir_is_horizontal(dir_t dir) { return !(dir & 1); }
+bool8_t dir_is_horizontal(dir_t dir) { return !(dir & 1); }
 
 int2_t i2(int16_t x, int16_t y) { return (int2_t){x, y}; }
 
@@ -90,11 +90,11 @@ int32_t squared_distance_i2(int2_t v0, int2_t v1) {
   return d.x * d.x + d.y * d.y;
 }
 
-bool8 equal_i2(int2_t v0, int2_t v1) {
+bool8_t equal_i2(int2_t v0, int2_t v1) {
   return (v0.x == v1.x) && (v0.y == v1.y);
 }
 
-bool8 nearequal_i2(int2_t v0, int2_t v1, int16_t tolerance) {
+bool8_t nearequal_i2(int2_t v0, int2_t v1, int16_t tolerance) {
   return (abs(v1.x - v0.x) <= tolerance) && (abs(v1.y - v0.y) <= tolerance);
 }
 
@@ -102,8 +102,25 @@ int2_t actor_to_sprite_pos(int2_t pos) {
   return i2(pos.x - HALF_SPRITE_SIZE, pos.y - HALF_SPRITE_SIZE);
 }
 
-// bool8 can_move(int2_t pos, dir_t wanted_dir, bool allow_cornering) {}
-//
+// bool8_t can_move(int2_t pos, dir_t wanted_dir, bool allow_cornering) {}
+
+// TILE MAP CODE
+int2_t pixel_to_tile_coord(int2_t p) {
+  return i2(p.x / TILE_SIZE, p.y / TILE_SIZE);
+}
+int2_t pixel_to_tile_center(int2_t p) {
+  int2_t tile = pixel_to_tile_coord(p);
+  return add_i2(tile, i2(TILE_SIZE / 2, TILE_SIZE / 2));
+}
+
+uint8_t tile_code_at(int2_t tile_coord) {
+  return game_state.tiles[tile_coord.y][tile_coord.x].tile_code;
+}
+
+bool8_t is_blocking_tile(int2_t tile_pos) {
+  return tile_code_at(tile_pos) >= TILE_BLOCKING;
+}
+
 void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
   uint16_t x = tile_x * TILE_SIZE;
   uint16_t y = tile_y * TILE_SIZE;
@@ -222,7 +239,7 @@ void draw_pacman(pacman_t *pacman) {
 
   pacman_sprite_t pacman_sprite_t = {};
   uint8_t anim_tick = (game_state.tick / 2) % 4;
-  bool8 is_horizontal = dir_is_horizontal(pacman->dir);
+  bool8_t is_horizontal = dir_is_horizontal(pacman->dir);
   pacman_sprite_t.tile_code = pacman_anim[is_horizontal ? 0 : 1][anim_tick];
   pacman_sprite_t.color_code = COLOR_PACMAN;
   pacman_sprite_t.flip_x = pacman->dir == DIR_LEFT;
@@ -237,6 +254,9 @@ void draw_tiles() {
   for (uint8_t y = 0; y < DISPLAY_TILES_Y; ++y) {
     for (uint8_t x = 0; x < DISPLAY_TILES_X; ++x) {
       pacman_tile_t tile = game_state.tiles[y][x];
+      if (is_blocking_tile(i2(x, y))) {
+          tile.color_code = COLOR_PACMAN;
+      }
       uint16_t px = x * TILE_SIZE;
       uint16_t py = y * TILE_SIZE;
       draw_tile(px, py, &tile);

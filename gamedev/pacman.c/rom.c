@@ -149,6 +149,7 @@ internal inline void decode_sprite(pacman_rom_t *rom, uint8_t sprite_code) {
    emulator
 */
 enum {
+  TILE_BLOCKING = 0xC0,
   TILE_SPACE = 0x40,
   TILE_DOT = 0x10,
   TILE_PILL = 0x14,
