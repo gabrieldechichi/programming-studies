@@ -69,17 +69,12 @@ void draw_color_palette() {
   }
 }
 
-void draw_sprites() {
-  uint32_t tile_code = 16 * 46;
-  uint8_t color_code = 0x09;
-
-  uint16_t sprite_x = 0;
-  uint16_t sprite_y = 0;
-
+void draw_sprite(uint16_t sprite_x, uint16_t sprite_y, uint32_t tile_code,
+                 uint8_t color_code) {
   for (uint16_t y = 0; y < SPRITE_SIZE; y++) {
     for (uint16_t x = 0; x < SPRITE_SIZE; x++) {
       uint8_t tile_i =
-          game_state.rom.tile_pixels[TILE_HEIGHT + y][tile_code + x];
+          game_state.rom.sprite_atlas[XY_TO_ATLAS_INDEX(tile_code + x, y)];
       uint8_t color_i = color_code * 4 + tile_i;
       uint32_t color = game_state.rom.color_palette[color_i];
       uint16_t pi = COORD_TO_INDEX(sprite_x + x, sprite_y + y);
@@ -98,10 +93,13 @@ int main(void) {
   while (!WindowShouldClose()) {
     BeginDrawing();
 
-    ClearBackground(GRAY);
+    ClearBackground(BLACK);
 
     // draw_color_palette();
-    draw_sprites();
+    //
+    uint32_t tile_code = 16 * 46;
+    uint8_t color_code = 0x09;
+    draw_sprite(0, 0, tile_code, color_code);
 
     for (uint16_t y = 0; y < DISPLAY_RES_Y; y++) {
       for (uint16_t x = 0; x < DISPLAY_RES_X; x++) {

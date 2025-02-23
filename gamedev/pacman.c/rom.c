@@ -1,21 +1,27 @@
 #include "typedefs.h"
 #include <stdint.h>
 
-#define TILE_WIDTH 8
-#define TILE_HEIGHT TILE_WIDTH
-#define TILE_SIZE TILE_WIDTH
-#define SPRITE_WIDTH (16)
-#define SPRITE_HEIGHT (16)
-#define SPRITE_SIZE (16)
+#define TILE_SIZE 8
+#define SPRITE_SIZE 16
 #define NUM_TILES 256
 #define NUM_SPRITES 64
 
-#define TILE_TEXTURE_WIDTH (256 * TILE_WIDTH)
-#define TILE_TEXTURE_HEIGHT (TILE_HEIGHT + SPRITE_HEIGHT)
+#define TILE_TEXTURE_WIDTH (256 * TILE_SIZE)
+#define TILE_TEXTURE_HEIGHT (TILE_SIZE + SPRITE_SIZE)
+
+#define XY_TO_ATLAS_INDEX(x, y) (y) * TILE_TEXTURE_WIDTH + (x)
 
 typedef struct {
+  // pacman color palette. decoded from rom
   uint32_t color_palette[256];
-  uint8_t tile_pixels[TILE_TEXTURE_HEIGHT][TILE_TEXTURE_WIDTH];
+
+  // pacman encoded tile atlas. each tile is a 2-bit (0..3) 8x8 pixel tile
+  // indexing into a color palette
+  uint8_t tile_atlas[TILE_SIZE * TILE_TEXTURE_WIDTH];
+
+  // pacman encoded sprite atlas. each sprite is a 2-bit (0..3) 16x16 pixel tile
+  // indexing into a color palette
+  uint8_t sprite_atlas[SPRITE_SIZE * TILE_TEXTURE_WIDTH];
 } PacmanRom;
 
 internal const uint8_t rom_hwcolors[32];
@@ -38,12 +44,6 @@ internal void decode_tiles(PacmanRom *rom) {
   }
   for (uint32_t sprite_code = 0; sprite_code < NUM_SPRITES; sprite_code++) {
     decode_sprite(rom, sprite_code);
-  }
-  // write a special opaque 16x16 block which will be used for the fade-effect
-  for (uint32_t y = TILE_HEIGHT; y < TILE_TEXTURE_HEIGHT; y++) {
-    for (uint32_t x = 64 * SPRITE_WIDTH; x < 65 * SPRITE_WIDTH; x++) {
-      rom->tile_pixels[y][x] = 1;
-    }
   }
 }
 
@@ -96,46 +96,48 @@ internal void decode_color_palette(PacmanRom *rom) {
 
     Tile decoding only happens once at startup from ROM dumps into a texture.
 */
-internal inline void decode_tile_8x4(PacmanRom *rom, uint32_t tex_x,
+internal inline void decode_tile_8x4(uint8_t *tile_pixels, uint32_t tex_x,
                                      uint32_t tex_y, const uint8_t *tile_base,
                                      uint32_t tile_stride, uint32_t tile_offset,
                                      uint8_t tile_code) {
-  for (uint32_t tx = 0; tx < TILE_WIDTH; tx++) {
+  for (uint32_t tx = 0; tx < TILE_SIZE; tx++) {
     uint32_t ti = tile_code * tile_stride + tile_offset + (7 - tx);
-    for (uint32_t ty = 0; ty < (TILE_HEIGHT / 2); ty++) {
+    for (uint32_t ty = 0; ty < (TILE_SIZE / 2); ty++) {
       uint8_t p_hi = (tile_base[ti] >> (7 - ty)) & 1;
       uint8_t p_lo = (tile_base[ti] >> (3 - ty)) & 1;
       uint8_t p = (p_hi << 1) | p_lo;
-      rom->tile_pixels[tex_y + ty][tex_x + tx] = p;
+
+      uint32_t index = XY_TO_ATLAS_INDEX(tex_x + tx, tex_y + ty);
+      tile_pixels[index] = p;
     }
   }
 }
 
 // decode an 8x8 tile into the tile texture's upper half
 internal inline void decode_tile(PacmanRom *rom, uint8_t tile_code) {
-  uint32_t x = tile_code * TILE_WIDTH;
+  uint32_t x = tile_code * TILE_SIZE;
   uint32_t y0 = 0;
-  uint32_t y1 = y0 + (TILE_HEIGHT / 2);
-  decode_tile_8x4(rom, x, y0, rom_tiles, 16, 8, tile_code);
-  decode_tile_8x4(rom, x, y1, rom_tiles, 16, 0, tile_code);
+  uint32_t y1 = y0 + (TILE_SIZE / 2);
+  decode_tile_8x4(rom->tile_atlas, x, y0, rom_tiles, 16, 8, tile_code);
+  decode_tile_8x4(rom->tile_atlas, x, y1, rom_tiles, 16, 0, tile_code);
 }
 
 // decode a 16x16 sprite into the tile texture's lower half
 internal inline void decode_sprite(PacmanRom *rom, uint8_t sprite_code) {
-  uint32_t x0 = sprite_code * SPRITE_WIDTH;
-  uint32_t x1 = x0 + TILE_WIDTH;
-  uint32_t y0 = TILE_HEIGHT;
-  uint32_t y1 = y0 + (TILE_HEIGHT / 2);
-  uint32_t y2 = y1 + (TILE_HEIGHT / 2);
-  uint32_t y3 = y2 + (TILE_HEIGHT / 2);
-  decode_tile_8x4(rom, x0, y0, rom_sprites, 64, 40, sprite_code);
-  decode_tile_8x4(rom, x1, y0, rom_sprites, 64, 8, sprite_code);
-  decode_tile_8x4(rom, x0, y1, rom_sprites, 64, 48, sprite_code);
-  decode_tile_8x4(rom, x1, y1, rom_sprites, 64, 16, sprite_code);
-  decode_tile_8x4(rom, x0, y2, rom_sprites, 64, 56, sprite_code);
-  decode_tile_8x4(rom, x1, y2, rom_sprites, 64, 24, sprite_code);
-  decode_tile_8x4(rom, x0, y3, rom_sprites, 64, 32, sprite_code);
-  decode_tile_8x4(rom, x1, y3, rom_sprites, 64, 0, sprite_code);
+  uint32_t x0 = sprite_code * SPRITE_SIZE;
+  uint32_t x1 = x0 + TILE_SIZE;
+  uint32_t y0 = 0;
+  uint32_t y1 = y0 + (TILE_SIZE / 2);
+  uint32_t y2 = y1 + (TILE_SIZE / 2);
+  uint32_t y3 = y2 + (TILE_SIZE / 2);
+  decode_tile_8x4(rom->sprite_atlas, x0, y0, rom_sprites, 64, 40, sprite_code);
+  decode_tile_8x4(rom->sprite_atlas, x1, y0, rom_sprites, 64, 8, sprite_code);
+  decode_tile_8x4(rom->sprite_atlas, x0, y1, rom_sprites, 64, 48, sprite_code);
+  decode_tile_8x4(rom->sprite_atlas, x1, y1, rom_sprites, 64, 16, sprite_code);
+  decode_tile_8x4(rom->sprite_atlas, x0, y2, rom_sprites, 64, 56, sprite_code);
+  decode_tile_8x4(rom->sprite_atlas, x1, y2, rom_sprites, 64, 24, sprite_code);
+  decode_tile_8x4(rom->sprite_atlas, x0, y3, rom_sprites, 64, 32, sprite_code);
+  decode_tile_8x4(rom->sprite_atlas, x1, y3, rom_sprites, 64, 0, sprite_code);
 }
 
 /*== EMBEDDED DATA ===========================================================*/
