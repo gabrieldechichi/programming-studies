@@ -22,8 +22,14 @@
 #define SCREEN_HEIGHT DISPLAY_RES_Y *PIXEL_SCALE
 
 typedef struct {
+  uint8_t tile_code;
+  uint8_t color_code;
+} PacmanTile;
+
+typedef struct {
   uint32_t tick;
   PacmanRom rom;
+  PacmanTile tiles[DISPLAY_TILES_Y][DISPLAY_TILES_X];
   uint32_t frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
   Texture2D render_texture;
 } GameState;
@@ -136,8 +142,9 @@ void draw_sprite(int16_t sprite_x, int16_t sprite_y,
   }
 }
 
-void draw_tile(uint16_t tile_x, uint16_t tile_y, uint32_t tile_code,
-               uint8_t color_code) {
+void draw_tile(uint16_t tile_x, uint16_t tile_y, PacmanTile *tile) {
+  uint32_t tile_code = tile->tile_code * TILE_SIZE;
+  uint32_t color_code = tile->color_code;
   for (uint16_t y = 0; y < TILE_SIZE; y++) {
     for (uint16_t x = 0; x < TILE_SIZE; x++) {
       uint8_t tile_i = game_state.rom.tile_atlas[y][tile_code + x];
@@ -163,7 +170,7 @@ void draw_color_palette() {
   }
 }
 
-void draw_all_sprites() {
+void draw_sprite_atlas() {
   uint16_t x = 0;
   uint16_t y = 0;
   for (size_t i = 0; i < NUM_SPRITES; i++) {
@@ -176,6 +183,23 @@ void draw_all_sprites() {
     if (x >= DISPLAY_RES_X) {
       x = 0;
       y += SPRITE_SIZE;
+    }
+  }
+}
+
+void draw_tile_atlas() {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  for (size_t i = 0; i < NUM_TILES; i++) {
+    PacmanTile tile = {};
+    tile.tile_code = i;
+    tile.color_code = COLOR_DOT;
+
+    draw_tile(x, y, &tile);
+    x += TILE_SIZE;
+    if (x >= DISPLAY_RES_X) {
+      x = 0;
+      y += TILE_SIZE;
     }
   }
 }
@@ -207,6 +231,17 @@ void draw_pacman(Pacman *pacman) {
   draw_sprite(sprite_pos.x, sprite_pos.y, &pacman_sprite);
 }
 
+void draw_tiles() {
+  for (uint8_t y = 0; y < DISPLAY_TILES_Y; ++y) {
+    for (uint8_t x = 0; x < DISPLAY_TILES_X; ++x) {
+      PacmanTile tile = game_state.tiles[y][x];
+      uint16_t px = x * TILE_SIZE;
+      uint16_t py = y * TILE_SIZE;
+      draw_tile(px, py, &tile);
+    }
+  }
+}
+
 void update_pacman(Pacman *pacman) {
   if (IsKeyDown(KEY_A)) {
     pacman->dir = DIR_LEFT;
@@ -233,7 +268,64 @@ void update_pacman(Pacman *pacman) {
       CLAMP(pacman->pos.y, HALF_SPRITE_SIZE, DISPLAY_RES_Y - HALF_SPRITE_SIZE);
 }
 
+void init_level(void) {
+  // clang-format off
+    // decode the playfield from an ASCII map into tiles codes
+    static const char* tiles =
+       //0123456789012345678901234567
+        "0UUUUUUUUUUUU45UUUUUUUUUUUU1" // 3
+        "L............rl............R" // 4
+        "L.ebbf.ebbbf.rl.ebbbf.ebbf.R" // 5
+        "LPr  l.r   l.rl.r   l.r  lPR" // 6
+        "L.guuh.guuuh.gh.guuuh.guuh.R" // 7
+        "L..........................R" // 8
+        "L.ebbf.ef.ebbbbbbf.ef.ebbf.R" // 9
+        "L.guuh.rl.guuyxuuh.rl.guuh.R" // 10
+        "L......rl....rl....rl......R" // 11
+        "2BBBBf.rzbbf rl ebbwl.eBBBB3" // 12
+        "     L.rxuuh gh guuyl.R     " // 13
+        "     L.rl          rl.R     " // 14
+        "     L.rl mjs--tjn rl.R     " // 15
+        "UUUUUh.gh i      q gh.gUUUUU" // 16
+        "      .   i      q   .      " // 17
+        "BBBBBf.ef i      q ef.eBBBBB" // 18
+        "     L.rl okkkkkkp rl.R     " // 19
+        "     L.rl          rl.R     " // 20
+        "     L.rl ebbbbbbf rl.R     " // 21
+        "0UUUUh.gh guuyxuuh gh.gUUUU1" // 22
+        "L............rl............R" // 23
+        "L.ebbf.ebbbf.rl.ebbbf.ebbf.R" // 24
+        "L.guyl.guuuh.gh.guuuh.rxuh.R" // 25
+        "LP..rl.......  .......rl..PR" // 26
+        "6bf.rl.ef.ebbbbbbf.ef.rl.eb8" // 27
+        "7uh.gh.rl.guuyxuuh.rl.gh.gu9" // 28
+        "L......rl....rl....rl......R" // 29
+        "L.ebbbbwzbbf.rl.ebbwzbbbbf.R" // 30
+        "L.guuuuuuuuh.gh.guuuuuuuuh.R" // 31
+        "L..........................R" // 32
+        "2BBBBBBBBBBBBBBBBBBBBBBBBBB3"; // 33
+       //0123456789012345678901234567
+    uint8_t t[128];
+    for (int i = 0; i < 128; i++) { t[i]=TILE_DOT; }
+    t[' ']=0x40; t['0']=0xD1; t['1']=0xD0; t['2']=0xD5; t['3']=0xD4; t['4']=0xFB;
+    t['5']=0xFA; t['6']=0xD7; t['7']=0xD9; t['8']=0xD6; t['9']=0xD8; t['U']=0xDB;
+    t['L']=0xD3; t['R']=0xD2; t['B']=0xDC; t['b']=0xDF; t['e']=0xE7; t['f']=0xE6;
+    t['g']=0xEB; t['h']=0xEA; t['l']=0xE8; t['r']=0xE9; t['u']=0xE5; t['w']=0xF5;
+    t['x']=0xF2; t['y']=0xF3; t['z']=0xF4; t['m']=0xED; t['n']=0xEC; t['o']=0xEF;
+    t['p']=0xEE; t['j']=0xDD; t['i']=0xD2; t['k']=0xDB; t['q']=0xD3; t['s']=0xF1;
+    t['t']=0xF0; t['-']=TILE_DOOR; t['P']=TILE_PILL;
+
+  // clang-format on
+  for (int y = 3, i = 0; y <= 33; y++) {
+    for (int x = 0; x < 28; x++, i++) {
+      game_state.tiles[y][x] = (PacmanTile){t[tiles[i] & 127], COLOR_DOT};
+    }
+  }
+}
+
 int main(void) {
+  memset(&game_state, 0, sizeof(game_state));
+
   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pacman.c");
 
   SetTargetFPS(TARGET_FPS);
@@ -242,18 +334,21 @@ int main(void) {
       LoadTextureFromImage(GenImageColor(DISPLAY_RES_X, DISPLAY_RES_Y, BLACK));
 
   pm_init_rom(&game_state.rom);
+  init_level();
 
   Pacman pacman = {0};
   pacman.dir = DIR_LEFT;
 
   while (!WindowShouldClose()) {
     update_pacman(&pacman);
-    draw_pacman(&pacman);
+
+    draw_tiles();
+    // draw_pacman(&pacman);
+    // draw_tile_atlas();
     BeginDrawing();
     ClearBackground(BLACK);
     render_frame_buffer();
     EndDrawing();
-    DrawFPS(0, 0);
 
     game_state.tick++;
   }
