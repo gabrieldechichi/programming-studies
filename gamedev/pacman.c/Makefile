@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS_DEBUG = -O0 -g -Wall -DDEBUG
-CFLAGS_RELEASE = -O2 -Wall -Werror
+CFLAGS_RELEASE = -O2 -Wall
 
 SOURCE = ./main.c
 TARGET = ./build/pacman

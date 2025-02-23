@@ -23,6 +23,7 @@ typedef struct {
   uint32_t tick;
   PacmanRom rom;
   uint32_t frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
+  Texture2D render_texture;
 } GameState;
 
 typedef struct {
@@ -41,8 +42,7 @@ typedef struct {
 typedef enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP, NUM_DIRS } Direction;
 
 typedef struct {
-  uint16_t x;
-  uint16_t y;
+  int2_t pos;
   Direction dir;
 } Pacman;
 
@@ -145,20 +145,9 @@ void draw_all_sprites() {
 }
 
 void render_frame_buffer() {
-  for (uint16_t y = 0; y < DISPLAY_RES_Y; y++) {
-    for (uint16_t x = 0; x < DISPLAY_RES_X; x++) {
-      uint32_t color = game_state.frame_buffer[y][x];
-      Color rl_color = u32_to_color(color);
-      for (uint16_t yy = 0; yy < PIXEL_SCALE; yy++) {
-        for (uint16_t xx = 0; xx < PIXEL_SCALE; xx++) {
-          uint16_t py = y * PIXEL_SCALE + yy;
-          uint16_t px = x * PIXEL_SCALE + xx;
-          DrawPixel(px, py, rl_color);
-        }
-      }
-    }
-  }
-
+  UpdateTexture(game_state.render_texture, game_state.frame_buffer);
+  DrawTextureEx(game_state.render_texture, (Vector2){0, 0}, 0, PIXEL_SCALE,
+                WHITE);
   // clear frame buffer
   memset(&game_state.frame_buffer, 0, sizeof(game_state.frame_buffer));
 }
@@ -176,8 +165,10 @@ void draw_pacman(Pacman *pacman) {
   pacman_sprite.color_code = COLOR_PACMAN;
   pacman_sprite.flip_x = pacman->dir == DIR_LEFT;
   pacman_sprite.flip_y = pacman->dir == DIR_UP;
-  draw_sprite(pacman->x, pacman->y, &pacman_sprite);
+  draw_sprite(pacman->pos.x, pacman->pos.y, &pacman_sprite);
 }
+
+#define CLAMP(v, a, b) v < a ? a : (v > b ? b : v)
 
 void update_pacman(Pacman *pacman) {
   if (IsKeyDown(KEY_A)) {
@@ -191,14 +182,19 @@ void update_pacman(Pacman *pacman) {
   }
 
   int2_t ds = dir_to_vec(pacman->dir);
-  pacman->x += ds.x;
-  pacman->y += ds.y;
+  pacman->pos.x += ds.x;
+  pacman->pos.y += ds.y;
+  pacman->pos.x = CLAMP(pacman->pos.x, 0, DISPLAY_RES_X - SPRITE_SIZE);
+  pacman->pos.y = CLAMP(pacman->pos.y, 0, DISPLAY_RES_Y - SPRITE_SIZE);
 }
 
 int main(void) {
   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pacman.c");
 
-  // SetTargetFPS(TARGET_FPS);
+  SetTargetFPS(TARGET_FPS);
+
+  game_state.render_texture =
+      LoadTextureFromImage(GenImageColor(DISPLAY_RES_X, DISPLAY_RES_Y, BLACK));
 
   pm_init_rom(&game_state.rom);
 
