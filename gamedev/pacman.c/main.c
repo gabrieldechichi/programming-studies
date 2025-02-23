@@ -32,14 +32,18 @@ typedef struct {
   bool8 flip_y;
 } PacmanSprite;
 
-typedef enum { DIR_RIGHT, DIR_LEFT, DIR_UP, DIR_DOWN } Direction;
+typedef struct {
+  int16_t x;
+  int16_t y;
+} int2_t;
+
+// note: low bit = 0 for horizontal, low bit = 1 for vertical
+typedef enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP, NUM_DIRS } Direction;
 
 typedef struct {
-  float x;
-  float y;
+  uint16_t x;
+  uint16_t y;
   Direction dir;
-
-  uint8_t move_speed;
 } Pacman;
 
 global GameState game_state = {};
@@ -52,6 +56,14 @@ Color u32_to_color(uint32_t color) {
       (color >> 24) & 0xFF,
   };
 }
+
+internal int2_t dir_to_vec(Direction dir) {
+  local_persist const int2_t dir_map[NUM_DIRS] = {
+      {+1, 0}, {0, +1}, {-1, 0}, {0, -1}};
+  return dir_map[dir];
+}
+
+internal bool8 dir_is_horizontal(Direction dir) { return !(dir & 1); }
 
 void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
   uint16_t x = tile_x * TILE_SIZE;
@@ -159,7 +171,7 @@ void draw_pacman(Pacman *pacman) {
 
   PacmanSprite pacman_sprite = {};
   uint8_t anim_tick = (game_state.tick / 2) % 4;
-  bool8 is_horizontal = pacman->dir == DIR_RIGHT || pacman->dir == DIR_LEFT;
+  bool8 is_horizontal = dir_is_horizontal(pacman->dir);
   pacman_sprite.tile_code = pacman_anim[is_horizontal ? 0 : 1][anim_tick];
   pacman_sprite.color_code = COLOR_PACMAN;
   pacman_sprite.flip_x = pacman->dir == DIR_LEFT;
@@ -167,50 +179,40 @@ void draw_pacman(Pacman *pacman) {
   draw_sprite(pacman->x, pacman->y, &pacman_sprite);
 }
 
-void update_pacman(Pacman *pacman, float dt) {
-  int move_dir[2] = {};
+void update_pacman(Pacman *pacman) {
   if (IsKeyDown(KEY_A)) {
-    move_dir[0] -= 1;
     pacman->dir = DIR_LEFT;
-  }
-  if (IsKeyDown(KEY_D)) {
-    move_dir[0] += 1;
+  } else if (IsKeyDown(KEY_D)) {
     pacman->dir = DIR_RIGHT;
-  }
-  if (IsKeyDown(KEY_W)) {
-    move_dir[1] -= 1;
+  } else if (IsKeyDown(KEY_W)) {
     pacman->dir = DIR_UP;
-  }
-  if (IsKeyDown(KEY_S)) {
-    move_dir[1] += 1;
+  } else if (IsKeyDown(KEY_S)) {
     pacman->dir = DIR_DOWN;
   }
 
-  int ds[2] = {move_dir[0] * pacman->move_speed,
-               move_dir[1] * pacman->move_speed};
-  pacman->x += ds[0] * dt;
-  pacman->y += ds[1] * dt;
+  int2_t ds = dir_to_vec(pacman->dir);
+  pacman->x += ds.x;
+  pacman->y += ds.y;
 }
 
 int main(void) {
   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pacman.c");
 
-  SetTargetFPS(TARGET_FPS);
+  // SetTargetFPS(TARGET_FPS);
 
   pm_init_rom(&game_state.rom);
 
-  Pacman pacman = {};
-  pacman.move_speed = 20;
+  Pacman pacman = {0};
+  pacman.dir = DIR_LEFT;
 
   while (!WindowShouldClose()) {
-    float dt = GetFrameTime();
-    update_pacman(&pacman, dt);
+    update_pacman(&pacman);
     draw_pacman(&pacman);
-
     BeginDrawing();
     ClearBackground(BLACK);
     render_frame_buffer();
     EndDrawing();
+    DrawFPS(0, 0);
 
     game_state.tick++;
   }

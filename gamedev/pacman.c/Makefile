@@ -13,3 +13,9 @@ build-debug:
 
 run-debug: build-debug
 	$(TARGET)
+
+build-release:
+	$(CC) $(CFLAGS_RELEASE) $(SOURCE) -o $(TARGET) $(INCLUDE_RAYLIB) $(BUILD_RAYLIB)
+
+run-release: build-release
+	$(TARGET)
