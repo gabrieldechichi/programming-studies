@@ -20,11 +20,7 @@
 
 typedef struct {
   PacmanRom rom;
-  uint32_t frame_buffer[DISPLAY_RES_X * DISPLAY_RES_Y];
-  struct {
-    uint8_t video_ram[DISPLAY_TILES_Y][DISPLAY_TILES_X];
-    uint8_t color_ram[DISPLAY_TILES_Y][DISPLAY_TILES_X];
-  } graphics;
+  uint32_t frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
 } GameState;
 
 global GameState game_state;
@@ -38,7 +34,7 @@ Color u32_to_color(uint32_t color) {
   };
 }
 
-#define COORD_TO_INDEX(x, y) (y) * DISPLAY_RES_X + (x)
+#define XY_TO_SCREEN_BUFFER_INDEX(x, y) XY_TO_INDEX(x, y, DISPLAY_RES_X)
 
 void draw_tile(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
   uint16_t x = tile_x * TILE_SIZE;
@@ -48,8 +44,7 @@ void draw_tile(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
     for (uint16_t xx = 0; xx < TILE_SIZE; xx++) {
       uint16_t py = y + yy;
       uint16_t px = x + xx;
-      int16_t pi = COORD_TO_INDEX(px, py);
-      game_state.frame_buffer[pi] = color;
+      game_state.frame_buffer[py][px] = color;
     }
   }
 }
@@ -73,12 +68,10 @@ void draw_sprite(uint16_t sprite_x, uint16_t sprite_y, uint32_t tile_code,
                  uint8_t color_code) {
   for (uint16_t y = 0; y < SPRITE_SIZE; y++) {
     for (uint16_t x = 0; x < SPRITE_SIZE; x++) {
-      uint8_t tile_i =
-          game_state.rom.sprite_atlas[XY_TO_ATLAS_INDEX(tile_code + x, y)];
+      uint8_t tile_i = game_state.rom.sprite_atlas[y][tile_code + x];
       uint8_t color_i = color_code * 4 + tile_i;
       uint32_t color = game_state.rom.color_palette[color_i];
-      uint16_t pi = COORD_TO_INDEX(sprite_x + x, sprite_y + y);
-      game_state.frame_buffer[pi] = color;
+      game_state.frame_buffer[sprite_y + y][sprite_x + x] = color;
     }
   }
 }
@@ -96,15 +89,13 @@ int main(void) {
     ClearBackground(BLACK);
 
     // draw_color_palette();
-    //
     uint32_t tile_code = 16 * 46;
     uint8_t color_code = 0x09;
     draw_sprite(0, 0, tile_code, color_code);
 
     for (uint16_t y = 0; y < DISPLAY_RES_Y; y++) {
       for (uint16_t x = 0; x < DISPLAY_RES_X; x++) {
-        uint16_t i = COORD_TO_INDEX(x, y);
-        uint32_t color = game_state.frame_buffer[i];
+        uint32_t color = game_state.frame_buffer[y][x];
         Color rl_color = u32_to_color(color);
         for (uint16_t yy = 0; yy < PIXEL_SCALE; yy++) {
           for (uint16_t xx = 0; xx < PIXEL_SCALE; xx++) {
