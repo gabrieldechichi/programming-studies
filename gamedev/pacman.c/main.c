@@ -34,9 +34,7 @@ Color u32_to_color(uint32_t color) {
   };
 }
 
-#define XY_TO_SCREEN_BUFFER_INDEX(x, y) XY_TO_INDEX(x, y, DISPLAY_RES_X)
-
-void draw_tile(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
+void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
   uint16_t x = tile_x * TILE_SIZE;
   uint16_t y = tile_y * TILE_SIZE;
 
@@ -55,7 +53,7 @@ void draw_color_palette() {
   for (size_t i = 0; i < ARRAY_SIZE(game_state.rom.color_palette); i++) {
     uint32_t c = game_state.rom.color_palette[i];
 
-    draw_tile(x, y, c);
+    draw_tile_color(x, y, c);
     x++;
     if (x >= DISPLAY_TILES_X) {
       x = 0;
@@ -64,16 +62,29 @@ void draw_color_palette() {
   }
 }
 
-void draw_sprite(uint16_t sprite_x, uint16_t sprite_y, uint32_t tile_code,
-                 uint8_t color_code) {
-  for (uint16_t y = 0; y < SPRITE_SIZE; y++) {
-    for (uint16_t x = 0; x < SPRITE_SIZE; x++) {
-      uint8_t tile_i = game_state.rom.sprite_atlas[y][tile_code + x];
+void draw_from_atlas(uint16_t x, uint16_t y, uint8_t *atlas,
+                     uint16_t atlas_width, uint8_t tile_size,
+                     uint32_t tile_code, uint8_t color_code) {
+  for (uint16_t y = 0; y < tile_size; y++) {
+    for (uint16_t x = 0; x < tile_size; x++) {
+      uint8_t tile_i = atlas[XY_TO_INDEX(tile_code + x, y, atlas_width)];
       uint8_t color_i = color_code * 4 + tile_i;
       uint32_t color = game_state.rom.color_palette[color_i];
-      game_state.frame_buffer[sprite_y + y][sprite_x + x] = color;
+      game_state.frame_buffer[y][x] = color;
     }
   }
+}
+
+void draw_sprite(uint16_t sprite_x, uint16_t sprite_y, uint32_t tile_code,
+                 uint8_t color_code) {
+  draw_from_atlas(sprite_x, sprite_y, (uint8_t *)game_state.rom.sprite_atlas,
+                  TILE_TEXTURE_WIDTH, SPRITE_SIZE, tile_code, color_code);
+}
+
+void draw_tile(uint16_t tile_x, uint16_t tile_y, uint32_t tile_code,
+               uint8_t color_code) {
+  draw_from_atlas(tile_x, tile_y, (uint8_t *)game_state.rom.tile_atlas,
+                  TILE_TEXTURE_WIDTH, TILE_SIZE, tile_code, color_code);
 }
 
 int main(void) {
