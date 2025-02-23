@@ -4,9 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-#define TARGET_FPS 60
+#define SIM_SPEED 1
+#define TARGET_FPS 60 * SIM_SPEED
 
 #define DISPLAY_TILES_X (28)
 #define DISPLAY_TILES_Y (36)
@@ -57,13 +59,42 @@ Color u32_to_color(uint32_t color) {
   };
 }
 
-internal int2_t dir_to_vec(Direction dir) {
+int2_t dir_to_vec(Direction dir) {
   local_persist const int2_t dir_map[NUM_DIRS] = {
       {+1, 0}, {0, +1}, {-1, 0}, {0, -1}};
   return dir_map[dir];
 }
 
-internal bool8 dir_is_horizontal(Direction dir) { return !(dir & 1); }
+bool8 dir_is_horizontal(Direction dir) { return !(dir & 1); }
+
+int2_t i2(int16_t x, int16_t y) { return (int2_t){x, y}; }
+
+int2_t add_i2(int2_t v0, int2_t v1) {
+  return (int2_t){v0.x + v1.x, v0.y + v1.y};
+}
+
+int2_t sub_i2(int2_t v0, int2_t v1) {
+  return (int2_t){v0.x - v1.x, v0.y - v1.y};
+}
+
+int2_t mul_i2(int2_t v, int16_t s) { return (int2_t){v.x * s, v.y * s}; }
+
+int32_t squared_distance_i2(int2_t v0, int2_t v1) {
+  int2_t d = {v1.x - v0.x, v1.y - v0.y};
+  return d.x * d.x + d.y * d.y;
+}
+
+bool8 equal_i2(int2_t v0, int2_t v1) {
+  return (v0.x == v1.x) && (v0.y == v1.y);
+}
+
+bool8 nearequal_i2(int2_t v0, int2_t v1, int16_t tolerance) {
+  return (abs(v1.x - v0.x) <= tolerance) && (abs(v1.y - v0.y) <= tolerance);
+}
+
+int2_t actor_to_sprite_pos(int2_t pos) {
+  return i2(pos.x - HALF_SPRITE_SIZE, pos.y - HALF_SPRITE_SIZE);
+}
 
 void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
   uint16_t x = tile_x * TILE_SIZE;
@@ -78,7 +109,7 @@ void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
   }
 }
 
-void draw_sprite(uint16_t sprite_x, uint16_t sprite_y,
+void draw_sprite(int16_t sprite_x, int16_t sprite_y,
                  const PacmanSprite *sprite) {
   uint32_t tile_code = sprite->tile_code * SPRITE_SIZE;
   uint32_t color_code = sprite->color_code;
@@ -90,12 +121,17 @@ void draw_sprite(uint16_t sprite_x, uint16_t sprite_y,
   int8_t sign_y = sprite->flip_y ? -1 : 1;
   for (uint16_t y = 0; y < SPRITE_SIZE; y++) {
     for (uint16_t x = 0; x < SPRITE_SIZE; x++) {
+      int16_t py = y + sprite_y;
+      int16_t px = x + sprite_x;
+      if (px < 0 || py < 0 || px >= DISPLAY_RES_X || py >= DISPLAY_RES_Y) {
+        continue;
+      }
       uint8_t tile_i =
           game_state.rom.sprite_atlas[tile_offset_y + y * sign_y]
                                      [tile_code + tile_offset_x + sign_x * x];
       uint8_t color_i = color_code * 4 + tile_i;
       uint32_t color = game_state.rom.color_palette[color_i];
-      game_state.frame_buffer[y + sprite_y][x + sprite_x] = color;
+      game_state.frame_buffer[py][px] = color;
     }
   }
 }
@@ -165,10 +201,11 @@ void draw_pacman(Pacman *pacman) {
   pacman_sprite.color_code = COLOR_PACMAN;
   pacman_sprite.flip_x = pacman->dir == DIR_LEFT;
   pacman_sprite.flip_y = pacman->dir == DIR_UP;
-  draw_sprite(pacman->pos.x, pacman->pos.y, &pacman_sprite);
-}
 
-#define CLAMP(v, a, b) v < a ? a : (v > b ? b : v)
+  int2_t sprite_pos = actor_to_sprite_pos(pacman->pos);
+
+  draw_sprite(sprite_pos.x, sprite_pos.y, &pacman_sprite);
+}
 
 void update_pacman(Pacman *pacman) {
   if (IsKeyDown(KEY_A)) {
@@ -184,8 +221,16 @@ void update_pacman(Pacman *pacman) {
   int2_t ds = dir_to_vec(pacman->dir);
   pacman->pos.x += ds.x;
   pacman->pos.y += ds.y;
-  pacman->pos.x = CLAMP(pacman->pos.x, 0, DISPLAY_RES_X - SPRITE_SIZE);
-  pacman->pos.y = CLAMP(pacman->pos.y, 0, DISPLAY_RES_Y - SPRITE_SIZE);
+
+  int16_t left_bounds_x = -HALF_SPRITE_SIZE;
+  int16_t right_bounds_x = DISPLAY_RES_X + HALF_SPRITE_SIZE;
+  if (pacman->pos.x > right_bounds_x) {
+    pacman->pos.x = left_bounds_x;
+  } else if (pacman->pos.x < left_bounds_x) {
+    pacman->pos.x = right_bounds_x;
+  }
+  pacman->pos.y =
+      CLAMP(pacman->pos.y, HALF_SPRITE_SIZE, DISPLAY_RES_Y - HALF_SPRITE_SIZE);
 }
 
 int main(void) {

@@ -4,6 +4,7 @@
 
 #define TILE_SIZE 8
 #define SPRITE_SIZE 16
+#define HALF_SPRITE_SIZE SPRITE_SIZE / 2
 #define NUM_TILES 256
 #define NUM_SPRITES 64
 
