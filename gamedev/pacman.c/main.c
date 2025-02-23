@@ -32,6 +32,8 @@ global GameState game_state;
 
 PacmanSprite sprite_pacman = {SPRITETILE_PACMAN_CLOSED_MOUTH, COLOR_PACMAN};
 
+void draw_sprite(uint16_t sprite_x, uint16_t sprite_y, PacmanSprite sprite);
+
 Color u32_to_color(uint32_t color) {
   return (Color){
       (color >> 0) & 0xFF,
@@ -69,7 +71,24 @@ void draw_color_palette() {
   }
 }
 
-void draw_from_atlas(uint16_t x, uint16_t y, uint8_t *atlas,
+void draw_all_sprites() {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  for (size_t i = 0; i < NUM_SPRITES; i++) {
+    PacmanSprite sprite = {};
+    sprite.tile_code = i;
+    sprite.color_code = COLOR_PACMAN;
+
+    draw_sprite(x, y, sprite);
+    x += SPRITE_SIZE;
+    if (x >= DISPLAY_RES_X) {
+      x = 0;
+      y += SPRITE_SIZE;
+    }
+  }
+}
+
+void draw_from_atlas(uint16_t offset_x, uint16_t offset_y, uint8_t *atlas,
                      uint16_t atlas_width, uint8_t tile_size,
                      uint32_t tile_code, uint8_t color_code) {
   for (uint16_t y = 0; y < tile_size; y++) {
@@ -77,7 +96,7 @@ void draw_from_atlas(uint16_t x, uint16_t y, uint8_t *atlas,
       uint8_t tile_i = atlas[XY_TO_INDEX(tile_code + x, y, atlas_width)];
       uint8_t color_i = color_code * 4 + tile_i;
       uint32_t color = game_state.rom.color_palette[color_i];
-      game_state.frame_buffer[y][x] = color;
+      game_state.frame_buffer[y + offset_y][x + offset_x] = color;
     }
   }
 }
@@ -107,7 +126,8 @@ int main(void) {
     ClearBackground(BLACK);
 
     // draw_color_palette();
-    draw_sprite(0, 0, sprite_pacman);
+    // draw_sprite(10, 100, sprite_pacman);
+    draw_all_sprites();
 
     for (uint16_t y = 0; y < DISPLAY_RES_Y; y++) {
       for (uint16_t x = 0; x < DISPLAY_RES_X; x++) {
