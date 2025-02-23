@@ -1,3 +1,4 @@
+#include "raylib.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -12,6 +13,9 @@
 #define XY_TO_INDEX(x, y, w) (y) * (w) + (x)
 
 typedef unsigned char bool8;
+
+typedef Color color32_t;
+typedef Texture2D tex2d_t;
 
 #define TRUE 1
 #define FALSE 0

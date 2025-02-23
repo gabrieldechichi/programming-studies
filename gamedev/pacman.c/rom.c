@@ -11,7 +11,7 @@
 #define TILE_TEXTURE_WIDTH (256 * TILE_SIZE)
 #define TILE_TEXTURE_HEIGHT (TILE_SIZE + SPRITE_SIZE)
 
-typedef struct {
+typedef struct pacman_rom_t {
   // pacman color palette. decoded from rom
   uint32_t color_palette[256];
 
@@ -22,23 +22,23 @@ typedef struct {
   // pacman encoded sprite atlas. each sprite is a 2-bit (0..3) 16x16 pixel
   // tile indexing into a color palette
   uint8_t sprite_atlas[SPRITE_SIZE][TILE_TEXTURE_WIDTH];
-} PacmanRom;
+} pacman_rom_t;
 
 internal const uint8_t rom_hwcolors[32];
 internal const uint8_t rom_palette[256];
 internal const uint8_t rom_tiles[4096];
 internal const uint8_t rom_sprites[4096];
-internal void decode_tile(PacmanRom *rom, uint8_t tile_code);
-internal void decode_color_palette(PacmanRom *rom);
-internal void decode_tiles(PacmanRom *rom);
-internal void decode_sprite(PacmanRom *rom, uint8_t sprite_code);
+internal void decode_tile(pacman_rom_t *rom, uint8_t tile_code);
+internal void decode_color_palette(pacman_rom_t *rom);
+internal void decode_tiles(pacman_rom_t *rom);
+internal void decode_sprite(pacman_rom_t *rom, uint8_t sprite_code);
 
-void pm_init_rom(PacmanRom *rom) {
+void pm_init_rom(pacman_rom_t *rom) {
   decode_tiles(rom);
   decode_color_palette(rom);
 }
 
-internal void decode_tiles(PacmanRom *rom) {
+internal void decode_tiles(pacman_rom_t *rom) {
   for (uint32_t tile_code = 0; tile_code < NUM_TILES; tile_code++) {
     decode_tile(rom, tile_code);
   }
@@ -52,7 +52,7 @@ internal void decode_tiles(PacmanRom *rom) {
     palette which indirects into a 32-entry hardware-color palette
     (of which only 16 entries are used on the Pacman hardware)
 */
-internal void decode_color_palette(PacmanRom *rom) {
+internal void decode_color_palette(pacman_rom_t *rom) {
   uint32_t hw_colors[32];
   for (int i = 0; i < 32; i++) {
     /*
@@ -114,7 +114,7 @@ internal inline void decode_tile_8x4(uint8_t *tile_pixels, uint32_t tex_x,
 }
 
 // decode an 8x8 tile into the tile texture's upper half
-internal inline void decode_tile(PacmanRom *rom, uint8_t tile_code) {
+internal inline void decode_tile(pacman_rom_t *rom, uint8_t tile_code) {
   uint32_t x = tile_code * TILE_SIZE;
   uint32_t y0 = 0;
   uint32_t y1 = y0 + (TILE_SIZE / 2);
@@ -125,7 +125,7 @@ internal inline void decode_tile(PacmanRom *rom, uint8_t tile_code) {
 }
 
 // decode a 16x16 sprite into the tile texture's lower half
-internal inline void decode_sprite(PacmanRom *rom, uint8_t sprite_code) {
+internal inline void decode_sprite(pacman_rom_t *rom, uint8_t sprite_code) {
   uint32_t x0 = sprite_code * SPRITE_SIZE;
   uint32_t x1 = x0 + TILE_SIZE;
   uint32_t y0 = 0;
