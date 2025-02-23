@@ -271,7 +271,7 @@ void update_pacman(Pacman *pacman) {
 void init_level(void) {
   // clang-format off
     // decode the playfield from an ASCII map into tiles codes
-    static const char* tiles =
+    local_persist const char* tiles =
        //0123456789012345678901234567
         "0UUUUUUUUUUUU45UUUUUUUUUUUU1" // 3
         "L............rl............R" // 4
@@ -321,6 +321,10 @@ void init_level(void) {
       game_state.tiles[y][x] = (PacmanTile){t[tiles[i] & 127], COLOR_DOT};
     }
   }
+
+  //door colors
+  game_state.tiles[15][13].color_code = 0x18;
+  game_state.tiles[15][14].color_code = 0x18;
 }
 
 int main(void) {
@@ -343,7 +347,7 @@ int main(void) {
     update_pacman(&pacman);
 
     draw_tiles();
-    // draw_pacman(&pacman);
+    draw_pacman(&pacman);
     // draw_tile_atlas();
     BeginDrawing();
     ClearBackground(BLACK);
