@@ -23,7 +23,14 @@ typedef struct {
   uint32_t frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
 } GameState;
 
+typedef struct {
+  uint32_t tile_code;
+  uint32_t color_code;
+} PacmanSprite;
+
 global GameState game_state;
+
+PacmanSprite sprite_pacman = {SPRITETILE_PACMAN_CLOSED_MOUTH, COLOR_PACMAN};
 
 Color u32_to_color(uint32_t color) {
   return (Color){
@@ -75,10 +82,10 @@ void draw_from_atlas(uint16_t x, uint16_t y, uint8_t *atlas,
   }
 }
 
-void draw_sprite(uint16_t sprite_x, uint16_t sprite_y, uint32_t tile_code,
-                 uint8_t color_code) {
+void draw_sprite(uint16_t sprite_x, uint16_t sprite_y, PacmanSprite sprite) {
   draw_from_atlas(sprite_x, sprite_y, (uint8_t *)game_state.rom.sprite_atlas,
-                  TILE_TEXTURE_WIDTH, SPRITE_SIZE, tile_code, color_code);
+                  TILE_TEXTURE_WIDTH, SPRITE_SIZE,
+                  sprite.tile_code * SPRITE_SIZE, sprite.color_code);
 }
 
 void draw_tile(uint16_t tile_x, uint16_t tile_y, uint32_t tile_code,
@@ -100,9 +107,7 @@ int main(void) {
     ClearBackground(BLACK);
 
     // draw_color_palette();
-    uint32_t tile_code = 16 * 46;
-    uint8_t color_code = 0x09;
-    draw_sprite(0, 0, tile_code, color_code);
+    draw_sprite(0, 0, sprite_pacman);
 
     for (uint16_t y = 0; y < DISPLAY_RES_Y; y++) {
       for (uint16_t x = 0; x < DISPLAY_RES_X; x++) {
