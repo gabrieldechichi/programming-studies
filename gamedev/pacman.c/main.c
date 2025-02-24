@@ -54,6 +54,10 @@ typedef enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP, NUM_DIRS } dir_t;
 typedef struct pacman_t {
   int2_t pos;
   dir_t dir;
+
+  uint8_t change_dir_tick_grace;
+  dir_t last_wanted_dir;
+  uint32_t last_wanted_dir_tick;
 } pacman_t;
 
 global game_state_t game_state = {};
@@ -275,11 +279,11 @@ void draw_pacman(pacman_t *pacman) {
 
   int2_t sprite_pos = actor_to_sprite_pos(pacman->pos);
 
-  // int8_t extra_x = 6;
-  // draw_tile_color(sprite_pos.x - extra_x / 2, sprite_pos.y, 0x550000ff,
-  //                 SPRITE_SIZE + extra_x, SPRITE_SIZE);
+  int8_t extra_x = 0;
+  draw_tile_color(sprite_pos.x - extra_x / 2, sprite_pos.y, 0x550000ff,
+                  SPRITE_SIZE + extra_x, SPRITE_SIZE);
 
-  draw_sprite(sprite_pos.x, sprite_pos.y, &pacman_sprite_t);
+  // draw_sprite(sprite_pos.x, sprite_pos.y, &pacman_sprite_t);
 }
 
 void draw_tiles() {
@@ -295,14 +299,27 @@ void draw_tiles() {
 
 void update_pacman(pacman_t *pacman) {
   dir_t wanted_dir = pacman->dir;
+  if (pacman->last_wanted_dir_tick + pacman->change_dir_tick_grace >
+      game_state.tick) {
+    wanted_dir = pacman->last_wanted_dir;
+  }
+
   if (IsKeyDown(KEY_A)) {
     wanted_dir = DIR_LEFT;
+    pacman->last_wanted_dir = wanted_dir;
+    pacman->last_wanted_dir_tick = game_state.tick;
   } else if (IsKeyDown(KEY_D)) {
     wanted_dir = DIR_RIGHT;
+    pacman->last_wanted_dir = wanted_dir;
+    pacman->last_wanted_dir_tick = game_state.tick;
   } else if (IsKeyDown(KEY_W)) {
     wanted_dir = DIR_UP;
+    pacman->last_wanted_dir = wanted_dir;
+    pacman->last_wanted_dir_tick = game_state.tick;
   } else if (IsKeyDown(KEY_S)) {
     wanted_dir = DIR_DOWN;
+    pacman->last_wanted_dir = wanted_dir;
+    pacman->last_wanted_dir_tick = game_state.tick;
   }
 
   if (can_move(pacman->pos, wanted_dir)) {
@@ -400,6 +417,7 @@ int main(void) {
 
   pacman_t pacman = {0};
   pacman.dir = DIR_LEFT;
+  pacman.change_dir_tick_grace = 2;
   pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
   while (!WindowShouldClose()) {
