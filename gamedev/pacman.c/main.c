@@ -307,6 +307,9 @@ void update_pacman(pacman_t *pacman) {
 
   if (can_move(pacman->pos, wanted_dir)) {
     pacman->dir = wanted_dir;
+  }
+
+  if (can_move(pacman->pos, pacman->dir)) {
     int2_t ds = dir_to_vec(pacman->dir);
     pacman->pos.x += ds.x;
     pacman->pos.y += ds.y;
