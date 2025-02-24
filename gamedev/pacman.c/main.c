@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SIM_SPEED 3
+#define SIM_SPEED 1
 #define TARGET_FPS 60 * SIM_SPEED
 
 #define DISPLAY_TILES_X (28)
@@ -580,14 +580,10 @@ void init_level(void) {
   game_state.tiles[15][14].color_code = 0x18;
 }
 
-// Frequency of the sine wave in Hertz
-#define FREQUENCY 440.0
-// Sample rate in samples per second
-#define SAMPLE_RATE 44100
-// Maximum amplitude (volume)
-#define AMPLITUDE 0.5
-// Length of the wave in samples
-#define SAMPLE_LENGTH SAMPLE_RATE // 1 second of wave
+// 44kHZ
+#define AUDIO_SAMPLE_RATE 44100
+#define AUDIO_BUFFER_SIZE 512
+#define AUDIO_FREQUENCY 10
 
 int main(void) {
 
@@ -607,29 +603,32 @@ int main(void) {
   game_state.pacman.dir = DIR_LEFT;
   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
-  float *sineWave = (float *)malloc(SAMPLE_LENGTH * sizeof(float));
+  // audio test
+  audio_stream_t audio_stream = LoadAudioStream(AUDIO_SAMPLE_RATE, 32, 1);
+  PlayAudioStream(audio_stream);
+  float phase = 0.0;
+  float phase_increment = (2.0 * PI * AUDIO_FREQUENCY) / AUDIO_SAMPLE_RATE;
 
-  // Generate sine wave samples
-  for (int i = 0; i < SAMPLE_LENGTH; i++) {
-    sineWave[i] = AMPLITUDE * sinf((2 * PI * FREQUENCY * i) / SAMPLE_RATE);
-  }
-
-  wave_t wave = {
-      .frameCount = SAMPLE_LENGTH,
-      .sampleRate = SAMPLE_RATE,
-      .sampleSize = 32,
-      .channels = 1,
-      .data = sineWave,
-  };
-
-  sound_t sound = LoadSoundFromWave(wave);
-  PlaySound(sound);
+  float *buffer = (float *)malloc(AUDIO_BUFFER_SIZE * sizeof(float));
 
   while (game_state.is_running && !WindowShouldClose()) {
     update_fruits();
     update_pacman();
 
     set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
+
+    if (IsAudioStreamProcessed(audio_stream)) {
+      for (int i = 0; i < AUDIO_BUFFER_SIZE; i++) {
+        buffer[i] = 0.5f * sinf(phase);
+        phase += phase_increment;
+
+        if (phase > 2 * PI) {
+          phase -= 2 * PI;
+        }
+      }
+
+      UpdateAudioStream(audio_stream, buffer, AUDIO_BUFFER_SIZE);
+    }
 
     draw_tiles();
     draw_pacman();
@@ -644,6 +643,7 @@ int main(void) {
     game_state.tick++;
   }
 
+  UnloadAudioStream(audio_stream);
   CloseAudioDevice();
   CloseWindow();
 
