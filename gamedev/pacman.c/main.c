@@ -97,10 +97,20 @@ const fruit_t fruits[NUM_FRUITS] = {
 };
 // clang-format on
 
+// note: low bit = 0 for horizontal, low bit = 1 for vertical
+typedef enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP, NUM_DIRS } dir_t;
+
+typedef struct pacman_t {
+  int2_t pos;
+  dir_t dir;
+} pacman_t;
+
 typedef struct game_state_t {
   // clock
   bool8_t is_running;
   uint32_t tick;
+
+  pacman_t pacman;
 
   // score
   uint32_t score;
@@ -118,14 +128,6 @@ typedef struct game_state_t {
   uint32_t frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
   tex2d_t render_texture;
 } game_state_t;
-
-// note: low bit = 0 for horizontal, low bit = 1 for vertical
-typedef enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP, NUM_DIRS } dir_t;
-
-typedef struct pacman_t {
-  int2_t pos;
-  dir_t dir;
-} pacman_t;
 
 global game_state_t game_state = {};
 
@@ -402,7 +404,8 @@ void render_frame_buffer() {
   memset(&game_state.frame_buffer, 0, sizeof(game_state.frame_buffer));
 }
 
-void draw_pacman(pacman_t *pacman) {
+void draw_pacman() {
+  pacman_t *pacman = &game_state.pacman;
   local_persist const uint8_t pacman_anim[2][4] = {
       {44, 46, 48, 46}, // horizontal (needs flipx)
       {45, 47, 48, 47}  // vertical (needs flipy)
@@ -448,7 +451,8 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool8_t is_pill) {
   }
 }
 
-void update_pacman(pacman_t *pacman) {
+void update_pacman() {
+  pacman_t *pacman = &game_state.pacman;
   dir_t wanted_dir = pacman->dir;
 
   if (IsKeyDown(KEY_A)) {
@@ -498,6 +502,15 @@ void update_pacman(pacman_t *pacman) {
         game_state.active_fruit = FRUIT_NONE;
       }
     }
+  }
+}
+
+void update_fruit() {}
+
+void draw_fruits() {
+  if (game_state.active_fruit) {
+    fruit_t fruit = fruits[game_state.active_fruit];
+    draw_sprite(game_state.fruit_pos.x, game_state.fruit_pos.y, &fruit.sprite);
   }
 }
 
@@ -574,23 +587,18 @@ int main(void) {
   pm_init_rom(&game_state.rom);
   init_level();
 
-  pacman_t pacman = {0};
-  pacman.dir = DIR_LEFT;
-  pacman.pos = i2(14 * 8, 26 * 8 + 4);
+  game_state.pacman.dir = DIR_LEFT;
+  game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
   while (game_state.is_running && !WindowShouldClose()) {
-    update_pacman(&pacman);
+    update_pacman();
 
     set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
 
     draw_tiles();
-    draw_pacman(&pacman);
+    draw_pacman();
+    draw_fruits();
 
-    if (game_state.active_fruit) {
-      fruit_t fruit = fruits[game_state.active_fruit];
-      draw_sprite(game_state.fruit_pos.x, game_state.fruit_pos.y,
-                  &fruit.sprite);
-    }
     // draw_tile_atlas();
     BeginDrawing();
     ClearBackground(BLACK);
