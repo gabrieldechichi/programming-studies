@@ -58,19 +58,43 @@ typedef enum {
 
 typedef struct fruit_t {
   pacman_sprite_t sprite;
+  uint16_t bonus_score;
+  uint16_t fright_ticks;
 } fruit_t;
 
 // clang-format off
 const fruit_t fruits[NUM_FRUITS] = {
-    {0, 0}, // FRUIT_NONE
-    {SPRITETILE_CHERRIES, COLOR_CHERRIES},
-    {TILE_STRAWBERRY, COLOR_STRAWBERRY},
-    {TILE_PEACH, COLOR_PEACH},
-    {TILE_APPLE, COLOR_APPLE},
-    {TILE_GRAPES, COLOR_GRAPES},
-    {TILE_GALAXIAN, COLOR_GALAXIAN},
-    {TILE_BELL, COLOR_BELL},
-    {TILE_KEY, COLOR_KEY}};
+    {{0, 0}, 0, 0}, // FRUIT_NONE
+    {{SPRITETILE_CHERRIES, COLOR_CHERRIES},10,6*60, },
+    // { FRUIT_STRAWBERRY, 30,  5*60, },
+    // { FRUIT_PEACH,      50,  4*60, },
+    // { FRUIT_PEACH,      50,  3*60, },
+    // { FRUIT_APPLE,      70,  2*60, },
+    // { FRUIT_APPLE,      70,  5*60, },
+    // { FRUIT_GRAPES,     100, 2*60, },
+    // { FRUIT_GRAPES,     100, 2*60, },
+    // { FRUIT_GALAXIAN,   200, 1*60, },
+    // { FRUIT_GALAXIAN,   200, 5*60, },
+    // { FRUIT_BELL,       300, 2*60, },
+    // { FRUIT_BELL,       300, 1*60, },
+    // { FRUIT_KEY,        500, 1*60, },
+    // { FRUIT_KEY,        500, 3*60, },
+    // { FRUIT_KEY,        500, 1*60, },
+    // { FRUIT_KEY,        500, 1*60, },
+    // { FRUIT_KEY,        500, 1,    },
+    // { FRUIT_KEY,        500, 1*60, },
+    // { FRUIT_KEY,        500, 1,    },
+    // { FRUIT_KEY,        500, 1,    },
+    // { FRUIT_KEY,        500, 1,    },
+    // {SPRITETILE_CHERRIES, COLOR_CHERRIES},
+    // {TILE_STRAWBERRY, COLOR_STRAWBERRY},
+    // {TILE_PEACH, COLOR_PEACH},
+    // {TILE_APPLE, COLOR_APPLE},
+    // {TILE_GRAPES, COLOR_GRAPES},
+    // {TILE_GALAXIAN, COLOR_GALAXIAN},
+    // {TILE_BELL, COLOR_BELL},
+    // {TILE_KEY, COLOR_KEY}
+};
 // clang-format on
 
 typedef struct game_state_t {
@@ -82,6 +106,7 @@ typedef struct game_state_t {
   uint32_t score;
   uint8_t num_dots_eaten;
   fruit_opt_t active_fruit;
+  int2_t fruit_pos;
 
   // rom
   pacman_rom_t rom;
@@ -460,6 +485,19 @@ void update_pacman(pacman_t *pacman) {
     } else if (is_pill(tile_coords)) {
       pacman_eat_dot_or_pill(tile_coords, true);
     }
+
+    if (game_state.active_fruit) {
+      int2_t fruit_coords = pixel_to_tile_coord(game_state.fruit_pos);
+      // hack(Gabriel): we offset the fruit graphically which moves it to the
+      // wrong tile pos add support for offseting sprites
+      fruit_coords.y++;
+      int2_t pacman_coords = pixel_to_tile_coord(pacman->pos);
+      if (equal_i2(pacman_coords, fruit_coords)) {
+        fruit_t fruit = fruits[game_state.active_fruit];
+        game_state.score += fruit.bonus_score;
+        game_state.active_fruit = FRUIT_NONE;
+      }
+    }
   }
 }
 
@@ -529,6 +567,7 @@ int main(void) {
 
   memset(&game_state, 0, sizeof(game_state));
   game_state.is_running = true;
+  game_state.fruit_pos = i2(13 * TILE_SIZE, 20 * TILE_SIZE - TILE_SIZE / 2);
   game_state.render_texture =
       LoadTextureFromImage(GenImageColor(DISPLAY_RES_X, DISPLAY_RES_Y, BLACK));
 
@@ -549,7 +588,7 @@ int main(void) {
 
     if (game_state.active_fruit) {
       fruit_t fruit = fruits[game_state.active_fruit];
-      draw_sprite(13 * TILE_SIZE, 19 * TILE_SIZE + TILE_SIZE / 2,
+      draw_sprite(game_state.fruit_pos.x, game_state.fruit_pos.y,
                   &fruit.sprite);
     }
     // draw_tile_atlas();
