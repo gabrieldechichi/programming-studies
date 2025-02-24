@@ -139,12 +139,12 @@ bool8_t can_move(int2_t pos, dir_t wanted_dir) {
 }
 
 void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color,
-                     uint8_t tile_size) {
+                     uint8_t tile_width, uint8_t tile_height) {
   uint16_t x = tile_x;
   uint16_t y = tile_y;
 
-  for (uint16_t yy = 0; yy < tile_size; yy++) {
-    for (uint16_t xx = 0; xx < tile_size; xx++) {
+  for (uint16_t yy = 0; yy < tile_height; yy++) {
+    for (uint16_t xx = 0; xx < tile_width; xx++) {
       uint16_t py = y + yy;
       uint16_t px = x + xx;
       game_state.frame_buffer[py][px] = color;
@@ -162,16 +162,22 @@ void draw_sprite(int16_t sprite_x, int16_t sprite_y,
 
   uint8_t tile_offset_y = sprite->flip_y ? SPRITE_SIZE - 1 : 0;
   int8_t sign_y = sprite->flip_y ? -1 : 1;
+
+  // todo(Gabriel): not sure why sprites seem to be offset to the right a bit.
+  // maybe bug with rom decoding?
+  local_persist uint8_t sprite_tile_offset_x = 2;
+  local_persist uint8_t sprite_tile_offset_y = 1;
   for (uint16_t y = 0; y < SPRITE_SIZE; y++) {
     for (uint16_t x = 0; x < SPRITE_SIZE; x++) {
-      int16_t py = y + sprite_y;
+      int16_t py = y + sprite_y + sprite_tile_offset_y;
       int16_t px = x + sprite_x;
       if (px < 0 || py < 0 || px >= DISPLAY_RES_X || py >= DISPLAY_RES_Y) {
         continue;
       }
       uint8_t tile_i =
           game_state.rom.sprite_atlas[tile_offset_y + y * sign_y]
-                                     [tile_code + tile_offset_x + sign_x * x];
+                                     [tile_code + tile_offset_x + sign_x * x -
+                                      sprite_tile_offset_x];
       uint8_t color_i = color_code * 4 + tile_i;
       uint32_t src_color = game_state.rom.color_palette[color_i];
       uint8_t alpha = (src_color >> 24) & 0xFF;
@@ -202,7 +208,7 @@ void draw_color_palette() {
   for (size_t i = 0; i < ARRAY_SIZE(game_state.rom.color_palette); i++) {
     uint32_t c = game_state.rom.color_palette[i];
 
-    draw_tile_color(x, y, c, TILE_SIZE);
+    draw_tile_color(x, y, c, TILE_SIZE, TILE_SIZE);
     x++;
     if (x >= DISPLAY_TILES_X) {
       x = 0;
@@ -269,7 +275,9 @@ void draw_pacman(pacman_t *pacman) {
 
   int2_t sprite_pos = actor_to_sprite_pos(pacman->pos);
 
-  // draw_tile_color(sprite_pos.x, sprite_pos.y, 0xff0000ff, SPRITE_SIZE);
+  // int8_t extra_x = 6;
+  // draw_tile_color(sprite_pos.x - extra_x / 2, sprite_pos.y, 0x550000ff,
+  //                 SPRITE_SIZE + extra_x, SPRITE_SIZE);
 
   draw_sprite(sprite_pos.x, sprite_pos.y, &pacman_sprite_t);
 }
