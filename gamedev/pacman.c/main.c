@@ -1,13 +1,14 @@
 #include "raylib.h"
 #include "rom.c"
 #include "typedefs.h"
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define SIM_SPEED 1
+#define SIM_SPEED 3
 #define TARGET_FPS 60 * SIM_SPEED
 
 #define DISPLAY_TILES_X (28)
@@ -442,6 +443,7 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool8_t is_pill) {
 
   game_state.num_dots_eaten++;
   if (game_state.num_dots_eaten >= NUM_DOTS) {
+    game_state.is_running = false;
   } else if (game_state.num_dots_eaten == 10 ||
              game_state.num_dots_eaten == 170) {
     game_state.active_fruit = FRUIT_STRAWBERRY;
@@ -578,9 +580,19 @@ void init_level(void) {
   game_state.tiles[15][14].color_code = 0x18;
 }
 
+// Frequency of the sine wave in Hertz
+#define FREQUENCY 440.0
+// Sample rate in samples per second
+#define SAMPLE_RATE 44100
+// Maximum amplitude (volume)
+#define AMPLITUDE 0.5
+// Length of the wave in samples
+#define SAMPLE_LENGTH SAMPLE_RATE // 1 second of wave
+
 int main(void) {
 
   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pacman.c");
+  InitAudioDevice();
   SetTargetFPS(TARGET_FPS);
 
   memset(&game_state, 0, sizeof(game_state));
@@ -594,6 +606,24 @@ int main(void) {
 
   game_state.pacman.dir = DIR_LEFT;
   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
+
+  float *sineWave = (float *)malloc(SAMPLE_LENGTH * sizeof(float));
+
+  // Generate sine wave samples
+  for (int i = 0; i < SAMPLE_LENGTH; i++) {
+    sineWave[i] = AMPLITUDE * sinf((2 * PI * FREQUENCY * i) / SAMPLE_RATE);
+  }
+
+  wave_t wave = {
+      .frameCount = SAMPLE_LENGTH,
+      .sampleRate = SAMPLE_RATE,
+      .sampleSize = 32,
+      .channels = 1,
+      .data = sineWave,
+  };
+
+  sound_t sound = LoadSoundFromWave(wave);
+  PlaySound(sound);
 
   while (game_state.is_running && !WindowShouldClose()) {
     update_fruits();
@@ -614,6 +644,7 @@ int main(void) {
     game_state.tick++;
   }
 
+  CloseAudioDevice();
   CloseWindow();
 
   return 0;
