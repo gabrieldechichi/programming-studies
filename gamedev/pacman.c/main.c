@@ -125,6 +125,10 @@ bool8_t is_blocking_tile(int2_t tile_pos) {
   return tile_code_at(tile_pos) >= TILE_BLOCKING;
 }
 
+bool8_t is_dot(int2_t tile_pos) { return tile_code_at(tile_pos) == TILE_DOT; }
+
+bool8_t is_pill(int2_t tile_pos) { return tile_code_at(tile_pos) == TILE_PILL; }
+
 int2_t actor_to_sprite_pos(int2_t pos) {
   return i2(pos.x - HALF_SPRITE_SIZE, pos.y - HALF_SPRITE_SIZE);
 }
@@ -333,6 +337,7 @@ void update_pacman(pacman_t *pacman) {
   if (can_move(pacman->pos, pacman->dir)) {
     pacman->pos = move(pacman->pos, pacman->dir);
 
+    // check bounds
     int16_t left_bounds_x = -HALF_SPRITE_SIZE;
     int16_t right_bounds_x = DISPLAY_RES_X + HALF_SPRITE_SIZE;
     if (pacman->pos.x > right_bounds_x) {
@@ -342,6 +347,11 @@ void update_pacman(pacman_t *pacman) {
     }
     pacman->pos.y = CLAMP(pacman->pos.y, HALF_SPRITE_SIZE,
                           DISPLAY_RES_Y - HALF_SPRITE_SIZE);
+
+    int2_t tile_coords = pixel_to_tile_coord(pacman->pos);
+    if (is_dot(tile_coords)) {
+      game_state.tiles[tile_coords.y][tile_coords.x].tile_code = TILE_SPACE;
+    }
   }
 }
 
