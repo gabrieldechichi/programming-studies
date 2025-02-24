@@ -66,9 +66,6 @@ typedef struct fruit_t {
 const fruit_t fruits[NUM_FRUITS] = {
     {{0, 0}, 0, 0}, // FRUIT_NONE
     {{SPRITETILE_CHERRIES, COLOR_CHERRIES},10,6*60, },
-    // { FRUIT_STRAWBERRY, 30,  5*60, },
-    // { FRUIT_PEACH,      50,  4*60, },
-    // { FRUIT_PEACH,      50,  3*60, },
     // { FRUIT_APPLE,      70,  2*60, },
     // { FRUIT_APPLE,      70,  5*60, },
     // { FRUIT_GRAPES,     100, 2*60, },
@@ -86,14 +83,13 @@ const fruit_t fruits[NUM_FRUITS] = {
     // { FRUIT_KEY,        500, 1,    },
     // { FRUIT_KEY,        500, 1,    },
     // { FRUIT_KEY,        500, 1,    },
-    // {SPRITETILE_CHERRIES, COLOR_CHERRIES},
-    // {TILE_STRAWBERRY, COLOR_STRAWBERRY},
-    // {TILE_PEACH, COLOR_PEACH},
-    // {TILE_APPLE, COLOR_APPLE},
-    // {TILE_GRAPES, COLOR_GRAPES},
-    // {TILE_GALAXIAN, COLOR_GALAXIAN},
-    // {TILE_BELL, COLOR_BELL},
-    // {TILE_KEY, COLOR_KEY}
+    {{SPRITETILE_STRAWBERRY, COLOR_STRAWBERRY}, 30,  5*60, },
+    {{SPRITETILE_PEACH, COLOR_PEACH}, 50,  4*60, },
+    {{SPRITETILE_APPLE, COLOR_APPLE}, 70,  2*60, },
+    {{SPRITETILE_GRAPES, COLOR_GRAPES}},
+    {{SPRITETILE_GALAXIAN, COLOR_GALAXIAN}},
+    {{SPRITETILE_BELL, COLOR_BELL}},
+    {{SPRITETILE_KEY, COLOR_KEY}}
 };
 // clang-format on
 
@@ -448,7 +444,7 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool8_t is_pill) {
   if (game_state.num_dots_eaten >= NUM_DOTS) {
   } else if (game_state.num_dots_eaten == 10 ||
              game_state.num_dots_eaten == 170) {
-    game_state.active_fruit = FRUIT_CHERRIES;
+    game_state.active_fruit = FRUIT_STRAWBERRY;
     fruit_t fruit = fruits[game_state.active_fruit];
     game_state.fruit_despawn_tick = game_state.tick + fruit.despawn_ticks;
   }
