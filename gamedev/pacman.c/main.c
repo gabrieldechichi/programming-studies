@@ -26,10 +26,52 @@
 #define NUM_PILLS (4)              // number of energizer pills on playfield
 #define NUM_DOTS (240) + NUM_PILLS // 240 small dots + 4 pills
 
+typedef struct int2_t {
+  int16_t x;
+  int16_t y;
+} int2_t;
+
 typedef struct pacman_tile_t {
   uint8_t tile_code;
   uint8_t color_code;
 } pacman_tile_t;
+
+typedef struct pacman_sprite_t {
+  uint32_t tile_code;
+  uint32_t color_code;
+  bool8_t flip_x;
+  bool8_t flip_y;
+} pacman_sprite_t;
+
+typedef enum {
+  FRUIT_NONE,
+  FRUIT_CHERRIES,
+  FRUIT_STRAWBERRY,
+  FRUIT_PEACH,
+  FRUIT_APPLE,
+  FRUIT_GRAPES,
+  FRUIT_GALAXIAN,
+  FRUIT_BELL,
+  FRUIT_KEY,
+  NUM_FRUITS
+} fruit_opt_t;
+
+typedef struct fruit_t {
+  pacman_sprite_t sprite;
+} fruit_t;
+
+// clang-format off
+const fruit_t fruits[NUM_FRUITS] = {
+    {0, 0}, // FRUIT_NONE
+    {SPRITETILE_CHERRIES, COLOR_CHERRIES},
+    {TILE_STRAWBERRY, COLOR_STRAWBERRY},
+    {TILE_PEACH, COLOR_PEACH},
+    {TILE_APPLE, COLOR_APPLE},
+    {TILE_GRAPES, COLOR_GRAPES},
+    {TILE_GALAXIAN, COLOR_GALAXIAN},
+    {TILE_BELL, COLOR_BELL},
+    {TILE_KEY, COLOR_KEY}};
+// clang-format on
 
 typedef struct game_state_t {
   // clock
@@ -39,6 +81,7 @@ typedef struct game_state_t {
   // score
   uint32_t score;
   uint8_t num_dots_eaten;
+  fruit_opt_t active_fruit;
 
   // rom
   pacman_rom_t rom;
@@ -50,18 +93,6 @@ typedef struct game_state_t {
   uint32_t frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
   tex2d_t render_texture;
 } game_state_t;
-
-typedef struct pacman_sprite_t {
-  uint32_t tile_code;
-  uint32_t color_code;
-  bool8_t flip_x;
-  bool8_t flip_y;
-} pacman_sprite_t;
-
-typedef struct int2_t {
-  int16_t x;
-  int16_t y;
-} int2_t;
 
 // note: low bit = 0 for horizontal, low bit = 1 for vertical
 typedef enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP, NUM_DIRS } dir_t;
@@ -386,9 +417,9 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool8_t is_pill) {
 
   game_state.num_dots_eaten++;
   if (game_state.num_dots_eaten >= NUM_DOTS) {
-  } else if (game_state.num_dots_eaten == 70 ||
+  } else if (game_state.num_dots_eaten == 10 ||
              game_state.num_dots_eaten == 170) {
-    // spawn fruit
+    game_state.active_fruit = FRUIT_CHERRIES;
   }
 }
 
@@ -510,10 +541,17 @@ int main(void) {
 
   while (game_state.is_running && !WindowShouldClose()) {
     update_pacman(&pacman);
+
     set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
 
     draw_tiles();
     draw_pacman(&pacman);
+
+    if (game_state.active_fruit) {
+      fruit_t fruit = fruits[game_state.active_fruit];
+      draw_sprite(13 * TILE_SIZE, 19 * TILE_SIZE + TILE_SIZE / 2,
+                  &fruit.sprite);
+    }
     // draw_tile_atlas();
     BeginDrawing();
     ClearBackground(BLACK);
