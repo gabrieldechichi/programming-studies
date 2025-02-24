@@ -1,13 +1,13 @@
 #include "raylib.h"
 #include "rom.c"
 #include "typedefs.h"
-#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+// clang-format off
 #define SIM_SPEED 1
 #define TARGET_FPS 60 * SIM_SPEED
 
@@ -26,6 +26,10 @@
 
 #define NUM_PILLS (4)              // number of energizer pills on playfield
 #define NUM_DOTS (240) + NUM_PILLS // 240 small dots + 4 pills
+#define NUM_VOICES 3            // number of sound voices
+#define NUM_SOUNDS 3            // max number of sounds effects that can be active at a time
+#define NUM_SAMPLES 128          // max number of audio samples in local sample buffer
+// clang-format on
 
 typedef struct int2_t {
   int16_t x;
@@ -98,21 +102,50 @@ const fruit_t fruits[NUM_FRUITS] = {
 typedef enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP, NUM_DIRS } dir_t;
 
 typedef enum { SOUND_DUMP, SOUND_PROCEDURAL } sound_opt_t;
-typedef enum { SOUND_DEAD, NUM_SOUNDS } sounds_t;
+typedef enum { SOUND_DEAD, SOUND_EATDOT_1, NUM_GAME_SOUNDS } sounds_t;
+
+typedef void (*sound_func_t)(int sound_slot);
 
 typedef struct sound_desc_t {
   sound_opt_t type;
-  struct {
-    const uint32_t *ptr;
-    uint32_t size;
-  } dump;
+  bool8_t voice[3];
+  union {
+    struct {
+      const uint32_t *ptr;
+      uint32_t size;
+    };
+    sound_func_t sound_fn;
+  };
 } sound_desc_t;
 
-// clang-format off
-const sound_desc_t sounds[NUM_SOUNDS] = {
-    { .type = SOUND_DUMP, .dump = {.ptr = snd_dump_dead, .size = sizeof(snd_dump_dead)} },
-};
-// clang-format on
+const sound_desc_t sounds[NUM_GAME_SOUNDS];
+
+typedef enum {
+  SOUNDFLAG_VOICE0 = (1 << 0),
+  SOUNDFLAG_VOICE1 = (1 << 1),
+  SOUNDFLAG_VOICE2 = (1 << 2),
+  NUM_SOUNDFLAGS = 3,
+  SOUNDFLAG_ALL_VOICES = (1 << 0) | (1 << 1) | (1 << 2),
+} soundflag_t;
+
+typedef struct {
+  uint32_t cur_tick;
+  sound_func_t func;
+  uint32_t num_ticks;
+  uint32_t stride; // number of uint32_t values per tick (only for register dump
+                   // effects)
+  const uint32_t *data; // 3 * num_ticks register dump values
+  uint8_t flags;        // combination of soundflag_t (active voices)
+} sound_t;
+
+typedef struct {
+  uint32_t counter;   // 20-bit counter, top 5 bits are index into wavetable ROM
+  uint32_t frequency; // 20-bit frequency (added to counter at 96kHz)
+  uint8_t waveform;   // 3-bit waveform index
+  uint8_t volume;     // 4-bit volume
+  float sample_acc;   // current float sample accumulator
+  float sample_div;   // current float sample divisor
+} voice_t;
 
 typedef struct pacman_t {
   int2_t pos;
@@ -132,6 +165,17 @@ typedef struct game_state_t {
   fruit_opt_t active_fruit;
   int2_t fruit_pos;
   int32_t fruit_despawn_tick;
+
+  struct {
+    voice_t voice[NUM_VOICES];
+    sound_t sound[NUM_SOUNDS];
+    int32_t voice_tick_accum;
+    int32_t voice_tick_period;
+    int32_t sample_duration_ns;
+    int32_t sample_accum;
+    uint32_t num_samples;
+    float sample_buffer[NUM_SAMPLES];
+  } audio;
 
   // rom
   pacman_rom_t rom;
@@ -253,6 +297,59 @@ int2_t move(int2_t pos, dir_t dir) {
     }
   }
   return pos;
+}
+
+// SOUND
+void sound_start(int slot, const sound_desc_t *desc) {
+  // assert((slot >= 0) && (slot < NUM_SOUNDS));
+  // assert(desc);
+  // assert((desc->ptr && desc->size) || desc->func);
+
+  sound_t *snd = &game_state.audio.sound[slot];
+  *snd = (sound_t){0};
+  int num_voices = 0;
+  for (int i = 0; i < NUM_VOICES; i++) {
+    if (desc->voice[i]) {
+      snd->flags |= (1 << i);
+      num_voices++;
+    }
+  }
+  if (desc->sound_fn) {
+    // procedural sounds only need a callback function
+    snd->func = desc->sound_fn;
+  } else {
+    // assert(num_voices > 0);
+    // assert((desc->size % (num_voices * sizeof(uint32_t))) == 0);
+    snd->stride = num_voices;
+    snd->num_ticks = desc->size / (snd->stride * sizeof(uint32_t));
+    snd->data = desc->ptr;
+  }
+}
+
+void sound_stop(int slot) {
+  // silence the sound's output voices
+  for (int i = 0; i < NUM_VOICES; i++) {
+    if (game_state.audio.sound[slot].flags & (1 << i)) {
+      game_state.audio.voice[i] = (voice_t){0};
+    }
+  }
+
+  // clear the sound slot
+  game_state.audio.sound[slot] = (sound_t){0};
+}
+
+void snd_func_eatdot1(int slot) {
+  const sound_t *snd = &game_state.audio.sound[slot];
+  voice_t *voice = &game_state.audio.voice[2];
+  if (snd->cur_tick == 0) {
+    voice->volume = 12;
+    voice->waveform = 2;
+    voice->frequency = 0x1500;
+  } else if (snd->cur_tick == 5) {
+    sound_stop(slot);
+  } else {
+    voice->frequency -= 0x0300;
+  }
 }
 
 void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color,
@@ -467,6 +564,8 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool8_t is_pill) {
     fruit_t fruit = fruits[game_state.active_fruit];
     game_state.fruit_despawn_tick = game_state.tick + fruit.despawn_ticks;
   }
+
+  sound_start(2, &sounds[SOUND_EATDOT_1]);
 }
 
 void update_pacman() {
@@ -596,6 +695,13 @@ void init_level(void) {
   game_state.tiles[15][13].color_code = 0x18;
   game_state.tiles[15][14].color_code = 0x18;
 }
+
+// clang-format off
+const sound_desc_t sounds[NUM_GAME_SOUNDS] = {
+    { .type = SOUND_DUMP, .ptr = snd_dump_dead, .size = sizeof(snd_dump_dead) },
+    { .type = SOUND_PROCEDURAL, .sound_fn = snd_func_eatdot1, .voice = { false, false, true } },
+};
+// clang-format on
 
 int main(void) {
 
