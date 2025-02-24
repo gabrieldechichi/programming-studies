@@ -16,8 +16,6 @@ typedef unsigned char bool8_t;
 
 typedef Color color32_t;
 typedef Texture2D tex2d_t;
-typedef Wave wave_t;
-typedef Sound sound_t;
 typedef AudioStream audio_stream_t;
 
 #define true 1
