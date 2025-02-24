@@ -113,6 +113,11 @@ int2_t pixel_to_tile_center(int2_t p) {
   return add_i2(tile, i2(TILE_SIZE / 2, TILE_SIZE / 2));
 }
 
+int2_t dist_to_tile_center(int2_t pos) {
+  return i2((TILE_SIZE / 2) - pos.x % TILE_SIZE,
+            (TILE_SIZE / 2) - pos.y % TILE_SIZE);
+}
+
 uint8_t tile_code_at(int2_t tile_coord) {
   return game_state.tiles[tile_coord.y][tile_coord.x].tile_code;
 }
@@ -167,21 +172,16 @@ void draw_sprite(int16_t sprite_x, int16_t sprite_y,
   uint8_t tile_offset_y = sprite->flip_y ? SPRITE_SIZE - 1 : 0;
   int8_t sign_y = sprite->flip_y ? -1 : 1;
 
-  // todo(Gabriel): not sure why sprites seem to be offset to the right a bit.
-  // maybe bug with rom decoding?
-  local_persist uint8_t sprite_tile_offset_x = 2;
-  local_persist uint8_t sprite_tile_offset_y = 1;
   for (uint16_t y = 0; y < SPRITE_SIZE; y++) {
     for (uint16_t x = 0; x < SPRITE_SIZE; x++) {
-      int16_t py = y + sprite_y + sprite_tile_offset_y;
+      int16_t py = y + sprite_y;
       int16_t px = x + sprite_x;
       if (px < 0 || py < 0 || px >= DISPLAY_RES_X || py >= DISPLAY_RES_Y) {
         continue;
       }
       uint8_t tile_i =
           game_state.rom.sprite_atlas[tile_offset_y + y * sign_y]
-                                     [tile_code + tile_offset_x + sign_x * x -
-                                      sprite_tile_offset_x];
+                                     [tile_code + tile_offset_x + sign_x * x];
       uint8_t color_i = color_code * 4 + tile_i;
       uint32_t src_color = game_state.rom.color_palette[color_i];
       uint8_t alpha = (src_color >> 24) & 0xFF;
@@ -328,8 +328,23 @@ void update_pacman(pacman_t *pacman) {
 
   if (can_move(pacman->pos, pacman->dir)) {
     int2_t ds = dir_to_vec(pacman->dir);
-    pacman->pos.x += ds.x;
-    pacman->pos.y += ds.y;
+    int2_t pos = pacman->pos;
+    pos = add_i2(pacman->pos, ds);
+    int2_t dist_to_center = dist_to_tile_center(pos);
+    if (ds.x != 0) {
+      if (dist_to_center.y < 0) {
+        pos.y--;
+      } else if (dist_to_center.y > 0) {
+        pos.y++;
+      }
+    } else if (ds.y != 0) {
+      if (dist_to_center.x < 0) {
+        pos.x--;
+      } else if (dist_to_center.x > 0) {
+        pos.x++;
+      }
+    }
+    pacman->pos = pos;
 
     int16_t left_bounds_x = -HALF_SPRITE_SIZE;
     int16_t right_bounds_x = DISPLAY_RES_X + HALF_SPRITE_SIZE;
