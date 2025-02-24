@@ -97,6 +97,23 @@ const fruit_t fruits[NUM_FRUITS] = {
 // note: low bit = 0 for horizontal, low bit = 1 for vertical
 typedef enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP, NUM_DIRS } dir_t;
 
+typedef enum { SOUND_DUMP, SOUND_PROCEDURAL } sound_opt_t;
+typedef enum { SOUND_DEAD, NUM_SOUNDS } sounds_t;
+
+typedef struct sound_desc_t {
+  sound_opt_t type;
+  struct {
+    const uint32_t *ptr;
+    uint32_t size;
+  } dump;
+} sound_desc_t;
+
+// clang-format off
+const sound_desc_t sounds[NUM_SOUNDS] = {
+    { .type = SOUND_DUMP, .dump = {.ptr = snd_dump_dead, .size = sizeof(snd_dump_dead)} },
+};
+// clang-format on
+
 typedef struct pacman_t {
   int2_t pos;
   dir_t dir;
@@ -580,11 +597,6 @@ void init_level(void) {
   game_state.tiles[15][14].color_code = 0x18;
 }
 
-// 44kHZ
-#define AUDIO_SAMPLE_RATE 44100
-#define AUDIO_BUFFER_SIZE 512
-#define AUDIO_FREQUENCY 10
-
 int main(void) {
 
   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pacman.c");
@@ -604,12 +616,10 @@ int main(void) {
   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
   // audio test
-  audio_stream_t audio_stream = LoadAudioStream(AUDIO_SAMPLE_RATE, 32, 1);
-  PlayAudioStream(audio_stream);
-  float phase = 0.0;
-  float phase_increment = (2.0 * PI * AUDIO_FREQUENCY) / AUDIO_SAMPLE_RATE;
+  // audio_stream_t audio_stream = LoadAudioStream(60000, 32, 3);
+  // PlayAudioStream(audio_stream);
 
-  float *buffer = (float *)malloc(AUDIO_BUFFER_SIZE * sizeof(float));
+  // bool8_t did_play_sound = false;
 
   while (game_state.is_running && !WindowShouldClose()) {
     update_fruits();
@@ -617,18 +627,10 @@ int main(void) {
 
     set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
 
-    if (IsAudioStreamProcessed(audio_stream)) {
-      for (int i = 0; i < AUDIO_BUFFER_SIZE; i++) {
-        buffer[i] = 0.5f * sinf(phase);
-        phase += phase_increment;
-
-        if (phase > 2 * PI) {
-          phase -= 2 * PI;
-        }
-      }
-
-      UpdateAudioStream(audio_stream, buffer, AUDIO_BUFFER_SIZE);
-    }
+    // if (!did_play_sound && IsAudioStreamProcessed(audio_stream)) {
+    //   sound_desc_t sound = sounds[SOUND_DEAD];
+    //   UpdateAudioStream(audio_stream, sound.dump.ptr, sound.dump.size / 32);
+    // }
 
     draw_tiles();
     draw_pacman();
@@ -643,7 +645,7 @@ int main(void) {
     game_state.tick++;
   }
 
-  UnloadAudioStream(audio_stream);
+  // UnloadAudioStream(audio_stream);
   CloseAudioDevice();
   CloseWindow();
 
