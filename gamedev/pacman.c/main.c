@@ -29,9 +29,19 @@ typedef struct pacman_tile_t {
 } pacman_tile_t;
 
 typedef struct game_state_t {
+  // clock
   uint32_t tick;
+
+  // score
+  uint32_t score;
+
+  // rom
   pacman_rom_t rom;
+
+  // tilemap
   pacman_tile_t tiles[DISPLAY_TILES_Y][DISPLAY_TILES_X];
+
+  // rendering
   uint32_t frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
   tex2d_t render_texture;
 } game_state_t;
@@ -290,8 +300,10 @@ char conv_char(char c) {
 }
 
 void set_tile_char(int2_t tile_pos, uint8_t color_code, char chr) {
-  game_state.tiles[tile_pos.y][tile_pos.x] =
-      (pacman_tile_t){conv_char(chr), color_code};
+  if (INSIDE_MAP_BOUNDS(tile_pos.x, tile_pos.y)) {
+    game_state.tiles[tile_pos.y][tile_pos.x] =
+        (pacman_tile_t){conv_char(chr), color_code};
+  }
 }
 
 void set_tile_text(int2_t tile_pos, uint8_t color_code, const char *text) {
@@ -302,6 +314,20 @@ void set_tile_text(int2_t tile_pos, uint8_t color_code, const char *text) {
       set_tile_char(tile_pos, color_code, chr);
       tile_pos.x++;
     } else {
+      break;
+    }
+  }
+}
+
+void set_tile_score(int2_t tile_pos, uint8_t color_code, uint32_t score) {
+  set_tile_char(tile_pos, color_code, '0');
+  tile_pos.x--;
+  for (uint8_t digit = 0; digit < 8; digit++) {
+    char ch = (score % 10) + '0';
+    set_tile_char(tile_pos, color_code, ch);
+    tile_pos.x--;
+    score /= 10;
+    if (score == 0) {
       break;
     }
   }
@@ -383,8 +409,10 @@ void update_pacman(pacman_t *pacman) {
     int2_t tile_coords = pixel_to_tile_coord(pacman->pos);
     if (is_dot(tile_coords)) {
       game_state.tiles[tile_coords.y][tile_coords.x].tile_code = TILE_SPACE;
+      game_state.score += 1;
     } else if (is_pill(tile_coords)) {
       game_state.tiles[tile_coords.y][tile_coords.x].tile_code = TILE_SPACE;
+      game_state.score += 5;
     }
   }
 }
@@ -460,7 +488,9 @@ int main(void) {
 
   pm_init_rom(&game_state.rom);
   init_level();
-  set_tile_text(i2(9, 1), COLOR_DEFAULT, "HIGH SCORE");
+  // set_tile_text(i2(9, 0), COLOR_DEFAULT, "HIGH SCORE");
+  // set_tile_text(i2(9, 14), 0x5, "PLAYER ONE");
+  // set_tile_text(i2(11, 20), 0x9, "READY!");
 
   pacman_t pacman = {0};
   pacman.dir = DIR_LEFT;
@@ -468,6 +498,7 @@ int main(void) {
 
   while (!WindowShouldClose()) {
     update_pacman(&pacman);
+    set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
 
     draw_tiles();
     draw_pacman(&pacman);
