@@ -20,6 +20,8 @@
 #define PIXEL_SCALE 2
 #define SCREEN_WIDTH DISPLAY_RES_X *PIXEL_SCALE
 #define SCREEN_HEIGHT DISPLAY_RES_Y *PIXEL_SCALE
+#define INSIDE_MAP_BOUNDS(x, y)                                                \
+  ((x) >= 0 && (x) < DISPLAY_TILES_X && (y) >= 0 && (y) < DISPLAY_TILES_Y)
 
 typedef struct pacman_tile_t {
   uint8_t tile_code;
@@ -98,12 +100,6 @@ bool8_t nearequal_i2(int2_t v0, int2_t v1, int16_t tolerance) {
   return (abs(v1.x - v0.x) <= tolerance) && (abs(v1.y - v0.y) <= tolerance);
 }
 
-int2_t actor_to_sprite_pos(int2_t pos) {
-  return i2(pos.x - HALF_SPRITE_SIZE, pos.y - HALF_SPRITE_SIZE);
-}
-
-// bool8_t can_move(int2_t pos, dir_t wanted_dir, bool allow_cornering) {}
-
 // TILE MAP CODE
 int2_t pixel_to_tile_coord(int2_t p) {
   return i2(p.x / TILE_SIZE, p.y / TILE_SIZE);
@@ -118,15 +114,37 @@ uint8_t tile_code_at(int2_t tile_coord) {
 }
 
 bool8_t is_blocking_tile(int2_t tile_pos) {
+  if (!INSIDE_MAP_BOUNDS(tile_pos.x, tile_pos.y)) {
+    return FALSE;
+  }
   return tile_code_at(tile_pos) >= TILE_BLOCKING;
 }
 
-void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color) {
-  uint16_t x = tile_x * TILE_SIZE;
-  uint16_t y = tile_y * TILE_SIZE;
+int2_t actor_to_sprite_pos(int2_t pos) {
+  return i2(pos.x - HALF_SPRITE_SIZE, pos.y - HALF_SPRITE_SIZE);
+}
 
-  for (uint16_t yy = 0; yy < TILE_SIZE; yy++) {
-    for (uint16_t xx = 0; xx < TILE_SIZE; xx++) {
+bool8_t can_move(int2_t pos, dir_t wanted_dir) {
+  int2_t move_dir = dir_to_vec(wanted_dir);
+  int2_t move_amount = mul_i2(move_dir, TILE_SIZE / 2);
+  move_amount = add_i2(move_amount, move_dir);
+  // move_amount = sub_i2(move_amount, move_dir);
+  int2_t next_edge_pos = add_i2(pos, move_amount);
+
+  int2_t next_tile = pixel_to_tile_coord(next_edge_pos);
+  if (is_blocking_tile(next_tile)) {
+    return FALSE;
+  }
+  return TRUE;
+}
+
+void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color,
+                     uint8_t tile_size) {
+  uint16_t x = tile_x;
+  uint16_t y = tile_y;
+
+  for (uint16_t yy = 0; yy < tile_size; yy++) {
+    for (uint16_t xx = 0; xx < tile_size; xx++) {
       uint16_t py = y + yy;
       uint16_t px = x + xx;
       game_state.frame_buffer[py][px] = color;
@@ -155,8 +173,12 @@ void draw_sprite(int16_t sprite_x, int16_t sprite_y,
           game_state.rom.sprite_atlas[tile_offset_y + y * sign_y]
                                      [tile_code + tile_offset_x + sign_x * x];
       uint8_t color_i = color_code * 4 + tile_i;
-      uint32_t color = game_state.rom.color_palette[color_i];
-      game_state.frame_buffer[py][px] = color;
+      uint32_t src_color = game_state.rom.color_palette[color_i];
+      uint8_t alpha = (src_color >> 24) & 0xFF;
+
+      if (alpha > 0) {
+        game_state.frame_buffer[py][px] = src_color;
+      }
     }
   }
 }
@@ -180,7 +202,7 @@ void draw_color_palette() {
   for (size_t i = 0; i < ARRAY_SIZE(game_state.rom.color_palette); i++) {
     uint32_t c = game_state.rom.color_palette[i];
 
-    draw_tile_color(x, y, c);
+    draw_tile_color(x, y, c, TILE_SIZE);
     x++;
     if (x >= DISPLAY_TILES_X) {
       x = 0;
@@ -247,6 +269,8 @@ void draw_pacman(pacman_t *pacman) {
 
   int2_t sprite_pos = actor_to_sprite_pos(pacman->pos);
 
+  // draw_tile_color(sprite_pos.x, sprite_pos.y, 0xff0000ff, SPRITE_SIZE);
+
   draw_sprite(sprite_pos.x, sprite_pos.y, &pacman_sprite_t);
 }
 
@@ -254,9 +278,6 @@ void draw_tiles() {
   for (uint8_t y = 0; y < DISPLAY_TILES_Y; ++y) {
     for (uint8_t x = 0; x < DISPLAY_TILES_X; ++x) {
       pacman_tile_t tile = game_state.tiles[y][x];
-      if (is_blocking_tile(i2(x, y))) {
-          tile.color_code = COLOR_PACMAN;
-      }
       uint16_t px = x * TILE_SIZE;
       uint16_t py = y * TILE_SIZE;
       draw_tile(px, py, &tile);
@@ -265,29 +286,33 @@ void draw_tiles() {
 }
 
 void update_pacman(pacman_t *pacman) {
+  dir_t wanted_dir = pacman->dir;
   if (IsKeyDown(KEY_A)) {
-    pacman->dir = DIR_LEFT;
+    wanted_dir = DIR_LEFT;
   } else if (IsKeyDown(KEY_D)) {
-    pacman->dir = DIR_RIGHT;
+    wanted_dir = DIR_RIGHT;
   } else if (IsKeyDown(KEY_W)) {
-    pacman->dir = DIR_UP;
+    wanted_dir = DIR_UP;
   } else if (IsKeyDown(KEY_S)) {
-    pacman->dir = DIR_DOWN;
+    wanted_dir = DIR_DOWN;
   }
 
-  int2_t ds = dir_to_vec(pacman->dir);
-  pacman->pos.x += ds.x;
-  pacman->pos.y += ds.y;
+  if (can_move(pacman->pos, wanted_dir)) {
+    pacman->dir = wanted_dir;
+    int2_t ds = dir_to_vec(pacman->dir);
+    pacman->pos.x += ds.x;
+    pacman->pos.y += ds.y;
 
-  int16_t left_bounds_x = -HALF_SPRITE_SIZE;
-  int16_t right_bounds_x = DISPLAY_RES_X + HALF_SPRITE_SIZE;
-  if (pacman->pos.x > right_bounds_x) {
-    pacman->pos.x = left_bounds_x;
-  } else if (pacman->pos.x < left_bounds_x) {
-    pacman->pos.x = right_bounds_x;
+    int16_t left_bounds_x = -HALF_SPRITE_SIZE;
+    int16_t right_bounds_x = DISPLAY_RES_X + HALF_SPRITE_SIZE;
+    if (pacman->pos.x > right_bounds_x) {
+      pacman->pos.x = left_bounds_x;
+    } else if (pacman->pos.x < left_bounds_x) {
+      pacman->pos.x = right_bounds_x;
+    }
+    pacman->pos.y = CLAMP(pacman->pos.y, HALF_SPRITE_SIZE,
+                          DISPLAY_RES_Y - HALF_SPRITE_SIZE);
   }
-  pacman->pos.y =
-      CLAMP(pacman->pos.y, HALF_SPRITE_SIZE, DISPLAY_RES_Y - HALF_SPRITE_SIZE);
 }
 
 void init_level(void) {
@@ -364,6 +389,7 @@ int main(void) {
 
   pacman_t pacman = {0};
   pacman.dir = DIR_LEFT;
+  pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
   while (!WindowShouldClose()) {
     update_pacman(&pacman);
