@@ -59,7 +59,7 @@ typedef enum {
 typedef struct fruit_t {
   pacman_sprite_t sprite;
   uint16_t bonus_score;
-  uint16_t fright_ticks;
+  uint16_t despawn_ticks;
 } fruit_t;
 
 // clang-format off
@@ -117,6 +117,7 @@ typedef struct game_state_t {
   uint8_t num_dots_eaten;
   fruit_opt_t active_fruit;
   int2_t fruit_pos;
+  int32_t fruit_despawn_tick;
 
   // rom
   pacman_rom_t rom;
@@ -448,6 +449,8 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool8_t is_pill) {
   } else if (game_state.num_dots_eaten == 10 ||
              game_state.num_dots_eaten == 170) {
     game_state.active_fruit = FRUIT_CHERRIES;
+    fruit_t fruit = fruits[game_state.active_fruit];
+    game_state.fruit_despawn_tick = game_state.tick + fruit.despawn_ticks;
   }
 }
 
@@ -505,7 +508,13 @@ void update_pacman() {
   }
 }
 
-void update_fruit() {}
+void update_fruits() {
+  if (game_state.active_fruit) {
+    if (game_state.tick >= game_state.fruit_despawn_tick) {
+      game_state.active_fruit = FRUIT_NONE;
+    }
+  }
+}
 
 void draw_fruits() {
   if (game_state.active_fruit) {
@@ -591,6 +600,7 @@ int main(void) {
   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
   while (game_state.is_running && !WindowShouldClose()) {
+    update_fruits();
     update_pacman();
 
     set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
