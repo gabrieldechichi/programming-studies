@@ -23,6 +23,9 @@
 #define INSIDE_MAP_BOUNDS(x, y)                                                \
   ((x) >= 0 && (x) < DISPLAY_TILES_X && (y) >= 0 && (y) < DISPLAY_TILES_Y)
 
+#define NUM_PILLS (4)              // number of energizer pills on playfield
+#define NUM_DOTS (240) + NUM_PILLS // 240 small dots + 4 pills
+
 typedef struct pacman_tile_t {
   uint8_t tile_code;
   uint8_t color_code;
@@ -30,10 +33,12 @@ typedef struct pacman_tile_t {
 
 typedef struct game_state_t {
   // clock
+  bool8_t is_running;
   uint32_t tick;
 
   // score
   uint32_t score;
+  uint8_t num_dots_eaten;
 
   // rom
   pacman_rom_t rom;
@@ -130,7 +135,7 @@ uint8_t tile_code_at(int2_t tile_coord) {
 
 bool8_t is_blocking_tile(int2_t tile_pos) {
   if (!INSIDE_MAP_BOUNDS(tile_pos.x, tile_pos.y)) {
-    return FALSE;
+    return false;
   }
   return tile_code_at(tile_pos) >= TILE_BLOCKING;
 }
@@ -152,9 +157,9 @@ bool8_t can_move(int2_t pos, dir_t wanted_dir) {
 
   int2_t next_tile = pixel_to_tile_coord(next_edge_pos);
   if (is_blocking_tile(next_tile)) {
-    return FALSE;
+    return false;
   }
-  return TRUE;
+  return true;
 }
 
 int2_t move(int2_t pos, dir_t dir) {
@@ -375,6 +380,18 @@ void draw_tiles() {
   }
 }
 
+void pacman_eat_dot_or_pill(int2_t tile_coords, bool8_t is_pill) {
+  game_state.tiles[tile_coords.y][tile_coords.x].tile_code = TILE_SPACE;
+  game_state.score += (is_pill ? 5 : 1);
+
+  game_state.num_dots_eaten++;
+  if (game_state.num_dots_eaten >= NUM_DOTS) {
+  } else if (game_state.num_dots_eaten == 70 ||
+             game_state.num_dots_eaten == 170) {
+    // spawn fruit
+  }
+}
+
 void update_pacman(pacman_t *pacman) {
   dir_t wanted_dir = pacman->dir;
 
@@ -408,11 +425,9 @@ void update_pacman(pacman_t *pacman) {
 
     int2_t tile_coords = pixel_to_tile_coord(pacman->pos);
     if (is_dot(tile_coords)) {
-      game_state.tiles[tile_coords.y][tile_coords.x].tile_code = TILE_SPACE;
-      game_state.score += 1;
+      pacman_eat_dot_or_pill(tile_coords, false);
     } else if (is_pill(tile_coords)) {
-      game_state.tiles[tile_coords.y][tile_coords.x].tile_code = TILE_SPACE;
-      game_state.score += 5;
+      pacman_eat_dot_or_pill(tile_coords, true);
     }
   }
 }
@@ -477,26 +492,23 @@ void init_level(void) {
 }
 
 int main(void) {
-  memset(&game_state, 0, sizeof(game_state));
 
   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pacman.c");
-
   SetTargetFPS(TARGET_FPS);
 
+  memset(&game_state, 0, sizeof(game_state));
+  game_state.is_running = true;
   game_state.render_texture =
       LoadTextureFromImage(GenImageColor(DISPLAY_RES_X, DISPLAY_RES_Y, BLACK));
 
   pm_init_rom(&game_state.rom);
   init_level();
-  // set_tile_text(i2(9, 0), COLOR_DEFAULT, "HIGH SCORE");
-  // set_tile_text(i2(9, 14), 0x5, "PLAYER ONE");
-  // set_tile_text(i2(11, 20), 0x9, "READY!");
 
   pacman_t pacman = {0};
   pacman.dir = DIR_LEFT;
   pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
-  while (!WindowShouldClose()) {
+  while (game_state.is_running && !WindowShouldClose()) {
     update_pacman(&pacman);
     set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
 

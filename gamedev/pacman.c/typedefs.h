@@ -17,5 +17,5 @@ typedef unsigned char bool8_t;
 typedef Color color32_t;
 typedef Texture2D tex2d_t;
 
-#define TRUE 1
-#define FALSE 0
+#define true 1
+#define false 0
