@@ -351,6 +351,8 @@ void update_pacman(pacman_t *pacman) {
     int2_t tile_coords = pixel_to_tile_coord(pacman->pos);
     if (is_dot(tile_coords)) {
       game_state.tiles[tile_coords.y][tile_coords.x].tile_code = TILE_SPACE;
+    } else if (is_pill(tile_coords)) {
+      game_state.tiles[tile_coords.y][tile_coords.x].tile_code = TILE_SPACE;
     }
   }
 }
