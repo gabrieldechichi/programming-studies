@@ -147,6 +147,26 @@ bool8_t can_move(int2_t pos, dir_t wanted_dir) {
   return TRUE;
 }
 
+int2_t move(int2_t pos, dir_t dir) {
+  int2_t ds = dir_to_vec(dir);
+  pos = add_i2(pos, ds);
+  int2_t dist_to_center = dist_to_tile_center(pos);
+  if (ds.x != 0) {
+    if (dist_to_center.y < 0) {
+      pos.y--;
+    } else if (dist_to_center.y > 0) {
+      pos.y++;
+    }
+  } else if (ds.y != 0) {
+    if (dist_to_center.x < 0) {
+      pos.x--;
+    } else if (dist_to_center.x > 0) {
+      pos.x++;
+    }
+  }
+  return pos;
+}
+
 void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color,
                      uint8_t tile_width, uint8_t tile_height) {
   uint16_t x = tile_x;
@@ -327,24 +347,7 @@ void update_pacman(pacman_t *pacman) {
   }
 
   if (can_move(pacman->pos, pacman->dir)) {
-    int2_t ds = dir_to_vec(pacman->dir);
-    int2_t pos = pacman->pos;
-    pos = add_i2(pacman->pos, ds);
-    int2_t dist_to_center = dist_to_tile_center(pos);
-    if (ds.x != 0) {
-      if (dist_to_center.y < 0) {
-        pos.y--;
-      } else if (dist_to_center.y > 0) {
-        pos.y++;
-      }
-    } else if (ds.y != 0) {
-      if (dist_to_center.x < 0) {
-        pos.x--;
-      } else if (dist_to_center.x > 0) {
-        pos.x++;
-      }
-    }
-    pacman->pos = pos;
+    pacman->pos = move(pacman->pos, pacman->dir);
 
     int16_t left_bounds_x = -HALF_SPRITE_SIZE;
     int16_t right_bounds_x = DISPLAY_RES_X + HALF_SPRITE_SIZE;
