@@ -275,6 +275,38 @@ void draw_tile_atlas() {
   }
 }
 
+char conv_char(char c) {
+  // clang-format off
+    switch (c) {
+        case ' ':   c = 0x40; break;
+        case '/':   c = 58; break;
+        case '-':   c = 59; break;
+        case '\"':  c = 38; break;
+        case '!':   c = 'Z'+1; break;
+        default: break;
+    }
+  // clang-format on
+  return c;
+}
+
+void set_tile_char(int2_t tile_pos, uint8_t color_code, char chr) {
+  game_state.tiles[tile_pos.y][tile_pos.x] =
+      (pacman_tile_t){conv_char(chr), color_code};
+}
+
+void set_tile_text(int2_t tile_pos, uint8_t color_code, const char *text) {
+  // assert(valid_tile_pos(tile_pos));
+  uint8_t chr;
+  while ((chr = (uint8_t)*text++)) {
+    if (tile_pos.x < DISPLAY_TILES_X) {
+      set_tile_char(tile_pos, color_code, chr);
+      tile_pos.x++;
+    } else {
+      break;
+    }
+  }
+}
+
 void render_frame_buffer() {
   UpdateTexture(game_state.render_texture, game_state.frame_buffer);
   DrawTextureEx(game_state.render_texture, (Vector2){0, 0}, 0, PIXEL_SCALE,
@@ -428,6 +460,7 @@ int main(void) {
 
   pm_init_rom(&game_state.rom);
   init_level();
+  set_tile_text(i2(9, 1), COLOR_DEFAULT, "HIGH SCORE");
 
   pacman_t pacman = {0};
   pacman.dir = DIR_LEFT;
