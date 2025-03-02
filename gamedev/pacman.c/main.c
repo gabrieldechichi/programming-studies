@@ -301,9 +301,9 @@ int2_t move(int2_t pos, dir_t dir) {
 
 // SOUND
 void sound_start(int slot, const sound_desc_t *desc) {
-  // assert((slot >= 0) && (slot < NUM_SOUNDS));
-  // assert(desc);
-  // assert((desc->ptr && desc->size) || desc->func);
+  assert((slot >= 0) && (slot < NUM_SOUNDS));
+  assert(desc);
+  assert((desc->ptr && desc->size) || desc->sound_fn);
 
   sound_t *snd = &game_state.audio.sound[slot];
   *snd = (sound_t){0};
@@ -704,7 +704,6 @@ const sound_desc_t sounds[NUM_GAME_SOUNDS] = {
 // clang-format on
 
 int main(void) {
-
   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pacman.c");
   InitAudioDevice();
   SetTargetFPS(TARGET_FPS);
