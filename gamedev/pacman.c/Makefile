@@ -1,8 +1,25 @@
-CC = gcc
+CC = clang
 CFLAGS_DEBUG = -O0 -g -Wall -Wextra -DDEBUG
 CFLAGS_RELEASE = -O2 -Wall -Wextra
-IFLAGS=-I./include
-LDFLAGS = -L./lib -lSDL3.0 -Wl,-rpath,@executable_path/lib -Wl,-rpath,@executable_path/../lib
+IFLAGS = -I./include
+
+LDFLAGS = -L./lib -lSDL3 \
+		  -Wl,-framework,CoreMedia \
+		  -Wl,-framework,CoreVideo \
+		  -Wl,-framework,Cocoa \
+		  -Wl,-weak_framework,UniformTypeIdentifiers \
+		  -Wl,-framework,IOKit \
+		  -Wl,-framework,ForceFeedback \
+		  -Wl,-framework,Carbon \
+		  -Wl,-framework,CoreAudio \
+		  -Wl,-framework,AudioToolbox \
+		  -Wl,-framework,AVFoundation \
+		  -Wl,-framework,Foundation \
+		  -Wl,-framework,GameController \
+		  -Wl,-framework,Metal \
+		  -Wl,-framework,QuartzCore \
+		  -Wl,-weak_framework,CoreHaptics \
+		  -lpthread -lm
 
 TARGET = ./build/pacman
 SRCS = main2.c
