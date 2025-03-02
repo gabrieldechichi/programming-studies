@@ -12,6 +12,12 @@
 
 #define XY_TO_INDEX(x, y, w) (y) * (w) + (x)
 
+#define assert(expr)                                                           \
+  if (!(expr)) {                                                               \
+    printf("Assert failed: %s, in %s:%d\n", #expr, __FILE__, __LINE__);        \
+    abort();                                                                   \
+  }
+
 typedef unsigned char bool8_t;
 
 typedef Color color32_t;
