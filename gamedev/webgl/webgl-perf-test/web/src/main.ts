@@ -1,5 +1,5 @@
 async function main() {
-  await window.odin.runWasm("/resources/game.wasm");
+  await window.odin.runWasm("game.wasm");
 }
 
 main()

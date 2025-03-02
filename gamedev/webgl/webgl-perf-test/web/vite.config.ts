@@ -3,16 +3,17 @@ import FullReload from "vite-plugin-full-reload";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [FullReload(["./resources/*.wasm", "./resources/shaders/*"])],
+  plugins: [FullReload(["./public/*.wasm", "./public/shaders/*"])],
+  base: "./",
   resolve: {
     alias: {
       src: path.resolve(__dirname, "./src"),
-      resources: path.resolve(__dirname, "./resources"),
+      public: path.resolve(__dirname, "./public"),
     },
   },
   server: {
     watch: {
-      ignored: ["!web/resources/**/*.wasm"],
+      ignored: ["!web/public/**/*.wasm"],
       usePolling: true,
     },
   },
