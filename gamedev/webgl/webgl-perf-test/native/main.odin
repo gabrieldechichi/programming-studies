@@ -13,7 +13,7 @@ Ball :: struct {
 	colorIndex: i32,
 }
 
-BATCH_SIZE :: 1024 * 100
+BATCH_SIZE :: 1024 * 400
 MAX_INSTANCES :: BATCH_SIZE * 1 - 10
 MAX_SPEED :: 200
 ASPECT_RATIO : f32 = 1080. / 1920.
@@ -35,6 +35,7 @@ spriteRenderer: SpriteRenderer
 lastTime: f64
 
 main :: proc() {
+    fmt.println("Num sprites: ", BATCH_SIZE)
 	//setup graphics
 	{
 		success := gl.CreateCurrentContextById("canvas", {.disableAntialias})
