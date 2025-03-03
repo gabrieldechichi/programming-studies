@@ -1,10 +1,12 @@
 #include "./game.h"
 
 #include "SDL3/SDL.h"
+#include "SDL3/SDL_audio.h"
 #include "SDL3/SDL_error.h"
 #include "SDL3/SDL_filesystem.h"
 #include "SDL3/SDL_loadso.h"
 #include "SDL3/SDL_log.h"
+#include "SDL3/SDL_stdinc.h"
 #include "SDL3/SDL_timer.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -16,7 +18,7 @@
 #define SAMPLE_RATE 48000
 #define FREQUENCY 256
 #define SINE_TIME_STEP (((2.0 * PI) * FREQUENCY) / SAMPLE_RATE)
-#define BUFFER_SIZE 2048
+#define BUFFER_SIZE SAMPLE_RATE
 #define VOLUME 0.5
 
 #define WINDOW_WIDTH 640
@@ -55,8 +57,8 @@ int load_game_code() {
     return 0;
   }
 
-  if (game_code.dll){
-      SDL_UnloadObject(game_code.dll);
+  if (game_code.dll) {
+    SDL_UnloadObject(game_code.dll);
   }
 
   SDL_SharedObject *game_dll = SDL_LoadObject(game_dll_path);
@@ -134,7 +136,6 @@ int main() {
     return -1;
   }
 
-  bool audio_playing = false;
   SDL_ResumeAudioStreamDevice(stream);
 
   if (!load_game_code()) {
@@ -142,13 +143,16 @@ int main() {
   }
 
   bool quit = false;
+  bool write_audio = false;
+  bool flag = false;
+  float write_seconds = 2;
   SDL_Event event;
   uint64_t last_ticks = 0;
   while (!quit) {
     // check if we should reload game code
-    if (should_reload_game_code()){
-        SDL_Log("reloading game code\n");
-        load_game_code();
+    if (should_reload_game_code()) {
+      SDL_Log("reloading game code\n");
+      load_game_code();
     }
 
     // Event handling
@@ -164,6 +168,12 @@ int main() {
         }
         break;
       }
+      case SDL_EVENT_KEY_UP: {
+        if (event.key.key == SDLK_A) {
+          write_audio = true;
+        }
+        break;
+      }
       }
     }
 
@@ -174,30 +184,30 @@ int main() {
 
     // audio
     {
-      const int minimum_audio = (SAMPLE_RATE * sizeof(float)) / 2;
-      if (SDL_GetAudioStreamQueued(stream) < minimum_audio) {
-        static float samples[BUFFER_SIZE];
-        static float time = 0;
+      if (write_audio) {
+        write_audio = false;
+        int buffer_size = (int)(SAMPLE_RATE * write_seconds);
+        float samples[buffer_size];
+        float time = PI / 2;
 
-        if (!audio_playing) {
-          for (int i = 0; i < BUFFER_SIZE; i++) {
-            samples[i] = 0;
-            time += SINE_TIME_STEP;
+        for (int i = 0; i < buffer_size; i++) {
+          float sine = SDL_sinf(time);
+          if (flag) {
+            if (sine < 0) {
+              sine = 0;
+            }
           }
-          audio_playing = true;
-        } else {
-          for (int i = 0; i < BUFFER_SIZE; i++) {
-            float sine = SDL_sinf(time);
-            samples[i] = sine * VOLUME;
-            time += SINE_TIME_STEP;
-          }
+          samples[i] = sine * VOLUME;
+          time += SINE_TIME_STEP;
         }
+        flag = !flag;
 
         SDL_PutAudioStreamData(stream, samples, sizeof(samples));
+        SDL_FlushAudioStream(stream);
       }
     }
 
-    game_code.update_and_render(NULL, NULL, &screen_buffer);
+    game_code.update_and_render(NULL, NULL, &screen_buffer, NULL);
 
     SDL_UpdateTexture(frame_buffer, NULL, pixels,
                       WINDOW_WIDTH * sizeof(uint32_t));
