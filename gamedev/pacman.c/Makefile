@@ -22,16 +22,24 @@ LDFLAGS = -L./lib -lSDL3 \
 		  -lpthread -lm
 
 TARGET = ./build/pacman
-SRCS = game.c main_sdl.c
+SRC_PLATFORM = main_sdl.c
+SRC_GAME = game.c
+GAME_DLL = ./build/game.so
 
-build-debug:
-	$(CC) $(CFLAGS_DEBUG) $(IFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS)
+build-platform-debug:
+	$(CC) $(CFLAGS_DEBUG) $(IFLAGS) $(SRC_PLATFORM) -o $(TARGET) $(LDFLAGS)
 
-run-debug: build-debug
+build-game-debug:
+	$(CC) $(CFLAGS_DEBUG) $(SRC_GAME) -o $(GAME_DLL) -shared
+
+run-debug: build-platform-debug build-game-debug
 	$(TARGET)
 
-build-release:
-	$(CC) $(CFLAGS_RELEASE) $(IFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS)
+build-platform-release:
+	$(CC) $(CFLAGS_RELEASE) $(SRC_GAME) -o $(GAME_DLL) -shared
 
-run-release: build-release
+build-game-release:
+	$(CC) $(CFLAGS_RELEASE) $(SRC_GAME) -o $(TARGET)
+
+run-release: build-platform-release
 	$(TARGET)

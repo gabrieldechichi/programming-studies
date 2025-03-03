@@ -1,10 +1,15 @@
 #include "./game.h"
 
 #include "SDL3/SDL.h"
+#include "SDL3/SDL_error.h"
+#include "SDL3/SDL_loadso.h"
+#include "SDL3/SDL_log.h"
 #include "SDL3/SDL_timer.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+#include "./typedefs.h"
 
 #define PI 3.14159265358979323846
 #define SAMPLE_RATE 48000
@@ -16,24 +21,15 @@
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
 
-#define MS_TO_SECS(ms) ((float)(ms) / 1000.0f)
-#define MS_TO_MCS(ms) ((uint64_t)((ms) * 1000.0f))
-#define MS_TO_NS(ms) ((uint64_t)((ms) * 1000000.0f))
-
-#define MCS_TO_SECS(mcs) ((float)(mcs) / 1000000.0f)
-
-#define NS_TO_SECS(ns) ((float)(ns) / 1000000000.0f)
-#define NS_TO_MS(ns) ((uint64_t)((ns) / 1000000))
-#define NS_TO_MCS(ns) ((uint64_t)((ns) / 1000))
-
-#define SECS_TO_MS(secs) ((uint64_t)((secs) * 1000.0f))
-#define SECS_TO_MCS(secs) ((uint64_t)((secs) * 1000000.0f))
-#define SECS_TO_NS(secs) ((uint64_t)((secs) * 1000000000.0f))
-
 #define TARGET_FPS 60
 #define TARGET_DT 1.0f / TARGET_FPS
 #define TARGET_DT_NS SECS_TO_NS(TARGET_DT)
 #define SLEEP_BUFFER_NS MS_TO_NS(1)
+
+GAME_UPDATE_AND_RENDER(game_update_and_render_stub) {}
+
+global game_update_and_render_t *_game_update_and_render =
+    game_update_and_render_stub;
 
 int main() {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
@@ -93,11 +89,23 @@ int main() {
   bool audio_playing = false;
   SDL_ResumeAudioStreamDevice(stream);
 
+  SDL_SharedObject *game_dll = SDL_LoadObject("./build/game.so");
+  if (!game_dll) {
+    SDL_Log("Error loading game dll %s\n", SDL_GetError());
+    return -1;
+  }
+
+  _game_update_and_render = (game_update_and_render_t *)SDL_LoadFunction(
+      game_dll, "game_update_and_render");
+  if (!_game_update_and_render) {
+    SDL_Log("Failed to load game_update_and_render from game_dll. %s\n",
+            SDL_GetError());
+    return -1;
+  }
+
   bool quit = false;
   SDL_Event event;
-
   uint64_t last_ticks = 0;
-
   while (!quit) {
     // Event handling
     while (SDL_PollEvent(&event)) {
@@ -145,8 +153,7 @@ int main() {
       }
     }
 
-    game_update_and_render(NULL, NULL, &screen_buffer);
-
+    _game_update_and_render(NULL, NULL, &screen_buffer);
 
     SDL_UpdateTexture(frame_buffer, NULL, pixels,
                       WINDOW_WIDTH * sizeof(uint32_t));

@@ -1,7 +1,8 @@
 #include "game.h"
+#include "typedefs.h"
 
-void game_update_and_render(game_memory_t *memory, game_input_t *input,
-                            game_offscreen_buffer_t *screen_buffer) {
+export void game_update_and_render(game_memory_t *memory, game_input_t *input,
+                                   game_offscreen_buffer_t *screen_buffer) {
 
   // pixel stuff
   {
