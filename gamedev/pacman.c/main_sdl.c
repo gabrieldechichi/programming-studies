@@ -15,28 +15,43 @@
 #include "./typedefs.h"
 
 #define PI 3.14159265358979323846
-#define SAMPLE_RATE 48000
-#define FREQUENCY 256
-#define SINE_TIME_STEP (((2.0 * PI) * FREQUENCY) / SAMPLE_RATE)
-#define BUFFER_SIZE SAMPLE_RATE
-#define VOLUME 0.5
 
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
 
-#define TARGET_FPS 60
+#define TARGET_FPS 120
 #define TARGET_DT 1.0f / TARGET_FPS
 #define TARGET_DT_NS SECS_TO_NS(TARGET_DT)
 #define SLEEP_BUFFER_NS MS_TO_NS(1)
+
+#define AUDIO_SAMPLE_RATE 48000
+#define AUDIO_MARGIN_SECONDS                                                   \
+  MS_TO_SECS(25) // assume our frame rate varies by 3 ms at most
+#define AUDIO_BUFFER_SIZE                                                      \
+  (int)(AUDIO_SAMPLE_RATE * AUDIO_MARGIN_SECONDS)
+// #define AUDIO_BUFFER_SIZE 2048
+#define VOLUME 0.5
+
+#define SINE_FREQUENCY 256
+#define SINE_TIME_STEP (((2.0 * PI) * SINE_FREQUENCY) / AUDIO_SAMPLE_RATE)
 
 typedef struct {
   SDL_SharedObject *dll;
   SDL_Time last_modify_time;
   game_update_and_render_t *update_and_render;
-} sdl_game_code;
+} sdl_game_code_t;
 
-global sdl_game_code game_code = {};
+typedef struct {
+  SDL_AudioStream *stream;
+  int32_t sample_rate;
+  float *samples;
+  int32_t samples_len;
+  int32_t samples_byte_len;
+} sdl_audio_buffer_t;
+
+global sdl_game_code_t game_code = {};
 global const char *game_dll_path = "./build/game.so";
+global sdl_audio_buffer_t audio_buffer = {};
 
 bool should_reload_game_code() {
   SDL_PathInfo info = {};
@@ -79,6 +94,26 @@ int load_game_code() {
   game_code.last_modify_time = info.modify_time;
 
   return 1;
+}
+
+void debug_audio_sine_wave(bool flag) {
+  local_persist float time = PI / 2;
+  SDL_Log("%d\n", audio_buffer.samples_len);
+
+  for (int i = 0; i < audio_buffer.samples_len; i++) {
+    float sine = SDL_sinf(time);
+    if (flag) {
+      if (sine < 0) {
+        sine = 0;
+      }
+    }
+    audio_buffer.samples[i] = sine * VOLUME;
+    time += SINE_TIME_STEP;
+  }
+
+  SDL_PutAudioStreamData(audio_buffer.stream, audio_buffer.samples,
+                         audio_buffer.samples_byte_len);
+  SDL_FlushAudioStream(audio_buffer.stream);
 }
 
 int main() {
@@ -126,26 +161,31 @@ int main() {
 
   audio_spec.channels = 1;
   audio_spec.format = SDL_AUDIO_F32;
-  audio_spec.freq = SAMPLE_RATE;
+  audio_spec.freq = AUDIO_SAMPLE_RATE;
 
-  SDL_AudioStream *stream = SDL_OpenAudioDeviceStream(
+  audio_buffer.stream = SDL_OpenAudioDeviceStream(
       SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &audio_spec, NULL, NULL);
 
-  if (!stream) {
+  if (!audio_buffer.stream) {
     SDL_Log("Couldn't create audio stream: %s", SDL_GetError());
     return -1;
   }
 
-  SDL_ResumeAudioStreamDevice(stream);
+  float audio_samples[AUDIO_BUFFER_SIZE];
+  SDL_memset(audio_samples, 0, sizeof(audio_samples));
+  audio_buffer.sample_rate = AUDIO_SAMPLE_RATE;
+  audio_buffer.samples = audio_samples;
+  audio_buffer.samples_len = AUDIO_BUFFER_SIZE;
+  audio_buffer.samples_byte_len = sizeof(float) * AUDIO_BUFFER_SIZE;
+
+  SDL_ResumeAudioStreamDevice(audio_buffer.stream);
 
   if (!load_game_code()) {
     return -1;
   }
 
   bool quit = false;
-  bool write_audio = false;
   bool flag = false;
-  float write_seconds = 2;
   SDL_Event event;
   uint64_t last_ticks = 0;
   while (!quit) {
@@ -170,7 +210,7 @@ int main() {
       }
       case SDL_EVENT_KEY_UP: {
         if (event.key.key == SDLK_A) {
-          write_audio = true;
+          flag = !flag;
         }
         break;
       }
@@ -183,28 +223,10 @@ int main() {
     last_ticks = now;
 
     // audio
-    {
-      if (write_audio) {
-        write_audio = false;
-        int buffer_size = (int)(SAMPLE_RATE * write_seconds);
-        float samples[buffer_size];
-        float time = PI / 2;
-
-        for (int i = 0; i < buffer_size; i++) {
-          float sine = SDL_sinf(time);
-          if (flag) {
-            if (sine < 0) {
-              sine = 0;
-            }
-          }
-          samples[i] = sine * VOLUME;
-          time += SINE_TIME_STEP;
-        }
-        flag = !flag;
-
-        SDL_PutAudioStreamData(stream, samples, sizeof(samples));
-        SDL_FlushAudioStream(stream);
-      }
+    //
+    if (SDL_GetAudioStreamQueued(audio_buffer.stream) <
+        audio_buffer.samples_byte_len) {
+      debug_audio_sine_wave(flag);
     }
 
     game_code.update_and_render(NULL, NULL, &screen_buffer, NULL);
