@@ -1,22 +1,37 @@
-#include "SDL3/SDL_audio.h"
-#include "SDL3/SDL_init.h"
-#include "SDL3/SDL_keycode.h"
-#include "SDL3/SDL_log.h"
-#include "SDL3/SDL_pixels.h"
-#include "SDL3/SDL_render.h"
-#include "SDL3/SDL_stdinc.h"
+#include "SDL3/SDL.h"
+#include "SDL3/SDL_timer.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #define PI 3.14159265358979323846
 #define SAMPLE_RATE 48000
 #define FREQUENCY 256
 #define SINE_TIME_STEP (((2.0 * PI) * FREQUENCY) / SAMPLE_RATE)
-#define BUFFER_SIZE 512
+#define BUFFER_SIZE 2048
 #define VOLUME 0.5
 
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
+
+#define MS_TO_SECS(ms) ((float)(ms) / 1000.0f)
+#define MS_TO_MCS(ms) ((uint64_t)((ms) * 1000.0f))
+#define MS_TO_NS(ms) ((uint64_t)((ms) * 1000000.0f))
+
+#define MCS_TO_SECS(mcs) ((float)(mcs) / 1000000.0f)
+
+#define NS_TO_SECS(ns) ((float)(ns) / 1000000000.0f)
+#define NS_TO_MS(ns) ((uint64_t)((ns) / 1000000))
+#define NS_TO_MCS(ns) ((uint64_t)((ns) / 1000))
+
+#define SECS_TO_MS(secs) ((uint64_t)((secs) * 1000.0f))
+#define SECS_TO_MCS(secs) ((uint64_t)((secs) * 1000000.0f))
+#define SECS_TO_NS(secs) ((uint64_t)((secs) * 1000000000.0f))
+
+#define TARGET_FPS 60
+#define TARGET_DT 1.0f / TARGET_FPS
+#define TARGET_DT_NS SECS_TO_NS(TARGET_DT)
+#define SLEEP_BUFFER_NS MS_TO_NS(1)
 
 int main() {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
@@ -39,6 +54,8 @@ int main() {
     SDL_Quit();
     return 1;
   }
+
+  SDL_SetRenderVSync(renderer, 1);
 
   SDL_Texture *frame_buffer =
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888,
@@ -72,6 +89,8 @@ int main() {
   bool quit = false;
   SDL_Event event;
 
+  uint64_t last_ticks = 0;
+
   while (!quit) {
     // Event handling
     while (SDL_PollEvent(&event)) {
@@ -88,6 +107,11 @@ int main() {
       }
       }
     }
+
+    // tick
+    uint64_t now = SDL_GetTicksNS();
+    uint64_t dt_ns = now - last_ticks;
+    last_ticks = now;
 
     // audio
     {
@@ -116,10 +140,14 @@ int main() {
 
     // pixel stuff
     {
+      static uint8_t r_shift = 0;
+      static uint8_t g_shift = 0xFF / 2;
+      r_shift += 1;
+      g_shift -= 1;
       for (int y = 0; y < WINDOW_HEIGHT; y++) {
         for (int x = 0; x < WINDOW_WIDTH; x++) {
           int i = y * WINDOW_WIDTH + x;
-          uint32_t color = 0xFF << 24 | 0xFF;
+          uint32_t color = r_shift << 24 | g_shift << 16 | 0xFF;
           pixels[i] = color;
         }
       }
@@ -131,6 +159,17 @@ int main() {
     SDL_RenderTexture(renderer, frame_buffer, NULL, NULL);
 
     SDL_RenderPresent(renderer);
+
+    now = SDL_GetTicksNS();
+    dt_ns = now - last_ticks;
+    if (dt_ns < TARGET_DT_NS - SLEEP_BUFFER_NS) {
+      uint64_t sleep_time = TARGET_DT_NS - dt_ns;
+      SDL_DelayNS(sleep_time - SLEEP_BUFFER_NS);
+    }
+
+    now = SDL_GetTicksNS();
+    dt_ns = now - last_ticks;
+    last_ticks = now;
   }
 
   SDL_DestroyRenderer(renderer);
