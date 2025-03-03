@@ -2,6 +2,7 @@
 
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_error.h"
+#include "SDL3/SDL_filesystem.h"
 #include "SDL3/SDL_loadso.h"
 #include "SDL3/SDL_log.h"
 #include "SDL3/SDL_timer.h"
@@ -28,13 +29,37 @@
 
 typedef struct {
   SDL_SharedObject *dll;
+  SDL_Time last_modify_time;
   game_update_and_render_t *update_and_render;
 } sdl_game_code;
 
 global sdl_game_code game_code = {};
+global const char *game_dll_path = "./build/game.so";
+
+bool should_reload_game_code() {
+  SDL_PathInfo info = {};
+  if (!SDL_GetPathInfo(game_dll_path, &info)) {
+    SDL_Log("Failed to get path info for game dll %s. Error: %s\n",
+            game_dll_path, SDL_GetError());
+    return false;
+  }
+  //== true to make sure we return 1 or 0
+  return (info.modify_time > game_code.last_modify_time) == true;
+}
 
 int load_game_code() {
-  SDL_SharedObject *game_dll = SDL_LoadObject("./build/game.so");
+  SDL_PathInfo info = {};
+  if (!SDL_GetPathInfo(game_dll_path, &info)) {
+    SDL_Log("Failed to get path info for game dll %s. Error: %s\n",
+            game_dll_path, SDL_GetError());
+    return 0;
+  }
+
+  if (game_code.dll){
+      SDL_UnloadObject(game_code.dll);
+  }
+
+  SDL_SharedObject *game_dll = SDL_LoadObject(game_dll_path);
   if (!game_dll) {
     SDL_Log("Error loading game dll %s\n", SDL_GetError());
     return 0;
@@ -49,6 +74,7 @@ int load_game_code() {
     return 0;
   }
   game_code.update_and_render = (game_update_and_render_t *)update_and_render;
+  game_code.last_modify_time = info.modify_time;
 
   return 1;
 }
@@ -119,6 +145,12 @@ int main() {
   SDL_Event event;
   uint64_t last_ticks = 0;
   while (!quit) {
+    // check if we should reload game code
+    if (should_reload_game_code()){
+        SDL_Log("reloading game code\n");
+        load_game_code();
+    }
+
     // Event handling
     while (SDL_PollEvent(&event)) {
       switch (event.type) {
