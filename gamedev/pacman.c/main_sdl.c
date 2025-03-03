@@ -4,6 +4,7 @@
 #include "SDL3/SDL_audio.h"
 #include "SDL3/SDL_error.h"
 #include "SDL3/SDL_filesystem.h"
+#include "SDL3/SDL_keycode.h"
 #include "SDL3/SDL_loadso.h"
 #include "SDL3/SDL_log.h"
 #include "SDL3/SDL_stdinc.h"
@@ -25,11 +26,7 @@
 #define SLEEP_BUFFER_NS MS_TO_NS(1)
 
 #define AUDIO_SAMPLE_RATE 48000
-#define AUDIO_MARGIN_SECONDS                                                   \
-  MS_TO_SECS(25) // assume our frame rate varies by 3 ms at most
-#define AUDIO_BUFFER_SIZE                                                      \
-  (int)(AUDIO_SAMPLE_RATE * AUDIO_MARGIN_SECONDS)
-// #define AUDIO_BUFFER_SIZE 2048
+#define AUDIO_BUFFER_SIZE 2048
 #define VOLUME 0.5
 
 #define SINE_FREQUENCY 256
@@ -98,7 +95,6 @@ int load_game_code() {
 
 void debug_audio_sine_wave(bool flag) {
   local_persist float time = PI / 2;
-  SDL_Log("%d\n", audio_buffer.samples_len);
 
   for (int i = 0; i < audio_buffer.samples_len; i++) {
     float sine = SDL_sinf(time);
@@ -113,7 +109,6 @@ void debug_audio_sine_wave(bool flag) {
 
   SDL_PutAudioStreamData(audio_buffer.stream, audio_buffer.samples,
                          audio_buffer.samples_byte_len);
-  SDL_FlushAudioStream(audio_buffer.stream);
 }
 
 int main() {
@@ -186,6 +181,7 @@ int main() {
 
   bool quit = false;
   bool flag = false;
+  bool write_audio = false;
   SDL_Event event;
   uint64_t last_ticks = 0;
   while (!quit) {
@@ -209,8 +205,9 @@ int main() {
         break;
       }
       case SDL_EVENT_KEY_UP: {
-        if (event.key.key == SDLK_A) {
+        if (event.key.key == SDLK_SPACE) {
           flag = !flag;
+          write_audio = true;
         }
         break;
       }
@@ -222,12 +219,11 @@ int main() {
     uint64_t dt_ns = now - last_ticks;
     last_ticks = now;
 
-    // audio
-    //
-    if (SDL_GetAudioStreamQueued(audio_buffer.stream) <
-        audio_buffer.samples_byte_len) {
-      debug_audio_sine_wave(flag);
+    if (write_audio) {
+      write_audio = false;
+      SDL_ClearAudioStream(audio_buffer.stream);
     }
+    debug_audio_sine_wave(flag);
 
     game_code.update_and_render(NULL, NULL, &screen_buffer, NULL);
 
