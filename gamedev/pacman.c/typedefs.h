@@ -1,4 +1,3 @@
-#include "raylib.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -19,10 +18,6 @@
   }
 
 typedef unsigned char bool8_t;
-
-typedef Color color32_t;
-typedef Texture2D tex2d_t;
-typedef AudioStream audio_stream_t;
 
 #define true 1
 #define false 0

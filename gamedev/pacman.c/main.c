@@ -1,4 +1,3 @@
-#include "raylib.h"
 #include "rom.c"
 #include "typedefs.h"
 #include <stdbool.h>
