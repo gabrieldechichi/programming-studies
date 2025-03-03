@@ -26,10 +26,32 @@
 #define TARGET_DT_NS SECS_TO_NS(TARGET_DT)
 #define SLEEP_BUFFER_NS MS_TO_NS(1)
 
-GAME_UPDATE_AND_RENDER(game_update_and_render_stub) {}
+typedef struct {
+  SDL_SharedObject *dll;
+  game_update_and_render_t *update_and_render;
+} sdl_game_code;
 
-global game_update_and_render_t *_game_update_and_render =
-    game_update_and_render_stub;
+global sdl_game_code game_code = {};
+
+int load_game_code() {
+  SDL_SharedObject *game_dll = SDL_LoadObject("./build/game.so");
+  if (!game_dll) {
+    SDL_Log("Error loading game dll %s\n", SDL_GetError());
+    return 0;
+  }
+  game_code.dll = game_dll;
+
+  SDL_FunctionPointer update_and_render =
+      SDL_LoadFunction(game_dll, "game_update_and_render");
+  if (!update_and_render) {
+    SDL_Log("Failed to load game_update_and_render from game_dll. %s\n",
+            SDL_GetError());
+    return 0;
+  }
+  game_code.update_and_render = (game_update_and_render_t *)update_and_render;
+
+  return 1;
+}
 
 int main() {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
@@ -89,17 +111,7 @@ int main() {
   bool audio_playing = false;
   SDL_ResumeAudioStreamDevice(stream);
 
-  SDL_SharedObject *game_dll = SDL_LoadObject("./build/game.so");
-  if (!game_dll) {
-    SDL_Log("Error loading game dll %s\n", SDL_GetError());
-    return -1;
-  }
-
-  _game_update_and_render = (game_update_and_render_t *)SDL_LoadFunction(
-      game_dll, "game_update_and_render");
-  if (!_game_update_and_render) {
-    SDL_Log("Failed to load game_update_and_render from game_dll. %s\n",
-            SDL_GetError());
+  if (!load_game_code()) {
     return -1;
   }
 
@@ -153,7 +165,7 @@ int main() {
       }
     }
 
-    _game_update_and_render(NULL, NULL, &screen_buffer);
+    game_code.update_and_render(NULL, NULL, &screen_buffer);
 
     SDL_UpdateTexture(frame_buffer, NULL, pixels,
                       WINDOW_WIDTH * sizeof(uint32_t));
