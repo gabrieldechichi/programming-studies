@@ -22,7 +22,7 @@ LDFLAGS = -L./lib -lSDL3 \
 		  -lpthread -lm
 
 TARGET = ./build/pacman
-SRCS = main2.c
+SRCS = game.c main_sdl.c
 
 build-debug:
 	$(CC) $(CFLAGS_DEBUG) $(IFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS)

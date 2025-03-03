@@ -1,3 +1,5 @@
+#include "./game.h"
+
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_timer.h"
 #include <stdint.h>
@@ -69,6 +71,11 @@ int main() {
   uint32_t pixels[WINDOW_WIDTH * WINDOW_HEIGHT];
   SDL_memset(pixels, 0, sizeof(pixels));
 
+  game_offscreen_buffer_t screen_buffer = {};
+  screen_buffer.pixels = pixels;
+  screen_buffer.width = WINDOW_WIDTH;
+  screen_buffer.height = WINDOW_HEIGHT;
+
   SDL_AudioSpec audio_spec = {};
 
   audio_spec.channels = 1;
@@ -138,20 +145,8 @@ int main() {
       }
     }
 
-    // pixel stuff
-    {
-      static uint8_t r_shift = 0;
-      static uint8_t g_shift = 0xFF / 2;
-      r_shift += 1;
-      g_shift -= 1;
-      for (int y = 0; y < WINDOW_HEIGHT; y++) {
-        for (int x = 0; x < WINDOW_WIDTH; x++) {
-          int i = y * WINDOW_WIDTH + x;
-          uint32_t color = r_shift << 24 | g_shift << 16 | 0xFF;
-          pixels[i] = color;
-        }
-      }
-    }
+    game_update_and_render(NULL, NULL, &screen_buffer);
+
 
     SDL_UpdateTexture(frame_buffer, NULL, pixels,
                       WINDOW_WIDTH * sizeof(uint32_t));
