@@ -26,7 +26,8 @@
 #define SLEEP_BUFFER_NS MS_TO_NS(1)
 
 #define AUDIO_SAMPLE_RATE 48000
-#define AUDIO_BUFFER_SIZE 2048
+// #define AUDIO_BUFFER_SIZE 1024
+#define AUDIO_BUFFER_SIZE (int)(AUDIO_SAMPLE_RATE * TARGET_DT * 2.5)
 #define VOLUME 0.5
 
 #define SINE_FREQUENCY 256
@@ -167,6 +168,7 @@ int main() {
   }
 
   float audio_samples[AUDIO_BUFFER_SIZE];
+  SDL_Log("Audio buffer size: %d\n", AUDIO_BUFFER_SIZE);
   SDL_memset(audio_samples, 0, sizeof(audio_samples));
   audio_buffer.sample_rate = AUDIO_SAMPLE_RATE;
   audio_buffer.samples = audio_samples;
