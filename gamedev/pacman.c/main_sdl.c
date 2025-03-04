@@ -12,23 +12,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "./common.h"
 #include "./game.h"
 #include "./typedefs.h"
-
-#define WINDOW_WIDTH 640
-#define WINDOW_HEIGHT 480
-
-#define TARGET_FPS 60
-#define TARGET_DT 1.0f / TARGET_FPS
-#define TARGET_DT_NS SECS_TO_NS(TARGET_DT)
-#define SLEEP_BUFFER_NS MS_TO_NS(1)
-
-#define AUDIO_SAMPLE_RATE 48000
-// #define AUDIO_BUFFER_SIZE 1024
-#define AUDIO_BUFFER_SIZE (int)(AUDIO_SAMPLE_RATE * TARGET_DT * 3)
-
-#define SINE_FREQUENCY 256
-#define SINE_TIME_STEP (((2.0 * PI) * SINE_FREQUENCY) / AUDIO_SAMPLE_RATE)
 
 typedef struct {
   SDL_SharedObject *dll;
@@ -100,14 +86,21 @@ int load_game_code() {
   return 1;
 }
 
-void sdl_handle_button_event(Game_InputButton *button, uint64_t event) {
+void sdl_handle_keydown(Game_InputButton *button) {
   bool was_pressed = button->is_pressed;
-  button->is_pressed = event == SDL_EVENT_KEY_DOWN;
-  button->pressed_this_frame = !was_pressed && button->is_pressed;
-  button->released_this_frame = was_pressed && !button->is_pressed;
+  button->is_pressed = true;
+  button->pressed_this_frame = !was_pressed;
+  button->pressed_this_frame = false;
 }
 
-void sdl_clear_button_event(Game_InputButton *button) {
+void sdl_handle_keyup(Game_InputButton *button) {
+  bool was_pressed = button->is_pressed;
+  button->is_pressed = false;
+  button->pressed_this_frame = false;
+  button->released_this_frame = was_pressed;
+}
+
+void sdl_button_clear(Game_InputButton *button) {
   button->pressed_this_frame = false;
   button->released_this_frame = false;
 }
@@ -140,7 +133,7 @@ int main() {
   }
 
   SDL_Window *window =
-      SDL_CreateWindow("SDL3 Window", WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+      SDL_CreateWindow("SDL3 Window", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
   if (window == NULL) {
     SDL_Log("Window could not be created! SDL_Error: %s\n", SDL_GetError());
     return 1;
@@ -159,20 +152,20 @@ int main() {
 
   SDL_Texture *frame_buffer =
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888,
-                        SDL_TEXTUREACCESS_STATIC, WINDOW_WIDTH, WINDOW_HEIGHT);
+                        SDL_TEXTUREACCESS_STATIC, SCREEN_WIDTH, SCREEN_HEIGHT);
 
   if (!frame_buffer) {
     SDL_Log("Texture could not be created! SDL_Error: %s\n", SDL_GetError());
     return -1;
   }
 
-  uint32 pixels[WINDOW_WIDTH * WINDOW_HEIGHT];
+  uint32 pixels[SCREEN_WIDTH * SCREEN_HEIGHT];
   SDL_memset(pixels, 0, sizeof(pixels));
 
   Game_ScreenBuffer screen_buffer = {};
   screen_buffer.pixels = pixels;
-  screen_buffer.width = WINDOW_WIDTH;
-  screen_buffer.height = WINDOW_HEIGHT;
+  screen_buffer.width = SCREEN_WIDTH;
+  screen_buffer.height = SCREEN_HEIGHT;
 
   SDL_AudioSpec audio_spec = {};
 
@@ -233,15 +226,46 @@ int main() {
         break;
       }
       case SDL_EVENT_KEY_DOWN: {
-        if (event.key.key == SDLK_ESCAPE) {
+        switch (event.key.key) {
+        case SDLK_ESCAPE:
           quit = true;
+          break;
+        case SDLK_A:
+          sdl_handle_keydown(&game_input.a);
+          break;
+        case SDLK_D:
+          sdl_handle_keydown(&game_input.d);
+          break;
+        case SDLK_W:
+          sdl_handle_keydown(&game_input.w);
+          break;
+        case SDLK_S:
+          sdl_handle_keydown(&game_input.s);
+          break;
+        }
+        if (event.key.key == SDLK_ESCAPE) {
         }
         break;
       }
+      case SDL_EVENT_KEY_UP: {
+        switch (event.key.key) {
+        case SDLK_A:
+          sdl_handle_keyup(&game_input.a);
+          break;
+        case SDLK_D:
+          sdl_handle_keyup(&game_input.d);
+          break;
+        case SDLK_W:
+          sdl_handle_keyup(&game_input.w);
+          break;
+        case SDLK_S:
+          sdl_handle_keyup(&game_input.s);
+          break;
+        }
+        if (event.key.key == SDLK_ESCAPE) {
+        }
+        break;
       }
-
-      if (event.type == SDL_EVENT_KEY_UP || event.type == SDL_EVENT_KEY_DOWN) {
-        sdl_handle_button_event(&game_input.space_bar, event.type);
       }
     }
 
@@ -255,7 +279,9 @@ int main() {
       game_code.update_and_render(&game_memory, &game_input, &screen_buffer,
                                   &game_sound_buffer);
 
-      sdl_clear_button_event(&game_input.space_bar);
+      for (uint8 i = 0; i < ARRAY_SIZE(game_input.buttons); ++i) {
+        sdl_button_clear(&game_input.buttons[i]);
+      }
     }
 
     // audio
@@ -274,7 +300,7 @@ int main() {
     // render
     {
       SDL_UpdateTexture(frame_buffer, NULL, pixels,
-                        WINDOW_WIDTH * sizeof(uint32));
+                        SCREEN_WIDTH * sizeof(uint32));
 
       SDL_RenderTexture(renderer, frame_buffer, NULL, NULL);
 

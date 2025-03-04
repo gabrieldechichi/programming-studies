@@ -6,8 +6,8 @@
 
 // platform
 typedef enum {
-    LOG_INFO,
-    LOG_ERROR,
+  LOG_INFO,
+  LOG_ERROR,
 } LogType;
 
 #define PLATFORM_LOG(name) void name(const char *fmt, LogType log_type, ...)
@@ -29,7 +29,16 @@ typedef struct {
 } Game_InputButton;
 
 typedef struct {
-  Game_InputButton space_bar;
+  union {
+    struct {
+      Game_InputButton space_bar;
+      Game_InputButton a;
+      Game_InputButton d;
+      Game_InputButton w;
+      Game_InputButton s;
+    };
+    Game_InputButton buttons[5];
+  };
 } Game_Input;
 
 typedef struct {
@@ -45,13 +54,13 @@ typedef struct {
   bool clear_buffer;
 } Game_SoundBuffer;
 
-#define GAME_INIT(name) void name(Game_Memory* memory)
+#define GAME_INIT(name) void name(Game_Memory *memory)
 typedef GAME_INIT(Game_Init);
 GAME_INIT(game_init);
 
 #define GAME_UPDATE_AND_RENDER(name)                                           \
-  void name(Game_Memory* memory, Game_Input *input, Game_ScreenBuffer *screen_buffer,               \
-            Game_SoundBuffer *sound_buffer)
+  void name(Game_Memory *memory, Game_Input *input,                            \
+            Game_ScreenBuffer *screen_buffer, Game_SoundBuffer *sound_buffer)
 typedef GAME_UPDATE_AND_RENDER(Game_UpdateAndRender);
 GAME_UPDATE_AND_RENDER(game_update_and_render);
 
