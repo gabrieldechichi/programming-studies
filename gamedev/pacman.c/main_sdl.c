@@ -20,14 +20,14 @@
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
 
-#define TARGET_FPS 120
+#define TARGET_FPS 60
 #define TARGET_DT 1.0f / TARGET_FPS
 #define TARGET_DT_NS SECS_TO_NS(TARGET_DT)
 #define SLEEP_BUFFER_NS MS_TO_NS(1)
 
 #define AUDIO_SAMPLE_RATE 48000
 // #define AUDIO_BUFFER_SIZE 1024
-#define AUDIO_BUFFER_SIZE (int)(AUDIO_SAMPLE_RATE * TARGET_DT * 2.5)
+#define AUDIO_BUFFER_SIZE (int)(AUDIO_SAMPLE_RATE * TARGET_DT * 3)
 #define VOLUME 0.5
 
 #define SINE_FREQUENCY 256
@@ -204,13 +204,13 @@ int main() {
         if (event.key.key == SDLK_ESCAPE) {
           quit = true;
         }
-        break;
-      }
-      case SDL_EVENT_KEY_UP: {
         if (event.key.key == SDLK_SPACE) {
           flag = !flag;
           write_audio = true;
         }
+        break;
+      }
+      case SDL_EVENT_KEY_UP: {
         break;
       }
       }
