@@ -167,7 +167,7 @@ int main() {
   // todo: game should pick the pixel format
   SDL_Texture *frame_buffer =
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888,
-                        SDL_TEXTUREACCESS_STATIC, SCREEN_WIDTH, SCREEN_HEIGHT);
+                        SDL_TEXTUREACCESS_STATIC, DISPLAY_RES_X, DISPLAY_RES_Y);
 
   if (!frame_buffer) {
     SDL_Log("Texture could not be created! SDL_Error: %s\n", SDL_GetError());
@@ -175,13 +175,13 @@ int main() {
   }
   SDL_SetTextureScaleMode(frame_buffer, SDL_SCALEMODE_NEAREST);
 
-  uint32 pixels[SCREEN_WIDTH * SCREEN_HEIGHT];
+  uint32 pixels[DISPLAY_RES_X * DISPLAY_RES_Y];
   SDL_memset(pixels, 0, sizeof(pixels));
 
   Game_ScreenBuffer screen_buffer = {};
   screen_buffer.pixels = pixels;
-  screen_buffer.width = SCREEN_WIDTH;
-  screen_buffer.height = SCREEN_HEIGHT;
+  screen_buffer.width = DISPLAY_RES_X;
+  screen_buffer.height = DISPLAY_RES_Y;
 
   SDL_AudioSpec audio_spec = {};
 
@@ -294,7 +294,7 @@ int main() {
     // render
     {
       SDL_UpdateTexture(frame_buffer, NULL, pixels,
-                        SCREEN_WIDTH * sizeof(uint32));
+                        DISPLAY_RES_X * sizeof(uint32));
 
       SDL_FRect src_rect = {
           .x = 0, .y = 0, .w = DISPLAY_RES_X, .h = DISPLAY_RES_Y};
