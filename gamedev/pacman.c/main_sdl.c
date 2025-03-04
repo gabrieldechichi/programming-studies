@@ -112,6 +112,14 @@ void sdl_clear_button_event(Game_InputButton *button) {
   button->released_this_frame = false;
 }
 
+void platform_log(const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_INFO, fmt,
+                  args);
+  va_end(args);
+}
+
 int main() {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
     SDL_Log("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
@@ -187,7 +195,10 @@ int main() {
     return -1;
   }
 
-  game_code.init();
+  Game_Memory game_memory = {};
+  game_memory.platform.platform_log = platform_log;
+
+  game_code.init(&game_memory);
 
   Game_Input game_input = {};
 
@@ -228,7 +239,7 @@ int main() {
 
     // game update
     {
-      game_code.update_and_render(&game_input, &screen_buffer,
+      game_code.update_and_render(&game_memory, &game_input, &screen_buffer,
                                   &game_sound_buffer);
 
       sdl_clear_button_event(&game_input.space_bar);
