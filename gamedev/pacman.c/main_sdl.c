@@ -6,7 +6,9 @@
 #include "SDL3/SDL_keycode.h"
 #include "SDL3/SDL_loadso.h"
 #include "SDL3/SDL_log.h"
+#include "SDL3/SDL_render.h"
 #include "SDL3/SDL_stdinc.h"
+#include "SDL3/SDL_surface.h"
 #include "SDL3/SDL_timer.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -162,7 +164,7 @@ int main() {
 
   SDL_SetRenderVSync(renderer, 1);
 
-  //todo: game should pick the pixel format
+  // todo: game should pick the pixel format
   SDL_Texture *frame_buffer =
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888,
                         SDL_TEXTUREACCESS_STATIC, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -171,6 +173,7 @@ int main() {
     SDL_Log("Texture could not be created! SDL_Error: %s\n", SDL_GetError());
     return -1;
   }
+  SDL_SetTextureScaleMode(frame_buffer, SDL_SCALEMODE_NEAREST);
 
   uint32 pixels[SCREEN_WIDTH * SCREEN_HEIGHT];
   SDL_memset(pixels, 0, sizeof(pixels));
@@ -293,7 +296,11 @@ int main() {
       SDL_UpdateTexture(frame_buffer, NULL, pixels,
                         SCREEN_WIDTH * sizeof(uint32));
 
-      SDL_RenderTexture(renderer, frame_buffer, NULL, NULL);
+      SDL_FRect src_rect = {
+          .x = 0, .y = 0, .w = DISPLAY_RES_X, .h = DISPLAY_RES_Y};
+      SDL_FRect dist_rect = {
+          .x = 0, .y = 0, .w = SCREEN_WIDTH, .h = SCREEN_HEIGHT};
+      SDL_RenderTexture(renderer, frame_buffer, &src_rect, &dist_rect);
 
       SDL_RenderPresent(renderer);
     }
