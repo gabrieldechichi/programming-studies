@@ -31,8 +31,8 @@ typedef struct pacman_tile_t {
 } pacman_tile_t;
 
 typedef struct pacman_sprite_t {
-  uint32_t tile_code;
-  uint32_t color_code;
+  uint32 tile_code;
+  uint32 color_code;
   bool flip_x;
   bool flip_y;
 } pacman_sprite_t;
@@ -100,8 +100,8 @@ typedef struct sound_desc_t {
   bool voice[3];
   union {
     struct {
-      const uint32_t *ptr;
-      uint32_t size;
+      const uint32 *ptr;
+      uint32 size;
     };
     sound_func_t sound_fn;
   };
@@ -118,22 +118,22 @@ typedef enum {
 } soundflag_t;
 
 typedef struct {
-  uint32_t cur_tick;
+  uint32 cur_tick;
   sound_func_t func;
-  uint32_t num_ticks;
-  uint32_t stride; // number of uint32_t values per tick (only for register dump
-                   // effects)
-  const uint32_t *data; // 3 * num_ticks register dump values
-  uint8_t flags;        // combination of soundflag_t (active voices)
+  uint32 num_ticks;
+  uint32 stride; // number of uint32 values per tick (only for register dump
+                 // effects)
+  const uint32 *data; // 3 * num_ticks register dump values
+  uint8_t flags;      // combination of soundflag_t (active voices)
 } sound_t;
 
 typedef struct {
-  uint32_t counter;   // 20-bit counter, top 5 bits are index into wavetable ROM
-  uint32_t frequency; // 20-bit frequency (added to counter at 96kHz)
-  uint8_t waveform;   // 3-bit waveform index
-  uint8_t volume;     // 4-bit volume
-  float sample_acc;   // current float sample accumulator
-  float sample_div;   // current float sample divisor
+  uint32 counter;   // 20-bit counter, top 5 bits are index into wavetable ROM
+  uint32 frequency; // 20-bit frequency (added to counter at 96kHz)
+  uint8_t waveform; // 3-bit waveform index
+  uint8_t volume;   // 4-bit volume
+  float sample_acc; // current float sample accumulator
+  float sample_div; // current float sample divisor
 } voice_t;
 
 typedef struct pacman_t {
@@ -144,7 +144,7 @@ typedef struct pacman_t {
 typedef struct game_state_t {
   // clock
   bool is_running;
-  uint32_t tick;
+  uint32 tick;
 
   // input
   union {
@@ -161,11 +161,11 @@ typedef struct game_state_t {
   pacman_t pacman;
 
   // score
-  uint32_t score;
+  uint32 score;
   uint8_t num_dots_eaten;
   fruit_opt_t active_fruit;
   int2_t fruit_pos;
-  uint32_t fruit_despawn_tick;
+  uint32 fruit_despawn_tick;
 
   struct {
     voice_t voice[NUM_VOICES];
@@ -174,7 +174,7 @@ typedef struct game_state_t {
     int32_t voice_tick_period;
     int32_t sample_duration_ns;
     int32_t sample_accum;
-    uint32_t num_samples;
+    uint32 num_samples;
     float sample_buffer[NUM_SAMPLES];
   } audio;
 
@@ -185,7 +185,7 @@ typedef struct game_state_t {
   pacman_tile_t tiles[DISPLAY_TILES_Y][DISPLAY_TILES_X];
 
   // rendering
-  uint32_t frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
+  uint32 frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
 } game_state_t;
 
 global game_state_t game_state = {};
@@ -308,9 +308,9 @@ void sound_start(int slot, const sound_desc_t *desc) {
     snd->func = desc->sound_fn;
   } else {
     // assert(num_voices > 0);
-    // assert((desc->size % (num_voices * sizeof(uint32_t))) == 0);
+    // assert((desc->size % (num_voices * sizeof(uint32))) == 0);
     snd->stride = num_voices;
-    snd->num_ticks = desc->size / (snd->stride * sizeof(uint32_t));
+    snd->num_ticks = desc->size / (snd->stride * sizeof(uint32));
     snd->data = desc->ptr;
   }
 }
@@ -334,7 +334,7 @@ void snd_voice_tick(void) {
     /* lookup current 4-bit sample from the waveform number and the
         topmost 5 bits of the 20-bit sample counter
     */
-    uint32_t wave_index =
+    uint32 wave_index =
         ((voice->waveform << 5) | ((voice->counter >> 15) & 0x1F)) & 0xFF;
     int sample = (((int)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
     voice->sample_acc +=
@@ -357,7 +357,7 @@ void snd_func_eatdot1(int slot) {
   }
 }
 
-void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color,
+void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32 color,
                      uint8_t tile_width, uint8_t tile_height) {
   uint16_t x = tile_x;
   uint16_t y = tile_y;
@@ -373,8 +373,8 @@ void draw_tile_color(uint8_t tile_x, uint8_t tile_y, uint32_t color,
 
 void draw_sprite(int16_t sprite_x, int16_t sprite_y,
                  const pacman_sprite_t *sprite) {
-  uint32_t tile_code = sprite->tile_code * SPRITE_SIZE;
-  uint32_t color_code = sprite->color_code;
+  uint32 tile_code = sprite->tile_code * SPRITE_SIZE;
+  uint32 color_code = sprite->color_code;
 
   uint8_t tile_offset_x = sprite->flip_x ? SPRITE_SIZE : 0;
   int8_t sign_x = sprite->flip_x ? -1 : 1;
@@ -393,7 +393,7 @@ void draw_sprite(int16_t sprite_x, int16_t sprite_y,
           game_state.rom.sprite_atlas[tile_offset_y + y * sign_y]
                                      [tile_code + tile_offset_x + sign_x * x];
       uint8_t color_i = color_code * 4 + tile_i;
-      uint32_t src_color = game_state.rom.color_palette[color_i];
+      uint32 src_color = game_state.rom.color_palette[color_i];
       uint8_t alpha = (src_color >> 24) & 0xFF;
 
       if (alpha > 0) {
@@ -404,13 +404,13 @@ void draw_sprite(int16_t sprite_x, int16_t sprite_y,
 }
 
 void draw_tile(uint16_t tile_x, uint16_t tile_y, pacman_tile_t *tile) {
-  uint32_t tile_code = tile->tile_code * TILE_SIZE;
-  uint32_t color_code = tile->color_code;
+  uint32 tile_code = tile->tile_code * TILE_SIZE;
+  uint32 color_code = tile->color_code;
   for (uint16_t y = 0; y < TILE_SIZE; y++) {
     for (uint16_t x = 0; x < TILE_SIZE; x++) {
       uint8_t tile_i = game_state.rom.tile_atlas[y][tile_code + x];
       uint8_t color_i = color_code * 4 + tile_i;
-      uint32_t color = game_state.rom.color_palette[color_i];
+      uint32 color = game_state.rom.color_palette[color_i];
       game_state.frame_buffer[y + tile_y][x + tile_x] = color;
     }
   }
@@ -420,7 +420,7 @@ void draw_color_palette() {
   uint16_t x = 0;
   uint16_t y = 0;
   for (size_t i = 0; i < ARRAY_SIZE(game_state.rom.color_palette); i++) {
-    uint32_t c = game_state.rom.color_palette[i];
+    uint32 c = game_state.rom.color_palette[i];
 
     draw_tile_color(x, y, c, TILE_SIZE, TILE_SIZE);
     x++;
@@ -499,7 +499,7 @@ void set_tile_text(int2_t tile_pos, uint8_t color_code, const char *text) {
   }
 }
 
-void set_tile_score(int2_t tile_pos, uint8_t color_code, uint32_t score) {
+void set_tile_score(int2_t tile_pos, uint8_t color_code, uint32 score) {
   set_tile_char(tile_pos, color_code, '0');
   tile_pos.x--;
   for (uint8_t digit = 0; digit < 8; digit++) {
@@ -771,6 +771,14 @@ void process_platform_input_events(const Game_InputEvents *input) {
   }
 }
 
+uint32 fix_color(uint32 color) {
+  uint8 r = (color >> 0) & 0xFF;
+  uint8 g = (color >> 8) & 0xFF;
+  uint8 b = (color >> 16) & 0xFF;
+  uint8 a = (color >> 24) & 0xFF;
+  return (r << 24 ) | (g << 16) | (b << 8) | (a << 0);
+};
+
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   UNUSED(memory);
   local_persist bool flag = false;
@@ -803,7 +811,7 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   for (uint16 y = 0; y < screen_buffer->height; y++) {
     for (uint16 x = 0; x < screen_buffer->width; x++) {
       uint32 i = y * screen_buffer->width + x;
-      screen_buffer->pixels[i] = game_state.frame_buffer[y][x];
+      screen_buffer->pixels[i] = fix_color(game_state.frame_buffer[y][x]);
     }
   }
 
