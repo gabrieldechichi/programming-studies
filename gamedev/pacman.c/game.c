@@ -1,7 +1,31 @@
 #include "game.h"
 #include "typedefs.h"
+#include <math.h>
+
+#define VOLUME 0.5
+
+#define SINE_FREQUENCY 256
+#define SINE_TIME_STEP (((2.0 * PI) * SINE_FREQUENCY) / AUDIO_SAMPLE_RATE)
+
+void debug_audio_sine_wave(game_sound_buffer_t *sound_buffer, bool8_t flag) {
+  local_persist float time = PI / 2;
+  float time_step = (((2.0 * PI) * SINE_FREQUENCY) / sound_buffer->sample_rate);
+
+  for (int i = 0; i < sound_buffer->sample_count; i++) {
+    float sine = sinf(time);
+    if (flag) {
+      if (sine < 0) {
+        sine = 0;
+      }
+    }
+    sound_buffer->samples[i] = sine * VOLUME;
+    time += time_step;
+  }
+}
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
+  local_persist bool8_t flag = false;
+
   // pixel stuff
   {
     static uint8_t r_shift = 0;
@@ -16,6 +40,15 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
         screen_buffer->pixels[i] = color;
       }
     }
+  }
+
+  // audio
+  {
+    if (input->space_bar.pressed_this_frame) {
+      flag = !flag;
+      sound_buffer->clear_buffer = true;
+    }
+    debug_audio_sine_wave(sound_buffer, flag);
   }
 
   // audio

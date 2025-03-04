@@ -1,3 +1,6 @@
+#ifndef H_TYPEDEFS
+#define H_TYPEDEFS
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -28,6 +31,8 @@ typedef unsigned char bool8_t;
 #define true 1
 #define false 0
 
+#define PI 3.14159265358979323846
+
 #define MS_TO_SECS(ms) ((float)(ms) / 1000.0f)
 #define MS_TO_MCS(ms) ((uint64_t)((ms) * 1000.0f))
 #define MS_TO_NS(ms) ((uint64_t)((ms) * 1000000.0f))
@@ -41,3 +46,5 @@ typedef unsigned char bool8_t;
 #define SECS_TO_MS(secs) ((uint64_t)((secs) * 1000.0f))
 #define SECS_TO_MCS(secs) ((uint64_t)((secs) * 1000000.0f))
 #define SECS_TO_NS(secs) ((uint64_t)((secs) * 1000000000.0f))
+
+#endif

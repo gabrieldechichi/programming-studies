@@ -1,8 +1,7 @@
-#include "./game.h"
-
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_audio.h"
 #include "SDL3/SDL_error.h"
+#include "SDL3/SDL_events.h"
 #include "SDL3/SDL_filesystem.h"
 #include "SDL3/SDL_keycode.h"
 #include "SDL3/SDL_loadso.h"
@@ -14,8 +13,7 @@
 #include <string.h>
 
 #include "./typedefs.h"
-
-#define PI 3.14159265358979323846
+#include "./game.h"
 
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
@@ -28,7 +26,6 @@
 #define AUDIO_SAMPLE_RATE 48000
 // #define AUDIO_BUFFER_SIZE 1024
 #define AUDIO_BUFFER_SIZE (int)(AUDIO_SAMPLE_RATE * TARGET_DT * 3)
-#define VOLUME 0.5
 
 #define SINE_FREQUENCY 256
 #define SINE_TIME_STEP (((2.0 * PI) * SINE_FREQUENCY) / AUDIO_SAMPLE_RATE)
@@ -94,22 +91,16 @@ int load_game_code() {
   return 1;
 }
 
-void debug_audio_sine_wave(bool flag) {
-  local_persist float time = PI / 2;
+void sdl_handle_button_event(input_button_t *button, uint64_t event) {
+  bool8_t was_pressed = button->is_pressed;
+  button->is_pressed = event == SDL_EVENT_KEY_DOWN;
+  button->pressed_this_frame = !was_pressed && button->is_pressed;
+  button->released_this_frame = was_pressed && !button->is_pressed;
+}
 
-  for (int i = 0; i < audio_buffer.samples_len; i++) {
-    float sine = SDL_sinf(time);
-    if (flag) {
-      if (sine < 0) {
-        sine = 0;
-      }
-    }
-    audio_buffer.samples[i] = sine * VOLUME;
-    time += SINE_TIME_STEP;
-  }
-
-  SDL_PutAudioStreamData(audio_buffer.stream, audio_buffer.samples,
-                         audio_buffer.samples_byte_len);
+void sdl_clear_button_event(input_button_t *button) {
+  button->pressed_this_frame = false;
+  button->released_this_frame = false;
 }
 
 int main() {
@@ -175,15 +166,21 @@ int main() {
   audio_buffer.samples_len = AUDIO_BUFFER_SIZE;
   audio_buffer.samples_byte_len = sizeof(float) * AUDIO_BUFFER_SIZE;
 
+  game_sound_buffer_t game_sound_buffer = {};
+  game_sound_buffer.samples = audio_samples;
+  game_sound_buffer.sample_count = audio_buffer.samples_len;
+  game_sound_buffer.sample_rate = audio_buffer.sample_rate;
+  game_sound_buffer.clear_buffer = false;
+
   SDL_ResumeAudioStreamDevice(audio_buffer.stream);
 
   if (!load_game_code()) {
     return -1;
   }
 
+  game_input_t game_input = {};
+
   bool quit = false;
-  bool flag = false;
-  bool write_audio = false;
   SDL_Event event;
   uint64_t last_ticks = 0;
   while (!quit) {
@@ -204,15 +201,12 @@ int main() {
         if (event.key.key == SDLK_ESCAPE) {
           quit = true;
         }
-        if (event.key.key == SDLK_SPACE) {
-          flag = !flag;
-          write_audio = true;
-        }
         break;
       }
-      case SDL_EVENT_KEY_UP: {
-        break;
       }
+
+      if (event.type == SDL_EVENT_KEY_UP || event.type == SDL_EVENT_KEY_DOWN) {
+        sdl_handle_button_event(&game_input.space_bar, event.type);
       }
     }
 
@@ -221,31 +215,50 @@ int main() {
     uint64_t dt_ns = now - last_ticks;
     last_ticks = now;
 
-    if (write_audio) {
-      write_audio = false;
-      SDL_ClearAudioStream(audio_buffer.stream);
-    }
-    debug_audio_sine_wave(flag);
+    // game update
+    {
+      game_code.update_and_render(NULL, &game_input, &screen_buffer,
+                                  &game_sound_buffer);
 
-    game_code.update_and_render(NULL, NULL, &screen_buffer, NULL);
-
-    SDL_UpdateTexture(frame_buffer, NULL, pixels,
-                      WINDOW_WIDTH * sizeof(uint32_t));
-
-    SDL_RenderTexture(renderer, frame_buffer, NULL, NULL);
-
-    SDL_RenderPresent(renderer);
-
-    now = SDL_GetTicksNS();
-    dt_ns = now - last_ticks;
-    if (dt_ns < TARGET_DT_NS - SLEEP_BUFFER_NS) {
-      uint64_t sleep_time = TARGET_DT_NS - dt_ns;
-      SDL_DelayNS(sleep_time - SLEEP_BUFFER_NS);
+      sdl_clear_button_event(&game_input.space_bar);
     }
 
-    now = SDL_GetTicksNS();
-    dt_ns = now - last_ticks;
-    last_ticks = now;
+    // audio
+    {
+      // if game wrote new audio clear any pending samples
+      if (game_sound_buffer.clear_buffer) {
+        SDL_ClearAudioStream(audio_buffer.stream);
+        game_sound_buffer.clear_buffer = false;
+      }
+
+      // write to audio stream
+      SDL_PutAudioStreamData(audio_buffer.stream, audio_buffer.samples,
+                             audio_buffer.samples_byte_len);
+    }
+
+    // render
+    {
+      SDL_UpdateTexture(frame_buffer, NULL, pixels,
+                        WINDOW_WIDTH * sizeof(uint32_t));
+
+      SDL_RenderTexture(renderer, frame_buffer, NULL, NULL);
+
+      SDL_RenderPresent(renderer);
+    }
+
+    // wait for target frame rate
+    {
+      now = SDL_GetTicksNS();
+      dt_ns = now - last_ticks;
+      if (dt_ns < TARGET_DT_NS - SLEEP_BUFFER_NS) {
+        uint64_t sleep_time = TARGET_DT_NS - dt_ns;
+        SDL_DelayNS(sleep_time - SLEEP_BUFFER_NS);
+      }
+
+      now = SDL_GetTicksNS();
+      dt_ns = now - last_ticks;
+      last_ticks = now;
+    }
   }
 
   SDL_DestroyRenderer(renderer);

@@ -2,10 +2,19 @@
 #define H_GAME
 
 #include <stdint.h>
+#include "./typedefs.h"
+
 typedef struct {
 } game_memory_t;
 
 typedef struct {
+    bool8_t is_pressed;
+    bool8_t pressed_this_frame;
+    bool8_t released_this_frame;
+} input_button_t;
+
+typedef struct {
+    input_button_t space_bar;
 } game_input_t;
 
 typedef struct {
@@ -18,6 +27,7 @@ typedef struct {
   int32_t sample_rate;
   int32_t sample_count;
   float *samples;
+  bool8_t clear_buffer;
 } game_sound_buffer_t;
 
 #define GAME_UPDATE_AND_RENDER(name)                                           \
