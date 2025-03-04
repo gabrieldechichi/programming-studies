@@ -28,18 +28,23 @@ typedef struct {
   bool released_this_frame;
 } Game_InputButton;
 
+typedef enum { KEY_A, KEY_D, KEY_W, KEY_S, KEY_SPACE, KEY_MAX } Game_InputButtonType;
+typedef enum { EVENT_KEYDOWN, EVENT_KEYUP } Game_InputEventType;
+
 typedef struct {
+  Game_InputEventType type;
   union {
     struct {
-      Game_InputButton space_bar;
-      Game_InputButton a;
-      Game_InputButton d;
-      Game_InputButton w;
-      Game_InputButton s;
-    };
-    Game_InputButton buttons[5];
+      Game_InputButtonType type;
+    } key;
   };
-} Game_Input;
+
+} Game_InputEvent;
+
+typedef struct {
+  Game_InputEvent events[20];
+  uint8 len;
+} Game_InputEvents;
 
 typedef struct {
   uint16 width;
@@ -59,7 +64,7 @@ typedef GAME_INIT(Game_Init);
 GAME_INIT(game_init);
 
 #define GAME_UPDATE_AND_RENDER(name)                                           \
-  void name(Game_Memory *memory, Game_Input *input,                            \
+  void name(Game_Memory *memory, Game_InputEvents *input,                      \
             Game_ScreenBuffer *screen_buffer, Game_SoundBuffer *sound_buffer)
 typedef GAME_UPDATE_AND_RENDER(Game_UpdateAndRender);
 GAME_UPDATE_AND_RENDER(game_update_and_render);

@@ -146,6 +146,18 @@ typedef struct game_state_t {
   bool is_running;
   uint32_t tick;
 
+  // input
+  union {
+    struct {
+      Game_InputButton a;
+      Game_InputButton d;
+      Game_InputButton w;
+      Game_InputButton s;
+      Game_InputButton space_bar;
+    };
+    Game_InputButton buttons[KEY_MAX];
+  } input;
+
   pacman_t pacman;
 
   // score
@@ -553,17 +565,17 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool is_pill) {
   sound_start(2, &sounds[SOUND_EATDOT_1]);
 }
 
-void update_pacman(const Game_Input *game_input) {
+void update_pacman() {
   pacman_t *pacman = &game_state.pacman;
   dir_t wanted_dir = pacman->dir;
 
-  if (game_input->a.is_pressed) {
+  if (game_state.input.a.is_pressed) {
     wanted_dir = DIR_LEFT;
-  } else if (game_input->d.is_pressed) {
+  } else if (game_state.input.d.is_pressed) {
     wanted_dir = DIR_RIGHT;
-  } else if (game_input->w.is_pressed) {
+  } else if (game_state.input.w.is_pressed) {
     wanted_dir = DIR_UP;
-  } else if (game_input->s.is_pressed) {
+  } else if (game_state.input.s.is_pressed) {
     wanted_dir = DIR_DOWN;
   }
 
@@ -721,6 +733,20 @@ export GAME_INIT(game_init) {
   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 }
 
+void handle_keydown(Game_InputButton *button) {
+  bool was_pressed = button->is_pressed;
+  button->is_pressed = true;
+  button->pressed_this_frame = !was_pressed;
+  button->pressed_this_frame = false;
+}
+
+void handle_keyup(Game_InputButton *button) {
+  bool was_pressed = button->is_pressed;
+  button->is_pressed = false;
+  button->pressed_this_frame = false;
+  button->released_this_frame = was_pressed;
+}
+
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   UNUSED(memory);
   local_persist bool flag = false;
@@ -752,8 +778,30 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   //   debug_audio_sine_wave(sound_buffer, flag);
   // }
 
+  for (uint8 i = 0; i < input->len; i++) {
+    Game_InputEvent event = input->events[i];
+    switch (event.type) {
+    case EVENT_KEYDOWN: {
+      for (uint8 key_index = 0; key_index < KEY_MAX; key_index++) {
+        if (event.key.type == key_index) {
+          handle_keydown(&game_state.input.buttons[key_index]);
+        }
+      }
+      break;
+    }
+    case EVENT_KEYUP: {
+      for (uint8 key_index = 0; key_index < KEY_MAX; key_index++) {
+        if (event.key.type == key_index) {
+          handle_keyup(&game_state.input.buttons[key_index]);
+        }
+      }
+      break;
+    }
+    }
+  }
+
   update_fruits();
-  update_pacman(input);
+  update_pacman();
 
   set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
 
@@ -774,6 +822,12 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
       uint32 i = y * screen_buffer->width + x;
       screen_buffer->pixels[i] = game_state.frame_buffer[y][x];
     }
+  }
+
+  // clear input
+  for (uint8 key_index = 0; key_index < KEY_MAX; key_index++) {
+    game_state.input.buttons[key_index].pressed_this_frame = false;
+    game_state.input.buttons[key_index].released_this_frame = false;
   }
 
   game_state.tick++;

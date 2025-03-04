@@ -86,25 +86,6 @@ int load_game_code() {
   return 1;
 }
 
-void sdl_handle_keydown(Game_InputButton *button) {
-  bool was_pressed = button->is_pressed;
-  button->is_pressed = true;
-  button->pressed_this_frame = !was_pressed;
-  button->pressed_this_frame = false;
-}
-
-void sdl_handle_keyup(Game_InputButton *button) {
-  bool was_pressed = button->is_pressed;
-  button->is_pressed = false;
-  button->pressed_this_frame = false;
-  button->released_this_frame = was_pressed;
-}
-
-void sdl_button_clear(Game_InputButton *button) {
-  button->pressed_this_frame = false;
-  button->released_this_frame = false;
-}
-
 void platform_log(const char *fmt, LogType log_type, ...) {
   SDL_LogPriority log_priority;
   switch (log_type) {
@@ -124,6 +105,18 @@ void platform_log(const char *fmt, LogType log_type, ...) {
 
   SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, log_priority, fmt, args);
   va_end(args);
+}
+
+void sdl_add_input_event(Game_InputEvents *events, Game_InputEvent event) {
+  local_persist uint8 max_size = ARRAY_SIZE(events->events);
+  if (events->len + 1 > max_size) {
+    platform_log("frame event buffer overflow (max %d). Ignoring...",
+                 LOG_ERROR);
+    return;
+  }
+
+  uint8 i = events->len++;
+  events->events[i] = event;
 }
 
 int main() {
@@ -206,7 +199,8 @@ int main() {
 
   game_code.init(&game_memory);
 
-  Game_Input game_input = {};
+  Game_InputEvents game_input_events = {};
+  SDL_memset(game_input_events.events, 0, sizeof(game_input_events.events));
 
   bool quit = false;
   SDL_Event event;
@@ -220,55 +214,64 @@ int main() {
 
     // Event handling
     while (SDL_PollEvent(&event)) {
+      Game_InputEvent game_input_event = {};
       switch (event.type) {
       case SDL_EVENT_QUIT: {
         quit = true;
         break;
       }
       case SDL_EVENT_KEY_DOWN: {
+        game_input_event.type = EVENT_KEYDOWN;
         switch (event.key.key) {
         case SDLK_ESCAPE:
           quit = true;
           break;
         case SDLK_SPACE:
-          sdl_handle_keydown(&game_input.space_bar);
+          game_input_event.key.type = KEY_SPACE;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
         case SDLK_A:
-          sdl_handle_keydown(&game_input.a);
+          game_input_event.key.type = KEY_A;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
         case SDLK_D:
-          sdl_handle_keydown(&game_input.d);
+          game_input_event.key.type = KEY_D;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
         case SDLK_W:
-          sdl_handle_keydown(&game_input.w);
+          game_input_event.key.type = KEY_W;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
         case SDLK_S:
-          sdl_handle_keydown(&game_input.s);
+          game_input_event.key.type = KEY_S;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
-        }
-        if (event.key.key == SDLK_ESCAPE) {
         }
         break;
       }
       case SDL_EVENT_KEY_UP: {
+        game_input_event.type = EVENT_KEYUP;
         switch (event.key.key) {
         case SDLK_SPACE:
-          sdl_handle_keyup(&game_input.space_bar);
+          game_input_event.key.type = KEY_SPACE;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
         case SDLK_A:
-          sdl_handle_keyup(&game_input.a);
+          game_input_event.key.type = KEY_A;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
         case SDLK_D:
-          sdl_handle_keyup(&game_input.d);
+          game_input_event.key.type = KEY_D;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
         case SDLK_W:
-          sdl_handle_keyup(&game_input.w);
+          game_input_event.key.type = KEY_W;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
         case SDLK_S:
-          sdl_handle_keyup(&game_input.s);
+          game_input_event.key.type = KEY_S;
+          sdl_add_input_event(&game_input_events, game_input_event);
           break;
-        }
-        if (event.key.key == SDLK_ESCAPE) {
         }
         break;
       }
@@ -282,12 +285,10 @@ int main() {
 
     // game update
     {
-      game_code.update_and_render(&game_memory, &game_input, &screen_buffer,
-                                  &game_sound_buffer);
+      game_code.update_and_render(&game_memory, &game_input_events,
+                                  &screen_buffer, &game_sound_buffer);
 
-      for (uint8 i = 0; i < ARRAY_SIZE(game_input.buttons); ++i) {
-        sdl_button_clear(&game_input.buttons[i]);
-      }
+      game_input_events.len = 0;
     }
 
     // audio
