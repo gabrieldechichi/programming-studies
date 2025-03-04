@@ -1,6 +1,7 @@
 #include "game.h"
 #include "typedefs.h"
 #include <math.h>
+#include <stdio.h>
 
 #define VOLUME 0.5
 
@@ -21,6 +22,10 @@ void debug_audio_sine_wave(Game_SoundBuffer *sound_buffer, bool flag) {
     sound_buffer->samples[i] = sine * VOLUME;
     time += time_step;
   }
+}
+
+export GAME_INIT(game_init){
+    printf("Hey there\n\n\n");
 }
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
@@ -50,29 +55,4 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
     }
     debug_audio_sine_wave(sound_buffer, flag);
   }
-
-  // audio
-  // {
-  //   const int minimum_audio = (sound_buffer->sample_rate * sizeof(float)) /
-  //   2; if (SDL_GetAudioStreamQueued(stream) < minimum_audio) {
-  //     static float samples[BUFFER_SIZE];
-  //     static float time = 0;
-  //
-  //     if (!audio_playing) {
-  //       for (int i = 0; i < BUFFER_SIZE; i++) {
-  //         samples[i] = 0;
-  //         time += SINE_TIME_STEP;
-  //       }
-  //       audio_playing = true;
-  //     } else {
-  //       for (int i = 0; i < BUFFER_SIZE; i++) {
-  //         float sine = SDL_sinf(time);
-  //         samples[i] = sine * VOLUME;
-  //         time += SINE_TIME_STEP;
-  //       }
-  //     }
-  //
-  //     SDL_PutAudioStreamData(stream, samples, sizeof(samples));
-  //   }
-  // }
 }

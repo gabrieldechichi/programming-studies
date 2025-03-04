@@ -12,8 +12,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "./typedefs.h"
 #include "./game.h"
+#include "./typedefs.h"
 
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
@@ -33,6 +33,7 @@
 typedef struct {
   SDL_SharedObject *dll;
   SDL_Time last_modify_time;
+  Game_Init *init;
   Game_UpdateAndRender *update_and_render;
 } SDL_GameCode;
 
@@ -78,6 +79,12 @@ int load_game_code() {
   }
   game_code.dll = game_dll;
 
+  SDL_FunctionPointer init = SDL_LoadFunction(game_dll, "game_init");
+  if (!init) {
+    SDL_Log("Failed to load init from game_dll. %s\n", SDL_GetError());
+    return 0;
+  }
+
   SDL_FunctionPointer update_and_render =
       SDL_LoadFunction(game_dll, "game_update_and_render");
   if (!update_and_render) {
@@ -85,6 +92,8 @@ int load_game_code() {
             SDL_GetError());
     return 0;
   }
+
+  game_code.init = (Game_Init *)init;
   game_code.update_and_render = (Game_UpdateAndRender *)update_and_render;
   game_code.last_modify_time = info.modify_time;
 
@@ -178,6 +187,8 @@ int main() {
     return -1;
   }
 
+  game_code.init();
+
   Game_Input game_input = {};
 
   bool quit = false;
@@ -217,7 +228,7 @@ int main() {
 
     // game update
     {
-      game_code.update_and_render(NULL, &game_input, &screen_buffer,
+      game_code.update_and_render(&game_input, &screen_buffer,
                                   &game_sound_buffer);
 
       sdl_clear_button_event(&game_input.space_bar);
