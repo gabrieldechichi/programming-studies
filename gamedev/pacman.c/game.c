@@ -747,28 +747,7 @@ void handle_keyup(Game_InputButton *button) {
   button->released_this_frame = was_pressed;
 }
 
-export GAME_UPDATE_AND_RENDER(game_update_and_render) {
-  UNUSED(memory);
-  local_persist bool flag = false;
-  UNUSED(flag);
-  UNUSED(sound_buffer);
-
-  // pixel stuff
-  // {
-  //   static uint8 r_shift = 0;
-  //   static uint8 g_shift = 0xFF / 2;
-  //   r_shift += 10;
-  //   g_shift -= 10;
-  //   for (int y = 0; y < screen_buffer->height; y++) {
-  //     for (int x = 0; x < screen_buffer->width; x++) {
-  //       int i = y * screen_buffer->width + x;
-  //       r_shift = 0;
-  //       uint32_t color = r_shift << 24 | g_shift << 16 | 0xFF;
-  //       screen_buffer->pixels[i] = color;
-  //     }
-  //   }
-  // }
-
+void process_platform_input_events(const Game_InputEvents *input) {
   for (uint8 i = 0; i < input->len; i++) {
     Game_InputEvent event = input->events[i];
     switch (event.type) {
@@ -783,7 +762,6 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
     case EVENT_KEYUP: {
       for (uint8 key_index = 0; key_index < KEY_MAX; key_index++) {
         if (event.key.type == key_index) {
-          printf("Handle key up %s\n\n", input_button_names[key_index]);
           handle_keyup(&game_state.input.buttons[key_index]);
         }
       }
@@ -791,6 +769,15 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
     }
     }
   }
+}
+
+export GAME_UPDATE_AND_RENDER(game_update_and_render) {
+  UNUSED(memory);
+  local_persist bool flag = false;
+  UNUSED(flag);
+  UNUSED(sound_buffer);
+
+  process_platform_input_events(input);
 
   // audio
   {
@@ -805,11 +792,6 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   update_pacman();
 
   set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
-
-  // if (!did_play_sound && IsAudioStreamProcessed(audio_stream)) {
-  //   sound_desc_t sound = sounds[SOUND_DEAD];
-  //   UpdateAudioStream(audio_stream, sound.dump.ptr, sound.dump.size / 32);
-  // }
 
   draw_tiles();
   draw_pacman();
