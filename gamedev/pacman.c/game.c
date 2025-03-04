@@ -771,14 +771,6 @@ void process_platform_input_events(const Game_InputEvents *input) {
   }
 }
 
-uint32 fix_color(uint32 color) {
-  uint8 r = (color >> 0) & 0xFF;
-  uint8 g = (color >> 8) & 0xFF;
-  uint8 b = (color >> 16) & 0xFF;
-  uint8 a = (color >> 24) & 0xFF;
-  return (r << 24 ) | (g << 16) | (b << 8) | (a << 0);
-};
-
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   UNUSED(memory);
   local_persist bool flag = false;
@@ -811,7 +803,7 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   for (uint16 y = 0; y < screen_buffer->height; y++) {
     for (uint16 x = 0; x < screen_buffer->width; x++) {
       uint32 i = y * screen_buffer->width + x;
-      screen_buffer->pixels[i] = fix_color(game_state.frame_buffer[y][x]);
+      screen_buffer->pixels[i] = game_state.frame_buffer[y][x];
     }
   }
 

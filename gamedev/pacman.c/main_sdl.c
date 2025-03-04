@@ -162,8 +162,9 @@ int main() {
 
   SDL_SetRenderVSync(renderer, 1);
 
+  //todo: game should pick the pixel format
   SDL_Texture *frame_buffer =
-      SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888,
+      SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888,
                         SDL_TEXTUREACCESS_STATIC, SCREEN_WIDTH, SCREEN_HEIGHT);
 
   if (!frame_buffer) {
