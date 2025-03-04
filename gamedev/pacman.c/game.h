@@ -28,7 +28,26 @@ typedef struct {
   bool released_this_frame;
 } Game_InputButton;
 
-typedef enum { KEY_A, KEY_D, KEY_W, KEY_S, KEY_SPACE, KEY_MAX } Game_InputButtonType;
+#define INPUT_BUTTONS                                                          \
+  INPUT_BUTTON(KEY_A, "A"), INPUT_BUTTON(KEY_D, "D"),                          \
+      INPUT_BUTTON(KEY_W, "W"), INPUT_BUTTON(KEY_S, "S"),                      \
+      INPUT_BUTTON(KEY_SPACE, "Space")
+
+typedef enum {
+#define INPUT_BUTTON(v, a) v
+  INPUT_BUTTONS,
+  KEY_MAX
+#undef INPUT_BUTTON
+} Game_InputButtonType;
+
+global const char *input_button_names[KEY_MAX] = {
+#define INPUT_BUTTON(v, a) a
+    INPUT_BUTTONS
+#undef INPUT_BUTTON
+};
+
+#undef INPUT_BUTTONS
+
 typedef enum { EVENT_KEYDOWN, EVENT_KEYUP } Game_InputEventType;
 
 typedef struct {

@@ -737,7 +737,7 @@ void handle_keydown(Game_InputButton *button) {
   bool was_pressed = button->is_pressed;
   button->is_pressed = true;
   button->pressed_this_frame = !was_pressed;
-  button->pressed_this_frame = false;
+  button->released_this_frame = false;
 }
 
 void handle_keyup(Game_InputButton *button) {
@@ -769,15 +769,6 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   //   }
   // }
 
-  // audio
-  // {
-  //   if (input->space_bar.pressed_this_frame) {
-  //     flag = !flag;
-  //     sound_buffer->clear_buffer = true;
-  //   }
-  //   debug_audio_sine_wave(sound_buffer, flag);
-  // }
-
   for (uint8 i = 0; i < input->len; i++) {
     Game_InputEvent event = input->events[i];
     switch (event.type) {
@@ -792,12 +783,22 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
     case EVENT_KEYUP: {
       for (uint8 key_index = 0; key_index < KEY_MAX; key_index++) {
         if (event.key.type == key_index) {
+          printf("Handle key up %s\n\n", input_button_names[key_index]);
           handle_keyup(&game_state.input.buttons[key_index]);
         }
       }
       break;
     }
     }
+  }
+
+  // audio
+  {
+    if (game_state.input.space_bar.pressed_this_frame) {
+      flag = !flag;
+      sound_buffer->clear_buffer = true;
+    }
+    debug_audio_sine_wave(sound_buffer, flag);
   }
 
   update_fruits();
