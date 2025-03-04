@@ -31,9 +31,19 @@ typedef struct {
   int32 samples_byte_len;
 } SDL_AudioBuffer;
 
+typedef struct {
+  SDL_Keycode sdl_key;
+  Game_InputButtonType game_key;
+} KeyMapping;
+
 global SDL_GameCode game_code = {};
 global const char *game_dll_path = "./build/game.so";
 global SDL_AudioBuffer audio_buffer = {};
+
+global const KeyMapping key_map[] = {
+    {SDLK_A, KEY_A}, {SDLK_D, KEY_D},         {SDLK_W, KEY_W},
+    {SDLK_S, KEY_S}, {SDLK_SPACE, KEY_SPACE},
+};
 
 bool should_reload_game_code() {
   SDL_PathInfo info = {};
@@ -117,6 +127,15 @@ void sdl_add_input_event(Game_InputEvents *events, Game_InputEvent event) {
 
   uint8 i = events->len++;
   events->events[i] = event;
+}
+
+Game_InputButtonType sdl_keycode_to_button(SDL_Keycode keycode) {
+  for (size_t i = 0; i < ARRAY_SIZE(key_map); i++) {
+    if (key_map[i].sdl_key == keycode) {
+      return key_map[i].game_key;
+    }
+  }
+  return KEY_MAX;
 }
 
 int main() {
@@ -221,57 +240,22 @@ int main() {
         break;
       }
       case SDL_EVENT_KEY_DOWN: {
-        game_input_event.type = EVENT_KEYDOWN;
-        switch (event.key.key) {
-        case SDLK_ESCAPE:
+        if (event.key.key == SDLK_ESCAPE) {
           quit = true;
           break;
-        case SDLK_SPACE:
-          game_input_event.key.type = KEY_SPACE;
+        }
+        game_input_event.type = EVENT_KEYDOWN;
+        game_input_event.key.type = sdl_keycode_to_button(event.key.key);
+        if (game_input_event.key.type < KEY_MAX) {
           sdl_add_input_event(&game_input_events, game_input_event);
-          break;
-        case SDLK_A:
-          game_input_event.key.type = KEY_A;
-          sdl_add_input_event(&game_input_events, game_input_event);
-          break;
-        case SDLK_D:
-          game_input_event.key.type = KEY_D;
-          sdl_add_input_event(&game_input_events, game_input_event);
-          break;
-        case SDLK_W:
-          game_input_event.key.type = KEY_W;
-          sdl_add_input_event(&game_input_events, game_input_event);
-          break;
-        case SDLK_S:
-          game_input_event.key.type = KEY_S;
-          sdl_add_input_event(&game_input_events, game_input_event);
-          break;
         }
         break;
       }
       case SDL_EVENT_KEY_UP: {
         game_input_event.type = EVENT_KEYUP;
-        switch (event.key.key) {
-        case SDLK_SPACE:
-          game_input_event.key.type = KEY_SPACE;
+        game_input_event.key.type = sdl_keycode_to_button(event.key.key);
+        if (game_input_event.key.type < KEY_MAX) {
           sdl_add_input_event(&game_input_events, game_input_event);
-          break;
-        case SDLK_A:
-          game_input_event.key.type = KEY_A;
-          sdl_add_input_event(&game_input_events, game_input_event);
-          break;
-        case SDLK_D:
-          game_input_event.key.type = KEY_D;
-          sdl_add_input_event(&game_input_events, game_input_event);
-          break;
-        case SDLK_W:
-          game_input_event.key.type = KEY_W;
-          sdl_add_input_event(&game_input_events, game_input_event);
-          break;
-        case SDLK_S:
-          game_input_event.key.type = KEY_S;
-          sdl_add_input_event(&game_input_events, game_input_event);
-          break;
         }
         break;
       }
@@ -287,7 +271,6 @@ int main() {
     {
       game_code.update_and_render(&game_memory, &game_input_events,
                                   &screen_buffer, &game_sound_buffer);
-
       game_input_events.len = 0;
     }
 
