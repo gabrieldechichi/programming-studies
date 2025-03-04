@@ -147,7 +147,7 @@ int main() {
   }
 
   SDL_Window *window =
-      SDL_CreateWindow("SDL3 Window", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
+      SDL_CreateWindow("pacman.c", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
   if (window == NULL) {
     SDL_Log("Window could not be created! SDL_Error: %s\n", SDL_GetError());
     return 1;
@@ -233,6 +233,8 @@ int main() {
     if (should_reload_game_code()) {
       SDL_Log("reloading game code\n");
       load_game_code();
+      //todo: all pacman data is on the dll stack right now, so need to re-init after dll reload
+      game_code.init(&game_memory);
     }
 
     // Event handling

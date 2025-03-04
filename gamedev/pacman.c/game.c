@@ -720,19 +720,6 @@ void debug_audio_sine_wave(Game_SoundBuffer *sound_buffer, bool flag) {
   }
 }
 
-export GAME_INIT(game_init) {
-  UNUSED(memory);
-  memset(&game_state, 0, sizeof(game_state));
-  game_state.is_running = true;
-  game_state.fruit_pos = i2(13 * TILE_SIZE, 20 * TILE_SIZE - TILE_SIZE / 2);
-
-  pm_init_rom(&game_state.rom);
-  init_level();
-
-  game_state.pacman.dir = DIR_LEFT;
-  game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
-}
-
 void handle_keydown(Game_InputButton *button) {
   bool was_pressed = button->is_pressed;
   button->is_pressed = true;
@@ -769,6 +756,19 @@ void process_platform_input_events(const Game_InputEvents *input) {
     }
     }
   }
+}
+
+export GAME_INIT(game_init) {
+  UNUSED(memory);
+  memset(&game_state, 0, sizeof(game_state));
+  game_state.is_running = true;
+  game_state.fruit_pos = i2(13 * TILE_SIZE, 20 * TILE_SIZE - TILE_SIZE / 2);
+
+  pm_init_rom(&game_state.rom);
+  init_level();
+
+  game_state.pacman.dir = DIR_LEFT;
+  game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 }
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
