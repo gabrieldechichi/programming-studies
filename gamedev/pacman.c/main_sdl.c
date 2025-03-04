@@ -112,11 +112,24 @@ void sdl_clear_button_event(Game_InputButton *button) {
   button->released_this_frame = false;
 }
 
-void platform_log(const char *fmt, ...) {
+void platform_log(const char *fmt, LogType log_type, ...) {
+  SDL_LogPriority log_priority;
+  switch (log_type) {
+  case LOG_INFO:
+    log_priority = SDL_LOG_PRIORITY_INFO;
+    break;
+  case LOG_ERROR:
+    log_priority = SDL_LOG_PRIORITY_ERROR;
+    break;
+  default:
+    log_priority = SDL_LOG_PRIORITY_VERBOSE;
+    SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR,
+                   "Unhandled LogType from application %d\n", log_type);
+  }
   va_list args;
-  va_start(args, fmt);
-  SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_INFO, fmt,
-                  args);
+  va_start(args, log_type);
+
+  SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, log_priority, fmt, args);
   va_end(args);
 }
 

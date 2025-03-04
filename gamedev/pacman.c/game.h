@@ -5,7 +5,12 @@
 #include <stdint.h>
 
 // platform
-#define PLATFORM_LOG(name) void name(const char *fmt, ...)
+typedef enum {
+    LOG_INFO,
+    LOG_ERROR,
+} LogType;
+
+#define PLATFORM_LOG(name) void name(const char *fmt, LogType log_type, ...)
 typedef PLATFORM_LOG(Platform_Log);
 
 typedef struct {
