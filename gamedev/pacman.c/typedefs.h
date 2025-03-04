@@ -40,6 +40,8 @@ typedef int64_t int64;
 #define true 1
 #define false 0
 
+#define UNUSED(x) (void)(x)
+
 #define PI 3.14159265358979323846
 
 #define MS_TO_SECS(ms) ((float)(ms) / 1000.0f)

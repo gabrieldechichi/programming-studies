@@ -24,11 +24,12 @@ void debug_audio_sine_wave(Game_SoundBuffer *sound_buffer, bool flag) {
   }
 }
 
-export GAME_INIT(game_init){
-    memory->platform.platform_log("\n\n\nHey there\n\n\n", LOG_INFO);
+export GAME_INIT(game_init) {
+  memory->platform.platform_log("\n\n\nHey there\n\n\n", LOG_INFO);
 }
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
+  UNUSED(memory);
   local_persist bool flag = false;
 
   // pixel stuff
