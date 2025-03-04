@@ -2,6 +2,7 @@
 #include "./common.h"
 #include "rom.c"
 #include "typedefs.h"
+#include <_string.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -786,6 +787,8 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
       sound_buffer->clear_buffer = true;
     }
     debug_audio_sine_wave(sound_buffer, flag);
+
+    memset(sound_buffer->samples, 0, sizeof(float)* sound_buffer->sample_count);
   }
 
   update_fruits();

@@ -233,8 +233,10 @@ int main() {
     if (should_reload_game_code()) {
       SDL_Log("reloading game code\n");
       load_game_code();
-      //todo: all pacman data is on the dll stack right now, so need to re-init after dll reload
+      // todo: all pacman data is on the dll stack right now, so need to re-init
+      // after dll reload
       game_code.init(&game_memory);
+      SDL_ClearAudioStream(audio_buffer.stream);
     }
 
     // Event handling
