@@ -33,20 +33,20 @@
 typedef struct {
   SDL_SharedObject *dll;
   SDL_Time last_modify_time;
-  game_update_and_render_t *update_and_render;
-} sdl_game_code_t;
+  Game_UpdateAndRender *update_and_render;
+} SDL_GameCode;
 
 typedef struct {
   SDL_AudioStream *stream;
-  int32_t sample_rate;
+  int32 sample_rate;
   float *samples;
-  int32_t samples_len;
-  int32_t samples_byte_len;
-} sdl_audio_buffer_t;
+  int32 samples_len;
+  int32 samples_byte_len;
+} SDL_AudioBuffer;
 
-global sdl_game_code_t game_code = {};
+global SDL_GameCode game_code = {};
 global const char *game_dll_path = "./build/game.so";
-global sdl_audio_buffer_t audio_buffer = {};
+global SDL_AudioBuffer audio_buffer = {};
 
 bool should_reload_game_code() {
   SDL_PathInfo info = {};
@@ -85,20 +85,20 @@ int load_game_code() {
             SDL_GetError());
     return 0;
   }
-  game_code.update_and_render = (game_update_and_render_t *)update_and_render;
+  game_code.update_and_render = (Game_UpdateAndRender *)update_and_render;
   game_code.last_modify_time = info.modify_time;
 
   return 1;
 }
 
-void sdl_handle_button_event(input_button_t *button, uint64_t event) {
-  bool8_t was_pressed = button->is_pressed;
+void sdl_handle_button_event(Game_InputButton *button, uint64_t event) {
+  bool was_pressed = button->is_pressed;
   button->is_pressed = event == SDL_EVENT_KEY_DOWN;
   button->pressed_this_frame = !was_pressed && button->is_pressed;
   button->released_this_frame = was_pressed && !button->is_pressed;
 }
 
-void sdl_clear_button_event(input_button_t *button) {
+void sdl_clear_button_event(Game_InputButton *button) {
   button->pressed_this_frame = false;
   button->released_this_frame = false;
 }
@@ -136,10 +136,10 @@ int main() {
     return -1;
   }
 
-  uint32_t pixels[WINDOW_WIDTH * WINDOW_HEIGHT];
+  uint32 pixels[WINDOW_WIDTH * WINDOW_HEIGHT];
   SDL_memset(pixels, 0, sizeof(pixels));
 
-  game_offscreen_buffer_t screen_buffer = {};
+  Game_ScreenBuffer screen_buffer = {};
   screen_buffer.pixels = pixels;
   screen_buffer.width = WINDOW_WIDTH;
   screen_buffer.height = WINDOW_HEIGHT;
@@ -166,7 +166,7 @@ int main() {
   audio_buffer.samples_len = AUDIO_BUFFER_SIZE;
   audio_buffer.samples_byte_len = sizeof(float) * AUDIO_BUFFER_SIZE;
 
-  game_sound_buffer_t game_sound_buffer = {};
+  Game_SoundBuffer game_sound_buffer = {};
   game_sound_buffer.samples = audio_samples;
   game_sound_buffer.sample_count = audio_buffer.samples_len;
   game_sound_buffer.sample_rate = audio_buffer.sample_rate;
@@ -178,11 +178,11 @@ int main() {
     return -1;
   }
 
-  game_input_t game_input = {};
+  Game_Input game_input = {};
 
   bool quit = false;
   SDL_Event event;
-  uint64_t last_ticks = 0;
+  uint64 last_ticks = 0;
   while (!quit) {
     // check if we should reload game code
     if (should_reload_game_code()) {
@@ -211,8 +211,8 @@ int main() {
     }
 
     // tick
-    uint64_t now = SDL_GetTicksNS();
-    uint64_t dt_ns = now - last_ticks;
+    uint64 now = SDL_GetTicksNS();
+    uint64 dt_ns = now - last_ticks;
     last_ticks = now;
 
     // game update
@@ -239,7 +239,7 @@ int main() {
     // render
     {
       SDL_UpdateTexture(frame_buffer, NULL, pixels,
-                        WINDOW_WIDTH * sizeof(uint32_t));
+                        WINDOW_WIDTH * sizeof(uint32));
 
       SDL_RenderTexture(renderer, frame_buffer, NULL, NULL);
 
@@ -251,7 +251,7 @@ int main() {
       now = SDL_GetTicksNS();
       dt_ns = now - last_ticks;
       if (dt_ns < TARGET_DT_NS - SLEEP_BUFFER_NS) {
-        uint64_t sleep_time = TARGET_DT_NS - dt_ns;
+        uint64 sleep_time = TARGET_DT_NS - dt_ns;
         SDL_DelayNS(sleep_time - SLEEP_BUFFER_NS);
       }
 

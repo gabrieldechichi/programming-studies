@@ -7,7 +7,7 @@
 #define SINE_FREQUENCY 256
 #define SINE_TIME_STEP (((2.0 * PI) * SINE_FREQUENCY) / AUDIO_SAMPLE_RATE)
 
-void debug_audio_sine_wave(game_sound_buffer_t *sound_buffer, bool8_t flag) {
+void debug_audio_sine_wave(Game_SoundBuffer *sound_buffer, bool flag) {
   local_persist float time = PI / 2;
   float time_step = (((2.0 * PI) * SINE_FREQUENCY) / sound_buffer->sample_rate);
 
@@ -24,12 +24,12 @@ void debug_audio_sine_wave(game_sound_buffer_t *sound_buffer, bool8_t flag) {
 }
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
-  local_persist bool8_t flag = false;
+  local_persist bool flag = false;
 
   // pixel stuff
   {
-    static uint8_t r_shift = 0;
-    static uint8_t g_shift = 0xFF / 2;
+    static uint8 r_shift = 0;
+    static uint8 g_shift = 0xFF / 2;
     r_shift += 10;
     g_shift -= 10;
     for (int y = 0; y < screen_buffer->height; y++) {
