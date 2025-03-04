@@ -230,6 +230,9 @@ int main() {
         case SDLK_ESCAPE:
           quit = true;
           break;
+        case SDLK_SPACE:
+          sdl_handle_keydown(&game_input.space_bar);
+          break;
         case SDLK_A:
           sdl_handle_keydown(&game_input.a);
           break;
@@ -249,6 +252,9 @@ int main() {
       }
       case SDL_EVENT_KEY_UP: {
         switch (event.key.key) {
+        case SDLK_SPACE:
+          sdl_handle_keyup(&game_input.space_bar);
+          break;
         case SDLK_A:
           sdl_handle_keyup(&game_input.a);
           break;
