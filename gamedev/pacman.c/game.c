@@ -832,42 +832,30 @@ export GAME_INIT(game_init) {
 }
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
-  local_persist bool flag = false;
-
   uint64 dt_ns = memory->time.dt_ns;
 
   process_platform_input_events(input);
-  printf("%lld\n", dt_ns);
-
-  // update sound
-  memset(sound_buffer->samples, 0, sound_buffer->sample_count);
-  sound_buffer->write_count = 0;
-
-  // tick procedural sounds
-  for (int snd_slot = 0; snd_slot < NUM_SOUNDS; snd_slot++) {
-    sound_t *sound = &game_state.audio.sound[snd_slot];
-    if (sound->func) {
-      sound->func(snd_slot);
-    }
-    sound->cur_tick++;
-  }
-  sound_frame(dt_ns, sound_buffer);
-
-  // audio
-  {
-    if (game_state.input.space_bar.pressed_this_frame) {
-      flag = !flag;
-      sound_start(2, &sounds[SOUND_EATDOT_1]);
-    }
-    // if (flag) {
-    //   debug_audio_sine_wave(sound_buffer, flag);
-    // }
-  }
 
   update_fruits();
   update_pacman();
 
   set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
+
+  // sound
+  {
+    memset(sound_buffer->samples, 0, sound_buffer->sample_count);
+    sound_buffer->write_count = 0;
+
+    // tick procedural sounds
+    for (int snd_slot = 0; snd_slot < NUM_SOUNDS; snd_slot++) {
+      sound_t *sound = &game_state.audio.sound[snd_slot];
+      if (sound->func) {
+        sound->func(snd_slot);
+      }
+      sound->cur_tick++;
+    }
+    sound_frame(dt_ns, sound_buffer);
+  }
 
   draw_tiles();
   draw_pacman();
