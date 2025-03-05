@@ -58,4 +58,7 @@ typedef int64_t int64;
 #define SECS_TO_MCS(secs) ((uint64_t)((secs) * 1000000.0f))
 #define SECS_TO_NS(secs) ((uint64_t)((secs) * 1000000000.0f))
 
+#define MIN(a,b) (a) < (b) ? (a) : (b)
+#define MAX(a,b) (a) > (b) ? (a) : (b)
+
 #endif

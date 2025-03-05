@@ -3,7 +3,6 @@
 #include "rom.c"
 #include "typedefs.h"
 #include <_string.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -752,61 +751,6 @@ void process_platform_input_events(const Game_InputEvents *input) {
   }
 }
 
-void snd_voice_tick(void) {
-  for (int i = 0; i < NUM_VOICES; i++) {
-    voice_t *voice = &game_state.audio.voice[i];
-    voice->counter += voice->frequency;
-    /* lookup current 4-bit sample from the waveform number and the
-        topmost 5 bits of the 20-bit sample counter
-    */
-    uint32 wave_index =
-        ((voice->waveform << 5) | ((voice->counter >> 15) & 0x1F)) & 0xFF;
-    int sample = (((int)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
-    voice->sample_acc +=
-        (float)sample; // sample is (-8..+7 wavetable value) * 16 (volume)
-    voice->sample_div += 128.0f;
-  }
-}
-
-void snd_sample_tick(Game_SoundBuffer *sound_buffer) {
-  float sm = 0.0f;
-  for (int i = 0; i < NUM_VOICES; i++) {
-    voice_t *voice = &game_state.audio.voice[i];
-    if (voice->sample_div > 0.0f) {
-      sm += voice->sample_acc / voice->sample_div;
-      voice->sample_acc = voice->sample_div = 0.0f;
-    }
-  }
-  game_state.audio.sample_buffer[game_state.audio.num_samples++] =
-      sm * 0.333333f * VOLUME;
-  if (game_state.audio.num_samples == NUM_SAMPLES) {
-    if (sound_buffer->write_count + NUM_SAMPLES < sound_buffer->sample_count) {
-      memcpy(&sound_buffer->samples[sound_buffer->write_count],
-             game_state.audio.sample_buffer, NUM_SAMPLES * sizeof(float));
-      sound_buffer->write_count += NUM_SAMPLES;
-    }
-
-    game_state.audio.num_samples = 0;
-  }
-}
-
-void sound_frame(int32_t frame_time_ns, Game_SoundBuffer *sound_buffer) {
-  // for each sample to generate...
-  game_state.audio.sample_accum -= frame_time_ns;
-  while (game_state.audio.sample_accum < 0) {
-    game_state.audio.sample_accum += game_state.audio.sample_duration_ns;
-    // tick the sound generator at 96 KHz
-    game_state.audio.voice_tick_accum -= game_state.audio.voice_tick_period_ns;
-    while (game_state.audio.voice_tick_accum < 0) {
-      game_state.audio.voice_tick_accum += 1000;
-      snd_voice_tick();
-    }
-    // generate a new sample, and push out to sokol-audio when local sample
-    // buffer full
-    snd_sample_tick(sound_buffer);
-  }
-}
-
 export GAME_INIT(game_init) {
   UNUSED(memory);
   memset(&game_state, 0, sizeof(game_state));
@@ -854,7 +798,48 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
       }
       sound->cur_tick++;
     }
-    sound_frame(dt_ns, sound_buffer);
+
+    bool did_write_any_sample = false;
+    int32 sample_count_this_frame =
+        MIN(sound_buffer->sample_rate * NS_TO_SECS(dt_ns),
+            sound_buffer->sample_count);
+
+    //samples
+    for (int i = 0; i < sample_count_this_frame; i++) {
+      // tick voices
+      for (int i = 0; i < NUM_VOICES; i++) {
+        voice_t *voice = &game_state.audio.voice[i];
+        voice->counter += voice->frequency;
+        /* lookup current 4-bit sample from the waveform number and the
+            topmost 5 bits of the 20-bit sample counter
+        */
+        uint32 wave_index =
+            ((voice->waveform << 5) | ((voice->counter >> 15) & 0x1F)) & 0xFF;
+        int sample =
+            (((int)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
+        voice->sample_acc +=
+            (float)sample; // sample is (-8..+7 wavetable value) * 16 (volume)
+        voice->sample_div += 128.0f;
+      }
+
+      // build sample
+      float sample = 0.0f;
+      for (int i = 0; i < NUM_VOICES; i++) {
+        voice_t *voice = &game_state.audio.voice[i];
+        if (voice->sample_div > 0.0f) {
+          sample += voice->sample_acc / voice->sample_div;
+          voice->sample_acc = voice->sample_div = 0.0f;
+        }
+      }
+
+      if (sample > 0) {
+        did_write_any_sample = true;
+      }
+      sound_buffer->samples[i] = sample * 0.333333f * VOLUME;
+    }
+    if (did_write_any_sample) {
+      sound_buffer->write_count = sample_count_this_frame;
+    }
   }
 
   draw_tiles();

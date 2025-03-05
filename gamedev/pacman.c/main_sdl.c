@@ -269,6 +269,9 @@ int main() {
       }
       }
     }
+    if (quit) {
+      break;
+    }
 
     // tick
     uint64 start_frame_ticks = SDL_GetTicksNS();
