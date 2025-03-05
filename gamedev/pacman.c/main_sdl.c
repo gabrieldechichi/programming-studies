@@ -275,6 +275,9 @@ int main() {
     uint64 dt_ns = now - last_ticks;
     last_ticks = now;
 
+    game_memory.time.time_ns = now;
+    game_memory.time.dt_ns = dt_ns;
+
     // game update
     {
       game_code.update_and_render(&game_memory, &game_input_events,
@@ -291,8 +294,11 @@ int main() {
       }
 
       // write to audio stream
-      SDL_PutAudioStreamData(audio_buffer.stream, audio_buffer.samples,
-                             audio_buffer.samples_byte_len);
+      if (game_sound_buffer.write_count > 0) {
+        SDL_PutAudioStreamData(audio_buffer.stream, audio_buffer.samples,
+                               game_sound_buffer.write_count * sizeof(float));
+      }
+      game_sound_buffer.write_count = 0;
     }
 
     // render

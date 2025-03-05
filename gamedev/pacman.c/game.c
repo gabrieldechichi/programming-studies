@@ -172,7 +172,7 @@ typedef struct game_state_t {
     voice_t voice[NUM_VOICES];
     sound_t sound[NUM_SOUNDS];
     int32_t voice_tick_accum;
-    int32_t voice_tick_period;
+    int32_t voice_tick_period_ns;
     int32_t sample_duration_ns;
     int32_t sample_accum;
     uint32 num_samples;
@@ -719,6 +719,7 @@ void debug_audio_sine_wave(Game_SoundBuffer *sound_buffer, bool flag) {
     sound_buffer->samples[i] = sine * VOLUME;
     time += time_step;
   }
+  sound_buffer->write_count = sound_buffer->sample_count;
 }
 
 void handle_keydown(Game_InputButton *button) {
@@ -775,10 +776,16 @@ export GAME_INIT(game_init) {
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   UNUSED(memory);
   local_persist bool flag = false;
-  UNUSED(flag);
-  UNUSED(sound_buffer);
 
   process_platform_input_events(input);
+
+  // update sound
+  for (int i = 0; i < NUM_SOUNDS; i++) {
+    sound_t sound = game_state.audio.sound[i];
+    if (sound.func) {
+      sound.func(i);
+    }
+  }
 
   // audio
   {
@@ -786,9 +793,10 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
       flag = !flag;
       sound_buffer->clear_buffer = true;
     }
-    debug_audio_sine_wave(sound_buffer, flag);
+    if (flag) {
+      debug_audio_sine_wave(sound_buffer, flag);
+    }
 
-    memset(sound_buffer->samples, 0, sizeof(float)* sound_buffer->sample_count);
   }
 
   update_fruits();

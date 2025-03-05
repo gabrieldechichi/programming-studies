@@ -17,8 +17,14 @@ typedef struct {
   Platform_Log *platform_log;
 } PlatformInterface;
 
+typedef struct {
+  uint64 time_ns;
+  uint64 dt_ns;
+} Game_Time;
+
 // game
 typedef struct {
+    Game_Time time;
   PlatformInterface platform;
 } Game_Memory;
 
@@ -75,6 +81,7 @@ typedef struct {
   int32 sample_rate;
   int32 sample_count;
   float *samples;
+  int32 write_count;
   bool clear_buffer;
 } Game_SoundBuffer;
 
