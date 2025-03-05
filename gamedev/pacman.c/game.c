@@ -18,7 +18,7 @@
 #define NUM_DOTS (240) + NUM_PILLS // 240 small dots + 4 pills
 #define NUM_VOICES 3            // number of sound voices
 #define NUM_SOUNDS 3            // max number of sounds effects that can be active at a time
-#define NUM_SAMPLES 128          // max number of audio samples in local sample buffer
+#define NUM_SAMPLES 128*2          // max number of audio samples in local sample buffer
 // clang-format on
 
 typedef struct int2_t {
@@ -92,7 +92,12 @@ const fruit_t fruits[NUM_FRUITS] = {
 typedef enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP, NUM_DIRS } dir_t;
 
 typedef enum { SOUND_DUMP, SOUND_PROCEDURAL } sound_opt_t;
-typedef enum { SOUND_DEAD, SOUND_EATDOT_1, NUM_GAME_SOUNDS } sounds_t;
+typedef enum {
+  SOUND_DEAD,
+  SOUND_EATDOT_1,
+  SOUND_EATDOT_2,
+  NUM_GAME_SOUNDS
+} sounds_t;
 
 typedef void (*sound_func_t)(int sound_slot);
 
@@ -323,7 +328,6 @@ void sound_stop(int slot) {
       game_state.audio.voice[i] = (voice_t){0};
     }
   }
-
   // clear the sound slot
   game_state.audio.sound[slot] = (sound_t){0};
 }
@@ -340,6 +344,21 @@ void snd_func_eatdot1(int slot) {
     sound_stop(slot);
   } else {
     voice->frequency -= 0x0300;
+  }
+}
+
+void snd_func_eatdot2(int slot) {
+  assert((slot >= 0) && (slot < NUM_SOUNDS));
+  const sound_t *snd = &game_state.audio.sound[slot];
+  voice_t *voice = &game_state.audio.voice[2];
+  if (snd->cur_tick == 0) {
+    voice->volume = 12;
+    voice->waveform = 2;
+    voice->frequency = 0x0700;
+  } else if (snd->cur_tick == 5) {
+    sound_stop(slot);
+  } else {
+    voice->frequency += 0x300;
   }
 }
 
@@ -548,7 +567,11 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool is_pill) {
     game_state.fruit_despawn_tick = game_state.tick + fruit.despawn_ticks;
   }
 
-  sound_start(2, &sounds[SOUND_EATDOT_1]);
+  if (game_state.num_dots_eaten & 1) {
+    sound_start(2, &sounds[SOUND_EATDOT_1]);
+  } else {
+    sound_start(2, &sounds[SOUND_EATDOT_2]);
+  }
 }
 
 void update_pacman() {
@@ -683,6 +706,7 @@ void init_level(void) {
 const sound_desc_t sounds[NUM_GAME_SOUNDS] = {
     { .type = SOUND_DUMP, .ptr = snd_dump_dead, .size = sizeof(snd_dump_dead) },
     { .type = SOUND_PROCEDURAL, .sound_fn = snd_func_eatdot1, .voice = { false, false, true } },
+    { .type = SOUND_PROCEDURAL, .sound_fn = snd_func_eatdot2, .voice = { false, false, true } },
 };
 // clang-format on
 
@@ -813,6 +837,7 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   uint64 dt_ns = memory->time.dt_ns;
 
   process_platform_input_events(input);
+  printf("%lld\n", dt_ns);
 
   // update sound
   memset(sound_buffer->samples, 0, sound_buffer->sample_count);

@@ -227,7 +227,7 @@ int main() {
 
   bool quit = false;
   SDL_Event event;
-  uint64 last_ticks = 0;
+  uint64 last_frame_ticks = 0;
   while (!quit) {
     // check if we should reload game code
     if (should_reload_game_code()) {
@@ -271,11 +271,10 @@ int main() {
     }
 
     // tick
-    uint64 now = SDL_GetTicksNS();
-    uint64 dt_ns = now - last_ticks;
-    last_ticks = now;
+    uint64 start_frame_ticks = SDL_GetTicksNS();
+    uint64 dt_ns = start_frame_ticks - last_frame_ticks;
 
-    game_memory.time.time_ns = now;
+    game_memory.time.time_ns = start_frame_ticks;
     game_memory.time.dt_ns = dt_ns;
 
     // game update
@@ -317,13 +316,18 @@ int main() {
 
     // wait for target frame rate
     {
-      now = SDL_GetTicksNS();
-      dt_ns = now - last_ticks;
-      if (dt_ns < TARGET_DT_NS - SLEEP_BUFFER_NS) {
-        last_ticks = now;
-        uint64 sleep_time = TARGET_DT_NS - dt_ns;
+      uint64 end_frame_ticks = SDL_GetTicksNS();
+      uint64 frame_time_ns = end_frame_ticks - start_frame_ticks;
+      if (frame_time_ns < TARGET_DT_NS - SLEEP_BUFFER_NS) {
+        uint64 sleep_time = TARGET_DT_NS - frame_time_ns;
         SDL_DelayNS(sleep_time - SLEEP_BUFFER_NS);
       }
+      while (frame_time_ns < TARGET_DT_NS) {
+        end_frame_ticks = SDL_GetTicksNS();
+        frame_time_ns = end_frame_ticks - start_frame_ticks;
+      }
+
+      last_frame_ticks = start_frame_ticks;
     }
   }
 
