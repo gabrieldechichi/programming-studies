@@ -1,4 +1,4 @@
-_G.build_native_debug_config("c", 'make build-release', '/build/pacman')
+_G.build_native_debug_config("c", 'make build-debug', '/build/pacman')
 
 
 vim.keymap.set('n', '<Leader>rr', function() 

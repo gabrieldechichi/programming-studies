@@ -328,23 +328,8 @@ void sound_stop(int slot) {
   game_state.audio.sound[slot] = (sound_t){0};
 }
 
-void snd_voice_tick(void) {
-  for (int i = 0; i < NUM_VOICES; i++) {
-    voice_t *voice = &game_state.audio.voice[i];
-    voice->counter += voice->frequency;
-    /* lookup current 4-bit sample from the waveform number and the
-        topmost 5 bits of the 20-bit sample counter
-    */
-    uint32 wave_index =
-        ((voice->waveform << 5) | ((voice->counter >> 15) & 0x1F)) & 0xFF;
-    int sample = (((int)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
-    voice->sample_acc +=
-        (float)sample; // sample is (-8..+7 wavetable value) * 16 (volume)
-    voice->sample_div += 128.0f;
-  }
-}
-
 void snd_func_eatdot1(int slot) {
+  assert((slot >= 0) && (slot < NUM_SOUNDS));
   const sound_t *snd = &game_state.audio.sound[slot];
   voice_t *voice = &game_state.audio.voice[2];
   if (snd->cur_tick == 0) {
@@ -563,7 +548,7 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool is_pill) {
     game_state.fruit_despawn_tick = game_state.tick + fruit.despawn_ticks;
   }
 
-  sound_start(2, &sounds[SOUND_EATDOT_1]);
+  // sound_start(2, &sounds[SOUND_EATDOT_1]);
 }
 
 void update_pacman() {
@@ -705,23 +690,6 @@ const sound_desc_t sounds[NUM_GAME_SOUNDS] = {
 #define SINE_FREQUENCY 256
 #define SINE_TIME_STEP (((2.0 * PI) * SINE_FREQUENCY) / AUDIO_SAMPLE_RATE)
 
-void debug_audio_sine_wave(Game_SoundBuffer *sound_buffer, bool flag) {
-  local_persist float time = PI / 2;
-  float time_step = (((2.0 * PI) * SINE_FREQUENCY) / sound_buffer->sample_rate);
-
-  for (int i = 0; i < sound_buffer->sample_count; i++) {
-    float sine = sinf(time);
-    if (flag) {
-      if (sine < 0) {
-        sine = 0;
-      }
-    }
-    sound_buffer->samples[i] = sine * VOLUME;
-    time += time_step;
-  }
-  sound_buffer->write_count = sound_buffer->sample_count;
-}
-
 void handle_keydown(Game_InputButton *button) {
   bool was_pressed = button->is_pressed;
   button->is_pressed = true;
@@ -760,6 +728,62 @@ void process_platform_input_events(const Game_InputEvents *input) {
   }
 }
 
+void snd_voice_tick(void) {
+  for (int i = 0; i < NUM_VOICES; i++) {
+    voice_t *voice = &game_state.audio.voice[i];
+    voice->counter += voice->frequency;
+    /* lookup current 4-bit sample from the waveform number and the
+        topmost 5 bits of the 20-bit sample counter
+    */
+    uint32 wave_index =
+        ((voice->waveform << 5) | ((voice->counter >> 15) & 0x1F)) & 0xFF;
+    int sample = (((int)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
+    voice->sample_acc +=
+        (float)sample; // sample is (-8..+7 wavetable value) * 16 (volume)
+    voice->sample_div += 128.0f;
+  }
+}
+
+void snd_sample_tick(Game_SoundBuffer *sound_buffer) {
+  float sm = 0.0f;
+  for (int i = 0; i < NUM_VOICES; i++) {
+    voice_t *voice = &game_state.audio.voice[i];
+    if (voice->sample_div > 0.0f) {
+      sm += voice->sample_acc / voice->sample_div;
+      voice->sample_acc = voice->sample_div = 0.0f;
+    }
+  }
+  game_state.audio.sample_buffer[game_state.audio.num_samples++] =
+      sm * 0.333333f * VOLUME;
+  if (game_state.audio.num_samples == NUM_SAMPLES) {
+    if (sound_buffer->write_count + NUM_SAMPLES < sound_buffer->sample_count) {
+      memcpy(&sound_buffer->samples[sound_buffer->write_count],
+             game_state.audio.sample_buffer, NUM_SAMPLES * sizeof(float));
+      sound_buffer->write_count += NUM_SAMPLES;
+    }
+
+    game_state.audio.num_samples = 0;
+  }
+  
+}
+
+void sound_frame(int32_t frame_time_ns, Game_SoundBuffer *sound_buffer) {
+  // for each sample to generate...
+  game_state.audio.sample_accum -= frame_time_ns;
+  while (game_state.audio.sample_accum < 0) {
+    game_state.audio.sample_accum += game_state.audio.sample_duration_ns;
+    // tick the sound generator at 96 KHz
+    game_state.audio.voice_tick_accum -= game_state.audio.voice_tick_period_ns;
+    while (game_state.audio.voice_tick_accum < 0) {
+      game_state.audio.voice_tick_accum += 1000;
+      snd_voice_tick();
+    }
+    // generate a new sample, and push out to sokol-audio when local sample
+    // buffer full
+    snd_sample_tick(sound_buffer);
+  }
+}
+
 export GAME_INIT(game_init) {
   UNUSED(memory);
   memset(&game_state, 0, sizeof(game_state));
@@ -771,32 +795,54 @@ export GAME_INIT(game_init) {
 
   game_state.pacman.dir = DIR_LEFT;
   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
+
+  memset(&game_state.audio, 0, sizeof(game_state.audio));
+
+  // compute sample duration in nanoseconds
+  int32_t samples_per_sec = AUDIO_SAMPLE_RATE;
+  game_state.audio.sample_duration_ns = 1000000000 / samples_per_sec;
+
+  /* compute number of 96kHz ticks per sample tick (the Namco sound generator
+      runs at 96kHz), times 1000 for increased precision
+  */
+  game_state.audio.voice_tick_period_ns = 96000000 / samples_per_sec;
 }
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
-  UNUSED(memory);
   local_persist bool flag = false;
+  local_persist uint64 dt_acc = 0;
+
+  uint64 dt_ns = memory->time.dt_ns;
+  dt_acc += dt_ns;
 
   process_platform_input_events(input);
 
   // update sound
-  for (int i = 0; i < NUM_SOUNDS; i++) {
-    sound_t sound = game_state.audio.sound[i];
-    if (sound.func) {
-      sound.func(i);
+  memset(sound_buffer->samples, 0, sound_buffer->sample_count);
+  sound_buffer->write_count = 0;
+
+  // tick procedural sounds
+  while (dt_acc >= MS_TO_NS(16)) {
+    dt_acc -= MS_TO_NS(16);
+    for (int snd_slot = 0; snd_slot < NUM_SOUNDS; snd_slot++) {
+      sound_t *sound = &game_state.audio.sound[snd_slot];
+      if (sound->func) {
+        sound->func(snd_slot);
+      }
+      sound->cur_tick++;
     }
   }
+  sound_frame(dt_ns, sound_buffer);
 
   // audio
   {
     if (game_state.input.space_bar.pressed_this_frame) {
       flag = !flag;
-      sound_buffer->clear_buffer = true;
+      sound_start(2, &sounds[SOUND_EATDOT_1]);
     }
-    if (flag) {
-      debug_audio_sine_wave(sound_buffer, flag);
-    }
-
+    // if (flag) {
+    //   debug_audio_sine_wave(sound_buffer, flag);
+    // }
   }
 
   update_fruits();

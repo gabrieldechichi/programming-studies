@@ -32,7 +32,9 @@ build-platform-debug:
 build-game-debug:
 	$(CC) $(CFLAGS_DEBUG) $(SRC_GAME) -o $(GAME_DLL) -shared
 
-run-debug: build-platform-debug build-game-debug
+build-debug: build-platform-debug build-game-debug
+
+run-debug: build-debug
 	$(TARGET)
 
 build-platform-release:
@@ -41,5 +43,7 @@ build-platform-release:
 build-game-release:
 	$(CC) $(CFLAGS_RELEASE) $(SRC_GAME) -o $(TARGET)
 
-run-release: build-platform-release
+build-release: build-platform-release build-game-release
+
+run-release: build-release
 	$(TARGET)

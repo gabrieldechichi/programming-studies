@@ -317,16 +317,13 @@ int main() {
 
     // wait for target frame rate
     {
-      now = SDL_GetTicksNS();
-      dt_ns = now - last_ticks;
-      if (dt_ns < TARGET_DT_NS - SLEEP_BUFFER_NS) {
-        uint64 sleep_time = TARGET_DT_NS - dt_ns;
-        SDL_DelayNS(sleep_time - SLEEP_BUFFER_NS);
-      }
-
-      now = SDL_GetTicksNS();
-      dt_ns = now - last_ticks;
-      last_ticks = now;
+      // now = SDL_GetTicksNS();
+      // dt_ns = now - last_ticks;
+      // if (dt_ns < TARGET_DT_NS - SLEEP_BUFFER_NS) {
+      //   last_ticks = now;
+      //   uint64 sleep_time = TARGET_DT_NS - dt_ns;
+      //   SDL_DelayNS(sleep_time - SLEEP_BUFFER_NS);
+      // }
     }
   }
 
