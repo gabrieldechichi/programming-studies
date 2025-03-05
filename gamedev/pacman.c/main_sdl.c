@@ -229,6 +229,10 @@ int main() {
   SDL_Event event;
   uint64 last_frame_ticks = 0;
   while (!quit) {
+    // tick
+    uint64 start_frame_ticks = SDL_GetTicksNS();
+    uint64 dt_ns = start_frame_ticks - last_frame_ticks;
+
     // check if we should reload game code
     if (should_reload_game_code()) {
       SDL_Log("reloading game code\n");
@@ -272,10 +276,6 @@ int main() {
     if (quit) {
       break;
     }
-
-    // tick
-    uint64 start_frame_ticks = SDL_GetTicksNS();
-    uint64 dt_ns = start_frame_ticks - last_frame_ticks;
 
     game_memory.time.time_ns = start_frame_ticks;
     game_memory.time.dt_ns = dt_ns;
