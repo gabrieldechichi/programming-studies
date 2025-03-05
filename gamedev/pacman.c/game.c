@@ -548,7 +548,7 @@ void pacman_eat_dot_or_pill(int2_t tile_coords, bool is_pill) {
     game_state.fruit_despawn_tick = game_state.tick + fruit.despawn_ticks;
   }
 
-  // sound_start(2, &sounds[SOUND_EATDOT_1]);
+  sound_start(2, &sounds[SOUND_EATDOT_1]);
 }
 
 void update_pacman() {
@@ -764,7 +764,6 @@ void snd_sample_tick(Game_SoundBuffer *sound_buffer) {
 
     game_state.audio.num_samples = 0;
   }
-  
 }
 
 void sound_frame(int32_t frame_time_ns, Game_SoundBuffer *sound_buffer) {
@@ -810,10 +809,8 @@ export GAME_INIT(game_init) {
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   local_persist bool flag = false;
-  local_persist uint64 dt_acc = 0;
 
   uint64 dt_ns = memory->time.dt_ns;
-  dt_acc += dt_ns;
 
   process_platform_input_events(input);
 
@@ -822,15 +819,12 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   sound_buffer->write_count = 0;
 
   // tick procedural sounds
-  while (dt_acc >= MS_TO_NS(16)) {
-    dt_acc -= MS_TO_NS(16);
-    for (int snd_slot = 0; snd_slot < NUM_SOUNDS; snd_slot++) {
-      sound_t *sound = &game_state.audio.sound[snd_slot];
-      if (sound->func) {
-        sound->func(snd_slot);
-      }
-      sound->cur_tick++;
+  for (int snd_slot = 0; snd_slot < NUM_SOUNDS; snd_slot++) {
+    sound_t *sound = &game_state.audio.sound[snd_slot];
+    if (sound->func) {
+      sound->func(snd_slot);
     }
+    sound->cur_tick++;
   }
   sound_frame(dt_ns, sound_buffer);
 
