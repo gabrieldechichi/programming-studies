@@ -98,6 +98,7 @@ typedef enum {
   SOUND_DEAD,
   SOUND_EATDOT_1,
   SOUND_EATDOT_2,
+  SOUND_PRELUDE,
   NUM_GAME_SOUNDS
 } SoundOption;
 
@@ -144,12 +145,16 @@ typedef struct {
   float sample_div; // current float sample divisor
 } Voice;
 
-typedef struct pacman_t {
+typedef struct {
   Vec2Int pos;
   Direction dir;
 } Pacman;
 
-typedef struct game_state_t {
+typedef enum { PRELUDE, GAME } GameMode;
+
+typedef struct {
+  GameMode mode;
+
   // clock
   bool is_running;
   uint32 tick;
@@ -194,9 +199,9 @@ typedef struct game_state_t {
 
   // rendering
   uint32 frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
-} game_state_t;
+} GameState;
 
-global game_state_t game_state = {};
+global GameState game_state = {};
 
 Vec2Int dir_to_vec(Direction dir) {
   local_persist const Vec2Int dir_map[NUM_DIRS] = {
@@ -313,12 +318,12 @@ void sound_start(int32 slot, const SoundDesc *desc) {
       num_voices++;
     }
   }
-  if (desc->sound_fn) {
+  if (desc->type == SOUND_PROCEDURAL) {
     // procedural sounds only need a callback function
     snd->func = desc->sound_fn;
   } else {
-    // assert(num_voices > 0);
-    // assert((desc->size % (num_voices * sizeof(uint32))) == 0);
+    assert(num_voices > 0);
+    assert((desc->size % (num_voices * sizeof(uint32))) == 0);
     snd->stride = num_voices;
     snd->num_ticks = desc->size / (snd->stride * sizeof(uint32));
     snd->data = desc->ptr;
@@ -740,9 +745,10 @@ void init_level(void) {
 
 // clang-format off
 const SoundDesc sounds[NUM_GAME_SOUNDS] = {
-    { .type = SOUND_DUMP, .ptr = snd_dump_dead, .size = sizeof(snd_dump_dead) },
+    { .type = SOUND_DUMP, .ptr = snd_dump_dead, .size = sizeof(snd_dump_dead), .voice = { false, false, true } },
     { .type = SOUND_PROCEDURAL, .sound_fn = snd_func_eatdot1, .voice = { false, false, true } },
     { .type = SOUND_PROCEDURAL, .sound_fn = snd_func_eatdot2, .voice = { false, false, true } },
+    { .type = SOUND_DUMP, .ptr = snd_dump_prelude, .size = sizeof(snd_dump_prelude), .voice = { true, true, false } },
 };
 // clang-format on
 
@@ -797,6 +803,27 @@ void update_sound(Game_SoundBuffer *sound_buffer, int64 dt_ns) {
     Sound *sound = &game_state.audio.sound[snd_slot];
     if (sound->func) {
       sound->func(snd_slot);
+    } else if (sound->flags & SOUNDFLAG_ALL_VOICES) {
+      // register-dump sound effect
+      assert(sound->data);
+      if (sound->cur_tick == sound->num_ticks) {
+        sound_stop(snd_slot);
+        continue;
+      }
+      // decode register dump values into voice 'registers'
+      const uint32_t *cur_ptr = &sound->data[sound->cur_tick * sound->stride];
+      for (int i = 0; i < NUM_VOICES; i++) {
+        if (sound->flags & (1 << i)) {
+          Voice *voice = &game_state.audio.voice[i];
+          uint32_t val = *cur_ptr++;
+          // 20 bits frequency
+          voice->frequency = val & ((1 << 20) - 1);
+          // 3 bits waveform
+          voice->waveform = (val >> 24) & 7;
+          // 4 bits volume
+          voice->volume = (val >> 28) & 0xF;
+        }
+      }
     }
     sound->cur_tick++;
   }
@@ -909,12 +936,20 @@ export GAME_INIT(game_init) {
 
   memset(running_sound_buffer, 0, sizeof(running_sound_buffer));
   running_index = 0;
+  sound_start(0, &sounds[SOUND_PRELUDE]);
 }
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   uint64 dt_ns = memory->time.dt_ns;
 
   process_platform_input_events(input);
+
+  switch (game_state.mode) {
+
+  case PRELUDE:
+  case GAME:
+    break;
+  }
 
   update_fruits();
   update_pacman();
