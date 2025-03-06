@@ -81,7 +81,7 @@ typedef struct {
   int32 sample_rate;
   int32 sample_count;
   float *samples;
-  int32 write_count;
+  uint32 write_count;
   bool clear_buffer;
 } Game_SoundBuffer;
 

@@ -12,6 +12,8 @@
 // clang-format off
 #define INSIDE_MAP_BOUNDS(x, y)                                                \
   ((x) >= 0 && (x) < DISPLAY_TILES_X && (y) >= 0 && (y) < DISPLAY_TILES_Y)
+#define INSIDE_FRAME_BUFFER_BOUNDS(x, y)                                                \
+  ((x) >= 0 && (x) < DISPLAY_RES_X && (y) >= 0 && (y) < DISPLAY_RES_Y)
 
 #define NUM_PILLS (4)              // number of energizer pills on playfield
 #define NUM_DOTS (240) + NUM_PILLS // 240 small dots + 4 pills
@@ -363,16 +365,20 @@ void snd_func_eatdot2(int32 slot) {
   }
 }
 
-void draw_tile_color(uint32 tile_x, uint32 tile_y, uint32 color,
-                     uint32 tile_width, uint32 tile_height) {
-  uint32 x = tile_x;
-  uint32 y = tile_y;
+void draw_tile_color(int32 tile_x, int32 tile_y, uint32 color,
+                     int32 tile_width, int32 tile_height) {
+  int32 start_x = tile_x;
+  int32 start_y = tile_y;
+  int32 end_x = tile_x + tile_width;
+  int32 end_y = tile_y + tile_height;
+  int32 sign_x = tile_width >= 0 ? 1 : -1;
+  int32 sign_y = tile_height >= 0 ? 1 : -1;
 
-  for (uint32 yy = 0; yy < tile_height; yy++) {
-    for (uint32 xx = 0; xx < tile_width; xx++) {
-      uint32 py = y + yy;
-      uint32 px = x + xx;
-      game_state.frame_buffer[py][px] = color;
+  for (int32 y = start_y; y != end_y; y += sign_y) {
+    for (int32 x = start_x; x != end_x; x += sign_x) {
+      if (INSIDE_FRAME_BUFFER_BOUNDS(x, y)) {
+        game_state.frame_buffer[y][x] = color;
+      }
     }
   }
 }
@@ -798,7 +804,7 @@ void update_sound(Game_SoundBuffer *sound_buffer, int64 dt_ns) {
       }
     }
 
-    if (sample > 0) {
+    if (sample != 0) {
       did_write_any_sample = true;
     }
     sound_buffer->samples[i] = sample * 0.333333f * VOLUME;
@@ -807,6 +813,9 @@ void update_sound(Game_SoundBuffer *sound_buffer, int64 dt_ns) {
     sound_buffer->write_count = sample_count_this_frame;
   }
 }
+
+global float running_sound_buffer[4096];
+global uint32 running_index;
 
 export GAME_INIT(game_init) {
   UNUSED(memory);
@@ -825,11 +834,10 @@ export GAME_INIT(game_init) {
   // compute sample duration in nanoseconds
   int32 samples_per_sec = AUDIO_SAMPLE_RATE;
   game_state.audio.sample_duration_ns = 1000000000 / samples_per_sec;
-
-  /* compute number of 96kHz ticks per sample tick (the Namco sound generator
-      runs at 96kHz), times 1000 for increased precision
-  */
   game_state.audio.voice_tick_period_ns = 96000000 / samples_per_sec;
+
+  memset(running_sound_buffer, 0, sizeof(running_sound_buffer));
+  running_index = 0;
 }
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
@@ -847,6 +855,28 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   draw_tiles();
   draw_pacman();
   draw_fruits();
+
+  for (uint32 i = 0; i < sound_buffer->write_count; i++) {
+    running_sound_buffer[running_index] = sound_buffer->samples[i];
+    running_index = (running_index + 1) % ARRAY_SIZE(running_sound_buffer);
+  }
+
+  uint32 wave_width = screen_buffer->width;
+  uint32 wave_height = screen_buffer->height;
+  uint32 step_on_sound_buffer = ARRAY_SIZE(running_sound_buffer) / wave_width;
+  uint32 sample_idx = 0;
+  for (uint32 x = 0; x < wave_width; x++) {
+    float sample = 0;
+    for (uint32 i = 0; i < step_on_sound_buffer; i++) {
+      sample += running_sound_buffer[sample_idx + i];
+    }
+    sample_idx += step_on_sound_buffer;
+    sample /= step_on_sound_buffer;
+
+    uint32 px = x;
+    uint32 py = 50;
+    draw_tile_color(px, py, 0xFF00aaFF, 1, wave_height * sample);
+  }
 
   // clear frame buffer
   memset(screen_buffer->pixels, 0,
