@@ -129,14 +129,14 @@ typedef struct {
   uint32 stride; // number of uint32 values per tick (only for register dump
                  // effects)
   const uint32 *data; // 3 * num_ticks register dump values
-  uint32 flags;      // combination of soundflag_t (active voices)
+  uint32 flags;       // combination of soundflag_t (active voices)
 } Sound;
 
 typedef struct {
   uint32 counter;   // 20-bit counter, top 5 bits are index into wavetable ROM
   uint32 frequency; // 20-bit frequency (added to counter at 96kHz)
-  uint32 waveform; // 3-bit waveform index
-  uint32 volume;   // 4-bit volume
+  uint32 waveform;  // 3-bit waveform index
+  uint32 volume;    // 4-bit volume
   float sample_acc; // current float sample accumulator
   float sample_div; // current float sample divisor
 } Voice;
@@ -220,7 +220,9 @@ int32 squared_distance_i2(Vec2Int v0, Vec2Int v1) {
   return d.x * d.x + d.y * d.y;
 }
 
-bool equal_i2(Vec2Int v0, Vec2Int v1) { return (v0.x == v1.x) && (v0.y == v1.y); }
+bool equal_i2(Vec2Int v0, Vec2Int v1) {
+  return (v0.x == v1.x) && (v0.y == v1.y);
+}
 
 bool nearequal_i2(Vec2Int v0, Vec2Int v1, int32 tolerance) {
   return (abs(v1.x - v0.x) <= tolerance) && (abs(v1.y - v0.y) <= tolerance);
@@ -375,8 +377,7 @@ void draw_tile_color(uint32 tile_x, uint32 tile_y, uint32 color,
   }
 }
 
-void draw_sprite(int32 sprite_x, int32 sprite_y,
-                 const PacmanSprite *sprite) {
+void draw_sprite(int32 sprite_x, int32 sprite_y, const PacmanSprite *sprite) {
   uint32 tile_code = sprite->tile_code * SPRITE_SIZE;
   uint32 color_code = sprite->color_code;
 
@@ -751,6 +752,62 @@ void process_platform_input_events(const Game_InputEvents *input) {
   }
 }
 
+void update_sound(Game_SoundBuffer *sound_buffer, int64 dt_ns) {
+  memset(sound_buffer->samples, 0, sound_buffer->sample_count);
+  sound_buffer->write_count = 0;
+
+  // tick procedural sounds
+  for (int32 snd_slot = 0; snd_slot < NUM_SOUNDS; snd_slot++) {
+    Sound *sound = &game_state.audio.sound[snd_slot];
+    if (sound->func) {
+      sound->func(snd_slot);
+    }
+    sound->cur_tick++;
+  }
+
+  bool did_write_any_sample = false;
+  int32 sample_count_this_frame =
+      MIN(sound_buffer->sample_rate * (NS_TO_SECS(dt_ns) + MS_TO_SECS(1)),
+          sound_buffer->sample_count);
+
+  // samples
+  for (int32 i = 0; i < sample_count_this_frame; i++) {
+    // tick voices
+    for (int32 i = 0; i < NUM_VOICES; i++) {
+      Voice *voice = &game_state.audio.voice[i];
+      voice->counter += voice->frequency;
+      /* lookup current 4-bit sample from the waveform number and the
+          topmost 5 bits of the 20-bit sample counter
+      */
+      uint32 wave_index =
+          ((voice->waveform << 5) | ((voice->counter >> 15) & 0x1F)) & 0xFF;
+      int32 sample =
+          (((int32)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
+      voice->sample_acc +=
+          (float)sample; // sample is (-8..+7 wavetable value) * 16 (volume)
+      voice->sample_div += 128.0f;
+    }
+
+    // build sample
+    float sample = 0.0f;
+    for (int32 i = 0; i < NUM_VOICES; i++) {
+      Voice *voice = &game_state.audio.voice[i];
+      if (voice->sample_div > 0.0f) {
+        sample += voice->sample_acc / voice->sample_div;
+        voice->sample_acc = voice->sample_div = 0.0f;
+      }
+    }
+
+    if (sample > 0) {
+      did_write_any_sample = true;
+    }
+    sound_buffer->samples[i] = sample * 0.333333f * VOLUME;
+  }
+  if (did_write_any_sample) {
+    sound_buffer->write_count = sample_count_this_frame;
+  }
+}
+
 export GAME_INIT(game_init) {
   UNUSED(memory);
   memset(&game_state, 0, sizeof(game_state));
@@ -785,62 +842,7 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
   set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
 
-  // sound
-  {
-    memset(sound_buffer->samples, 0, sound_buffer->sample_count);
-    sound_buffer->write_count = 0;
-
-    // tick procedural sounds
-    for (int32 snd_slot = 0; snd_slot < NUM_SOUNDS; snd_slot++) {
-      Sound *sound = &game_state.audio.sound[snd_slot];
-      if (sound->func) {
-        sound->func(snd_slot);
-      }
-      sound->cur_tick++;
-    }
-
-    bool did_write_any_sample = false;
-    int32 sample_count_this_frame =
-        MIN(sound_buffer->sample_rate * (NS_TO_SECS(dt_ns) + MS_TO_SECS(1)),
-            sound_buffer->sample_count);
-
-    //samples
-    for (int32 i = 0; i < sample_count_this_frame; i++) {
-      // tick voices
-      for (int32 i = 0; i < NUM_VOICES; i++) {
-        Voice *voice = &game_state.audio.voice[i];
-        voice->counter += voice->frequency;
-        /* lookup current 4-bit sample from the waveform number and the
-            topmost 5 bits of the 20-bit sample counter
-        */
-        uint32 wave_index =
-            ((voice->waveform << 5) | ((voice->counter >> 15) & 0x1F)) & 0xFF;
-        int32 sample =
-            (((int32)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
-        voice->sample_acc +=
-            (float)sample; // sample is (-8..+7 wavetable value) * 16 (volume)
-        voice->sample_div += 128.0f;
-      }
-
-      // build sample
-      float sample = 0.0f;
-      for (int32 i = 0; i < NUM_VOICES; i++) {
-        Voice *voice = &game_state.audio.voice[i];
-        if (voice->sample_div > 0.0f) {
-          sample += voice->sample_acc / voice->sample_div;
-          voice->sample_acc = voice->sample_div = 0.0f;
-        }
-      }
-
-      if (sample > 0) {
-        did_write_any_sample = true;
-      }
-      sound_buffer->samples[i] = sample * 0.333333f * VOLUME;
-    }
-    if (did_write_any_sample) {
-      sound_buffer->write_count = sample_count_this_frame;
-    }
-  }
+  update_sound(sound_buffer, dt_ns);
 
   draw_tiles();
   draw_pacman();
