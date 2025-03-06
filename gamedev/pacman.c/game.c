@@ -21,18 +21,18 @@
 // clang-format on
 
 typedef struct {
-  int x;
-  int y;
+  int32 x;
+  int32 y;
 } Vec2Int;
 
 typedef struct {
-  uint tile_code;
-  uint color_code;
+  uint32 tile_code;
+  uint32 color_code;
 } PacmanTile;
 
 typedef struct {
-  uint tile_code;
-  uint color_code;
+  uint32 tile_code;
+  uint32 color_code;
   bool flip_x;
   bool flip_y;
 } PacmanSprite;
@@ -52,8 +52,8 @@ typedef enum {
 
 typedef struct {
   PacmanSprite sprite;
-  uint bonus_score;
-  uint despawn_ticks;
+  uint32 bonus_score;
+  uint32 despawn_ticks;
 } Fruit;
 
 // clang-format off
@@ -98,15 +98,15 @@ typedef enum {
   NUM_GAME_SOUNDS
 } SoundOption;
 
-typedef void (*SoundFunc)(int sound_slot);
+typedef void (*SoundFunc)(int32 sound_slot);
 
 typedef struct {
   SoundType type;
   bool voice[3];
   union {
     struct {
-      const uint *ptr;
-      uint size;
+      const uint32 *ptr;
+      uint32 size;
     };
     SoundFunc sound_fn;
   };
@@ -123,20 +123,20 @@ typedef enum {
 } SoundFlag;
 
 typedef struct {
-  uint cur_tick;
+  uint32 cur_tick;
   SoundFunc func;
-  uint num_ticks;
-  uint stride; // number of uint values per tick (only for register dump
+  uint32 num_ticks;
+  uint32 stride; // number of uint32 values per tick (only for register dump
                  // effects)
-  const uint *data; // 3 * num_ticks register dump values
-  uint flags;      // combination of soundflag_t (active voices)
+  const uint32 *data; // 3 * num_ticks register dump values
+  uint32 flags;      // combination of soundflag_t (active voices)
 } Sound;
 
 typedef struct {
-  uint counter;   // 20-bit counter, top 5 bits are index into wavetable ROM
-  uint frequency; // 20-bit frequency (added to counter at 96kHz)
-  uint waveform; // 3-bit waveform index
-  uint volume;   // 4-bit volume
+  uint32 counter;   // 20-bit counter, top 5 bits are index into wavetable ROM
+  uint32 frequency; // 20-bit frequency (added to counter at 96kHz)
+  uint32 waveform; // 3-bit waveform index
+  uint32 volume;   // 4-bit volume
   float sample_acc; // current float sample accumulator
   float sample_div; // current float sample divisor
 } Voice;
@@ -149,7 +149,7 @@ typedef struct pacman_t {
 typedef struct game_state_t {
   // clock
   bool is_running;
-  uint tick;
+  uint32 tick;
 
   // input
   union {
@@ -166,20 +166,20 @@ typedef struct game_state_t {
   Pacman pacman;
 
   // score
-  uint score;
-  uint num_dots_eaten;
+  uint32 score;
+  uint32 num_dots_eaten;
   FruitType active_fruit;
   Vec2Int fruit_pos;
-  uint fruit_despawn_tick;
+  uint32 fruit_despawn_tick;
 
   struct {
     Voice voice[NUM_VOICES];
     Sound sound[NUM_SOUNDS];
-    int voice_tick_accum;
-    int voice_tick_period_ns;
-    int sample_duration_ns;
-    int sample_accum;
-    uint num_samples;
+    int32 voice_tick_accum;
+    int32 voice_tick_period_ns;
+    int32 sample_duration_ns;
+    int32 sample_accum;
+    uint32 num_samples;
     float sample_buffer[NUM_SAMPLES];
   } audio;
 
@@ -190,7 +190,7 @@ typedef struct game_state_t {
   PacmanTile tiles[DISPLAY_TILES_Y][DISPLAY_TILES_X];
 
   // rendering
-  uint frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
+  uint32 frame_buffer[DISPLAY_RES_Y][DISPLAY_RES_X];
 } game_state_t;
 
 global game_state_t game_state = {};
@@ -203,7 +203,7 @@ Vec2Int dir_to_vec(Direction dir) {
 
 bool dir_is_horizontal(Direction dir) { return !(dir & 1); }
 
-Vec2Int i2(int x, int y) { return (Vec2Int){x, y}; }
+Vec2Int i2(int32 x, int32 y) { return (Vec2Int){x, y}; }
 
 Vec2Int add_i2(Vec2Int v0, Vec2Int v1) {
   return (Vec2Int){v0.x + v1.x, v0.y + v1.y};
@@ -213,16 +213,16 @@ Vec2Int sub_i2(Vec2Int v0, Vec2Int v1) {
   return (Vec2Int){v0.x - v1.x, v0.y - v1.y};
 }
 
-Vec2Int mul_i2(Vec2Int v, int s) { return (Vec2Int){v.x * s, v.y * s}; }
+Vec2Int mul_i2(Vec2Int v, int32 s) { return (Vec2Int){v.x * s, v.y * s}; }
 
-int squared_distance_i2(Vec2Int v0, Vec2Int v1) {
+int32 squared_distance_i2(Vec2Int v0, Vec2Int v1) {
   Vec2Int d = {v1.x - v0.x, v1.y - v0.y};
   return d.x * d.x + d.y * d.y;
 }
 
 bool equal_i2(Vec2Int v0, Vec2Int v1) { return (v0.x == v1.x) && (v0.y == v1.y); }
 
-bool nearequal_i2(Vec2Int v0, Vec2Int v1, int tolerance) {
+bool nearequal_i2(Vec2Int v0, Vec2Int v1, int32 tolerance) {
   return (abs(v1.x - v0.x) <= tolerance) && (abs(v1.y - v0.y) <= tolerance);
 }
 
@@ -240,7 +240,7 @@ Vec2Int dist_to_tile_center(Vec2Int pos) {
             (TILE_SIZE / 2) - pos.y % TILE_SIZE);
 }
 
-uint tile_code_at(Vec2Int tile_coord) {
+uint32 tile_code_at(Vec2Int tile_coord) {
   return game_state.tiles[tile_coord.y][tile_coord.x].tile_code;
 }
 
@@ -294,15 +294,15 @@ Vec2Int move(Vec2Int pos, Direction dir) {
 }
 
 // SOUND
-void sound_start(int slot, const SoundDesc *desc) {
+void sound_start(int32 slot, const SoundDesc *desc) {
   assert((slot >= 0) && (slot < NUM_SOUNDS));
   assert(desc);
   assert((desc->ptr && desc->size) || desc->sound_fn);
 
   Sound *snd = &game_state.audio.sound[slot];
   *snd = (Sound){0};
-  int num_voices = 0;
-  for (int i = 0; i < NUM_VOICES; i++) {
+  int32 num_voices = 0;
+  for (int32 i = 0; i < NUM_VOICES; i++) {
     if (desc->voice[i]) {
       snd->flags |= (1 << i);
       num_voices++;
@@ -313,16 +313,16 @@ void sound_start(int slot, const SoundDesc *desc) {
     snd->func = desc->sound_fn;
   } else {
     // assert(num_voices > 0);
-    // assert((desc->size % (num_voices * sizeof(uint))) == 0);
+    // assert((desc->size % (num_voices * sizeof(uint32))) == 0);
     snd->stride = num_voices;
-    snd->num_ticks = desc->size / (snd->stride * sizeof(uint));
+    snd->num_ticks = desc->size / (snd->stride * sizeof(uint32));
     snd->data = desc->ptr;
   }
 }
 
-void sound_stop(int slot) {
+void sound_stop(int32 slot) {
   // silence the sound's output voices
-  for (int i = 0; i < NUM_VOICES; i++) {
+  for (int32 i = 0; i < NUM_VOICES; i++) {
     if (game_state.audio.sound[slot].flags & (1 << i)) {
       game_state.audio.voice[i] = (Voice){0};
     }
@@ -331,7 +331,7 @@ void sound_stop(int slot) {
   game_state.audio.sound[slot] = (Sound){0};
 }
 
-void snd_func_eatdot1(int slot) {
+void snd_func_eatdot1(int32 slot) {
   assert((slot >= 0) && (slot < NUM_SOUNDS));
   const Sound *snd = &game_state.audio.sound[slot];
   Voice *voice = &game_state.audio.voice[2];
@@ -346,7 +346,7 @@ void snd_func_eatdot1(int slot) {
   }
 }
 
-void snd_func_eatdot2(int slot) {
+void snd_func_eatdot2(int32 slot) {
   assert((slot >= 0) && (slot < NUM_SOUNDS));
   const Sound *snd = &game_state.audio.sound[slot];
   Voice *voice = &game_state.audio.voice[2];
@@ -361,44 +361,44 @@ void snd_func_eatdot2(int slot) {
   }
 }
 
-void draw_tile_color(uint tile_x, uint tile_y, uint color,
-                     uint tile_width, uint tile_height) {
-  uint x = tile_x;
-  uint y = tile_y;
+void draw_tile_color(uint32 tile_x, uint32 tile_y, uint32 color,
+                     uint32 tile_width, uint32 tile_height) {
+  uint32 x = tile_x;
+  uint32 y = tile_y;
 
-  for (uint yy = 0; yy < tile_height; yy++) {
-    for (uint xx = 0; xx < tile_width; xx++) {
-      uint py = y + yy;
-      uint px = x + xx;
+  for (uint32 yy = 0; yy < tile_height; yy++) {
+    for (uint32 xx = 0; xx < tile_width; xx++) {
+      uint32 py = y + yy;
+      uint32 px = x + xx;
       game_state.frame_buffer[py][px] = color;
     }
   }
 }
 
-void draw_sprite(int sprite_x, int sprite_y,
+void draw_sprite(int32 sprite_x, int32 sprite_y,
                  const PacmanSprite *sprite) {
-  uint tile_code = sprite->tile_code * SPRITE_SIZE;
-  uint color_code = sprite->color_code;
+  uint32 tile_code = sprite->tile_code * SPRITE_SIZE;
+  uint32 color_code = sprite->color_code;
 
-  uint tile_offset_x = sprite->flip_x ? SPRITE_SIZE : 0;
-  int sign_x = sprite->flip_x ? -1 : 1;
+  uint32 tile_offset_x = sprite->flip_x ? SPRITE_SIZE : 0;
+  int32 sign_x = sprite->flip_x ? -1 : 1;
 
-  uint tile_offset_y = sprite->flip_y ? SPRITE_SIZE - 1 : 0;
-  int sign_y = sprite->flip_y ? -1 : 1;
+  uint32 tile_offset_y = sprite->flip_y ? SPRITE_SIZE - 1 : 0;
+  int32 sign_y = sprite->flip_y ? -1 : 1;
 
-  for (uint y = 0; y < SPRITE_SIZE; y++) {
-    for (uint x = 0; x < SPRITE_SIZE; x++) {
-      int py = y + sprite_y;
-      int px = x + sprite_x;
+  for (uint32 y = 0; y < SPRITE_SIZE; y++) {
+    for (uint32 x = 0; x < SPRITE_SIZE; x++) {
+      int32 py = y + sprite_y;
+      int32 px = x + sprite_x;
       if (px < 0 || py < 0 || px >= DISPLAY_RES_X || py >= DISPLAY_RES_Y) {
         continue;
       }
-      uint tile_i =
+      uint32 tile_i =
           game_state.rom.sprite_atlas[tile_offset_y + y * sign_y]
                                      [tile_code + tile_offset_x + sign_x * x];
-      uint color_i = color_code * 4 + tile_i;
-      uint src_color = game_state.rom.color_palette[color_i];
-      uint alpha = (src_color >> 24) & 0xFF;
+      uint32 color_i = color_code * 4 + tile_i;
+      uint32 src_color = game_state.rom.color_palette[color_i];
+      uint32 alpha = (src_color >> 24) & 0xFF;
 
       if (alpha > 0) {
         game_state.frame_buffer[py][px] = src_color;
@@ -407,24 +407,24 @@ void draw_sprite(int sprite_x, int sprite_y,
   }
 }
 
-void draw_tile(uint tile_x, uint tile_y, PacmanTile *tile) {
-  uint tile_code = tile->tile_code * TILE_SIZE;
-  uint color_code = tile->color_code;
-  for (uint y = 0; y < TILE_SIZE; y++) {
-    for (uint x = 0; x < TILE_SIZE; x++) {
-      uint tile_i = game_state.rom.tile_atlas[y][tile_code + x];
-      uint color_i = color_code * 4 + tile_i;
-      uint color = game_state.rom.color_palette[color_i];
+void draw_tile(uint32 tile_x, uint32 tile_y, PacmanTile *tile) {
+  uint32 tile_code = tile->tile_code * TILE_SIZE;
+  uint32 color_code = tile->color_code;
+  for (uint32 y = 0; y < TILE_SIZE; y++) {
+    for (uint32 x = 0; x < TILE_SIZE; x++) {
+      uint32 tile_i = game_state.rom.tile_atlas[y][tile_code + x];
+      uint32 color_i = color_code * 4 + tile_i;
+      uint32 color = game_state.rom.color_palette[color_i];
       game_state.frame_buffer[y + tile_y][x + tile_x] = color;
     }
   }
 }
 
 void draw_color_palette() {
-  uint x = 0;
-  uint y = 0;
+  uint32 x = 0;
+  uint32 y = 0;
   for (size_t i = 0; i < ARRAY_SIZE(game_state.rom.color_palette); i++) {
-    uint c = game_state.rom.color_palette[i];
+    uint32 c = game_state.rom.color_palette[i];
 
     draw_tile_color(x, y, c, TILE_SIZE, TILE_SIZE);
     x++;
@@ -436,8 +436,8 @@ void draw_color_palette() {
 }
 
 void draw_sprite_atlas() {
-  uint x = 0;
-  uint y = 0;
+  uint32 x = 0;
+  uint32 y = 0;
   for (size_t i = 0; i < NUM_SPRITES; i++) {
     PacmanSprite sprite = {};
     sprite.tile_code = i;
@@ -453,8 +453,8 @@ void draw_sprite_atlas() {
 }
 
 void draw_tile_atlas() {
-  uint x = 0;
-  uint y = 0;
+  uint32 x = 0;
+  uint32 y = 0;
   for (size_t i = 0; i < NUM_TILES; i++) {
     PacmanTile tile = {};
     tile.tile_code = i;
@@ -483,17 +483,17 @@ char conv_char(char c) {
   return c;
 }
 
-void set_tile_char(Vec2Int tile_pos, uint color_code, char chr) {
+void set_tile_char(Vec2Int tile_pos, uint32 color_code, char chr) {
   if (INSIDE_MAP_BOUNDS(tile_pos.x, tile_pos.y)) {
     game_state.tiles[tile_pos.y][tile_pos.x] =
         (PacmanTile){conv_char(chr), color_code};
   }
 }
 
-void set_tile_text(Vec2Int tile_pos, uint color_code, const char *text) {
+void set_tile_text(Vec2Int tile_pos, uint32 color_code, const char *text) {
   // assert(valid_tile_pos(tile_pos));
-  uint chr;
-  while ((chr = (uint)*text++)) {
+  uint32 chr;
+  while ((chr = (uint32)*text++)) {
     if (tile_pos.x < DISPLAY_TILES_X) {
       set_tile_char(tile_pos, color_code, chr);
       tile_pos.x++;
@@ -503,10 +503,10 @@ void set_tile_text(Vec2Int tile_pos, uint color_code, const char *text) {
   }
 }
 
-void set_tile_score(Vec2Int tile_pos, uint color_code, uint score) {
+void set_tile_score(Vec2Int tile_pos, uint32 color_code, uint32 score) {
   set_tile_char(tile_pos, color_code, '0');
   tile_pos.x--;
-  for (uint digit = 0; digit < 8; digit++) {
+  for (uint32 digit = 0; digit < 8; digit++) {
     char ch = (score % 10) + '0';
     set_tile_char(tile_pos, color_code, ch);
     tile_pos.x--;
@@ -519,13 +519,13 @@ void set_tile_score(Vec2Int tile_pos, uint color_code, uint score) {
 
 void draw_pacman() {
   Pacman *pacman = &game_state.pacman;
-  local_persist const uint pacman_anim[2][4] = {
+  local_persist const uint32 pacman_anim[2][4] = {
       {44, 46, 48, 46}, // horizontal (needs flipx)
       {45, 47, 48, 47}  // vertical (needs flipy)
   };
 
   PacmanSprite pacman_sprite_t = {};
-  uint anim_tick = (game_state.tick / 2) % 4;
+  uint32 anim_tick = (game_state.tick / 2) % 4;
   bool is_horizontal = dir_is_horizontal(pacman->dir);
   pacman_sprite_t.tile_code = pacman_anim[is_horizontal ? 0 : 1][anim_tick];
   pacman_sprite_t.color_code = COLOR_PACMAN;
@@ -534,7 +534,7 @@ void draw_pacman() {
 
   Vec2Int sprite_pos = actor_to_sprite_pos(pacman->pos);
 
-  // int extra_x = 0;
+  // int32 extra_x = 0;
   // draw_tile_color(sprite_pos.x - extra_x / 2, sprite_pos.y, 0x550000ff,
   //                 SPRITE_SIZE + extra_x, SPRITE_SIZE);
 
@@ -542,11 +542,11 @@ void draw_pacman() {
 }
 
 void draw_tiles() {
-  for (uint y = 0; y < DISPLAY_TILES_Y; ++y) {
-    for (uint x = 0; x < DISPLAY_TILES_X; ++x) {
+  for (uint32 y = 0; y < DISPLAY_TILES_Y; ++y) {
+    for (uint32 x = 0; x < DISPLAY_TILES_X; ++x) {
       PacmanTile tile = game_state.tiles[y][x];
-      uint px = x * TILE_SIZE;
-      uint py = y * TILE_SIZE;
+      uint32 px = x * TILE_SIZE;
+      uint32 py = y * TILE_SIZE;
       draw_tile(px, py, &tile);
     }
   }
@@ -595,8 +595,8 @@ void update_pacman() {
     pacman->pos = move(pacman->pos, pacman->dir);
 
     // check bounds
-    int left_bounds_x = -HALF_SPRITE_SIZE;
-    int right_bounds_x = DISPLAY_RES_X + HALF_SPRITE_SIZE;
+    int32 left_bounds_x = -HALF_SPRITE_SIZE;
+    int32 right_bounds_x = DISPLAY_RES_X + HALF_SPRITE_SIZE;
     if (pacman->pos.x > right_bounds_x) {
       pacman->pos.x = left_bounds_x;
     } else if (pacman->pos.x < left_bounds_x) {
@@ -679,8 +679,8 @@ void init_level(void) {
         "L..........................R" // 32
         "2BBBBBBBBBBBBBBBBBBBBBBBBBB3"; // 33
        //0123456789012345678901234567
-    uint t[128];
-    for (int i = 0; i < 128; i++) { t[i]=TILE_DOT; }
+    uint32 t[128];
+    for (int32 i = 0; i < 128; i++) { t[i]=TILE_DOT; }
     t[' ']=0x40; t['0']=0xD1; t['1']=0xD0; t['2']=0xD5; t['3']=0xD4; t['4']=0xFB;
     t['5']=0xFA; t['6']=0xD7; t['7']=0xD9; t['8']=0xD6; t['9']=0xD8; t['U']=0xDB;
     t['L']=0xD3; t['R']=0xD2; t['B']=0xDC; t['b']=0xDF; t['e']=0xE7; t['f']=0xE6;
@@ -690,8 +690,8 @@ void init_level(void) {
     t['t']=0xF0; t['-']=TILE_DOOR; t['P']=TILE_PILL;
 
   // clang-format on
-  for (int y = 3, i = 0; y <= 33; y++) {
-    for (int x = 0; x < 28; x++, i++) {
+  for (int32 y = 3, i = 0; y <= 33; y++) {
+    for (int32 x = 0; x < 28; x++, i++) {
       game_state.tiles[y][x] = (PacmanTile){t[tiles[i] & 127], COLOR_DOT};
     }
   }
@@ -728,11 +728,11 @@ void handle_keyup(Game_InputButton *button) {
 }
 
 void process_platform_input_events(const Game_InputEvents *input) {
-  for (uint i = 0; i < input->len; i++) {
+  for (uint32 i = 0; i < input->len; i++) {
     Game_InputEvent event = input->events[i];
     switch (event.type) {
     case EVENT_KEYDOWN: {
-      for (uint key_index = 0; key_index < KEY_MAX; key_index++) {
+      for (uint32 key_index = 0; key_index < KEY_MAX; key_index++) {
         if (event.key.type == key_index) {
           handle_keydown(&game_state.input.buttons[key_index]);
         }
@@ -740,7 +740,7 @@ void process_platform_input_events(const Game_InputEvents *input) {
       break;
     }
     case EVENT_KEYUP: {
-      for (uint key_index = 0; key_index < KEY_MAX; key_index++) {
+      for (uint32 key_index = 0; key_index < KEY_MAX; key_index++) {
         if (event.key.type == key_index) {
           handle_keyup(&game_state.input.buttons[key_index]);
         }
@@ -766,7 +766,7 @@ export GAME_INIT(game_init) {
   memset(&game_state.audio, 0, sizeof(game_state.audio));
 
   // compute sample duration in nanoseconds
-  int samples_per_sec = AUDIO_SAMPLE_RATE;
+  int32 samples_per_sec = AUDIO_SAMPLE_RATE;
   game_state.audio.sample_duration_ns = 1000000000 / samples_per_sec;
 
   /* compute number of 96kHz ticks per sample tick (the Namco sound generator
@@ -791,7 +791,7 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
     sound_buffer->write_count = 0;
 
     // tick procedural sounds
-    for (int snd_slot = 0; snd_slot < NUM_SOUNDS; snd_slot++) {
+    for (int32 snd_slot = 0; snd_slot < NUM_SOUNDS; snd_slot++) {
       Sound *sound = &game_state.audio.sound[snd_slot];
       if (sound->func) {
         sound->func(snd_slot);
@@ -800,23 +800,23 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
     }
 
     bool did_write_any_sample = false;
-    int sample_count_this_frame =
-        MIN(sound_buffer->sample_rate * NS_TO_SECS(dt_ns),
+    int32 sample_count_this_frame =
+        MIN(sound_buffer->sample_rate * (NS_TO_SECS(dt_ns) + MS_TO_SECS(1)),
             sound_buffer->sample_count);
 
     //samples
-    for (int i = 0; i < sample_count_this_frame; i++) {
+    for (int32 i = 0; i < sample_count_this_frame; i++) {
       // tick voices
-      for (int i = 0; i < NUM_VOICES; i++) {
+      for (int32 i = 0; i < NUM_VOICES; i++) {
         Voice *voice = &game_state.audio.voice[i];
         voice->counter += voice->frequency;
         /* lookup current 4-bit sample from the waveform number and the
             topmost 5 bits of the 20-bit sample counter
         */
-        uint wave_index =
+        uint32 wave_index =
             ((voice->waveform << 5) | ((voice->counter >> 15) & 0x1F)) & 0xFF;
-        int sample =
-            (((int)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
+        int32 sample =
+            (((int32)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
         voice->sample_acc +=
             (float)sample; // sample is (-8..+7 wavetable value) * 16 (volume)
         voice->sample_div += 128.0f;
@@ -824,7 +824,7 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
       // build sample
       float sample = 0.0f;
-      for (int i = 0; i < NUM_VOICES; i++) {
+      for (int32 i = 0; i < NUM_VOICES; i++) {
         Voice *voice = &game_state.audio.voice[i];
         if (voice->sample_div > 0.0f) {
           sample += voice->sample_acc / voice->sample_div;
@@ -848,16 +848,16 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
 
   // clear frame buffer
   memset(screen_buffer->pixels, 0,
-         sizeof(uint) * screen_buffer->width * screen_buffer->height);
-  for (uint y = 0; y < screen_buffer->height; y++) {
-    for (uint x = 0; x < screen_buffer->width; x++) {
-      uint i = y * screen_buffer->width + x;
+         sizeof(uint32) * screen_buffer->width * screen_buffer->height);
+  for (uint32 y = 0; y < screen_buffer->height; y++) {
+    for (uint32 x = 0; x < screen_buffer->width; x++) {
+      uint32 i = y * screen_buffer->width + x;
       screen_buffer->pixels[i] = game_state.frame_buffer[y][x];
     }
   }
 
   // clear input
-  for (uint key_index = 0; key_index < KEY_MAX; key_index++) {
+  for (uint32 key_index = 0; key_index < KEY_MAX; key_index++) {
     game_state.input.buttons[key_index].pressed_this_frame = false;
     game_state.input.buttons[key_index].released_this_frame = false;
   }

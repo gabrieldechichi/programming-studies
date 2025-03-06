@@ -120,14 +120,14 @@ void platform_log(const char *fmt, LogType log_type, ...) {
 }
 
 void sdl_add_input_event(Game_InputEvents *events, Game_InputEvent event) {
-  local_persist uint max_size = ARRAY_SIZE(events->events);
+  local_persist uint32 max_size = ARRAY_SIZE(events->events);
   if (events->len + 1 > max_size) {
     platform_log("frame event buffer overflow (max %d). Ignoring...",
                  LOG_ERROR);
     return;
   }
 
-  uint i = events->len++;
+  uint32 i = events->len++;
   events->events[i] = event;
 }
 
@@ -175,7 +175,7 @@ int main() {
   }
   SDL_SetTextureScaleMode(frame_buffer, SDL_SCALEMODE_NEAREST);
 
-  uint pixels[DISPLAY_RES_X * DISPLAY_RES_Y];
+  uint32 pixels[DISPLAY_RES_X * DISPLAY_RES_Y];
   SDL_memset(pixels, 0, sizeof(pixels));
 
   Game_ScreenBuffer screen_buffer = {};
@@ -306,7 +306,7 @@ int main() {
     // render
     {
       SDL_UpdateTexture(frame_buffer, NULL, pixels,
-                        DISPLAY_RES_X * sizeof(uint));
+                        DISPLAY_RES_X * sizeof(uint32));
 
       SDL_FRect src_rect = {
           .x = 0, .y = 0, .w = DISPLAY_RES_X, .h = DISPLAY_RES_Y};

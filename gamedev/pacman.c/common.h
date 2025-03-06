@@ -18,5 +18,5 @@
 //Namco sound generator runs at 96kHz
 #define AUDIO_SAMPLE_RATE 96100
 // #define AUDIO_SAMPLE_RATE 44100
-#define AUDIO_BUFFER_SIZE (int)(AUDIO_SAMPLE_RATE * TARGET_DT * 1.5)
+#define AUDIO_BUFFER_SIZE (int)(AUDIO_SAMPLE_RATE * TARGET_DT * 3)
 
