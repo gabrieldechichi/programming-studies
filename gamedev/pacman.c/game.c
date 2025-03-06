@@ -569,26 +569,27 @@ void set_tile_score(Vec2Int tile_pos, uint32 color_code, uint32 score) {
 
 void draw_pacman() {
   Pacman *pacman = &game_state.pacman;
-  local_persist const uint32 pacman_anim[2][4] = {
-      {44, 46, 48, 46}, // horizontal (needs flipx)
-      {45, 47, 48, 47}  // vertical (needs flipy)
-  };
-
-  PacmanSprite pacman_sprite_t = {};
-  uint32 anim_tick = (game_state.tick / 2) % 4;
-  bool is_horizontal = dir_is_horizontal(pacman->dir);
-  pacman_sprite_t.tile_code = pacman_anim[is_horizontal ? 0 : 1][anim_tick];
-  pacman_sprite_t.color_code = COLOR_PACMAN;
-  pacman_sprite_t.flip_x = pacman->dir == DIR_LEFT;
-  pacman_sprite_t.flip_y = pacman->dir == DIR_UP;
 
   Vec2Int sprite_pos = actor_to_sprite_pos(pacman->pos);
 
-  // int32 extra_x = 0;
-  // draw_tile_color(sprite_pos.x - extra_x / 2, sprite_pos.y, 0x550000ff,
-  //                 SPRITE_SIZE + extra_x, SPRITE_SIZE);
+  PacmanSprite sprite = {};
+  sprite.color_code = COLOR_PACMAN;
+  if (game_state.mode == MODE_PRELUDE) {
+      sprite.tile_code = SPRITETILE_PACMAN_CLOSED_MOUTH;
+  } else {
+    local_persist const uint32 pacman_anim[2][4] = {
+        {44, 46, 48, 46}, // horizontal (needs flipx)
+        {45, 47, 48, 47}  // vertical (needs flipy)
+    };
 
-  draw_sprite(sprite_pos.x, sprite_pos.y, &pacman_sprite_t);
+    uint32 anim_tick = (game_state.tick / 3) % 4;
+    bool is_horizontal = dir_is_horizontal(pacman->dir);
+    sprite.tile_code = pacman_anim[is_horizontal ? 0 : 1][anim_tick];
+    sprite.flip_x = pacman->dir == DIR_LEFT;
+    sprite.flip_y = pacman->dir == DIR_UP;
+  }
+
+  draw_sprite(sprite_pos.x, sprite_pos.y, &sprite);
 }
 
 void draw_tiles() {
@@ -935,7 +936,7 @@ export GAME_INIT(game_init) {
   game_state.pacman.dir = DIR_LEFT;
   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
-  game_state.prelude.time_to_start_game = SECS_TO_NS(5);
+  game_state.prelude.time_to_start_game = SECS_TO_NS(6.5);
   game_state.prelude.time_to_play_prelude_sound = SECS_TO_NS(2);
 
   memset(&game_state.audio, 0, sizeof(game_state.audio));
