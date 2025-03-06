@@ -3,7 +3,6 @@
 #include "rom.c"
 #include "typedefs.h"
 #include <_string.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -99,6 +98,7 @@ typedef enum {
   SOUND_EATDOT_1,
   SOUND_EATDOT_2,
   SOUND_PRELUDE,
+  SOUND_EATFRUIT,
   NUM_GAME_SOUNDS
 } SoundOption;
 
@@ -379,6 +379,23 @@ void snd_func_eatdot2(int32 slot) {
   }
 }
 
+void snd_func_eatfruit(int slot) {
+  assert((slot >= 0) && (slot < NUM_SOUNDS));
+  const Sound *snd = &game_state.audio.sound[slot];
+  Voice *voice = &game_state.audio.voice[2];
+  if (snd->cur_tick == 0) {
+    voice->volume = 15;
+    voice->waveform = 6;
+    voice->frequency = 0x1600;
+  } else if (snd->cur_tick == 23) {
+    sound_stop(slot);
+  } else if (snd->cur_tick < 11) {
+    voice->frequency -= 0x200;
+  } else {
+    voice->frequency += 0x0200;
+  }
+}
+
 void draw_tile_color(int32 tile_x, int32 tile_y, uint32 color, int32 tile_width,
                      int32 tile_height) {
   int32 start_x = tile_x;
@@ -575,7 +592,7 @@ void draw_pacman() {
   PacmanSprite sprite = {};
   sprite.color_code = COLOR_PACMAN;
   if (game_state.mode == MODE_PRELUDE) {
-      sprite.tile_code = SPRITETILE_PACMAN_CLOSED_MOUTH;
+    sprite.tile_code = SPRITETILE_PACMAN_CLOSED_MOUTH;
   } else {
     local_persist const uint32 pacman_anim[2][4] = {
         {44, 46, 48, 46}, // horizontal (needs flipx)
@@ -612,7 +629,7 @@ void pacman_eat_dot_or_pill(Vec2Int tile_coords, bool is_pill) {
     game_state.is_running = false;
   } else if (game_state.num_dots_eaten == 10 ||
              game_state.num_dots_eaten == 170) {
-    game_state.active_fruit = FRUIT_STRAWBERRY;
+    game_state.active_fruit = FRUIT_CHERRIES;
     Fruit fruit = fruits[game_state.active_fruit];
     game_state.fruit_despawn_tick = game_state.tick + fruit.despawn_ticks;
   }
@@ -673,6 +690,7 @@ void update_pacman() {
         Fruit fruit = fruits[game_state.active_fruit];
         game_state.score += fruit.bonus_score;
         game_state.active_fruit = FRUIT_NONE;
+        sound_start(2, &sounds[SOUND_EATFRUIT]);
       }
     }
   }
@@ -758,6 +776,7 @@ const SoundDesc sounds[NUM_GAME_SOUNDS] = {
     { .type = SOUND_PROCEDURAL, .sound_fn = snd_func_eatdot1, .voice = { false, false, true } },
     { .type = SOUND_PROCEDURAL, .sound_fn = snd_func_eatdot2, .voice = { false, false, true } },
     { .type = SOUND_DUMP, .ptr = snd_dump_prelude, .size = sizeof(snd_dump_prelude), .voice = { true, true, false } },
+    { .type = SOUND_PROCEDURAL, .sound_fn = snd_func_eatfruit, .voice = { false, false, true } },
 };
 // clang-format on
 
@@ -915,7 +934,7 @@ void debug_draw_sound_wave(Game_SoundBuffer *sound_buffer, uint32 dt_ns) {
     sample_idx += step_on_sound_buffer;
     sample /= step_on_sound_buffer;
     uint32 px = x;
-    uint32 py = 50 + wave_height * sample;
+    uint32 py = 70 + wave_height * sample;
     if (x > 0) {
       draw_line(prev_sample_x, prev_sample_y, px, py, 0xFF00aacc);
     }
@@ -936,8 +955,9 @@ export GAME_INIT(game_init) {
   game_state.pacman.dir = DIR_LEFT;
   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
-  game_state.prelude.time_to_start_game = SECS_TO_NS(6.5);
-  game_state.prelude.time_to_play_prelude_sound = SECS_TO_NS(2);
+  game_state.prelude.time_to_start_game = SECS_TO_NS(7.5);
+  game_state.prelude.time_to_play_prelude_sound = SECS_TO_NS(3);
+  game_state.mode = MODE_GAME;
 
   memset(&game_state.audio, 0, sizeof(game_state.audio));
 
@@ -985,7 +1005,7 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   draw_pacman();
   draw_fruits();
 
-  debug_draw_sound_wave(sound_buffer, dt_ns);
+  // debug_draw_sound_wave(sound_buffer, dt_ns);
 
   // clear frame buffer
   memset(screen_buffer->pixels, 0,

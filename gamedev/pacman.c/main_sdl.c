@@ -305,6 +305,7 @@ int main() {
 
     // render
     {
+      // SDL_RenderClear(renderer);
       SDL_UpdateTexture(frame_buffer, NULL, pixels,
                         DISPLAY_RES_X * sizeof(uint32));
 
