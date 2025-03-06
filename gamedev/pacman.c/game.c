@@ -3,6 +3,7 @@
 #include "rom.c"
 #include "typedefs.h"
 #include <_string.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -365,8 +366,8 @@ void snd_func_eatdot2(int32 slot) {
   }
 }
 
-void draw_tile_color(int32 tile_x, int32 tile_y, uint32 color,
-                     int32 tile_width, int32 tile_height) {
+void draw_tile_color(int32 tile_x, int32 tile_y, uint32 color, int32 tile_width,
+                     int32 tile_height) {
   int32 start_x = tile_x;
   int32 start_y = tile_y;
   int32 end_x = tile_x + tile_width;
@@ -379,6 +380,35 @@ void draw_tile_color(int32 tile_x, int32 tile_y, uint32 color,
       if (INSIDE_FRAME_BUFFER_BOUNDS(x, y)) {
         game_state.frame_buffer[y][x] = color;
       }
+    }
+  }
+}
+
+void draw_line(int32 start_x, int32 start_y, int32 end_x, int32 end_y,
+               uint32 color) {
+  int32 dx = abs(end_x - start_x);
+  int32 dy = abs(end_y - start_y);
+  int32 sx = start_x < end_x ? 1 : -1;
+  int32 sy = start_y < end_y ? 1 : -1;
+  int32 err = (dx > dy ? dx : -dy) / 2;
+  int32 e2;
+
+  while (1) {
+    if (INSIDE_FRAME_BUFFER_BOUNDS(start_x, start_y)) {
+      game_state.frame_buffer[start_y][start_x] = color;
+    }
+
+    if (start_x == end_x && start_y == end_y)
+      break;
+
+    e2 = err;
+    if (e2 > -dx) {
+      err -= dy;
+      start_x += sx;
+    }
+    if (e2 < dy) {
+      err += dx;
+      start_y += sy;
     }
   }
 }
@@ -814,7 +844,7 @@ void update_sound(Game_SoundBuffer *sound_buffer, int64 dt_ns) {
   }
 }
 
-global float running_sound_buffer[4096];
+global float running_sound_buffer[4096 * 2];
 global uint32 running_index;
 
 export GAME_INIT(game_init) {
@@ -856,26 +886,48 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   draw_pacman();
   draw_fruits();
 
-  for (uint32 i = 0; i < sound_buffer->write_count; i++) {
-    running_sound_buffer[running_index] = sound_buffer->samples[i];
-    running_index = (running_index + 1) % ARRAY_SIZE(running_sound_buffer);
+  uint32 sample_count_this_frame =
+      MIN(sound_buffer->sample_rate * (NS_TO_SECS(dt_ns) + MS_TO_SECS(1)),
+          sound_buffer->sample_count);
+  if (sound_buffer->write_count > 0) {
+    for (uint32 i = 0; i < sound_buffer->write_count; i++) {
+      running_sound_buffer[running_index] = sound_buffer->samples[i];
+      running_index = (running_index + 1) % ARRAY_SIZE(running_sound_buffer);
+    }
+  } else {
+    for (uint32 i = 0; i < sample_count_this_frame; i++) {
+      running_sound_buffer[running_index] = 0;
+      running_index = (running_index + 1) % ARRAY_SIZE(running_sound_buffer);
+    }
   }
 
   uint32 wave_width = screen_buffer->width;
   uint32 wave_height = screen_buffer->height;
-  uint32 step_on_sound_buffer = ARRAY_SIZE(running_sound_buffer) / wave_width;
+  uint32 width_step_size = 2;
+  uint32 step_on_sound_buffer =
+      width_step_size * ARRAY_SIZE(running_sound_buffer) / wave_width;
   uint32 sample_idx = 0;
-  for (uint32 x = 0; x < wave_width; x++) {
+  uint32 prev_sample_x = 0;
+  uint32 prev_sample_y = 0;
+  for (uint32 x = 0; x < wave_width; x += width_step_size) {
     float sample = 0;
     for (uint32 i = 0; i < step_on_sound_buffer; i++) {
       sample += running_sound_buffer[sample_idx + i];
     }
     sample_idx += step_on_sound_buffer;
     sample /= step_on_sound_buffer;
+    // sample = (sample - min_sample) / sound_range;
 
+    // uint32 px = x;
+    // uint32 py = 50;
+    // draw_tile_color(px, py, 0xFF00aacc, 1, wave_height * sample);
     uint32 px = x;
-    uint32 py = 50;
-    draw_tile_color(px, py, 0xFF00aaFF, 1, wave_height * sample);
+    uint32 py = 50 + wave_height * sample;
+    if (x > 0) {
+      draw_line(prev_sample_x, prev_sample_y, px, py, 0xFF00aacc);
+    }
+    prev_sample_x = px;
+    prev_sample_y = py;
   }
 
   // clear frame buffer
