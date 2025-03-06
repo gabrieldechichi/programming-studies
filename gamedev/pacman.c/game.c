@@ -150,7 +150,13 @@ typedef struct {
   Direction dir;
 } Pacman;
 
-typedef enum { PRELUDE, GAME } GameMode;
+typedef enum { MODE_PRELUDE, MODE_GAME } GameMode;
+
+typedef struct {
+  uint64 time_to_play_prelude_sound;
+  uint64 time_to_start_game;
+  bool did_play_prelude_sound;
+} GameMode_Prelude;
 
 typedef struct {
   GameMode mode;
@@ -170,6 +176,8 @@ typedef struct {
     };
     Game_InputButton buttons[KEY_MAX];
   } input;
+
+  GameMode_Prelude prelude;
 
   Pacman pacman;
 
@@ -927,6 +935,9 @@ export GAME_INIT(game_init) {
   game_state.pacman.dir = DIR_LEFT;
   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
+  game_state.prelude.time_to_start_game = SECS_TO_NS(5);
+  game_state.prelude.time_to_play_prelude_sound = SECS_TO_NS(2);
+
   memset(&game_state.audio, 0, sizeof(game_state.audio));
 
   // compute sample duration in nanoseconds
@@ -936,7 +947,6 @@ export GAME_INIT(game_init) {
 
   memset(running_sound_buffer, 0, sizeof(running_sound_buffer));
   running_index = 0;
-  sound_start(0, &sounds[SOUND_PRELUDE]);
 }
 
 export GAME_UPDATE_AND_RENDER(game_update_and_render) {
@@ -945,16 +955,28 @@ export GAME_UPDATE_AND_RENDER(game_update_and_render) {
   process_platform_input_events(input);
 
   switch (game_state.mode) {
-
-  case PRELUDE:
-  case GAME:
+  case MODE_PRELUDE: {
+    GameMode_Prelude *prelude = &game_state.prelude;
+    if (!prelude->did_play_prelude_sound &&
+        memory->time.time_ns >= prelude->time_to_play_prelude_sound) {
+      prelude->did_play_prelude_sound = true;
+      sound_start(0, &sounds[SOUND_PRELUDE]);
+    }
+    if (prelude->did_play_prelude_sound &&
+        memory->time.time_ns >= prelude->time_to_start_game) {
+      game_state.mode = MODE_GAME;
+      prelude->did_play_prelude_sound = false;
+    }
     break;
   }
+  case MODE_GAME: {
+    update_fruits();
+    update_pacman();
 
-  update_fruits();
-  update_pacman();
-
-  set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
+    set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
+    break;
+  }
+  }
 
   update_sound(sound_buffer, dt_ns);
 
