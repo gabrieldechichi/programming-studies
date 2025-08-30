@@ -1,6 +1,3 @@
-//------------------------------------------------------------------------------
-//  Simple sokol_app.h window example
-//------------------------------------------------------------------------------
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_log.h"
