@@ -1,0 +1,5 @@
+- [ ] sokol generic shader tool
+- [ ] test on windows? test on iOS?
+- [ ] cross platform input?
+- [ ] move to engine?
+- [ ] job system? (maybe too much)
