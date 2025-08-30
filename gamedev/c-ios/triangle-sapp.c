@@ -50,7 +50,7 @@ void frame(void) {
     // render sokol_gl
     sg_begin_pass(&(sg_pass){
         .action = { 
-            .colors[0] = { .load_action=SG_LOADACTION_CLEAR, .clear_value={0.0f, 0.0f, 0.0f, 1.0f } }
+            .colors[0] = { .load_action=SG_LOADACTION_CLEAR, .clear_value={1.0f, 0.0f, 0.0f, 1.0f } }
         },
         .swapchain = sglue_swapchain()
     });
@@ -71,8 +71,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         .frame_cb = frame,
         .cleanup_cb = cleanup,
         .fullscreen = true,
-        .width = 640,
-        .height = 480,
+        .high_dpi = true,
         .window_title = "Triangle (sokol-app)",
         .icon.sokol_default = true,
         .logger.func = slog_func,
