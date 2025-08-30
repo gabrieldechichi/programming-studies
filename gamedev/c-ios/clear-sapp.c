@@ -42,6 +42,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         .init_cb = init,
         .frame_cb = frame,
         .cleanup_cb = cleanup,
+        .fullscreen = true,
         .width = 400,
         .height = 300,
         .window_title = "Clear (sokol app)",

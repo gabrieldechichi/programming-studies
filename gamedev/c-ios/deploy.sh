@@ -111,10 +111,13 @@ case $DEVICE_TYPE in
         echo "📲 Installing on device: $DEVICE_ID"
         xcrun devicectl device install app --device "$DEVICE_ID" ClearSapp.app
         
-        echo "🚀 Launching app..."
+        echo "📱 App installed successfully!"
+        # echo "🚀 Launching app in 2 seconds..."
+        # sleep 2
+        
         # Use the actual bundle ID from Info.plist
-        ACTUAL_BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw Info.plist)
-        xcrun devicectl device process launch --device "$DEVICE_ID" --start-stopped "$ACTUAL_BUNDLE_ID"
+        # ACTUAL_BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw Info.plist)
+        # xcrun devicectl device process launch --device "$DEVICE_ID" --start-stopped "$ACTUAL_BUNDLE_ID"
         
         ;;
         
@@ -141,10 +144,10 @@ case $DEVICE_TYPE in
         echo "📲 Installing on simulator: $SIM_ID"
         xcrun simctl install "$SIM_ID" ClearSapp.app
         
-        echo "🚀 Launching app..."
-        # Use the actual bundle ID from Info.plist
-        ACTUAL_BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw Info.plist)
-        xcrun simctl launch "$SIM_ID" "$ACTUAL_BUNDLE_ID"
+        # echo "🚀 Launching app..."
+        # # Use the actual bundle ID from Info.plist
+        # ACTUAL_BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw Info.plist)
+        # xcrun simctl launch "$SIM_ID" "$ACTUAL_BUNDLE_ID"
         
         ;;
         
