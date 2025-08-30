@@ -1,0 +1,24 @@
+[
+  {
+    "arguments": [
+      "/opt/homebrew/opt/llvm/bin/clang",
+      "-c",
+      "-x",
+      "objective-c",
+      "-framework",
+      "Cocoa",
+      "-framework",
+      "QuartzCore",
+      "-framework",
+      "Metal",
+      "-framework",
+      "MetalKit",
+      "-o",
+      "clear-sapp",
+      "clear-sapp.c"
+    ],
+    "directory": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-ios",
+    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-ios/clear-sapp.c",
+    "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-ios/clear-sapp"
+  }
+]
