@@ -3,10 +3,10 @@
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
 #include "sokol/sokol_log.h"
+#include "shaders/triangle.h"
 
 // Application state
 typedef enum {
-  APP_STATE_LOADING,
   APP_STATE_READY,
   APP_STATE_RENDERING
 } app_state_t;
@@ -14,9 +14,7 @@ typedef enum {
 static sg_pass_action pass_action;
 static sg_pipeline pip;
 static sg_bindings bind;
-static app_state_t app_state = APP_STATE_LOADING;
-static file_handle_t *vertex_shader_handle = NULL;
-static file_handle_t *fragment_shader_handle = NULL;
+static app_state_t app_state = APP_STATE_READY;
 
 // Triangle vertices with position and color
 static float vertices[] = {
@@ -28,24 +26,14 @@ static float vertices[] = {
 
 // Shader creation function
 static void create_shader_pipeline(void) {
-  const char *vs_content = get_file_content(vertex_shader_handle);
-  const char *fs_content = get_file_content(fragment_shader_handle);
-
-  if (!vs_content || !fs_content) {
-    return;
-  }
-
-  // Create shader for Metal backend
-  sg_shader shd = sg_make_shader(&(sg_shader_desc){
-      .vertex_func = {.source = vs_content, .entry = "vs_main"},
-      .fragment_func = {.source = fs_content, .entry = "fs_main"},
-      .label = "triangle-shader"});
+  // Create shader using compiled header
+  sg_shader shd = sg_make_shader(triangle_shader_desc(sg_query_backend()));
 
   // Create pipeline
   pip = sg_make_pipeline(&(sg_pipeline_desc){
       .shader = shd,
-      .layout = {.attrs = {[0].format = SG_VERTEXFORMAT_FLOAT2,
-                           [1].format = SG_VERTEXFORMAT_FLOAT4}},
+      .layout = {.attrs = {[ATTR_triangle_position].format = SG_VERTEXFORMAT_FLOAT2,
+                           [ATTR_triangle_color].format = SG_VERTEXFORMAT_FLOAT4}},
       .label = "triangle-pipeline"});
 
   app_state = APP_STATE_RENDERING;
@@ -61,9 +49,8 @@ static void init(void) {
   bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
       .data = SG_RANGE(vertices), .label = "triangle-vertices"});
 
-  // Start loading shader files asynchronously
-  vertex_shader_handle = load_file_async("shaders/triangle.vert.metal");
-  fragment_shader_handle = load_file_async("shaders/triangle.frag.metal");
+  // Create shader pipeline immediately
+  create_shader_pipeline();
 
   // Set up clear color (black background)
   pass_action =
@@ -72,18 +59,10 @@ static void init(void) {
 }
 
 static void frame(void) {
-  // Check if we need to transition states
-  if (app_state == APP_STATE_LOADING) {
-    if (is_file_ready(vertex_shader_handle) &&
-        is_file_ready(fragment_shader_handle)) {
-      create_shader_pipeline();
-    }
-  }
-
   sg_begin_pass(
       &(sg_pass){.action = pass_action, .swapchain = sglue_swapchain()});
 
-  // Only render triangle if shaders are loaded
+  // Render triangle (always ready now)
   if (app_state == APP_STATE_RENDERING) {
     sg_apply_pipeline(pip);
     sg_apply_bindings(&bind);
@@ -95,8 +74,6 @@ static void frame(void) {
 }
 
 static void cleanup(void) {
-  free_file_handle(vertex_shader_handle);
-  free_file_handle(fragment_shader_handle);
   sg_shutdown();
 }
 

@@ -65,7 +65,7 @@ VENDOR_CFLAGS += -std=c99 \
 MAIN_CFLAGS += -g -O0 -DDEBUG
 VENDOR_CFLAGS += -g -O0 -DDEBUG
 
-.PHONY: all clean run
+.PHONY: all clean run shaders
 
 all: $(TARGET_PATH)
 
@@ -83,3 +83,15 @@ clean:
 
 run: $(TARGET_PATH)
 	$(TARGET_PATH)
+
+# Shader compilation target
+shaders:
+	@echo "Compiling shaders..."
+	@for shader in shaders/*.glsl; do \
+		if [ -f "$$shader" ]; then \
+			echo "Compiling $$shader"; \
+			basename=$$(basename "$$shader" .glsl); \
+			./bin/sokol-shdc --input "$$shader" --output "shaders/$$basename.h" --slang metal_macos; \
+		fi; \
+	done
+	@echo "Shader compilation complete!"
