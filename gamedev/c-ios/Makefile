@@ -13,7 +13,6 @@ endif
 
 CC = clang
 MACOS_CFLAGS = -x objective-c -framework Cocoa -framework QuartzCore -framework Metal -framework MetalKit -Isrc
-IOS_SIM_CFLAGS = -x objective-c -framework Foundation -framework UIKit -framework QuartzCore -framework Metal -framework MetalKit -miphonesimulator-version-min=12.0 -Isrc
 IOS_CFLAGS = -x objective-c -framework Foundation -framework UIKit -framework QuartzCore -framework Metal -framework MetalKit -miphoneos-version-min=12.0 -Isrc
 
 # Directories
@@ -67,4 +66,4 @@ clean:
 run: $(TARGET)
 	./$(MACOS_BUILD_DIR)/$(TARGET)
 
-.PHONY: clean run ios ios-sim
+.PHONY: clean run ios
