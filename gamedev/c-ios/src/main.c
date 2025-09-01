@@ -1,18 +1,8 @@
-//------------------------------------------------------------------------------
-//  triangle-sapp.c
-//  Simple 2D triangle rendering using sokol_gl.h
-//------------------------------------------------------------------------------
-#ifndef XCODE_BUILD
-// Only define SOKOL_IMPL when not building with Xcode
-#define SOKOL_IMPL
-#define SOKOL_METAL
-#endif
-
-#include "sokol_gfx.h"
-#include "sokol_app.h"
-#include "sokol_log.h"
-#include "sokol_glue.h"
-#include "sokol_gl.h"
+#include "sokol/sokol_gfx.h"
+#include "sokol/sokol_app.h"
+#include "sokol/sokol_log.h"
+#include "sokol/sokol_glue.h"
+#include "sokol/sokol_gl.h"
 
 static void init(void) {
     sg_setup(&(sg_desc){

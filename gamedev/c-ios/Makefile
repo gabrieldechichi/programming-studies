@@ -12,8 +12,8 @@ else
 endif
 
 CC = clang
-MACOS_CFLAGS = -x objective-c -framework Cocoa -framework QuartzCore -framework Metal -framework MetalKit -Isrc
-IOS_CFLAGS = -x objective-c -framework Foundation -framework UIKit -framework QuartzCore -framework Metal -framework MetalKit -miphoneos-version-min=12.0 -Isrc
+MACOS_CFLAGS = -x objective-c -framework Cocoa -framework QuartzCore -framework Metal -framework MetalKit -Isrc -Isrc/vendor
+IOS_CFLAGS = -x objective-c -framework Foundation -framework UIKit -framework QuartzCore -framework Metal -framework MetalKit -miphoneos-version-min=12.0 -Isrc -Isrc/vendor
 
 # Directories
 SRC_DIR = src
@@ -23,7 +23,7 @@ IOS_BUILD_DIR = $(BUILD_DIR)/ios
 
 # Targets and sources
 TARGET = app
-SOURCE = $(SRC_DIR)/main.c
+SOURCE = $(SRC_DIR)/main.c $(SRC_DIR)/vendor/vendor.c
 APP_BUNDLE = $(IOS_BUILD_DIR)/ClearSapp.app
 
 # Configurable variables (can be overridden)
@@ -33,7 +33,6 @@ PROVISIONING_PROFILE ?= ~/Library/Developer/Xcode/UserData/Provisioning\ Profile
 
 # Default target based on platform
 .DEFAULT_GOAL := $(DEFAULT_TARGET)
-
 # Platform info
 platform-info:
 	@echo "Detected platform: $(PLATFORM)"
@@ -63,7 +62,9 @@ ios: $(SOURCE) | $(IOS_BUILD_DIR)
 clean:
 	rm -rf $(BUILD_DIR)
 
-run: $(TARGET)
+all: macos ios
+
+run: $(DEFAULT_TARGET)
 	./$(MACOS_BUILD_DIR)/$(TARGET)
 
 .PHONY: clean run ios
