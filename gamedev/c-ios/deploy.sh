@@ -109,7 +109,7 @@ case $DEVICE_TYPE in
         echo "📲 Using device: $DEVICE_NAME ($DEVICE_ID)"
         
         echo "📲 Installing on device: $DEVICE_ID"
-        xcrun devicectl device install app --device "$DEVICE_ID" ClearSapp.app
+        xcrun devicectl device install app --device "$DEVICE_ID" build/ClearSapp.app
         
         echo "📱 App installed successfully!"
         # echo "🚀 Launching app in 2 seconds..."
@@ -142,7 +142,7 @@ case $DEVICE_TYPE in
         fi
         
         echo "📲 Installing on simulator: $SIM_ID"
-        xcrun simctl install "$SIM_ID" ClearSapp.app
+        xcrun simctl install "$SIM_ID" build/ClearSapp.app
         
         # echo "🚀 Launching app..."
         # # Use the actual bundle ID from Info.plist
