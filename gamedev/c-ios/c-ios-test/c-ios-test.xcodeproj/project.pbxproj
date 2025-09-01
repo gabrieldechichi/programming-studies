@@ -323,7 +323,6 @@
 				MARKETING_VERSION = 1.0;
 				"OTHER_CFLAGS[arch=*]" = (
 					"-DXCODE_BUILD",
-					"-DXCODE_BUILD",
 					"-I../src/vendor",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.pocketengine.c-ios-test";
