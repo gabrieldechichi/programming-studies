@@ -1,8 +1,20 @@
 CC = clang
 
+BUILD_CFLAGS = -std=c99 \
+			   -O2 \
+               -Wall -Wextra -Werror \
+               -Wpedantic -Wcast-align -Wcast-qual \
+               -Wconversion -Wenum-compare -Wfloat-equal \
+               -Wredundant-decls -Wsign-conversion \
+               -Wstrict-prototypes -Wmissing-prototypes \
+               -Wold-style-definition -Wmissing-declarations \
+               -Wformat=2 -Wformat-security \
+               -Wundef -Wshadow \
+               -I./vendor
+
 # Build the build system
 build: build.c
-	$(CC) -O2 build.c -o build
+	$(CC) $(BUILD_CFLAGS) build.c -o build
 
 macos: build
 	./build macos

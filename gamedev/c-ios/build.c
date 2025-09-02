@@ -98,12 +98,12 @@
 // Forward declarations
 int compile_shaders(const char *target_platform);
 
-int file_exists(const char *path) {
+static int file_exists(const char *path) {
   struct stat st;
   return stat(path, &st) == 0;
 }
 
-long file_mtime(const char *path) {
+static long file_mtime(const char *path) {
   struct stat st;
   if (stat(path, &st) == 0) {
     return st.st_mtime;
@@ -111,7 +111,7 @@ long file_mtime(const char *path) {
   return 0;
 }
 
-int create_dir(const char *path) {
+static int create_dir(const char *path) {
   if (file_exists(path)) {
     return 0;
   }
@@ -121,7 +121,7 @@ int create_dir(const char *path) {
   return system(cmd);
 }
 
-int build_macos(const char *build_type) {
+static int build_macos(const char *build_type) {
   const char *build_flags =
       strcmp(build_type, "release") == 0 ? RELEASE_FLAGS : DEBUG_FLAGS;
 
@@ -197,9 +197,7 @@ int build_macos(const char *build_type) {
   return 0;
 }
 
-int deploy_ios();
-
-int build_ios(const char *build_type) {
+static int build_ios(const char *build_type) {
   const char *build_flags =
       strcmp(build_type, "release") == 0 ? RELEASE_FLAGS : DEBUG_FLAGS;
   const char *vendor_build_flags = RELEASE_FLAGS;
@@ -322,7 +320,7 @@ int build_ios(const char *build_type) {
   return 0;
 }
 
-int build_windows(const char *build_type) {
+static int build_windows(const char *build_type) {
   const char *build_flags =
       strcmp(build_type, "release") == 0 ? RELEASE_FLAGS : DEBUG_FLAGS;
   const char *vendor_build_flags = RELEASE_FLAGS;
@@ -409,7 +407,7 @@ int build_windows(const char *build_type) {
   return 0;
 }
 
-int deploy_ios() {
+static int deploy_ios(void) {
   printf("🚀 iOS Device Deployment\n");
 
   // First build iOS (always use debug for deployment)
