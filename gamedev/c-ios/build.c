@@ -41,9 +41,9 @@
 // macOS configuration
 #define MACOS_VENDOR_OBJ "out/macos/vendor.o"
 #define MACOS_APP_TARGET "out/macos/app"
-#define MACOS_VENDOR_COMPILE_FLAGS "-x objective-c -Isrc -Isrc/vendor " VENDOR_RELAXED_FLAGS
-#define MACOS_MAIN_COMPILE_FLAGS "-x objective-c -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS
-#define MACOS_LINK_FLAGS "-x objective-c -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS " -v"
+#define MACOS_VENDOR_COMPILE_FLAGS "-x objective-c -Isrc -Isrc/vendor -DMACOS=1 " VENDOR_RELAXED_FLAGS
+#define MACOS_MAIN_COMPILE_FLAGS "-x objective-c -Isrc -Isrc/vendor -DMACOS=1 " MAIN_STRICT_FLAGS
+#define MACOS_LINK_FLAGS "-x objective-c -Isrc -Isrc/vendor -DMACOS=1 " MAIN_STRICT_FLAGS " -v"
 #define MACOS_FRAMEWORKS                                                       \
   "-framework Cocoa -framework QuartzCore -framework Metal -framework "        \
   "MetalKit"
@@ -53,10 +53,10 @@
 #define IOS_APP_TARGET "out/ios/app-ios"
 #define IOS_APP_BUNDLE "out/ios/ClearSapp.app"
 #define IOS_VENDOR_COMPILE_FLAGS \
-  "-x objective-c -miphoneos-version-min=12.0 -Isrc -Isrc/vendor " VENDOR_RELAXED_FLAGS
+  "-x objective-c -miphoneos-version-min=12.0 -Isrc -Isrc/vendor -DIOS=1 " VENDOR_RELAXED_FLAGS
 #define IOS_MAIN_COMPILE_FLAGS \
-  "-x objective-c -miphoneos-version-min=12.0 -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS
-#define IOS_LINK_FLAGS "-x objective-c -arch arm64 -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS
+  "-x objective-c -miphoneos-version-min=12.0 -Isrc -Isrc/vendor -DIOS=1 " MAIN_STRICT_FLAGS
+#define IOS_LINK_FLAGS "-x objective-c -arch arm64 -Isrc -Isrc/vendor -DIOS=1 " MAIN_STRICT_FLAGS
 #define IOS_FRAMEWORKS                                                         \
   "-framework Foundation -framework UIKit -framework QuartzCore -framework "   \
   "Metal -framework MetalKit"
@@ -74,10 +74,10 @@
 #define WINDOWS_VENDOR_OBJ "out/windows/vendor.o"
 #define WINDOWS_APP_TARGET "out/windows/app.exe"
 #define WINDOWS_TARGET "x86_64-windows-gnu"
-#define WINDOWS_VENDOR_COMPILE_FLAGS "-Isrc -Isrc/vendor -target " WINDOWS_TARGET " " VENDOR_RELAXED_FLAGS
-#define WINDOWS_MAIN_COMPILE_FLAGS "-Isrc -Isrc/vendor -target " WINDOWS_TARGET " " MAIN_STRICT_FLAGS
+#define WINDOWS_VENDOR_COMPILE_FLAGS "-Isrc -Isrc/vendor -target " WINDOWS_TARGET " -DWIN64=1 " VENDOR_RELAXED_FLAGS
+#define WINDOWS_MAIN_COMPILE_FLAGS "-Isrc -Isrc/vendor -target " WINDOWS_TARGET " -DWIN64=1 " MAIN_STRICT_FLAGS
 // -Wl,--subsystem,windows prevents console window from appearing
-#define WINDOWS_LINK_FLAGS "-target " WINDOWS_TARGET " -Wl,--subsystem,windows"
+#define WINDOWS_LINK_FLAGS "-target " WINDOWS_TARGET " -DWIN64=1 -Wl,--subsystem,windows"
 // Windows libraries needed by Sokol
 #define WINDOWS_LIBS "-ld3d11 -ldxgi -lgdi32 -lole32 -lkernel32 -luser32 -lshell32"
 
@@ -523,13 +523,13 @@ int compile_shaders(const char* target_platform) {
     char* dot = strrchr(basename, '.');
     if (dot) *dot = 0;
     
-    // Create output path
+    // Create platform-specific output path
     char output_path[256];
-    snprintf(output_path, sizeof(output_path), "src/shaders/%s.h", basename);
+    snprintf(output_path, sizeof(output_path), "src/shaders/%s_%s.h", basename, target_platform);
     
     // Check if shader needs recompilation
     if (file_exists(output_path) && file_mtime(shader_path) <= file_mtime(output_path)) {
-      printf("Shader %s is up to date\n", basename);
+      printf("Shader %s_%s is up to date\n", basename, target_platform);
       continue;
     }
     
@@ -545,6 +545,29 @@ int compile_shaders(const char* target_platform) {
       fprintf(stderr, "Failed to compile shader: %s\n", shader_path);
       pclose(find_fp);
       return 1;
+    }
+    
+    // Generate or update platform-agnostic header
+    char generic_header_path[256];
+    snprintf(generic_header_path, sizeof(generic_header_path), "src/shaders/%s.h", basename);
+    
+    FILE *generic_fp = fopen(generic_header_path, "w");
+    if (generic_fp) {
+      fprintf(generic_fp, "// Auto-generated platform-specific shader include\n");
+      fprintf(generic_fp, "#pragma once\n\n");
+      fprintf(generic_fp, "#if defined(MACOS)\n");
+      fprintf(generic_fp, "#include \"%s_macos.h\"\n", basename);
+      fprintf(generic_fp, "#elif defined(IOS)\n");
+      fprintf(generic_fp, "#include \"%s_ios.h\"\n", basename);
+      fprintf(generic_fp, "#elif defined(WIN64)\n");
+      fprintf(generic_fp, "#include \"%s_windows.h\"\n", basename);
+      fprintf(generic_fp, "#else\n");
+      fprintf(generic_fp, "#error \"Unsupported platform for shader: %s\"\n", basename);
+      fprintf(generic_fp, "#endif\n");
+      fclose(generic_fp);
+      printf("Generated platform-agnostic header: %s\n", generic_header_path);
+    } else {
+      fprintf(stderr, "Failed to create generic header: %s\n", generic_header_path);
     }
     
     shader_count++;
