@@ -17,8 +17,13 @@ ios: build
 ios-deploy: build
 	./build ios-deploy
 
+compile-commands: build
+	bear -- ./build macos
+
 clean:
 	rm -rf out/
 	rm -f build
 
-.PHONY: app macos ios ios-deploy clean
+all: macos ios
+
+.PHONY: app macos ios ios-deploy clean all compile-commands

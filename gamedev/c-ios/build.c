@@ -67,6 +67,7 @@ int create_dir(const char *path) {
   return system(cmd);
 }
 
+
 int build_macos() {
   printf("Building macOS target...\n");
 
@@ -247,6 +248,64 @@ int build_ios() {
   return 0;
 }
 
+int deploy_ios() {
+  printf("🚀 iOS Device Deployment\n");
+
+  // First build iOS
+  if (build_ios() != 0) {
+    fprintf(stderr, "Failed to build iOS app\n");
+    return 1;
+  }
+
+  // List available devices
+  printf("📱 Looking for connected iOS devices...\n");
+
+  // Auto-select first connected iOS device
+  char device_cmd[512];
+  snprintf(device_cmd, sizeof(device_cmd),
+           "xcrun devicectl list devices | grep -E '(iPhone|iPad)' | "
+           "grep -v 'unavailable' | grep -E '(available|connected)' | "
+           "head -1 | grep -o '[A-F0-9-]\\{36\\}'");
+
+  FILE *fp = popen(device_cmd, "r");
+  if (!fp) {
+    fprintf(stderr, "Failed to list devices\n");
+    return 1;
+  }
+
+  char device_id[128] = {0};
+  if (fgets(device_id, sizeof(device_id), fp) == NULL) {
+    pclose(fp);
+    fprintf(stderr, "❌ No connected iOS devices found\n");
+    fprintf(stderr, "💡 Make sure your device is:\n");
+    fprintf(stderr, "   - Connected via USB\n");
+    fprintf(stderr, "   - Unlocked and trusted this computer\n");
+    fprintf(stderr, "   - In Developer Mode (iOS 16+)\n");
+    return 1;
+  }
+  pclose(fp);
+
+  // Remove newline
+  device_id[strcspn(device_id, "\n")] = 0;
+
+  printf("📲 Found device: %s\n", device_id);
+
+  // Install on device
+  printf("📲 Installing on device...\n");
+  char install_cmd[512];
+  snprintf(install_cmd, sizeof(install_cmd),
+           "xcrun devicectl device install app --device %s %s", device_id,
+           IOS_APP_BUNDLE);
+
+  if (system(install_cmd) != 0) {
+    fprintf(stderr, "Failed to install app on device\n");
+    return 1;
+  }
+
+  printf("✅ iOS deployment complete!\n");
+  return 0;
+}
+
 int main(int argc, char *argv[]) {
   if (argc > 1) {
     if (strcmp(argv[1], "ios") == 0) {
@@ -264,62 +323,4 @@ int main(int argc, char *argv[]) {
 
   // Default to macOS
   return build_macos();
-}
-
-int deploy_ios() {
-  printf("🚀 iOS Device Deployment\n");
-  
-  // First build iOS
-  if (build_ios() != 0) {
-    fprintf(stderr, "Failed to build iOS app\n");
-    return 1;
-  }
-  
-  // List available devices
-  printf("📱 Looking for connected iOS devices...\n");
-  
-  // Auto-select first connected iOS device
-  char device_cmd[512];
-  snprintf(device_cmd, sizeof(device_cmd),
-    "xcrun devicectl list devices | grep -E '(iPhone|iPad)' | "
-    "grep -v 'unavailable' | grep -E '(available|connected)' | "
-    "head -1 | grep -o '[A-F0-9-]\\{36\\}'");
-  
-  FILE *fp = popen(device_cmd, "r");
-  if (!fp) {
-    fprintf(stderr, "Failed to list devices\n");
-    return 1;
-  }
-  
-  char device_id[128] = {0};
-  if (fgets(device_id, sizeof(device_id), fp) == NULL) {
-    pclose(fp);
-    fprintf(stderr, "❌ No connected iOS devices found\n");
-    fprintf(stderr, "💡 Make sure your device is:\n");
-    fprintf(stderr, "   - Connected via USB\n");
-    fprintf(stderr, "   - Unlocked and trusted this computer\n");
-    fprintf(stderr, "   - In Developer Mode (iOS 16+)\n");
-    return 1;
-  }
-  pclose(fp);
-  
-  // Remove newline
-  device_id[strcspn(device_id, "\n")] = 0;
-  
-  printf("📲 Found device: %s\n", device_id);
-  
-  // Install on device
-  printf("📲 Installing on device...\n");
-  char install_cmd[512];
-  snprintf(install_cmd, sizeof(install_cmd),
-    "xcrun devicectl device install app --device %s %s",
-    device_id, IOS_APP_BUNDLE);
-  
-  if (system(install_cmd) != 0) {
-    fprintf(stderr, "Failed to install app on device\n");
-    return 1;
-  }
-  
-  printf("✅ iOS deployment complete!\n");
-  return 0;
 }

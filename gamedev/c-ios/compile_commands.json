@@ -5,6 +5,11 @@
       "-c",
       "-x",
       "objective-c",
+      "-Isrc",
+      "-Isrc/vendor",
+      "-x",
+      "none",
+      "out/macos/vendor.o",
       "-framework",
       "Cocoa",
       "-framework",
@@ -14,11 +19,11 @@
       "-framework",
       "MetalKit",
       "-o",
-      "clear-sapp",
-      "clear-sapp.c"
+      "out/macos/app",
+      "src/main.c"
     ],
     "directory": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-ios",
-    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-ios/clear-sapp.c",
-    "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-ios/clear-sapp"
+    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-ios/src/main.c",
+    "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-ios/out/macos/app"
   }
 ]
