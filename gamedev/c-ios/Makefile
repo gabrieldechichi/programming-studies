@@ -37,7 +37,7 @@ compile-commands: build
 clean:
 	rm -rf out/
 	rm -f build
-	rm -f shaders/*.h
+	rm -f src/shaders/*.h
 
 all: macos ios windows
 all-release: macos-release ios-release windows-release

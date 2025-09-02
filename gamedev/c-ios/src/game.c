@@ -2,7 +2,7 @@
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
 #include "sokol/sokol_log.h"
-#include "../shaders/triangle.h"
+#include "shaders/triangle.h"
 
 // Application state
 typedef enum {

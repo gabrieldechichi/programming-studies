@@ -525,7 +525,7 @@ int compile_shaders(const char* target_platform) {
     
     // Create output path
     char output_path[256];
-    snprintf(output_path, sizeof(output_path), "shaders/%s.h", basename);
+    snprintf(output_path, sizeof(output_path), "src/shaders/%s.h", basename);
     
     // Check if shader needs recompilation
     if (file_exists(output_path) && file_mtime(shader_path) <= file_mtime(output_path)) {
