@@ -14,11 +14,32 @@
 #define VENDOR_SRC "src/vendor/vendor.c"
 #define MAIN_SRC "src/main.c"
 
+// Common strict warning flags for main code
+#define MAIN_STRICT_FLAGS \
+  "-std=c99 " \
+  "-Wall -Wextra -Werror " \
+  "-Wpedantic -Wcast-align -Wcast-qual " \
+  "-Wconversion -Wenum-compare -Wfloat-equal " \
+  "-Wredundant-decls -Wsign-conversion " \
+  "-Wstrict-prototypes -Wmissing-prototypes " \
+  "-Wold-style-definition -Wmissing-declarations " \
+  "-Wformat=2 -Wformat-security " \
+  "-Wundef -Wshadow"
+
+// Relaxed warning flags for vendor code
+#define VENDOR_RELAXED_FLAGS \
+  "-std=c99 " \
+  "-Wall -Wextra " \
+  "-Wno-implicit-float-conversion " \
+  "-Wno-implicit-int-float-conversion " \
+  "-Wno-enum-enum-conversion"
+
 // macOS configuration
 #define MACOS_VENDOR_OBJ "out/macos/vendor.o"
 #define MACOS_APP_TARGET "out/macos/app"
-#define MACOS_COMPILE_FLAGS "-x objective-c -Isrc -Isrc/vendor"
-#define MACOS_LINK_FLAGS "-x objective-c -Isrc -Isrc/vendor"
+#define MACOS_VENDOR_COMPILE_FLAGS "-x objective-c -Isrc -Isrc/vendor " VENDOR_RELAXED_FLAGS
+#define MACOS_MAIN_COMPILE_FLAGS "-x objective-c -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS
+#define MACOS_LINK_FLAGS "-x objective-c -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS
 #define MACOS_FRAMEWORKS                                                       \
   "-framework Cocoa -framework QuartzCore -framework Metal -framework "        \
   "MetalKit"
@@ -27,9 +48,11 @@
 #define IOS_VENDOR_OBJ "out/ios/vendor.o"
 #define IOS_APP_TARGET "out/ios/app-ios"
 #define IOS_APP_BUNDLE "out/ios/ClearSapp.app"
-#define IOS_COMPILE_FLAGS                                                      \
-  "-x objective-c -miphoneos-version-min=12.0 -Isrc -Isrc/vendor"
-#define IOS_LINK_FLAGS "-x objective-c -arch arm64 -Isrc -Isrc/vendor"
+#define IOS_VENDOR_COMPILE_FLAGS \
+  "-x objective-c -miphoneos-version-min=12.0 -Isrc -Isrc/vendor " VENDOR_RELAXED_FLAGS
+#define IOS_MAIN_COMPILE_FLAGS \
+  "-x objective-c -miphoneos-version-min=12.0 -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS
+#define IOS_LINK_FLAGS "-x objective-c -arch arm64 -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS
 #define IOS_FRAMEWORKS                                                         \
   "-framework Foundation -framework UIKit -framework QuartzCore -framework "   \
   "Metal -framework MetalKit"
@@ -47,7 +70,8 @@
 #define WINDOWS_VENDOR_OBJ "out/windows/vendor.o"
 #define WINDOWS_APP_TARGET "out/windows/app.exe"
 #define WINDOWS_TARGET "x86_64-windows-gnu"
-#define WINDOWS_COMPILE_FLAGS "-Isrc -Isrc/vendor -target " WINDOWS_TARGET
+#define WINDOWS_VENDOR_COMPILE_FLAGS "-Isrc -Isrc/vendor -target " WINDOWS_TARGET " " VENDOR_RELAXED_FLAGS
+#define WINDOWS_MAIN_COMPILE_FLAGS "-Isrc -Isrc/vendor -target " WINDOWS_TARGET " " MAIN_STRICT_FLAGS
 // -Wl,--subsystem,windows prevents console window from appearing
 #define WINDOWS_LINK_FLAGS "-target " WINDOWS_TARGET " -Wl,--subsystem,windows"
 // Windows libraries needed by Sokol
@@ -105,7 +129,7 @@ int build_macos() {
   if (need_vendor) {
     printf("Compiling vendor.c for macOS...\n");
     char cmd[512];
-    snprintf(cmd, sizeof(cmd), "%s %s -c %s -o %s", CC, MACOS_COMPILE_FLAGS,
+    snprintf(cmd, sizeof(cmd), "%s %s -c %s -o %s", CC, MACOS_VENDOR_COMPILE_FLAGS,
              vendor_src, vendor_obj);
 
     if (system(cmd) != 0) {
@@ -131,7 +155,7 @@ int build_macos() {
   if (need_main) {
     printf("Linking macOS application...\n");
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s -o %s %s", CC, MACOS_LINK_FLAGS,
+    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s -o %s %s", CC, MACOS_MAIN_COMPILE_FLAGS,
              main_src, LINK_RESET_FLAGS, vendor_obj, app_target,
              MACOS_FRAMEWORKS);
 
@@ -173,7 +197,7 @@ int build_ios() {
     printf("Compiling vendor.c for iOS...\n");
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "%s %s %s -arch arm64 -c %s -o %s", IOS_SDK, CC,
-             IOS_COMPILE_FLAGS, vendor_src, vendor_obj);
+             IOS_VENDOR_COMPILE_FLAGS, vendor_src, vendor_obj);
 
     if (system(cmd) != 0) {
       fprintf(stderr, "Failed to compile vendor.c for iOS\n");
@@ -199,7 +223,7 @@ int build_ios() {
     printf("Linking iOS application...\n");
     char cmd[1024];
     snprintf(cmd, sizeof(cmd), "%s %s %s %s %s %s -o %s %s", IOS_SDK, CC,
-             IOS_LINK_FLAGS, main_src, LINK_RESET_FLAGS, vendor_obj, app_target,
+             IOS_MAIN_COMPILE_FLAGS, main_src, LINK_RESET_FLAGS, vendor_obj, app_target,
              IOS_FRAMEWORKS);
 
     if (system(cmd) != 0) {
@@ -292,7 +316,7 @@ int build_windows() {
     printf("Compiling vendor.c for Windows...\n");
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "%s %s -c %s -o %s",
-             ZIG_CC, WINDOWS_COMPILE_FLAGS, vendor_src, vendor_obj);
+             ZIG_CC, WINDOWS_VENDOR_COMPILE_FLAGS, vendor_src, vendor_obj);
     
     printf("Running: %s\n", cmd);
     if (system(cmd) != 0) {
@@ -318,8 +342,8 @@ int build_windows() {
   if (need_main) {
     printf("Linking Windows application...\n");
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "%s %s -Isrc -Isrc/vendor %s %s -o %s %s",
-             ZIG_CC, WINDOWS_LINK_FLAGS, main_src, vendor_obj, app_target, WINDOWS_LIBS);
+    snprintf(cmd, sizeof(cmd), "%s %s -Isrc -Isrc/vendor %s %s %s -o %s %s",
+             ZIG_CC, WINDOWS_LINK_FLAGS, MAIN_STRICT_FLAGS, main_src, vendor_obj, app_target, WINDOWS_LIBS);
     
     printf("Running: %s\n", cmd);
     if (system(cmd) != 0) {
