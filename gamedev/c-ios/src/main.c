@@ -3,6 +3,7 @@
 #include "sokol/sokol_log.h"
 #include "sokol/sokol_glue.h"
 #include "sokol/sokol_gl.h"
+#include <stdio.h>
 
 static void init(void) {
     sg_setup(&(sg_desc){

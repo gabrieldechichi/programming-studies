@@ -6,9 +6,11 @@
 
 // Build configuration
 #define CC "clang"
+#define ZIG_CC "zig cc"
 #define OUT_DIR "out"
 #define MACOS_OUT_DIR "out/macos"
 #define IOS_OUT_DIR "out/ios"
+#define WINDOWS_OUT_DIR "out/windows"
 #define VENDOR_SRC "src/vendor/vendor.c"
 #define MAIN_SRC "src/main.c"
 
@@ -40,6 +42,15 @@
 #define PROVISIONING_PROFILE                                                   \
   "/Users/gabrieldechichi/Library/Developer/Xcode/UserData/Provisioning\\ "    \
   "Profiles/4d20f01c-5581-46d3-a2ad-7a07adcf0c84.mobileprovision"
+
+// Windows configuration (using zig cc for cross-compilation)
+#define WINDOWS_VENDOR_OBJ "out/windows/vendor.o"
+#define WINDOWS_APP_TARGET "out/windows/app.exe"
+#define WINDOWS_TARGET "x86_64-windows-gnu"
+#define WINDOWS_COMPILE_FLAGS "-Isrc -Isrc/vendor -target " WINDOWS_TARGET
+#define WINDOWS_LINK_FLAGS "-target " WINDOWS_TARGET
+// Windows libraries needed by Sokol
+#define WINDOWS_LIBS "-ld3d11 -ldxgi -lgdi32 -lole32 -lkernel32 -luser32 -lshell32"
 
 // Common flags
 #define LINK_RESET_FLAGS "-x none"
@@ -248,6 +259,79 @@ int build_ios() {
   return 0;
 }
 
+int build_windows() {
+  printf("Building Windows target (cross-compilation with zig cc)...\n");
+  
+  // Check if zig is available
+  if (system("which zig > /dev/null 2>&1") != 0) {
+    fprintf(stderr, "❌ zig not found! Install it from https://ziglang.org/download/\n");
+    return 1;
+  }
+  
+  // Create build directory
+  if (create_dir(WINDOWS_OUT_DIR) != 0) {
+    fprintf(stderr, "Failed to create Windows build directory\n");
+    return 1;
+  }
+  
+  // Check if vendor.o needs rebuilding
+  const char *vendor_src = VENDOR_SRC;
+  const char *vendor_obj = WINDOWS_VENDOR_OBJ;
+  
+  int need_vendor = 0;
+  if (!file_exists(vendor_obj)) {
+    need_vendor = 1;
+    printf("Windows vendor.o doesn't exist, need to compile\n");
+  } else if (file_mtime(vendor_src) > file_mtime(vendor_obj)) {
+    need_vendor = 1;
+    printf("vendor.c is newer than Windows vendor.o, need to recompile\n");
+  }
+  
+  if (need_vendor) {
+    printf("Compiling vendor.c for Windows...\n");
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "%s %s -c %s -o %s",
+             ZIG_CC, WINDOWS_COMPILE_FLAGS, vendor_src, vendor_obj);
+    
+    printf("Running: %s\n", cmd);
+    if (system(cmd) != 0) {
+      fprintf(stderr, "Failed to compile vendor.c for Windows\n");
+      return 1;
+    }
+  }
+  
+  // Check if main app needs rebuilding
+  const char *main_src = MAIN_SRC;
+  const char *app_target = WINDOWS_APP_TARGET;
+  
+  int need_main = 0;
+  if (!file_exists(app_target)) {
+    need_main = 1;
+    printf("Windows exe doesn't exist, need to build\n");
+  } else if (file_mtime(main_src) > file_mtime(app_target) ||
+             file_mtime(vendor_obj) > file_mtime(app_target)) {
+    need_main = 1;
+    printf("Source files are newer than Windows exe, need to rebuild\n");
+  }
+  
+  if (need_main) {
+    printf("Linking Windows application...\n");
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "%s %s -Isrc -Isrc/vendor %s %s -o %s %s",
+             ZIG_CC, WINDOWS_LINK_FLAGS, main_src, vendor_obj, app_target, WINDOWS_LIBS);
+    
+    printf("Running: %s\n", cmd);
+    if (system(cmd) != 0) {
+      fprintf(stderr, "Failed to link Windows application\n");
+      return 1;
+    }
+  }
+  
+  printf("Windows build complete: %s\n", app_target);
+  printf("💡 Copy %s to a Windows machine to test\n", app_target);
+  return 0;
+}
+
 int deploy_ios() {
   printf("🚀 iOS Device Deployment\n");
 
@@ -312,11 +396,13 @@ int main(int argc, char *argv[]) {
       return build_ios();
     } else if (strcmp(argv[1], "macos") == 0) {
       return build_macos();
+    } else if (strcmp(argv[1], "windows") == 0) {
+      return build_windows();
     } else if (strcmp(argv[1], "ios-deploy") == 0) {
       return deploy_ios();
     } else {
       fprintf(stderr, "Unknown target: %s\n", argv[1]);
-      fprintf(stderr, "Usage: %s [macos|ios|ios-deploy]\n", argv[0]);
+      fprintf(stderr, "Usage: %s [macos|ios|windows|ios-deploy]\n", argv[0]);
       return 1;
     }
   }

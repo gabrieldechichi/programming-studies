@@ -17,6 +17,9 @@ ios: build
 ios-deploy: build
 	./build ios-deploy
 
+windows: build
+	./build windows
+
 compile-commands: build
 	bear -- ./build macos
 
@@ -24,6 +27,6 @@ clean:
 	rm -rf out/
 	rm -f build
 
-all: macos ios
+all: macos ios windows
 
-.PHONY: app macos ios ios-deploy clean all compile-commands
+.PHONY: app macos ios windows ios-deploy clean all compile-commands
