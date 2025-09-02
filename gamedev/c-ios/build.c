@@ -48,7 +48,8 @@
 #define WINDOWS_APP_TARGET "out/windows/app.exe"
 #define WINDOWS_TARGET "x86_64-windows-gnu"
 #define WINDOWS_COMPILE_FLAGS "-Isrc -Isrc/vendor -target " WINDOWS_TARGET
-#define WINDOWS_LINK_FLAGS "-target " WINDOWS_TARGET
+// -Wl,--subsystem,windows prevents console window from appearing
+#define WINDOWS_LINK_FLAGS "-target " WINDOWS_TARGET " -Wl,--subsystem,windows"
 // Windows libraries needed by Sokol
 #define WINDOWS_LIBS "-ld3d11 -ldxgi -lgdi32 -lole32 -lkernel32 -luser32 -lshell32"
 
@@ -117,15 +118,15 @@ int build_macos() {
   const char *main_src = MAIN_SRC;
   const char *app_target = MACOS_APP_TARGET;
 
-  int need_main = 0;
-  if (!file_exists(app_target)) {
-    need_main = 1;
-    printf("app doesn't exist, need to build\n");
-  } else if (file_mtime(main_src) > file_mtime(app_target) ||
-             file_mtime(vendor_obj) > file_mtime(app_target)) {
-    need_main = 1;
-    printf("Source files are newer than app, need to rebuild\n");
-  }
+  int need_main = 1;
+  // if (!file_exists(app_target)) {
+  //   need_main = 1;
+  //   printf("app doesn't exist, need to build\n");
+  // } else if (file_mtime(main_src) > file_mtime(app_target) ||
+  //            file_mtime(vendor_obj) > file_mtime(app_target)) {
+  //   need_main = 1;
+  //   printf("Source files are newer than app, need to rebuild\n");
+  // }
 
   if (need_main) {
     printf("Linking macOS application...\n");
@@ -184,15 +185,15 @@ int build_ios() {
   const char *main_src = MAIN_SRC;
   const char *app_target = IOS_APP_TARGET;
 
-  int need_main = 0;
-  if (!file_exists(app_target)) {
-    need_main = 1;
-    printf("iOS app doesn't exist, need to build\n");
-  } else if (file_mtime(main_src) > file_mtime(app_target) ||
-             file_mtime(vendor_obj) > file_mtime(app_target)) {
-    need_main = 1;
-    printf("Source files are newer than iOS app, need to rebuild\n");
-  }
+  int need_main = 1;
+  // if (!file_exists(app_target)) {
+  //   need_main = 1;
+  //   printf("iOS app doesn't exist, need to build\n");
+  // } else if (file_mtime(main_src) > file_mtime(app_target) ||
+  //            file_mtime(vendor_obj) > file_mtime(app_target)) {
+  //   need_main = 1;
+  //   printf("Source files are newer than iOS app, need to rebuild\n");
+  // }
 
   if (need_main) {
     printf("Linking iOS application...\n");
@@ -304,15 +305,15 @@ int build_windows() {
   const char *main_src = MAIN_SRC;
   const char *app_target = WINDOWS_APP_TARGET;
   
-  int need_main = 0;
-  if (!file_exists(app_target)) {
-    need_main = 1;
-    printf("Windows exe doesn't exist, need to build\n");
-  } else if (file_mtime(main_src) > file_mtime(app_target) ||
-             file_mtime(vendor_obj) > file_mtime(app_target)) {
-    need_main = 1;
-    printf("Source files are newer than Windows exe, need to rebuild\n");
-  }
+  int need_main = 1;
+  // if (!file_exists(app_target)) {
+  //   need_main = 1;
+  //   printf("Windows exe doesn't exist, need to build\n");
+  // } else if (file_mtime(main_src) > file_mtime(app_target) ||
+  //            file_mtime(vendor_obj) > file_mtime(app_target)) {
+  //   need_main = 1;
+  //   printf("Source files are newer than Windows exe, need to rebuild\n");
+  // }
   
   if (need_main) {
     printf("Linking Windows application...\n");
