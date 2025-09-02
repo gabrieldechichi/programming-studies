@@ -34,6 +34,10 @@
   "-Wno-implicit-int-float-conversion " \
   "-Wno-enum-enum-conversion"
 
+// Debug and release build flags
+#define DEBUG_FLAGS "-g -O0 -DDEBUG"
+#define RELEASE_FLAGS "-O2 -DNDEBUG"
+
 // macOS configuration
 #define MACOS_VENDOR_OBJ "out/macos/vendor.o"
 #define MACOS_APP_TARGET "out/macos/app"
@@ -104,8 +108,9 @@ int create_dir(const char *path) {
 }
 
 
-int build_macos() {
-  printf("Building macOS target...\n");
+int build_macos(const char* build_type) {
+  const char* build_flags = strcmp(build_type, "release") == 0 ? RELEASE_FLAGS : DEBUG_FLAGS;
+  printf("Building macOS target (%s)...\n", build_type);
 
   // Create build directory
   if (create_dir(MACOS_OUT_DIR) != 0) {
@@ -128,8 +133,8 @@ int build_macos() {
 
   if (need_vendor) {
     printf("Compiling vendor.c for macOS...\n");
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "%s %s -c %s -o %s", CC, MACOS_VENDOR_COMPILE_FLAGS,
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "%s %s %s -c %s -o %s", CC, MACOS_VENDOR_COMPILE_FLAGS, build_flags,
              vendor_src, vendor_obj);
 
     if (system(cmd) != 0) {
@@ -155,7 +160,7 @@ int build_macos() {
   if (need_main) {
     printf("Linking macOS application...\n");
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s -o %s %s", CC, MACOS_MAIN_COMPILE_FLAGS,
+    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s %s -o %s %s", CC, MACOS_MAIN_COMPILE_FLAGS, build_flags,
              main_src, LINK_RESET_FLAGS, vendor_obj, app_target,
              MACOS_FRAMEWORKS);
 
@@ -171,8 +176,9 @@ int build_macos() {
 
 int deploy_ios();
 
-int build_ios() {
-  printf("Building iOS target...\n");
+int build_ios(const char* build_type) {
+  const char* build_flags = strcmp(build_type, "release") == 0 ? RELEASE_FLAGS : DEBUG_FLAGS;
+  printf("Building iOS target (%s)...\n", build_type);
 
   // Create build directory
   if (create_dir(IOS_OUT_DIR) != 0) {
@@ -195,9 +201,9 @@ int build_ios() {
 
   if (need_vendor) {
     printf("Compiling vendor.c for iOS...\n");
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "%s %s %s -arch arm64 -c %s -o %s", IOS_SDK, CC,
-             IOS_VENDOR_COMPILE_FLAGS, vendor_src, vendor_obj);
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "%s %s %s %s -arch arm64 -c %s -o %s", IOS_SDK, CC,
+             IOS_VENDOR_COMPILE_FLAGS, build_flags, vendor_src, vendor_obj);
 
     if (system(cmd) != 0) {
       fprintf(stderr, "Failed to compile vendor.c for iOS\n");
@@ -222,8 +228,8 @@ int build_ios() {
   if (need_main) {
     printf("Linking iOS application...\n");
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s %s -o %s %s", IOS_SDK, CC,
-             IOS_MAIN_COMPILE_FLAGS, main_src, LINK_RESET_FLAGS, vendor_obj, app_target,
+    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s %s %s -o %s %s", IOS_SDK, CC,
+             IOS_MAIN_COMPILE_FLAGS, build_flags, main_src, LINK_RESET_FLAGS, vendor_obj, app_target,
              IOS_FRAMEWORKS);
 
     if (system(cmd) != 0) {
@@ -284,8 +290,9 @@ int build_ios() {
   return 0;
 }
 
-int build_windows() {
-  printf("Building Windows target (cross-compilation with zig cc)...\n");
+int build_windows(const char* build_type) {
+  const char* build_flags = strcmp(build_type, "release") == 0 ? RELEASE_FLAGS : DEBUG_FLAGS;
+  printf("Building Windows target (cross-compilation with zig cc) (%s)...\n", build_type);
   
   // Check if zig is available
   if (system("which zig > /dev/null 2>&1") != 0) {
@@ -314,9 +321,9 @@ int build_windows() {
   
   if (need_vendor) {
     printf("Compiling vendor.c for Windows...\n");
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "%s %s -c %s -o %s",
-             ZIG_CC, WINDOWS_VENDOR_COMPILE_FLAGS, vendor_src, vendor_obj);
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "%s %s %s -c %s -o %s",
+             ZIG_CC, WINDOWS_VENDOR_COMPILE_FLAGS, build_flags, vendor_src, vendor_obj);
     
     printf("Running: %s\n", cmd);
     if (system(cmd) != 0) {
@@ -342,8 +349,8 @@ int build_windows() {
   if (need_main) {
     printf("Linking Windows application...\n");
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "%s %s -Isrc -Isrc/vendor %s %s %s -o %s %s",
-             ZIG_CC, WINDOWS_LINK_FLAGS, MAIN_STRICT_FLAGS, main_src, vendor_obj, app_target, WINDOWS_LIBS);
+    snprintf(cmd, sizeof(cmd), "%s %s -Isrc -Isrc/vendor %s %s %s %s -o %s %s",
+             ZIG_CC, WINDOWS_LINK_FLAGS, MAIN_STRICT_FLAGS, build_flags, main_src, vendor_obj, app_target, WINDOWS_LIBS);
     
     printf("Running: %s\n", cmd);
     if (system(cmd) != 0) {
@@ -360,8 +367,8 @@ int build_windows() {
 int deploy_ios() {
   printf("🚀 iOS Device Deployment\n");
 
-  // First build iOS
-  if (build_ios() != 0) {
+  // First build iOS (always use debug for deployment)
+  if (build_ios("debug") != 0) {
     fprintf(stderr, "Failed to build iOS app\n");
     return 1;
   }
@@ -416,22 +423,35 @@ int deploy_ios() {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc > 1) {
-    if (strcmp(argv[1], "ios") == 0) {
-      return build_ios();
-    } else if (strcmp(argv[1], "macos") == 0) {
-      return build_macos();
-    } else if (strcmp(argv[1], "windows") == 0) {
-      return build_windows();
-    } else if (strcmp(argv[1], "ios-deploy") == 0) {
-      return deploy_ios();
+  // Parse build type (debug/release), default to debug
+  const char* build_type = "debug";
+  if (argc > 2) {
+    if (strcmp(argv[2], "debug") == 0 || strcmp(argv[2], "release") == 0) {
+      build_type = argv[2];
     } else {
-      fprintf(stderr, "Unknown target: %s\n", argv[1]);
-      fprintf(stderr, "Usage: %s [macos|ios|windows|ios-deploy]\n", argv[0]);
+      fprintf(stderr, "Unknown build type: %s\n", argv[2]);
+      fprintf(stderr, "Build type must be 'debug' or 'release'\n");
       return 1;
     }
   }
 
-  // Default to macOS
-  return build_macos();
+  if (argc > 1) {
+    if (strcmp(argv[1], "ios") == 0) {
+      return build_ios(build_type);
+    } else if (strcmp(argv[1], "macos") == 0) {
+      return build_macos(build_type);
+    } else if (strcmp(argv[1], "windows") == 0) {
+      return build_windows(build_type);
+    } else if (strcmp(argv[1], "ios-deploy") == 0) {
+      return deploy_ios();
+    } else {
+      fprintf(stderr, "Unknown target: %s\n", argv[1]);
+      fprintf(stderr, "Usage: %s [macos|ios|windows|ios-deploy] [debug|release]\n", argv[0]);
+      fprintf(stderr, "Build type defaults to 'debug' if not specified\n");
+      return 1;
+    }
+  }
+
+  // Default to macOS debug
+  return build_macos(build_type);
 }

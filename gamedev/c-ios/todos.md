@@ -1,0 +1,12 @@
+- [ ] sokol generic shader tool
+    - [ ] add binary for all platforms
+    - [ ] C file that compiles everything instead of make file + handle ifdefs?
+        - [ ] maybe with job system
+- [x] test on windows
+- [x] test on iOS?
+- [x] C build system
+- [ ] Release build
+- [x] Vendor separate build
+- [ ] cross platform input?
+- [ ] move to engine?
+- [ ] job system? (maybe too much)
