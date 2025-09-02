@@ -28,6 +28,9 @@
 		A87045FD2E66A1CB0043596F /* vendor.c */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.objc; path = vendor.c; sourceTree = "<group>"; };
 		A87045FF2E66A1CB0043596F /* game.c */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.objc; path = game.c; sourceTree = "<group>"; };
 		A87046002E66A1CB0043596F /* main.c */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.objc; path = main.c; sourceTree = "<group>"; };
+		A87046062E66A7560043596F /* triangle.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = triangle.h; sourceTree = "<group>"; };
+		A87046072E66A7560043596F /* triangle_macos.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = triangle_macos.h; sourceTree = "<group>"; };
+		A87046092E66A7750043596F /* triangle_ios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = triangle_ios.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -95,6 +98,7 @@
 		A87046012E66A1CB0043596F /* src */ = {
 			isa = PBXGroup;
 			children = (
+				A87046082E66A7560043596F /* shaders */,
 				A87045FE2E66A1CB0043596F /* vendor */,
 				A87045FF2E66A1CB0043596F /* game.c */,
 				A87046002E66A1CB0043596F /* main.c */,
@@ -102,6 +106,16 @@
 			name = src;
 			path = ../src;
 			sourceTree = SOURCE_ROOT;
+		};
+		A87046082E66A7560043596F /* shaders */ = {
+			isa = PBXGroup;
+			children = (
+				A87046092E66A7750043596F /* triangle_ios.h */,
+				A87046062E66A7560043596F /* triangle.h */,
+				A87046072E66A7560043596F /* triangle_macos.h */,
+			);
+			path = shaders;
+			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
@@ -328,6 +342,7 @@
 				"OTHER_CFLAGS[arch=*]" = (
 					"-DXCODE_BUILD",
 					"-I../src/vendor",
+					"-DIOS",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.pocketengine.c-ios-test";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -360,6 +375,7 @@
 				"OTHER_CFLAGS[arch=*]" = (
 					"-DXCODE_BUILD",
 					"-I../src/vendor",
+					"-DIOS",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.pocketengine.c-ios-test";
 				PRODUCT_NAME = "$(TARGET_NAME)";
