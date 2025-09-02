@@ -28,14 +28,18 @@ windows: build
 windows-release: build
 	./build windows release
 
+shaders: build
+	./build shaders
+
 compile-commands: build
 	bear -- ./build macos
 
 clean:
 	rm -rf out/
 	rm -f build
+	rm -f shaders/*.h
 
 all: macos ios windows
 all-release: macos-release ios-release windows-release
 
-.PHONY: app macos ios windows ios-deploy clean all compile-commands
+.PHONY: app macos ios windows ios-deploy shaders clean all compile-commands

@@ -7,25 +7,27 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A87045DE2E664A420043596F /* vendor.c in Sources */ = {isa = PBXBuildFile; fileRef = A87045DA2E664A420043596F /* vendor.c */; };
-		A87045DF2E664A420043596F /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = A87045DC2E664A420043596F /* main.c */; };
-		A87045E02E664A420043596F /* sokol_impl.m in Sources */ = {isa = PBXBuildFile; fileRef = A87045D62E664A420043596F /* sokol_impl.m */; };
+		A87046022E66A1CB0043596F /* vendor.c in Sources */ = {isa = PBXBuildFile; fileRef = A87045FD2E66A1CB0043596F /* vendor.c */; };
+		A87046032E66A1CB0043596F /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = A87046002E66A1CB0043596F /* main.c */; };
+		A87046042E66A1CB0043596F /* game.c in Sources */ = {isa = PBXBuildFile; fileRef = A87045FF2E66A1CB0043596F /* game.c */; };
+		A87046052E66A1CB0043596F /* sokol_impl.m in Sources */ = {isa = PBXBuildFile; fileRef = A87045F92E66A1CB0043596F /* sokol_impl.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A87045A12E663DCA0043596F /* c-ios-test.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "c-ios-test.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		A87045CF2E664A420043596F /* sokol_app.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_app.h; sourceTree = "<group>"; };
-		A87045D02E664A420043596F /* sokol_args.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_args.h; sourceTree = "<group>"; };
-		A87045D12E664A420043596F /* sokol_audio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_audio.h; sourceTree = "<group>"; };
-		A87045D22E664A420043596F /* sokol_fetch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_fetch.h; sourceTree = "<group>"; };
-		A87045D32E664A420043596F /* sokol_gfx.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_gfx.h; sourceTree = "<group>"; };
-		A87045D42E664A420043596F /* sokol_gl.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_gl.h; sourceTree = "<group>"; };
-		A87045D52E664A420043596F /* sokol_glue.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_glue.h; sourceTree = "<group>"; };
-		A87045D62E664A420043596F /* sokol_impl.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = sokol_impl.m; sourceTree = "<group>"; };
-		A87045D72E664A420043596F /* sokol_log.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_log.h; sourceTree = "<group>"; };
-		A87045D82E664A420043596F /* sokol_time.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_time.h; sourceTree = "<group>"; };
-		A87045DA2E664A420043596F /* vendor.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = vendor.c; sourceTree = "<group>"; };
-		A87045DC2E664A420043596F /* main.c */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.objc; path = main.c; sourceTree = "<group>"; };
+		A87045F22E66A1CB0043596F /* sokol_app.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_app.h; sourceTree = "<group>"; };
+		A87045F32E66A1CB0043596F /* sokol_args.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_args.h; sourceTree = "<group>"; };
+		A87045F42E66A1CB0043596F /* sokol_audio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_audio.h; sourceTree = "<group>"; };
+		A87045F52E66A1CB0043596F /* sokol_fetch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_fetch.h; sourceTree = "<group>"; };
+		A87045F62E66A1CB0043596F /* sokol_gfx.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_gfx.h; sourceTree = "<group>"; };
+		A87045F72E66A1CB0043596F /* sokol_gl.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_gl.h; sourceTree = "<group>"; };
+		A87045F82E66A1CB0043596F /* sokol_glue.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_glue.h; sourceTree = "<group>"; };
+		A87045F92E66A1CB0043596F /* sokol_impl.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = sokol_impl.m; sourceTree = "<group>"; };
+		A87045FA2E66A1CB0043596F /* sokol_log.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_log.h; sourceTree = "<group>"; };
+		A87045FB2E66A1CB0043596F /* sokol_time.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sokol_time.h; sourceTree = "<group>"; };
+		A87045FD2E66A1CB0043596F /* vendor.c */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.objc; path = vendor.c; sourceTree = "<group>"; };
+		A87045FF2E66A1CB0043596F /* game.c */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.objc; path = game.c; sourceTree = "<group>"; };
+		A87046002E66A1CB0043596F /* main.c */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.objc; path = main.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -50,7 +52,7 @@
 		A87045982E663DCA0043596F = {
 			isa = PBXGroup;
 			children = (
-				A87045DD2E664A420043596F /* src */,
+				A87046012E66A1CB0043596F /* src */,
 				A87045A32E663DCA0043596F /* c-ios-test */,
 				A87045A22E663DCA0043596F /* Products */,
 			);
@@ -64,37 +66,38 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		A87045D92E664A420043596F /* sokol */ = {
+		A87045FC2E66A1CB0043596F /* sokol */ = {
 			isa = PBXGroup;
 			children = (
-				A87045CF2E664A420043596F /* sokol_app.h */,
-				A87045D02E664A420043596F /* sokol_args.h */,
-				A87045D12E664A420043596F /* sokol_audio.h */,
-				A87045D22E664A420043596F /* sokol_fetch.h */,
-				A87045D32E664A420043596F /* sokol_gfx.h */,
-				A87045D42E664A420043596F /* sokol_gl.h */,
-				A87045D52E664A420043596F /* sokol_glue.h */,
-				A87045D62E664A420043596F /* sokol_impl.m */,
-				A87045D72E664A420043596F /* sokol_log.h */,
-				A87045D82E664A420043596F /* sokol_time.h */,
+				A87045F22E66A1CB0043596F /* sokol_app.h */,
+				A87045F32E66A1CB0043596F /* sokol_args.h */,
+				A87045F42E66A1CB0043596F /* sokol_audio.h */,
+				A87045F52E66A1CB0043596F /* sokol_fetch.h */,
+				A87045F62E66A1CB0043596F /* sokol_gfx.h */,
+				A87045F72E66A1CB0043596F /* sokol_gl.h */,
+				A87045F82E66A1CB0043596F /* sokol_glue.h */,
+				A87045F92E66A1CB0043596F /* sokol_impl.m */,
+				A87045FA2E66A1CB0043596F /* sokol_log.h */,
+				A87045FB2E66A1CB0043596F /* sokol_time.h */,
 			);
 			path = sokol;
 			sourceTree = "<group>";
 		};
-		A87045DB2E664A420043596F /* vendor */ = {
+		A87045FE2E66A1CB0043596F /* vendor */ = {
 			isa = PBXGroup;
 			children = (
-				A87045D92E664A420043596F /* sokol */,
-				A87045DA2E664A420043596F /* vendor.c */,
+				A87045FC2E66A1CB0043596F /* sokol */,
+				A87045FD2E66A1CB0043596F /* vendor.c */,
 			);
 			path = vendor;
 			sourceTree = "<group>";
 		};
-		A87045DD2E664A420043596F /* src */ = {
+		A87046012E66A1CB0043596F /* src */ = {
 			isa = PBXGroup;
 			children = (
-				A87045DB2E664A420043596F /* vendor */,
-				A87045DC2E664A420043596F /* main.c */,
+				A87045FE2E66A1CB0043596F /* vendor */,
+				A87045FF2E66A1CB0043596F /* game.c */,
+				A87046002E66A1CB0043596F /* main.c */,
 			);
 			name = src;
 			path = ../src;
@@ -173,9 +176,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A87045DE2E664A420043596F /* vendor.c in Sources */,
-				A87045DF2E664A420043596F /* main.c in Sources */,
-				A87045E02E664A420043596F /* sokol_impl.m in Sources */,
+				A87046022E66A1CB0043596F /* vendor.c in Sources */,
+				A87046032E66A1CB0043596F /* main.c in Sources */,
+				A87046042E66A1CB0043596F /* game.c in Sources */,
+				A87046052E66A1CB0043596F /* sokol_impl.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

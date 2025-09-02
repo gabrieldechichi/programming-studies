@@ -43,7 +43,7 @@
 #define MACOS_APP_TARGET "out/macos/app"
 #define MACOS_VENDOR_COMPILE_FLAGS "-x objective-c -Isrc -Isrc/vendor " VENDOR_RELAXED_FLAGS
 #define MACOS_MAIN_COMPILE_FLAGS "-x objective-c -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS
-#define MACOS_LINK_FLAGS "-x objective-c -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS
+#define MACOS_LINK_FLAGS "-x objective-c -Isrc -Isrc/vendor " MAIN_STRICT_FLAGS " -v"
 #define MACOS_FRAMEWORKS                                                       \
   "-framework Cocoa -framework QuartzCore -framework Metal -framework "        \
   "MetalKit"
@@ -84,6 +84,9 @@
 // Common flags
 #define LINK_RESET_FLAGS "-x none"
 
+// Forward declarations
+int compile_shaders(const char* target_platform);
+
 int file_exists(const char *path) {
   struct stat st;
   return stat(path, &st) == 0;
@@ -111,6 +114,12 @@ int create_dir(const char *path) {
 int build_macos(const char* build_type) {
   const char* build_flags = strcmp(build_type, "release") == 0 ? RELEASE_FLAGS : DEBUG_FLAGS;
   printf("Building macOS target (%s)...\n", build_type);
+
+  // Compile shaders first
+  if (compile_shaders("macos") != 0) {
+    fprintf(stderr, "Failed to compile shaders\n");
+    return 1;
+  }
 
   // Create build directory
   if (create_dir(MACOS_OUT_DIR) != 0) {
@@ -179,6 +188,12 @@ int deploy_ios();
 int build_ios(const char* build_type) {
   const char* build_flags = strcmp(build_type, "release") == 0 ? RELEASE_FLAGS : DEBUG_FLAGS;
   printf("Building iOS target (%s)...\n", build_type);
+
+  // Compile shaders first
+  if (compile_shaders("ios") != 0) {
+    fprintf(stderr, "Failed to compile shaders\n");
+    return 1;
+  }
 
   // Create build directory
   if (create_dir(IOS_OUT_DIR) != 0) {
@@ -293,6 +308,12 @@ int build_ios(const char* build_type) {
 int build_windows(const char* build_type) {
   const char* build_flags = strcmp(build_type, "release") == 0 ? RELEASE_FLAGS : DEBUG_FLAGS;
   printf("Building Windows target (cross-compilation with zig cc) (%s)...\n", build_type);
+  
+  // Compile shaders first
+  if (compile_shaders("windows") != 0) {
+    fprintf(stderr, "Failed to compile shaders\n");
+    return 1;
+  }
   
   // Check if zig is available
   if (system("which zig > /dev/null 2>&1") != 0) {
@@ -422,6 +443,124 @@ int deploy_ios() {
   return 0;
 }
 
+int compile_shaders(const char* target_platform) {
+  printf("🔧 Compiling shaders for %s...\n", target_platform);
+  
+  // Determine sokol-shdc binary based on platform
+  char shdc_path[256];
+  const char* slang;
+  
+  if (strcmp(target_platform, "macos") == 0) {
+    // Detect macOS architecture
+    char arch_cmd[] = "uname -m";
+    FILE *fp = popen(arch_cmd, "r");
+    char arch[32] = {0};
+    if (fp && fgets(arch, sizeof(arch), fp)) {
+      pclose(fp);
+      // Remove newline
+      arch[strcspn(arch, "\n")] = 0;
+      
+      if (strcmp(arch, "arm64") == 0) {
+        snprintf(shdc_path, sizeof(shdc_path), "./bin/osx_arm64/sokol-shdc");
+      } else {
+        snprintf(shdc_path, sizeof(shdc_path), "./bin/osx/sokol-shdc");
+      }
+    } else {
+      snprintf(shdc_path, sizeof(shdc_path), "./bin/osx/sokol-shdc");
+    }
+    slang = "metal_macos";
+  } else if (strcmp(target_platform, "ios") == 0) {
+    snprintf(shdc_path, sizeof(shdc_path), "./bin/osx_arm64/sokol-shdc");
+    slang = "metal_ios";
+  } else if (strcmp(target_platform, "windows") == 0) {
+    snprintf(shdc_path, sizeof(shdc_path), "./bin/win32/sokol-shdc.exe");
+    slang = "hlsl5";
+  } else {
+    fprintf(stderr, "Unknown platform for shader compilation: %s\n", target_platform);
+    return 1;
+  }
+  
+  // Check if sokol-shdc exists
+  if (!file_exists(shdc_path)) {
+    fprintf(stderr, "sokol-shdc not found at: %s\n", shdc_path);
+    return 1;
+  }
+  
+  // Make sure it's executable
+  char chmod_cmd[512];
+  snprintf(chmod_cmd, sizeof(chmod_cmd), "chmod +x %s", shdc_path);
+  system(chmod_cmd);
+  
+  // Compile shaders in shaders/ directory
+  char find_cmd[512];
+  snprintf(find_cmd, sizeof(find_cmd), "find shaders -name '*.glsl' -type f");
+  
+  FILE *find_fp = popen(find_cmd, "r");
+  if (!find_fp) {
+    fprintf(stderr, "Failed to find shader files\n");
+    return 1;
+  }
+  
+  char shader_path[256];
+  int shader_count = 0;
+  
+  while (fgets(shader_path, sizeof(shader_path), find_fp)) {
+    // Remove newline
+    shader_path[strcspn(shader_path, "\n")] = 0;
+    
+    // Extract basename without extension
+    char basename[128];
+    const char* filename = strrchr(shader_path, '/');
+    if (filename) {
+      filename++; // Skip the '/'
+    } else {
+      filename = shader_path;
+    }
+    
+    // Remove .glsl extension
+    strncpy(basename, filename, sizeof(basename) - 1);
+    basename[sizeof(basename) - 1] = 0;
+    char* dot = strrchr(basename, '.');
+    if (dot) *dot = 0;
+    
+    // Create output path
+    char output_path[256];
+    snprintf(output_path, sizeof(output_path), "shaders/%s.h", basename);
+    
+    // Check if shader needs recompilation
+    if (file_exists(output_path) && file_mtime(shader_path) <= file_mtime(output_path)) {
+      printf("Shader %s is up to date\n", basename);
+      continue;
+    }
+    
+    printf("Compiling shader: %s\n", shader_path);
+    
+    // Compile shader
+    char compile_cmd[1024];
+    snprintf(compile_cmd, sizeof(compile_cmd), 
+             "%s --input %s --output %s --slang %s",
+             shdc_path, shader_path, output_path, slang);
+    
+    if (system(compile_cmd) != 0) {
+      fprintf(stderr, "Failed to compile shader: %s\n", shader_path);
+      pclose(find_fp);
+      return 1;
+    }
+    
+    shader_count++;
+  }
+  
+  pclose(find_fp);
+  
+  if (shader_count == 0) {
+    printf("No shaders needed compilation\n");
+  } else {
+    printf("✅ Compiled %d shaders\n", shader_count);
+  }
+  
+  return 0;
+}
+
 int main(int argc, char *argv[]) {
   // Parse build type (debug/release), default to debug
   const char* build_type = "debug";
@@ -444,9 +583,16 @@ int main(int argc, char *argv[]) {
       return build_windows(build_type);
     } else if (strcmp(argv[1], "ios-deploy") == 0) {
       return deploy_ios();
+    } else if (strcmp(argv[1], "shaders") == 0) {
+      // Compile shaders for all platforms
+      printf("Compiling shaders for all platforms...\n");
+      if (compile_shaders("macos") != 0) return 1;
+      if (compile_shaders("ios") != 0) return 1;
+      if (compile_shaders("windows") != 0) return 1;
+      return 0;
     } else {
       fprintf(stderr, "Unknown target: %s\n", argv[1]);
-      fprintf(stderr, "Usage: %s [macos|ios|windows|ios-deploy] [debug|release]\n", argv[0]);
+      fprintf(stderr, "Usage: %s [macos|ios|windows|ios-deploy|shaders] [debug|release]\n", argv[0]);
       fprintf(stderr, "Build type defaults to 'debug' if not specified\n");
       return 1;
     }
