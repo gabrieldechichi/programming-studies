@@ -70,7 +70,8 @@ static Class MTLTextureDescriptor_class;
 static struct {
     id device;
     id command_queue;
-    id render_textures[NUM_FRAMES];
+    id render_textures[NUM_FRAMES];  // Metal textures
+    sg_image render_images[NUM_FRAMES];  // Sokol image wrappers
     id readback_buffer;
     sg_pass_action pass_action;
     sg_pipeline pip;
@@ -149,9 +150,9 @@ static void metal_init(void) {
     app_state.command_queue = msgSend0(app_state.device, sel_newCommandQueue);
     msgSend0(app_state.command_queue, sel_retain);
 
-    // Create render target textures
+    // Create Metal textures for render targets
     for (int i = 0; i < NUM_FRAMES; i++) {
-        // Create texture descriptor using class method
+        // Create texture descriptor
         id tex_desc = ((id (*)(id, SEL, int, int, int, BOOL))objc_msgSend)(
             MTLTextureDescriptor_class,
             sel_texture2DDescriptorWithPixelFormat_width_height_mipmapped,
@@ -185,6 +186,21 @@ static void sokol_init(void) {
         },
         .logger.func = slog_func,
     });
+
+    // Create Sokol image wrappers for our Metal textures
+    for (int i = 0; i < NUM_FRAMES; i++) {
+        app_state.render_images[i] = sg_make_image(&(sg_image_desc){
+            .usage = {
+                .color_attachment = true,
+            },
+            .width = FRAME_WIDTH,
+            .height = FRAME_HEIGHT,
+            .pixel_format = SG_PIXELFORMAT_BGRA8,
+            .sample_count = 1,
+            .mtl_textures[0] = app_state.render_textures[i],  // Wrap our Metal texture
+            .label = "render-target"
+        });
+    }
 
     // Create vertex buffer
     app_state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
@@ -222,12 +238,10 @@ static void render_frames(void) {
     printf("Rendering %d frames...\n", NUM_FRAMES);
 
     for (int i = 0; i < NUM_FRAMES; i++) {
-        // Create color attachment view for current render texture
+        // Create color attachment view for current render image
         sg_view color_view = sg_make_view(&(sg_view_desc){
             .color_attachment = {
-                .image = {
-                    .id = (uint32_t)(uintptr_t)app_state.render_textures[i]
-                },
+                .image = app_state.render_images[i],
             }
         });
 
@@ -304,45 +318,71 @@ static void readback_frames(void) {
     memcpy(app_state.frame_data, buffer_contents, FRAME_WIDTH * FRAME_HEIGHT * 4 * NUM_FRAMES);
 }
 
-static void save_frames(void) {
-    printf("Saving frames to disk...\n");
+static void generate_mp4(void) {
+    printf("Generating MP4 video...\n");
 
+    // FFmpeg command to read raw RGB24 frames from stdin and create MP4
+    // -f rawvideo: input format is raw video
+    // -pixel_format rgb24: input pixel format (we'll convert from BGRA to RGB)
+    // -video_size: dimensions of input frames
+    // -framerate: output framerate (30 fps for smooth playback)
+    // -i -: read from stdin
+    // -c:v libx264: use H.264 codec
+    // -pix_fmt yuv420p: output pixel format for compatibility
+    // -y: overwrite output file
+    const char* ffmpeg_cmd =
+        "ffmpeg -loglevel error -f rawvideo -pixel_format rgb24 -video_size 800x600 "
+        "-framerate 30 -i - -c:v libx264 -pix_fmt yuv420p -y output.mp4";
+
+    FILE* ffmpeg = popen(ffmpeg_cmd, "w");
+    if (!ffmpeg) {
+        fprintf(stderr, "Failed to launch ffmpeg\n");
+        return;
+    }
+
+    // Write frames to ffmpeg
     for (int i = 0; i < NUM_FRAMES; i++) {
-        char filename[256];
-        snprintf(filename, sizeof(filename), "frame_%02d.raw", i);
-
         size_t frame_size = FRAME_WIDTH * FRAME_HEIGHT * 4;
         size_t offset = (size_t)i * frame_size;
+        uint8_t* frame_ptr = app_state.frame_data + offset;
 
-        FILE* f = fopen(filename, "wb");
-        if (f) {
-            // Convert BGRA to RGBA
-            uint8_t* frame_ptr = app_state.frame_data + offset;
-            for (int j = 0; j < FRAME_WIDTH * FRAME_HEIGHT; j++) {
-                uint8_t b = frame_ptr[j * 4 + 0];
-                uint8_t g = frame_ptr[j * 4 + 1];
-                uint8_t r = frame_ptr[j * 4 + 2];
-                uint8_t a = frame_ptr[j * 4 + 3];
+        // Convert BGRA to RGB and write to ffmpeg
+        for (int j = 0; j < FRAME_WIDTH * FRAME_HEIGHT; j++) {
+            uint8_t b = frame_ptr[j * 4 + 0];
+            uint8_t g = frame_ptr[j * 4 + 1];
+            uint8_t r = frame_ptr[j * 4 + 2];
+            // Skip alpha channel for RGB24 format
 
-                // Write as RGBA
-                fputc(r, f);
-                fputc(g, f);
-                fputc(b, f);
-                fputc(a, f);
-            }
-            fclose(f);
-            printf("  Saved %s (%dx%d RGBA)\n", filename, FRAME_WIDTH, FRAME_HEIGHT);
-        } else {
-            fprintf(stderr, "Failed to open %s for writing\n", filename);
+            // Write RGB
+            fputc(r, ffmpeg);
+            fputc(g, ffmpeg);
+            fputc(b, ffmpeg);
         }
+
+        printf("  Wrote frame %d/%d\n", i + 1, NUM_FRAMES);
+    }
+
+    // Close pipe and wait for ffmpeg to finish
+    int result = pclose(ffmpeg);
+    if (result == 0) {
+        printf("✅ Successfully generated output.mp4\n");
+    } else {
+        fprintf(stderr, "FFmpeg exited with error code: %d\n", result);
     }
 }
 
 static void cleanup(void) {
+    // Destroy Sokol images BEFORE shutting down Sokol
+    for (int i = 0; i < NUM_FRAMES; i++) {
+        if (app_state.render_images[i].id != 0) {
+            sg_destroy_image(app_state.render_images[i]);
+        }
+    }
+
     // Cleanup Sokol
     sg_shutdown();
 
-    // Release Metal resources
+    // Release Metal textures
     for (int i = 0; i < NUM_FRAMES; i++) {
         if (app_state.render_textures[i]) {
             msgSend0(app_state.render_textures[i], sel_release);
@@ -372,21 +412,28 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     printf("Initializing headless Metal renderer...\n");
+    fflush(stdout);
 
     // Initialize Metal
+    printf("Initializing Metal...\n");
+    fflush(stdout);
     metal_init();
 
     // Initialize Sokol
+    printf("Initializing Sokol...\n");
+    fflush(stdout);
     sokol_init();
 
     // Render all frames
+    printf("Starting render...\n");
+    fflush(stdout);
     render_frames();
 
     // Readback frames from GPU
     readback_frames();
 
-    // Save frames to disk (in final use case, this would be omitted)
-    save_frames();
+    // Generate MP4 video using ffmpeg
+    generate_mp4();
 
     // Cleanup
     cleanup();
