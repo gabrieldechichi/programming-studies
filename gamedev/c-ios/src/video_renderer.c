@@ -9,6 +9,13 @@
 #include <sys/time.h>
 #include <Block.h>
 
+// FFmpeg headers
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/opt.h>
+#include <libavutil/imgutils.h>
+#include <libswscale/swscale.h>
+
 // Metal and Foundation headers
 #include <objc/objc.h>
 #include <objc/runtime.h>
@@ -117,7 +124,15 @@ static struct {
   pthread_t encoder_thread;
   pthread_mutex_t queue_mutex;
   pthread_cond_t queue_cond;
-  FILE *ffmpeg_pipe;
+
+  // FFmpeg encoding context
+  AVFormatContext *format_ctx;
+  AVCodecContext *codec_ctx;
+  AVStream *video_stream;
+  AVPacket *packet;
+  AVFrame *frame;
+  struct SwsContext *sws_ctx;
+  int64_t pts_counter;
 
   // Timing
   struct timeval start_time;
@@ -171,46 +186,246 @@ static double get_time_diff(struct timeval *start, struct timeval *end) {
          (double)(end->tv_usec - start->tv_usec) / 1000000.0;
 }
 
-// BGRA to RGB conversion removed - we now send BGRA directly to FFmpeg
+// Initialize FFmpeg encoder
+static int init_ffmpeg_encoder(const char *filename) {
+  int ret;
+
+  // Allocate format context
+  ret = avformat_alloc_output_context2(&app_state.format_ctx, NULL, NULL, filename);
+  if (ret < 0) {
+    fprintf(stderr, "Failed to allocate output context\n");
+    return -1;
+  }
+
+  // Find H.264 encoder (use VideoToolbox on macOS)
+  const AVCodec *codec = avcodec_find_encoder_by_name("h264_videotoolbox");
+  if (!codec) {
+    // Fallback to software encoder
+    codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    if (!codec) {
+      fprintf(stderr, "H.264 encoder not found\n");
+      return -1;
+    }
+  }
+
+  // Create new video stream
+  app_state.video_stream = avformat_new_stream(app_state.format_ctx, NULL);
+  if (!app_state.video_stream) {
+    fprintf(stderr, "Failed to create video stream\n");
+    return -1;
+  }
+
+  // Allocate codec context
+  app_state.codec_ctx = avcodec_alloc_context3(codec);
+  if (!app_state.codec_ctx) {
+    fprintf(stderr, "Failed to allocate codec context\n");
+    return -1;
+  }
+
+  // Set codec parameters
+  app_state.codec_ctx->width = FRAME_WIDTH;
+  app_state.codec_ctx->height = FRAME_HEIGHT;
+  app_state.codec_ctx->time_base = (AVRational){1, 24};
+  app_state.codec_ctx->framerate = (AVRational){24, 1};
+  app_state.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+  app_state.codec_ctx->bit_rate = 2000000; // 2 Mbps
+
+  // Set H.264 specific options
+  av_opt_set(app_state.codec_ctx->priv_data, "profile", "high", 0);
+  av_opt_set(app_state.codec_ctx->priv_data, "level", "4.0", 0);
+  if (codec->name && strstr(codec->name, "videotoolbox")) {
+    // VideoToolbox specific options for better performance
+    av_opt_set(app_state.codec_ctx->priv_data, "realtime", "1", 0);
+  }
+
+  // Open codec
+  ret = avcodec_open2(app_state.codec_ctx, codec, NULL);
+  if (ret < 0) {
+    fprintf(stderr, "Failed to open codec\n");
+    return -1;
+  }
+
+  // Copy codec parameters to stream
+  ret = avcodec_parameters_from_context(app_state.video_stream->codecpar, app_state.codec_ctx);
+  if (ret < 0) {
+    fprintf(stderr, "Failed to copy codec parameters\n");
+    return -1;
+  }
+
+  app_state.video_stream->time_base = app_state.codec_ctx->time_base;
+
+  // Open output file
+  if (!(app_state.format_ctx->oformat->flags & AVFMT_NOFILE)) {
+    ret = avio_open(&app_state.format_ctx->pb, filename, AVIO_FLAG_WRITE);
+    if (ret < 0) {
+      fprintf(stderr, "Failed to open output file\n");
+      return -1;
+    }
+  }
+
+  // Write file header
+  ret = avformat_write_header(app_state.format_ctx, NULL);
+  if (ret < 0) {
+    fprintf(stderr, "Failed to write header\n");
+    return -1;
+  }
+
+  // Allocate frame and packet
+  app_state.frame = av_frame_alloc();
+  app_state.frame->format = app_state.codec_ctx->pix_fmt;
+  app_state.frame->width = app_state.codec_ctx->width;
+  app_state.frame->height = app_state.codec_ctx->height;
+  ret = av_frame_get_buffer(app_state.frame, 0);
+  if (ret < 0) {
+    fprintf(stderr, "Failed to allocate frame buffer\n");
+    return -1;
+  }
+
+  app_state.packet = av_packet_alloc();
+
+  // Initialize SWS context for BGRA to YUV420P conversion
+  app_state.sws_ctx = sws_getContext(
+    FRAME_WIDTH, FRAME_HEIGHT, AV_PIX_FMT_BGRA,
+    FRAME_WIDTH, FRAME_HEIGHT, AV_PIX_FMT_YUV420P,
+    SWS_FAST_BILINEAR, NULL, NULL, NULL);
+
+  if (!app_state.sws_ctx) {
+    fprintf(stderr, "Failed to create SWS context\n");
+    return -1;
+  }
+
+  app_state.pts_counter = 0;
+
+  printf("[FFmpeg] Encoder initialized (using %s)\n", codec->name);
+  return 0;
+}
+
+// Close FFmpeg encoder
+static void close_ffmpeg_encoder(void) {
+  // Write trailer
+  if (app_state.format_ctx) {
+    av_write_trailer(app_state.format_ctx);
+  }
+
+  // Clean up
+  if (app_state.sws_ctx) {
+    sws_freeContext(app_state.sws_ctx);
+  }
+  if (app_state.frame) {
+    av_frame_free(&app_state.frame);
+  }
+  if (app_state.packet) {
+    av_packet_free(&app_state.packet);
+  }
+  if (app_state.codec_ctx) {
+    avcodec_free_context(&app_state.codec_ctx);
+  }
+  if (app_state.format_ctx) {
+    if (!(app_state.format_ctx->oformat->flags & AVFMT_NOFILE)) {
+      avio_closep(&app_state.format_ctx->pb);
+    }
+    avformat_free_context(app_state.format_ctx);
+  }
+}
+
+// Encode a single frame
+static int encode_frame(uint8_t *bgra_data) {
+  int ret;
+
+  // Convert BGRA to YUV420P
+  const uint8_t *src_data[4] = {bgra_data, NULL, NULL, NULL};
+  int src_linesize[4] = {FRAME_WIDTH * 4, 0, 0, 0};
+
+  ret = av_frame_make_writable(app_state.frame);
+  if (ret < 0) {
+    return ret;
+  }
+
+  sws_scale(app_state.sws_ctx, src_data, src_linesize, 0, FRAME_HEIGHT,
+            app_state.frame->data, app_state.frame->linesize);
+
+  app_state.frame->pts = app_state.pts_counter++;
+
+  // Send frame to encoder
+  ret = avcodec_send_frame(app_state.codec_ctx, app_state.frame);
+  if (ret < 0) {
+    fprintf(stderr, "Error sending frame to encoder\n");
+    return ret;
+  }
+
+  // Receive encoded packets
+  while (ret >= 0) {
+    ret = avcodec_receive_packet(app_state.codec_ctx, app_state.packet);
+    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+      break;
+    } else if (ret < 0) {
+      fprintf(stderr, "Error receiving packet from encoder\n");
+      return ret;
+    }
+
+    // Rescale timestamps
+    av_packet_rescale_ts(app_state.packet, app_state.codec_ctx->time_base,
+                         app_state.video_stream->time_base);
+    app_state.packet->stream_index = app_state.video_stream->index;
+
+    // Write packet to file
+    ret = av_interleaved_write_frame(app_state.format_ctx, app_state.packet);
+    av_packet_unref(app_state.packet);
+    if (ret < 0) {
+      fprintf(stderr, "Error writing packet\n");
+      return ret;
+    }
+  }
+
+  return 0;
+}
 
 // Encoder thread function
 static void *encoder_thread_func(void *arg) {
-  PROFILE_BEGIN("ffmpeg encoder thread");
   (void)arg;
   printf("[Encoder] Thread started\n");
 
   int next_frame_to_encode = 0;
 
   while (next_frame_to_encode < NUM_FRAMES) {
-    PROFILE_BEGIN("ffmpeg do frame");
+    PROFILE_BEGIN("ffmpeg wait for frame");
     // Wait for the next frame to be ready
     while (!atomic_load(&app_state.frames[next_frame_to_encode].ready)) {
-      // usleep(100); // Small sleep to avoid busy waiting
+      usleep(100); // Small sleep to avoid busy waiting
     }
+    PROFILE_END();
 
-    // Write BGRA frame directly - no conversion needed!
+    PROFILE_BEGIN("ffmpeg encode frame");
+    // Encode frame directly in memory
     frame_data_t *frame = &app_state.frames[next_frame_to_encode];
 
-    size_t written =
-        fwrite(frame->data, 1, FRAME_SIZE_BYTES, app_state.ffmpeg_pipe);
-    if (written != FRAME_SIZE_BYTES) {
-      fprintf(stderr, "[Encoder] Failed to write frame %d\n",
+    if (encode_frame(frame->data) < 0) {
+      fprintf(stderr, "[Encoder] Failed to encode frame %d\n",
               next_frame_to_encode);
     }
+    PROFILE_END();
 
     atomic_fetch_add(&app_state.frames_encoded, 1);
     printf("[Encoder] Encoded frame %d/%d\n", next_frame_to_encode + 1,
            NUM_FRAMES);
     next_frame_to_encode++;
-    PROFILE_END();
   }
 
-  // Close FFmpeg pipe
-  pclose(app_state.ffmpeg_pipe);
+  // Flush encoder
+  avcodec_send_frame(app_state.codec_ctx, NULL);
+  AVPacket *flush_pkt = av_packet_alloc();
+  while (avcodec_receive_packet(app_state.codec_ctx, flush_pkt) == 0) {
+    av_packet_rescale_ts(flush_pkt, app_state.codec_ctx->time_base,
+                         app_state.video_stream->time_base);
+    flush_pkt->stream_index = app_state.video_stream->index;
+    av_interleaved_write_frame(app_state.format_ctx, flush_pkt);
+    av_packet_unref(flush_pkt);
+  }
+  av_packet_free(&flush_pkt);
+
   gettimeofday(&app_state.encode_complete_time, NULL);
 
   printf("[Encoder] Thread finished - all frames encoded\n");
-  PROFILE_END();
   return NULL;
 }
 
@@ -501,19 +716,9 @@ static void render_all_frames(void) {
 static void start_ffmpeg_encoder(void) {
   PROFILE_BEGIN("start_ffmpeg_encoder");
 
-  // Start FFmpeg process with hardware encoding (VideoToolbox on macOS)
-  // Using BGRA input directly - no color conversion needed!
-  // Added compression settings: CRF for quality, preset for speed/compression
-  // tradeoff
-  const char *ffmpeg_cmd =
-      "ffmpeg -loglevel error -f rawvideo -pixel_format bgra -video_size "
-      "1080x1920 "
-      "-framerate 24 -i - -c:v h264_videotoolbox -pix_fmt yuv420p "
-      "-b:v 2M -profile:v high -level 4.0 -y output.mp4";
-
-  app_state.ffmpeg_pipe = popen(ffmpeg_cmd, "w");
-  if (!app_state.ffmpeg_pipe) {
-    fprintf(stderr, "Failed to launch ffmpeg\n");
+  // Initialize FFmpeg encoder
+  if (init_ffmpeg_encoder("output.mp4") < 0) {
+    fprintf(stderr, "Failed to initialize FFmpeg encoder\n");
     exit(1);
   }
 
@@ -549,6 +754,9 @@ static void wait_for_completion(void) {
 }
 
 static void cleanup(void) {
+  // Close FFmpeg encoder
+  close_ffmpeg_encoder();
+
   // Destroy Sokol images
   for (int i = 0; i < NUM_FRAMES; i++) {
     if (app_state.render_images[i].id != 0) {

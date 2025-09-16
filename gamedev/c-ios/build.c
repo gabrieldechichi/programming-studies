@@ -50,6 +50,11 @@
 #define MACOS_FRAMEWORKS                                                       \
   "-framework Cocoa -framework QuartzCore -framework Metal -framework "        \
   "MetalKit"
+// FFmpeg libraries for video encoding
+#define MACOS_FFMPEG_FLAGS                                                     \
+  "-I/opt/homebrew/Cellar/ffmpeg/7.1.1_5/include "                            \
+  "-L/opt/homebrew/Cellar/ffmpeg/7.1.1_5/lib "                                \
+  "-lavformat -lavcodec -lavutil -lswscale"
 
 // iOS configuration
 #define IOS_VENDOR_OBJ "out/ios/vendor.o"
@@ -182,10 +187,10 @@ static int build_macos(const char *build_type) {
 
   if (need_main) {
     printf("Linking macOS application...\n");
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s %s -o %s %s", CC,
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s %s -o %s %s %s", CC,
              MACOS_MAIN_COMPILE_FLAGS, build_flags, main_src, LINK_RESET_FLAGS,
-             vendor_obj, app_target, MACOS_FRAMEWORKS);
+             vendor_obj, app_target, MACOS_FRAMEWORKS, MACOS_FFMPEG_FLAGS);
 
     if (system(cmd) != 0) {
       fprintf(stderr, "Failed to link macOS application\n");
