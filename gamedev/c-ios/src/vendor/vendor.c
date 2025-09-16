@@ -13,10 +13,7 @@
 #endif
 
 #include "sokol/sokol_gfx.h"
-#include "sokol/sokol_app.h"
 #include "sokol/sokol_log.h"
-#include "sokol/sokol_glue.h"
-#include "sokol/sokol_gl.h"
 
 #undef SOKOL_IMPL
 #ifdef SOKOL_METAL
