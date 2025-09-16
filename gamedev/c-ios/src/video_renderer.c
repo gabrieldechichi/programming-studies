@@ -298,6 +298,8 @@ static void sokol_init(void) {
                 .device = app_state.device,
             },
         },
+        .image_pool_size = NUM_FRAMES + 10,  // Need one image per frame plus some overhead
+        .view_pool_size = NUM_FRAMES + 10,   // Need one view per frame plus some overhead
         .logger.func = slog_func,
     });
 
@@ -397,6 +399,9 @@ static void render_all_frames(void) {
 
     // Second pass: Set up async readback for all frames
     for (int i = 0; i < NUM_FRAMES; i++) {
+        // Capture frame index by value
+        const int frame_idx = i;
+
         // Create command buffer with readback operations
         id cmd_buffer = msgSend0(app_state.command_queue, sel_commandBuffer);
         id blit_encoder = msgSend0(cmd_buffer, sel_blitCommandEncoder);
@@ -411,9 +416,9 @@ static void render_all_frames(void) {
         ((void (*)(id, SEL, id, NSUInteger, NSUInteger, MyMTLOrigin, MyMTLSize, id, NSUInteger, NSUInteger, NSUInteger))objc_msgSend)(
             blit_encoder,
             sel_copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage,
-            app_state.render_textures[i],
+            app_state.render_textures[frame_idx],
             0, 0, origin, size,
-            app_state.readback_buffers[i],
+            app_state.readback_buffers[frame_idx],
             0,
             FRAME_WIDTH * 4,
             FRAME_SIZE_BYTES
@@ -425,11 +430,11 @@ static void render_all_frames(void) {
         CommandBufferHandler handler = Block_copy(^(id cmd) {
             (void)cmd;
             // Copy data from Metal buffer to CPU memory
-            void* buffer_contents = msgSend0(app_state.readback_buffers[i], sel_contents);
-            memcpy(app_state.frames[i].data, buffer_contents, FRAME_SIZE_BYTES);
+            void* buffer_contents = msgSend0(app_state.readback_buffers[frame_idx], sel_contents);
+            memcpy(app_state.frames[frame_idx].data, buffer_contents, FRAME_SIZE_BYTES);
 
             // Mark frame as ready for encoding
-            atomic_store(&app_state.frames[i].ready, true);
+            atomic_store(&app_state.frames[frame_idx].ready, true);
             atomic_fetch_add(&app_state.frames_ready, 1);
 
             if (atomic_load(&app_state.frames_ready) == NUM_FRAMES) {
