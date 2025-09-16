@@ -1,5 +1,7 @@
 #include "profiler.h"
+#include <stdlib.h>
 #include <stdio.h>
+#include <stdatomic.h>
 #include "sokol/sokol_time.h"
 
 #if PROFILER_ENABLED
@@ -26,10 +28,16 @@ static f64 platform_ticks_to_ns(u64 ticks) {
     return stm_ns(ticks);
 }
 
-ProfileAnchor g_profiler_anchors[PROFILER_MAX_ANCHORS] = {0};
-u32 g_profiler_parent = 0;
-ProfileBlock *g_profile_stack[PROFILER_MAX_STACK_DEPTH] = {0};
-u32 g_profile_stack_depth = 0;
+// Thread-local profiler state
+_Thread_local ProfileAnchor g_profiler_anchors[PROFILER_MAX_ANCHORS] = {0};
+_Thread_local u32 g_profiler_parent = 0;
+_Thread_local ProfileBlock *g_profile_stack[PROFILER_MAX_STACK_DEPTH] = {0};
+_Thread_local u32 g_profile_stack_depth = 0;
+_Thread_local int g_thread_registered = 0;
+
+// Global registry for merging thread results
+ProfileAnchor* g_all_thread_anchors[PROFILER_MAX_THREADS];
+_Atomic(int) g_thread_count = 0;
 
 static struct {
   u64 start_tsc;
@@ -38,6 +46,15 @@ static struct {
 
 void profiler_begin_block(ProfileBlock *block, const char *label,
                           u32 anchor_index) {
+  // Register this thread's anchors array if not already registered
+  if (!g_thread_registered) {
+    int idx = atomic_fetch_add(&g_thread_count, 1);
+    if (idx < PROFILER_MAX_THREADS) {
+      g_all_thread_anchors[idx] = g_profiler_anchors;
+      g_thread_registered = 1;
+    }
+  }
+
   block->parent_index = g_profiler_parent;
   block->anchor_index = anchor_index;
   block->label = label;
@@ -126,10 +143,27 @@ void profiler_end_and_print_session(Allocator *allocator) {
   SortedAnchor sorted_anchors[PROFILER_MAX_ANCHORS];
   u32 active_count = 0;
 
+  // First, merge all thread data into a single array
+  ProfileAnchor merged_anchors[PROFILER_MAX_ANCHORS] = {0};
+
+  int thread_count = atomic_load(&g_thread_count);
+  for (int t = 0; t < thread_count; t++) {
+    ProfileAnchor* thread_anchors = g_all_thread_anchors[t];
+    for (u32 a = 0; a < PROFILER_MAX_ANCHORS; a++) {
+      if (thread_anchors[a].hit_count > 0) {
+        merged_anchors[a].tsc_elapsed_exclusive += thread_anchors[a].tsc_elapsed_exclusive;
+        merged_anchors[a].tsc_elapsed_inclusive += thread_anchors[a].tsc_elapsed_inclusive;
+        merged_anchors[a].hit_count += thread_anchors[a].hit_count;
+        merged_anchors[a].label = thread_anchors[a].label;
+      }
+    }
+  }
+
+  // Now process the merged data
   u64 total_profiled_tsc = 0;
   for (u32 anchor_index = 0; anchor_index < PROFILER_MAX_ANCHORS;
        anchor_index++) {
-    ProfileAnchor *anchor = &g_profiler_anchors[anchor_index];
+    ProfileAnchor *anchor = &merged_anchors[anchor_index];
     if (anchor->tsc_elapsed_inclusive) {
       if (anchor_index == 0 ||
           anchor->tsc_elapsed_inclusive > total_profiled_tsc) {
@@ -138,7 +172,7 @@ void profiler_end_and_print_session(Allocator *allocator) {
       u64 exclusive_us = anchor->tsc_elapsed_exclusive;
       sorted_anchors[active_count].anchor = anchor;
       sorted_anchors[active_count].avg_exclusive_us =
-          exclusive_us / (f64)anchor->hit_count;
+          (f64) exclusive_us / (f64)anchor->hit_count;
       active_count++;
     }
   }
@@ -155,7 +189,7 @@ void profiler_end_and_print_session(Allocator *allocator) {
   }
 
   size_t buffer_size = MB(10);
-  char *buffer = ALLOC_ARRAY(allocator, char, buffer_size);
+  char *buffer = allocator ? ALLOC_ARRAY(allocator, char, buffer_size) : (char*)malloc(buffer_size);
   assert(buffer);
   StringBuilder sb;
   sb_init(&sb, buffer, buffer_size);
@@ -178,6 +212,11 @@ void profiler_end_and_print_session(Allocator *allocator) {
   sb_append(&sb, "======================================\n");
 
   printf("%s", sb_get(&sb));
+
+  // Free buffer if we allocated it with malloc
+  if (!allocator) {
+    free(buffer);
+  }
 }
 
 #endif

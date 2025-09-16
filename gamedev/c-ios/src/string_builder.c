@@ -51,8 +51,8 @@ size_t sb_remaining(StringBuilder *sb) {
 }
 
 void sb_append_f32(StringBuilder *sb, f64 value, u32 decimal_places) {
-  i32 int_part = (i32)value;
-  f64 frac_part = value - int_part;
+  i64 int_part = (i64)value;
+  f64 frac_part = value - (f64) int_part;
 
   char int_str[32];
   u32 int_len = 0;
@@ -60,7 +60,7 @@ void sb_append_f32(StringBuilder *sb, f64 value, u32 decimal_places) {
     int_str[0] = '0';
     int_len = 1;
   } else {
-    i32 temp = int_part;
+    i64 temp =  int_part;
     while (temp > 0) {
       int_str[int_len++] = '0' + (temp % 10);
       temp /= 10;
