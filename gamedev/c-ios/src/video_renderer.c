@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 // Metal and Foundation headers
 #include <objc/objc.h>
@@ -63,7 +64,7 @@ static Class MTLTextureDescriptor_class;
 #define MTLStoreActionStore 1
 
 // Application state
-#define NUM_FRAMES 10
+#define NUM_FRAMES 60  // 2.5 seconds at 24fps
 #define FRAME_WIDTH 800
 #define FRAME_HEIGHT 600
 
@@ -86,6 +87,20 @@ static float vertices[] = {
     0.5f,  -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, // bottom right (green)
     -0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f  // bottom left (blue)
 };
+
+// vs_params_t is defined in the shader header (triangle.h)
+
+// Create a 4x4 rotation matrix around Z axis
+static void mat4_rotation_z(float* m, float angle_rad) {
+    float c = cosf(angle_rad);
+    float s = sinf(angle_rad);
+
+    memset(m, 0, sizeof(float) * 16);
+    m[0] = c;    m[1] = s;
+    m[4] = -s;   m[5] = c;
+    m[10] = 1.0f;
+    m[15] = 1.0f;
+}
 
 // Helper to call ObjC methods without arguments
 static id msgSend0(id obj, SEL sel) {
@@ -237,7 +252,19 @@ static void sokol_init(void) {
 static void render_frames(void) {
     printf("Rendering %d frames...\n", NUM_FRAMES);
 
+    // Fixed timestep (24 fps)
+    const float dt = 1.0f / 24.0f;
+    const float rotation_speed = 2.0f; // radians per second
+
     for (int i = 0; i < NUM_FRAMES; i++) {
+        // Calculate rotation angle based on frame and timestep
+        float time = (float)i * dt;
+        float angle = time * rotation_speed;
+
+        // Create rotation matrix
+        vs_params_t vs_params;
+        mat4_rotation_z(vs_params.model, angle);
+
         // Create color attachment view for current render image
         sg_view color_view = sg_make_view(&(sg_view_desc){
             .color_attachment = {
@@ -253,9 +280,10 @@ static void render_frames(void) {
             }
         });
 
-        // Draw triangle
+        // Draw triangle with rotation
         sg_apply_pipeline(app_state.pip);
         sg_apply_bindings(&app_state.bind);
+        sg_apply_uniforms(0, &(sg_range){ &vs_params, sizeof(vs_params) });
         sg_draw(0, 3, 1);
 
         sg_end_pass();
@@ -264,7 +292,7 @@ static void render_frames(void) {
         // Clean up view
         sg_destroy_view(color_view);
 
-        printf("  Frame %d rendered\n", i);
+        printf("  Frame %d rendered (rotation: %.2f degrees)\n", i, angle * 180.0f / M_PI);
     }
 }
 
@@ -332,7 +360,7 @@ static void generate_mp4(void) {
     // -y: overwrite output file
     const char* ffmpeg_cmd =
         "ffmpeg -loglevel error -f rawvideo -pixel_format rgb24 -video_size 800x600 "
-        "-framerate 30 -i - -c:v libx264 -pix_fmt yuv420p -y output.mp4";
+        "-framerate 24 -i - -c:v libx264 -pix_fmt yuv420p -y output.mp4";
 
     FILE* ffmpeg = popen(ffmpeg_cmd, "w");
     if (!ffmpeg) {
