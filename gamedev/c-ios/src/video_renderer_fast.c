@@ -7,7 +7,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/time.h>
-#include <Block.h>
 
 // Metal and Foundation headers
 #include <objc/objc.h>
@@ -75,7 +74,7 @@ static Class MTLTextureDescriptor_class;
 #define MTLCommandBufferStatusCompleted 4
 
 // Application constants
-#define NUM_FRAMES 200  // 2.5 seconds at 24fps
+#define NUM_FRAMES 60  // 2.5 seconds at 24fps
 #define FRAME_WIDTH 1080
 #define FRAME_HEIGHT 1920
 #define FRAME_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT * 4)
@@ -124,12 +123,10 @@ static struct {
 // Triangle vertex data
 static float vertices[] = {
     // positions      colors
-    0.0f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f, // top vertex (red)
-    0.5f,  -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, // bottom right (green)
-    -0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f  // bottom left (blue)
+    0.0f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f,
+    0.5f,  -0.5f, 0.0f, 1.0f, 0.0f, 1.0f,
+    -0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f
 };
-
-// vs_params_t is defined in the shader header (triangle.h)
 
 // Create a 4x4 rotation matrix around Z axis
 static void mat4_rotation_z(float* m, float angle_rad) {
@@ -143,24 +140,22 @@ static void mat4_rotation_z(float* m, float angle_rad) {
     m[15] = 1.0f;
 }
 
-// Helper to call ObjC methods without arguments
+// Helper to call ObjC methods
 static id msgSend0(id obj, SEL sel) {
     return ((id (*)(id, SEL))objc_msgSend)(obj, sel);
 }
 
-// Helper to call ObjC methods with one argument
 static id msgSend1(id obj, SEL sel, id arg) {
     return ((id (*)(id, SEL, id))objc_msgSend)(obj, sel, arg);
 }
 
-// Helper to call ObjC methods with integer argument
 static void msgSendInt(id obj, SEL sel, int arg) {
     ((void (*)(id, SEL, int))objc_msgSend)(obj, sel, arg);
 }
 
 // Timing utilities
 static double get_time_diff(struct timeval* start, struct timeval* end) {
-    return (double)(end->tv_sec - start->tv_sec) + (double)(end->tv_usec - start->tv_usec) / 1000000.0;
+    return (end->tv_sec - start->tv_sec) + (end->tv_usec - start->tv_usec) / 1000000.0;
 }
 
 // BGRA to RGB conversion (optimized)
@@ -213,6 +208,55 @@ static void* encoder_thread_func(void* arg) {
 // Completion handler for command buffer
 typedef void (^CommandBufferHandler)(id);
 
+static CommandBufferHandler create_readback_handler(int frame_index) {
+    return ^(id cmd_buffer) {
+        // This block is called when rendering for this frame is complete
+        // Now we can safely read back the texture
+
+        // Create a new command buffer for the blit operation
+        id blit_cmd_buffer = msgSend0(app_state.command_queue, sel_commandBuffer);
+        id blit_encoder = msgSend0(blit_cmd_buffer, sel_blitCommandEncoder);
+
+        // Copy texture to readback buffer
+        typedef struct { NSUInteger x, y, z; } MyMTLOrigin;
+        typedef struct { NSUInteger width, height, depth; } MyMTLSize;
+
+        MyMTLOrigin origin = {0, 0, 0};
+        MyMTLSize size = {FRAME_WIDTH, FRAME_HEIGHT, 1};
+
+        ((void (*)(id, SEL, id, NSUInteger, NSUInteger, MyMTLOrigin, MyMTLSize, id, NSUInteger, NSUInteger, NSUInteger))objc_msgSend)(
+            blit_encoder,
+            sel_copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage,
+            app_state.render_textures[frame_index],
+            0, 0, origin, size,
+            app_state.readback_buffers[frame_index],
+            0,
+            FRAME_WIDTH * 4,
+            FRAME_SIZE_BYTES
+        );
+
+        msgSend0(blit_encoder, sel_endEncoding);
+
+        // Add completion handler for the blit operation
+        CommandBufferHandler blit_handler = ^(id blit_cmd) {
+            // Copy data from Metal buffer to CPU memory
+            void* buffer_contents = msgSend0(app_state.readback_buffers[frame_index], sel_contents);
+            memcpy(app_state.frames[frame_index].data, buffer_contents, FRAME_SIZE_BYTES);
+
+            // Mark frame as ready for encoding
+            atomic_store(&app_state.frames[frame_index].ready, true);
+            atomic_fetch_add(&app_state.frames_ready, 1);
+
+            if (atomic_load(&app_state.frames_ready) == NUM_FRAMES) {
+                gettimeofday(&app_state.readback_complete_time, NULL);
+            }
+        };
+
+        ((void (*)(id, SEL, CommandBufferHandler))objc_msgSend)(blit_cmd_buffer, sel_addCompletedHandler, blit_handler);
+        msgSend0(blit_cmd_buffer, sel_commit);
+    };
+}
+
 // Initialize Metal
 static void metal_init(void) {
     // Get selectors
@@ -248,7 +292,7 @@ static void metal_init(void) {
     MTLTextureDescriptor_class = objc_getClass("MTLTextureDescriptor");
     MTLRenderPassDescriptor_class = objc_getClass("MTLRenderPassDescriptor");
 
-    // Create device using proper casting
+    // Create device
     #pragma clang diagnostic push
     #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
     app_state.device = ((id (*)(void))MTLCreateSystemDefaultDevice)();
@@ -291,7 +335,7 @@ static void metal_init(void) {
 }
 
 static void sokol_init(void) {
-    // Initialize Sokol GFX with Metal backend
+    // Initialize Sokol GFX
     sg_setup(&(sg_desc){
         .environment = {
             .metal = {
@@ -301,7 +345,7 @@ static void sokol_init(void) {
         .logger.func = slog_func,
     });
 
-    // Create Sokol image wrappers for our Metal textures
+    // Create Sokol image wrappers for Metal textures
     for (int i = 0; i < NUM_FRAMES; i++) {
         app_state.render_images[i] = sg_make_image(&(sg_image_desc){
             .usage = {
@@ -311,7 +355,7 @@ static void sokol_init(void) {
             .height = FRAME_HEIGHT,
             .pixel_format = SG_PIXELFORMAT_BGRA8,
             .sample_count = 1,
-            .mtl_textures[0] = app_state.render_textures[i],  // Wrap our Metal texture
+            .mtl_textures[0] = app_state.render_textures[i],
             .label = "render-target"
         });
     }
@@ -343,7 +387,7 @@ static void sokol_init(void) {
     app_state.pass_action = (sg_pass_action){
         .colors[0] = {
             .load_action = SG_LOADACTION_CLEAR,
-            .clear_value = {0.0f, 0.0f, 0.0f, 1.0f}  // Black background
+            .clear_value = {0.0f, 0.0f, 0.0f, 1.0f}
         }
     };
 }
@@ -354,7 +398,7 @@ static void render_all_frames(void) {
     const float dt = 1.0f / 24.0f;
     const float rotation_speed = 2.0f;
 
-    // First pass: Submit all render commands
+    // Submit all render commands in one batch
     for (int i = 0; i < NUM_FRAMES; i++) {
         // Calculate rotation for this frame
         float time = (float)i * dt;
@@ -384,6 +428,17 @@ static void render_all_frames(void) {
         sg_draw(0, 3, 1);
 
         sg_end_pass();
+
+        // Get the underlying Metal command buffer and add completion handler
+        id cmd_buffer = (id)sg_mtl_get_command_buffer();
+        app_state.command_buffers[i] = cmd_buffer;
+        msgSend0(cmd_buffer, sel_retain);
+
+        // Add completion handler for readback
+        CommandBufferHandler handler = create_readback_handler(i);
+        ((void (*)(id, SEL, CommandBufferHandler))objc_msgSend)(cmd_buffer, sel_addCompletedHandler, handler);
+
+        // Commit this frame's rendering
         sg_commit();
 
         // Clean up view
@@ -394,60 +449,13 @@ static void render_all_frames(void) {
 
     gettimeofday(&app_state.render_complete_time, NULL);
     printf("[Renderer] All frames submitted to GPU\n");
-
-    // Second pass: Set up async readback for all frames
-    for (int i = 0; i < NUM_FRAMES; i++) {
-        // Create command buffer with readback operations
-        id cmd_buffer = msgSend0(app_state.command_queue, sel_commandBuffer);
-        id blit_encoder = msgSend0(cmd_buffer, sel_blitCommandEncoder);
-
-        // Copy texture to readback buffer
-        typedef struct { NSUInteger x, y, z; } MyMTLOrigin;
-        typedef struct { NSUInteger width, height, depth; } MyMTLSize;
-
-        MyMTLOrigin origin = {0, 0, 0};
-        MyMTLSize size = {FRAME_WIDTH, FRAME_HEIGHT, 1};
-
-        ((void (*)(id, SEL, id, NSUInteger, NSUInteger, MyMTLOrigin, MyMTLSize, id, NSUInteger, NSUInteger, NSUInteger))objc_msgSend)(
-            blit_encoder,
-            sel_copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage,
-            app_state.render_textures[i],
-            0, 0, origin, size,
-            app_state.readback_buffers[i],
-            0,
-            FRAME_WIDTH * 4,
-            FRAME_SIZE_BYTES
-        );
-
-        msgSend0(blit_encoder, sel_endEncoding);
-
-        // Add completion handler
-        CommandBufferHandler handler = Block_copy(^(id cmd) {
-            (void)cmd;
-            // Copy data from Metal buffer to CPU memory
-            void* buffer_contents = msgSend0(app_state.readback_buffers[i], sel_contents);
-            memcpy(app_state.frames[i].data, buffer_contents, FRAME_SIZE_BYTES);
-
-            // Mark frame as ready for encoding
-            atomic_store(&app_state.frames[i].ready, true);
-            atomic_fetch_add(&app_state.frames_ready, 1);
-
-            if (atomic_load(&app_state.frames_ready) == NUM_FRAMES) {
-                gettimeofday(&app_state.readback_complete_time, NULL);
-            }
-        });
-
-        ((void (*)(id, SEL, CommandBufferHandler))objc_msgSend)(cmd_buffer, sel_addCompletedHandler, handler);
-        msgSend0(cmd_buffer, sel_commit);
-        Block_release(handler);
-    }
 }
 
 static void start_ffmpeg_encoder(void) {
     // Start FFmpeg process
     const char* ffmpeg_cmd =
         "ffmpeg -loglevel error -f rawvideo -pixel_format rgb24 -video_size 1080x1920 "
-        "-framerate 24 -i - -c:v libx264 -pix_fmt yuv420p -y output.mp4";
+        "-framerate 24 -i - -c:v libx264 -pix_fmt yuv420p -y output_fast.mp4";
 
     app_state.ffmpeg_pipe = popen(ffmpeg_cmd, "w");
     if (!app_state.ffmpeg_pipe) {
@@ -552,6 +560,6 @@ int main(int argc, char* argv[]) {
     // Cleanup
     cleanup();
 
-    printf("\n✅ Video generated: output.mp4\n");
+    printf("\n✅ Video generated: output_fast.mp4\n");
     return 0;
 }
