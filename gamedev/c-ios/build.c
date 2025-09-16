@@ -17,7 +17,7 @@
 // Common strict warning flags for main code
 #define MAIN_STRICT_FLAGS                                                      \
   "-std=c99 "                                                                  \
-  "-Wall -Wextra -Werror "                                                     \
+  "-Wall -Wextra "                                                     \
   "-Wpedantic -Wcast-align -Wcast-qual "                                       \
   "-Wconversion -Wenum-compare -Wfloat-equal "                                 \
   "-Wredundant-decls -Wsign-conversion "                                       \

@@ -14,6 +14,7 @@
 
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_log.h"
+#include "sokol/sokol_time.h"
 
 #undef SOKOL_IMPL
 #ifdef SOKOL_METAL

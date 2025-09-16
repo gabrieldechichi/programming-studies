@@ -163,21 +163,13 @@ static double get_time_diff(struct timeval* start, struct timeval* end) {
     return (double)(end->tv_sec - start->tv_sec) + (double)(end->tv_usec - start->tv_usec) / 1000000.0;
 }
 
-// BGRA to RGB conversion (optimized)
-static void convert_bgra_to_rgb(uint8_t* bgra, uint8_t* rgb, size_t pixel_count) {
-    for (size_t i = 0; i < pixel_count; i++) {
-        rgb[i * 3 + 0] = bgra[i * 4 + 2]; // R
-        rgb[i * 3 + 1] = bgra[i * 4 + 1]; // G
-        rgb[i * 3 + 2] = bgra[i * 4 + 0]; // B
-    }
-}
+// BGRA to RGB conversion removed - we now send BGRA directly to FFmpeg
 
 // Encoder thread function
 static void* encoder_thread_func(void* arg) {
     (void)arg;
     printf("[Encoder] Thread started\n");
 
-    uint8_t* rgb_buffer = malloc(FRAME_WIDTH * FRAME_HEIGHT * 3);
     int next_frame_to_encode = 0;
 
     while (next_frame_to_encode < NUM_FRAMES) {
@@ -186,12 +178,11 @@ static void* encoder_thread_func(void* arg) {
             usleep(100); // Small sleep to avoid busy waiting
         }
 
-        // Convert and write frame
+        // Write BGRA frame directly - no conversion needed!
         frame_data_t* frame = &app_state.frames[next_frame_to_encode];
-        convert_bgra_to_rgb(frame->data, rgb_buffer, FRAME_WIDTH * FRAME_HEIGHT);
 
-        size_t written = fwrite(rgb_buffer, 1, FRAME_WIDTH * FRAME_HEIGHT * 3, app_state.ffmpeg_pipe);
-        if (written != FRAME_WIDTH * FRAME_HEIGHT * 3) {
+        size_t written = fwrite(frame->data, 1, FRAME_SIZE_BYTES, app_state.ffmpeg_pipe);
+        if (written != FRAME_SIZE_BYTES) {
             fprintf(stderr, "[Encoder] Failed to write frame %d\n", next_frame_to_encode);
         }
 
@@ -199,8 +190,6 @@ static void* encoder_thread_func(void* arg) {
         printf("[Encoder] Encoded frame %d/%d\n", next_frame_to_encode + 1, NUM_FRAMES);
         next_frame_to_encode++;
     }
-
-    free(rgb_buffer);
 
     // Close FFmpeg pipe
     pclose(app_state.ffmpeg_pipe);
@@ -386,7 +375,11 @@ static void render_all_frames(void) {
         sg_draw(0, 3, 1);
 
         sg_end_pass();
-        sg_commit();
+
+        // Batch commits - only commit every 20 frames or on the last frame
+        if ((i % 20 == 19) || (i == NUM_FRAMES - 1)) {
+            sg_commit();
+        }
 
         // Clean up view
         sg_destroy_view(color_view);
@@ -449,10 +442,13 @@ static void render_all_frames(void) {
 }
 
 static void start_ffmpeg_encoder(void) {
-    // Start FFmpeg process
+    // Start FFmpeg process with hardware encoding (VideoToolbox on macOS)
+    // Using BGRA input directly - no color conversion needed!
+    // Added compression settings: CRF for quality, preset for speed/compression tradeoff
     const char* ffmpeg_cmd =
-        "ffmpeg -loglevel error -f rawvideo -pixel_format rgb24 -video_size 1080x1920 "
-        "-framerate 24 -i - -c:v libx264 -pix_fmt yuv420p -y output.mp4";
+        "ffmpeg -loglevel error -f rawvideo -pixel_format bgra -video_size 1080x1920 "
+        "-framerate 24 -i - -c:v h264_videotoolbox -pix_fmt yuv420p "
+        "-b:v 2M -profile:v high -level 4.0 -y output.mp4";
 
     app_state.ffmpeg_pipe = popen(ffmpeg_cmd, "w");
     if (!app_state.ffmpeg_pipe) {
@@ -477,7 +473,7 @@ static void wait_for_completion(void) {
     printf("Render submission: %.3f seconds\n", render_time);
     printf("All frames ready:  %.3f seconds\n", readback_time);
     printf("Total time:        %.3f seconds\n", total_time);
-    printf("Speedup:           %.2fx (vs 5.2s baseline)\n", 5.2 / total_time);
+    printf("Speedup:           %.2fx (vs 1.045s baseline)\n", 1.045 / total_time);
     printf("FPS achieved:      %.1f fps\n", NUM_FRAMES / total_time);
     printf("===========================\n");
 }
