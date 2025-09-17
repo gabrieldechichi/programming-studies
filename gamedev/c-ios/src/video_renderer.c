@@ -27,7 +27,6 @@
 // GPU backend abstraction
 #include "gpu_backend.h"
 
-
 // Application constants
 #define NUM_FRAMES 200 // 2.5 seconds at 24fps
 #define FRAME_WIDTH 1080
@@ -106,7 +105,6 @@ static void mat4_rotation_z(float *m, float angle_rad) {
   m[15] = 1.0f;
 }
 
-
 // Timing utilities
 static double get_time_diff(struct timeval *start, struct timeval *end) {
   return (double)(end->tv_sec - start->tv_sec) +
@@ -118,7 +116,8 @@ static int init_ffmpeg_encoder(const char *filename) {
   int ret;
 
   // Allocate format context
-  ret = avformat_alloc_output_context2(&app_state.format_ctx, NULL, NULL, filename);
+  ret = avformat_alloc_output_context2(&app_state.format_ctx, NULL, NULL,
+                                       filename);
   if (ret < 0) {
     fprintf(stderr, "Failed to allocate output context\n");
     return -1;
@@ -173,7 +172,8 @@ static int init_ffmpeg_encoder(const char *filename) {
   }
 
   // Copy codec parameters to stream
-  ret = avcodec_parameters_from_context(app_state.video_stream->codecpar, app_state.codec_ctx);
+  ret = avcodec_parameters_from_context(app_state.video_stream->codecpar,
+                                        app_state.codec_ctx);
   if (ret < 0) {
     fprintf(stderr, "Failed to copy codec parameters\n");
     return -1;
@@ -212,9 +212,8 @@ static int init_ffmpeg_encoder(const char *filename) {
 
   // Initialize SWS context for BGRA to YUV420P conversion
   app_state.sws_ctx = sws_getContext(
-    FRAME_WIDTH, FRAME_HEIGHT, AV_PIX_FMT_BGRA,
-    FRAME_WIDTH, FRAME_HEIGHT, AV_PIX_FMT_YUV420P,
-    SWS_FAST_BILINEAR, NULL, NULL, NULL);
+      FRAME_WIDTH, FRAME_HEIGHT, AV_PIX_FMT_BGRA, FRAME_WIDTH, FRAME_HEIGHT,
+      AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, NULL, NULL, NULL);
 
   if (!app_state.sws_ctx) {
     fprintf(stderr, "Failed to create SWS context\n");
@@ -370,10 +369,12 @@ static void gpu_backend_init(void) {
   // Create render textures and readback buffers for all frames
   for (int i = 0; i < NUM_FRAMES; i++) {
     // Create render texture
-    app_state.render_textures[i] = gpu_create_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT);
+    app_state.render_textures[i] =
+        gpu_create_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT);
 
     // Create readback buffer for this frame
-    app_state.readback_buffers[i] = gpu_create_readback_buffer(app_state.device, FRAME_SIZE_BYTES);
+    app_state.readback_buffers[i] =
+        gpu_create_readback_buffer(app_state.device, FRAME_SIZE_BYTES);
 
     // Allocate CPU memory for this frame
     app_state.frames[i].data = (uint8_t *)malloc(FRAME_SIZE_BYTES);
@@ -414,8 +415,8 @@ static void sokol_init(void) {
         .height = FRAME_HEIGHT,
         .pixel_format = SG_PIXELFORMAT_BGRA8,
         .sample_count = 1,
-        .mtl_textures[0] =
-            gpu_get_native_texture(app_state.render_textures[i]), // Wrap our native texture
+        .mtl_textures[0] = gpu_get_native_texture(
+            app_state.render_textures[i]), // Wrap our native texture
         .label = "render-target"});
   }
 
@@ -514,35 +515,33 @@ static void render_all_frames(void) {
   printf("[Renderer] All frames submitted to GPU\n");
 
   // Second pass: Set up async readback for all frames
-  PROFILE_BEGIN("readback_setup");
-  for (int i = 0; i < NUM_FRAMES; i++) {
-    PROFILE_BEGIN("frame_readback_setup");
-
-    // Create readback command for this frame
-    app_state.readback_commands[i] = gpu_readback_texture_async(
-        app_state.device,
-        app_state.render_textures[i],
-        app_state.readback_buffers[i],
-        FRAME_WIDTH,
-        FRAME_HEIGHT);
-
-    // Submit the command (non-blocking)
-    gpu_submit_commands(app_state.readback_commands[i], false);
-
-    PROFILE_END(); // frame_readback_setup
-  }
-
+  PROFILE_BEGIN("readback all frames");
   // Now poll for completion in a separate loop
   for (int i = 0; i < NUM_FRAMES; i++) {
-    // Poll until this frame's readback is complete
-    while (!gpu_is_readback_complete(app_state.readback_commands[i])) {
-      usleep(100); // Small sleep to avoid busy waiting
-    }
 
+    PROFILE_BEGIN("read back single frame");
+
+    PROFILE_BEGIN("read back cmd");
+    app_state.readback_commands[i] = gpu_readback_texture_async(
+        app_state.device, app_state.render_textures[i],
+        app_state.readback_buffers[i], FRAME_WIDTH, FRAME_HEIGHT);
+    PROFILE_END();
+
+    PROFILE_BEGIN("submit read cmd");
+    // Submit the command (non-blocking)
+    gpu_submit_commands(app_state.readback_commands[i], true);
+    PROFILE_END();
+    // Poll until this frame's readback is complete
+    // while (!gpu_is_readback_complete(app_state.readback_commands[i])) {
+    //   usleep(100); // Small sleep to avoid busy waiting
+    // }
+    printf("frame %d ready\n", i);
+
+    PROFILE_BEGIN("copy readback data");
     // Copy data from GPU buffer to CPU memory
     gpu_copy_readback_data(app_state.readback_buffers[i],
-                          app_state.frames[i].data,
-                          FRAME_SIZE_BYTES);
+                           app_state.frames[i].data, FRAME_SIZE_BYTES);
+    PROFILE_END();
 
     // Mark frame as ready for encoding
     atomic_store(&app_state.frames[i].ready, true);
@@ -551,9 +550,10 @@ static void render_all_frames(void) {
     if (atomic_load(&app_state.frames_ready) == NUM_FRAMES) {
       gettimeofday(&app_state.readback_complete_time, NULL);
     }
+    PROFILE_END();
   }
+  PROFILE_END();
 
-  PROFILE_END(); // readback_setup
 
   PROFILE_END(); // render_all_frames
 }
