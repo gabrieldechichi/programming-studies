@@ -107,6 +107,9 @@ void gpu_end_render_pass(gpu_render_encoder_t* encoder);
 // Commit and optionally wait for command buffer
 void gpu_commit_commands(gpu_command_buffer_t* cmd_buffer, bool wait);
 
+// Wait for a command buffer to complete (for batched commands)
+void gpu_wait_for_command_buffer(gpu_command_buffer_t* cmd_buffer);
+
 // Cleanup functions
 void gpu_destroy_command_buffer(gpu_command_buffer_t* cmd_buffer);
 void gpu_destroy_texture(gpu_texture_t* texture);

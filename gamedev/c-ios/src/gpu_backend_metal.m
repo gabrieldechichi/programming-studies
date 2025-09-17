@@ -437,6 +437,16 @@ void gpu_commit_commands(gpu_command_buffer_t* cmd_buffer, bool wait) {
     }
 }
 
+void gpu_wait_for_command_buffer(gpu_command_buffer_t* cmd_buffer) {
+    if (!cmd_buffer || cmd_buffer->completed) {
+        return;
+    }
+
+    // Wait for the command buffer to complete
+    [cmd_buffer->cmd_buffer waitUntilCompleted];
+    cmd_buffer->completed = true;
+}
+
 void gpu_destroy_pipeline(gpu_pipeline_t* pipeline) {
     if (pipeline) {
         pipeline->pipeline_state = nil;

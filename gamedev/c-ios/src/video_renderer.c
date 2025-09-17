@@ -485,13 +485,20 @@ static void render_all_frames(void) {
     // End render pass
     gpu_end_render_pass(encoder);
 
-    // Commit and wait for this frame's commands
-    gpu_commit_commands(cmd_buffers[i], true);  // Wait for each frame
+    // Commit WITHOUT waiting - batch submission
+    gpu_commit_commands(cmd_buffers[i], false);  // Non-blocking
 
     PROFILE_END();
 
     atomic_fetch_add(&app_state.frames_rendered, 1);
   }
+
+  // Now wait for all render commands to complete
+  PROFILE_BEGIN("wait_for_render_completion");
+  for (int i = 0; i < NUM_FRAMES; i++) {
+    gpu_wait_for_command_buffer(cmd_buffers[i]);
+  }
+  PROFILE_END();
 
   PROFILE_END(); // render_submission
 
