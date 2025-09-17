@@ -7,7 +7,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/time.h>
-#include <Block.h>
 
 // FFmpeg headers
 #include <libavcodec/avcodec.h>
@@ -15,13 +14,6 @@
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
-
-// Metal and Foundation headers
-#include <objc/objc.h>
-#include <objc/runtime.h>
-#include <objc/message.h>
-#include <CoreGraphics/CoreGraphics.h>
-#include <Metal/Metal.h>
 
 // Sokol headers
 #include "sokol/sokol_gfx.h"
@@ -32,59 +24,9 @@
 // Profiler
 #include "profiler.h"
 
-// Metal forward declarations
-typedef struct objc_object *id;
-typedef struct objc_selector *SEL;
-#ifndef nil
-#define nil ((id)0)
-#endif
+// GPU backend abstraction
+#include "gpu_backend.h"
 
-// Metal selectors we'll use
-static SEL sel_alloc;
-static SEL sel_init;
-static SEL sel_release;
-static SEL sel_retain;
-static SEL sel_newCommandQueue;
-static SEL sel_commandBuffer;
-static SEL sel_commit;
-static SEL sel_waitUntilCompleted;
-static SEL sel_renderCommandEncoderWithDescriptor;
-static SEL sel_blitCommandEncoder;
-static SEL sel_endEncoding;
-static SEL sel_texture2DDescriptorWithPixelFormat_width_height_mipmapped;
-static SEL sel_newTextureWithDescriptor;
-static SEL sel_setStorageMode;
-static SEL sel_setUsage;
-static SEL sel_newBufferWithLength_options;
-static SEL sel_contents;
-static SEL
-    sel_copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage;
-static SEL sel_colorAttachments;
-static SEL sel_objectAtIndexedSubscript;
-static SEL sel_setTexture;
-static SEL sel_setLoadAction;
-static SEL sel_setStoreAction;
-static SEL sel_setClearColor;
-static SEL sel_addCompletedHandler;
-static SEL sel_status;
-static SEL sel_presentDrawable;
-static SEL sel_nextDrawable;
-
-// Metal classes
-static Class MTLCreateSystemDefaultDevice_class;
-static Class MTLRenderPassDescriptor_class;
-static Class MTLTextureDescriptor_class;
-
-// Metal constants
-#define MTLPixelFormatBGRA8Unorm 80
-#define MTLTextureUsageRenderTarget 0x0004
-#define MTLTextureUsageShaderRead 0x0001
-#define MTLStorageModePrivate 2
-#define MTLStorageModeShared 1
-#define MTLResourceStorageModeShared 1
-#define MTLLoadActionClear 2
-#define MTLStoreActionStore 1
-#define MTLCommandBufferStatusCompleted 4
 
 // Application constants
 #define NUM_FRAMES 200 // 2.5 seconds at 24fps
@@ -101,12 +43,11 @@ typedef struct {
 
 // Application state
 static struct {
-  // Metal objects
-  id device;
-  id command_queue;
-  id render_textures[NUM_FRAMES];
-  id readback_buffers[NUM_FRAMES]; // Individual readback buffer per frame
-  id command_buffers[NUM_FRAMES];  // Command buffer per frame
+  // GPU backend objects
+  gpu_device_t *device;
+  gpu_texture_t *render_textures[NUM_FRAMES];
+  gpu_readback_buffer_t *readback_buffers[NUM_FRAMES];
+  gpu_command_buffer_t *readback_commands[NUM_FRAMES];
 
   // Sokol objects
   sg_image render_images[NUM_FRAMES];
@@ -165,20 +106,6 @@ static void mat4_rotation_z(float *m, float angle_rad) {
   m[15] = 1.0f;
 }
 
-// Helper to call ObjC methods without arguments
-static id msgSend0(id obj, SEL sel) {
-  return ((id (*)(id, SEL))objc_msgSend)(obj, sel);
-}
-
-// Helper to call ObjC methods with one argument
-static id msgSend1(id obj, SEL sel, id arg) {
-  return ((id (*)(id, SEL, id))objc_msgSend)(obj, sel, arg);
-}
-
-// Helper to call ObjC methods with integer argument
-static void msgSendInt(id obj, SEL sel, int arg) {
-  ((void (*)(id, SEL, int))objc_msgSend)(obj, sel, arg);
-}
 
 // Timing utilities
 static double get_time_diff(struct timeval *start, struct timeval *end) {
@@ -429,89 +356,24 @@ static void *encoder_thread_func(void *arg) {
   return NULL;
 }
 
-// Completion handler for command buffer
-typedef void (^CommandBufferHandler)(id);
+// Initialize GPU backend
+static void gpu_backend_init(void) {
+  PROFILE_BEGIN("gpu_backend_init");
 
-// Initialize Metal
-static void metal_init(void) {
-  PROFILE_BEGIN("metal_init");
-
-  // Get selectors
-  sel_alloc = sel_registerName("alloc");
-  sel_init = sel_registerName("init");
-  sel_release = sel_registerName("release");
-  sel_retain = sel_registerName("retain");
-  sel_newCommandQueue = sel_registerName("newCommandQueue");
-  sel_commandBuffer = sel_registerName("commandBuffer");
-  sel_commit = sel_registerName("commit");
-  sel_waitUntilCompleted = sel_registerName("waitUntilCompleted");
-  sel_renderCommandEncoderWithDescriptor =
-      sel_registerName("renderCommandEncoderWithDescriptor:");
-  sel_blitCommandEncoder = sel_registerName("blitCommandEncoder");
-  sel_endEncoding = sel_registerName("endEncoding");
-  sel_texture2DDescriptorWithPixelFormat_width_height_mipmapped =
-      sel_registerName(
-          "texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
-  sel_newTextureWithDescriptor = sel_registerName("newTextureWithDescriptor:");
-  sel_setStorageMode = sel_registerName("setStorageMode:");
-  sel_setUsage = sel_registerName("setUsage:");
-  sel_newBufferWithLength_options =
-      sel_registerName("newBufferWithLength:options:");
-  sel_contents = sel_registerName("contents");
-  sel_copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage =
-      sel_registerName("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:"
-                       "sourceSize:toBuffer:destinationOffset:"
-                       "destinationBytesPerRow:destinationBytesPerImage:");
-  sel_colorAttachments = sel_registerName("colorAttachments");
-  sel_objectAtIndexedSubscript = sel_registerName("objectAtIndexedSubscript:");
-  sel_setTexture = sel_registerName("setTexture:");
-  sel_setLoadAction = sel_registerName("setLoadAction:");
-  sel_setStoreAction = sel_registerName("setStoreAction:");
-  sel_setClearColor = sel_registerName("setClearColor:");
-  sel_addCompletedHandler = sel_registerName("addCompletedHandler:");
-  sel_status = sel_registerName("status");
-
-  // Get classes
-  MTLTextureDescriptor_class = objc_getClass("MTLTextureDescriptor");
-  MTLRenderPassDescriptor_class = objc_getClass("MTLRenderPassDescriptor");
-
-// Create device using proper casting
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
-  app_state.device = ((id (*)(void))MTLCreateSystemDefaultDevice)();
-#pragma clang diagnostic pop
+  // Initialize GPU device
+  app_state.device = gpu_init();
   if (!app_state.device) {
-    fprintf(stderr, "Failed to create Metal device\n");
+    fprintf(stderr, "Failed to create GPU device\n");
     exit(1);
   }
-  msgSend0(app_state.device, sel_retain);
-
-  // Create command queue
-  app_state.command_queue = msgSend0(app_state.device, sel_newCommandQueue);
-  msgSend0(app_state.command_queue, sel_retain);
 
   // Create render textures and readback buffers for all frames
   for (int i = 0; i < NUM_FRAMES; i++) {
-    // Create texture descriptor
-    id tex_desc = ((id (*)(id, SEL, int, int, int, BOOL))objc_msgSend)(
-        MTLTextureDescriptor_class,
-        sel_texture2DDescriptorWithPixelFormat_width_height_mipmapped,
-        MTLPixelFormatBGRA8Unorm, FRAME_WIDTH, FRAME_HEIGHT, NO);
+    // Create render texture
+    app_state.render_textures[i] = gpu_create_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT);
 
-    msgSendInt(tex_desc, sel_setStorageMode, MTLStorageModePrivate);
-    msgSendInt(tex_desc, sel_setUsage,
-               MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
-
-    app_state.render_textures[i] =
-        msgSend1(app_state.device, sel_newTextureWithDescriptor, tex_desc);
-    msgSend0(app_state.render_textures[i], sel_retain);
-
-    // Create individual readback buffer for this frame
-    app_state.readback_buffers[i] =
-        ((id (*)(id, SEL, size_t, int))objc_msgSend)(
-            app_state.device, sel_newBufferWithLength_options, FRAME_SIZE_BYTES,
-            MTLResourceStorageModeShared);
-    msgSend0(app_state.readback_buffers[i], sel_retain);
+    // Create readback buffer for this frame
+    app_state.readback_buffers[i] = gpu_create_readback_buffer(app_state.device, FRAME_SIZE_BYTES);
 
     // Allocate CPU memory for this frame
     app_state.frames[i].data = (uint8_t *)malloc(FRAME_SIZE_BYTES);
@@ -525,13 +387,13 @@ static void metal_init(void) {
 static void sokol_init(void) {
   PROFILE_BEGIN("sokol_init");
 
-  // Initialize Sokol GFX with Metal backend
+  // Initialize Sokol GFX with native GPU backend
   sg_setup(&(sg_desc){
       .environment =
           {
               .metal =
                   {
-                      .device = app_state.device,
+                      .device = gpu_get_native_device(app_state.device),
                   },
           },
       .image_pool_size =
@@ -541,7 +403,7 @@ static void sokol_init(void) {
       .logger.func = slog_func,
   });
 
-  // Create Sokol image wrappers for our Metal textures
+  // Create Sokol image wrappers for our GPU textures
   for (int i = 0; i < NUM_FRAMES; i++) {
     app_state.render_images[i] = sg_make_image(&(sg_image_desc){
         .usage =
@@ -553,7 +415,7 @@ static void sokol_init(void) {
         .pixel_format = SG_PIXELFORMAT_BGRA8,
         .sample_count = 1,
         .mtl_textures[0] =
-            app_state.render_textures[i], // Wrap our Metal texture
+            gpu_get_native_texture(app_state.render_textures[i]), // Wrap our native texture
         .label = "render-target"});
   }
 
@@ -655,59 +517,42 @@ static void render_all_frames(void) {
   PROFILE_BEGIN("readback_setup");
   for (int i = 0; i < NUM_FRAMES; i++) {
     PROFILE_BEGIN("frame_readback_setup");
-    // Capture frame index by value
-    const int frame_idx = i;
 
-    // Create command buffer with readback operations
-    id cmd_buffer = msgSend0(app_state.command_queue, sel_commandBuffer);
-    id blit_encoder = msgSend0(cmd_buffer, sel_blitCommandEncoder);
+    // Create readback command for this frame
+    app_state.readback_commands[i] = gpu_readback_texture_async(
+        app_state.device,
+        app_state.render_textures[i],
+        app_state.readback_buffers[i],
+        FRAME_WIDTH,
+        FRAME_HEIGHT);
 
-    // Copy texture to readback buffer
-    typedef struct {
-      NSUInteger x, y, z;
-    } MyMTLOrigin;
-    typedef struct {
-      NSUInteger width, height, depth;
-    } MyMTLSize;
-
-    MyMTLOrigin origin = {0, 0, 0};
-    MyMTLSize size = {FRAME_WIDTH, FRAME_HEIGHT, 1};
-
-    ((void (*)(id, SEL, id, NSUInteger, NSUInteger, MyMTLOrigin, MyMTLSize, id,
-               NSUInteger, NSUInteger, NSUInteger))objc_msgSend)(
-        blit_encoder,
-        sel_copyFromTexture_sourceSlice_sourceLevel_sourceOrigin_sourceSize_toBuffer_destinationOffset_destinationBytesPerRow_destinationBytesPerImage,
-        app_state.render_textures[frame_idx], 0, 0, origin, size,
-        app_state.readback_buffers[frame_idx], 0, FRAME_WIDTH * 4,
-        FRAME_SIZE_BYTES);
-
-    msgSend0(blit_encoder, sel_endEncoding);
-
-    // Add completion handler
-    CommandBufferHandler handler = Block_copy(^(id cmd) {
-      (void)cmd;
-      // Copy data from Metal buffer to CPU memory
-      void *buffer_contents =
-          msgSend0(app_state.readback_buffers[frame_idx], sel_contents);
-      memcpy(app_state.frames[frame_idx].data, buffer_contents,
-             FRAME_SIZE_BYTES);
-
-      // Mark frame as ready for encoding
-      atomic_store(&app_state.frames[frame_idx].ready, true);
-      atomic_fetch_add(&app_state.frames_ready, 1);
-
-      if (atomic_load(&app_state.frames_ready) == NUM_FRAMES) {
-        gettimeofday(&app_state.readback_complete_time, NULL);
-      }
-    });
-
-    ((void (*)(id, SEL, CommandBufferHandler))objc_msgSend)(
-        cmd_buffer, sel_addCompletedHandler, handler);
-    msgSend0(cmd_buffer, sel_commit);
-    Block_release(handler);
+    // Submit the command (non-blocking)
+    gpu_submit_commands(app_state.readback_commands[i], false);
 
     PROFILE_END(); // frame_readback_setup
   }
+
+  // Now poll for completion in a separate loop
+  for (int i = 0; i < NUM_FRAMES; i++) {
+    // Poll until this frame's readback is complete
+    while (!gpu_is_readback_complete(app_state.readback_commands[i])) {
+      usleep(100); // Small sleep to avoid busy waiting
+    }
+
+    // Copy data from GPU buffer to CPU memory
+    gpu_copy_readback_data(app_state.readback_buffers[i],
+                          app_state.frames[i].data,
+                          FRAME_SIZE_BYTES);
+
+    // Mark frame as ready for encoding
+    atomic_store(&app_state.frames[i].ready, true);
+    atomic_fetch_add(&app_state.frames_ready, 1);
+
+    if (atomic_load(&app_state.frames_ready) == NUM_FRAMES) {
+      gettimeofday(&app_state.readback_complete_time, NULL);
+    }
+  }
+
   PROFILE_END(); // readback_setup
 
   PROFILE_END(); // render_all_frames
@@ -767,26 +612,22 @@ static void cleanup(void) {
   // Cleanup Sokol
   sg_shutdown();
 
-  // Release Metal objects
+  // Release GPU backend objects
   for (int i = 0; i < NUM_FRAMES; i++) {
     if (app_state.render_textures[i]) {
-      msgSend0(app_state.render_textures[i], sel_release);
+      gpu_destroy_texture(app_state.render_textures[i]);
     }
     if (app_state.readback_buffers[i]) {
-      msgSend0(app_state.readback_buffers[i], sel_release);
+      gpu_destroy_readback_buffer(app_state.readback_buffers[i]);
     }
-    if (app_state.command_buffers[i]) {
-      msgSend0(app_state.command_buffers[i], sel_release);
+    if (app_state.readback_commands[i]) {
+      gpu_destroy_command_buffer(app_state.readback_commands[i]);
     }
     free(app_state.frames[i].data);
   }
 
-  if (app_state.command_queue) {
-    msgSend0(app_state.command_queue, sel_release);
-  }
-
   if (app_state.device) {
-    msgSend0(app_state.device, sel_release);
+    gpu_destroy(app_state.device);
   }
 
   pthread_mutex_destroy(&app_state.queue_mutex);
@@ -813,9 +654,9 @@ int main(int argc, char *argv[]) {
   // Start timing
   gettimeofday(&app_state.start_time, NULL);
 
-  // Initialize Metal and Sokol
-  printf("[Main] Initializing Metal...\n");
-  metal_init();
+  // Initialize GPU backend and Sokol
+  printf("[Main] Initializing GPU backend...\n");
+  gpu_backend_init();
 
   printf("[Main] Initializing Sokol...\n");
   sokol_init();

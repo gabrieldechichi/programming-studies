@@ -2,5 +2,6 @@
 #ifndef XCODE_BUILD
 #include "string_builder.c"
 #include "profiler.c"
+#include "gpu_backend_metal.c"
 #include "video_renderer.c"
 #endif

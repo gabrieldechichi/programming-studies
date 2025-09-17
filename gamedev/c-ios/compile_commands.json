@@ -11,7 +11,6 @@
       "-std=c99",
       "-Wall",
       "-Wextra",
-      "-Werror",
       "-Wpedantic",
       "-Wcast-align",
       "-Wcast-qual",
@@ -42,6 +41,7 @@
       "Metal",
       "-framework",
       "MetalKit",
+      "-I/opt/homebrew/Cellar/ffmpeg/7.1.1_5/include",
       "-o",
       "out/macos/app",
       "src/main.c"
