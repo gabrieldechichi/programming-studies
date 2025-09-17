@@ -11,20 +11,15 @@
 #define LINUX_OUT_DIR "out/linux"
 
 // Source files
-#define VIDEO_RENDERER_SRC "src/video_renderer.c"
+#define MAIN_SRC "main.c"
 #define GPU_BACKEND_METAL_SRC "src/gpu_backend_metal.m"
-#define GPU_BACKEND_VULKAN_SRC "src/gpu_backend_vulkan.c"
-#define PROFILER_SRC "src/profiler.c"
 
 // Object files - macOS
-#define MACOS_VIDEO_OBJ "out/macos/video_renderer.o"
+#define MACOS_MAIN_OBJ "out/macos/main.o"
 #define MACOS_GPU_OBJ "out/macos/gpu_backend_metal.o"
-#define MACOS_PROFILER_OBJ "out/macos/profiler.o"
 
 // Object files - Linux
-#define LINUX_VIDEO_OBJ "out/linux/video_renderer.o"
-#define LINUX_GPU_OBJ "out/linux/gpu_backend_vulkan.o"
-#define LINUX_PROFILER_OBJ "out/linux/profiler.o"
+#define LINUX_MAIN_OBJ "out/linux/main.o"
 
 // Targets
 #define MACOS_APP_TARGET "out/macos/video_renderer"
@@ -101,15 +96,15 @@ static int build_macos(const char *build_type) {
   snprintf(cmd, sizeof(cmd), "cp src/shaders/triangle.metal %s/", MACOS_OUT_DIR);
   system(cmd);
 
-  // Compile video_renderer.c
-  printf("Compiling video_renderer.c...\n");
+  // Compile main.c (unity build)
+  printf("Compiling main.c...\n");
   snprintf(cmd, sizeof(cmd), "%s %s %s %s -c %s -o %s",
            CC, MACOS_C_COMPILE_FLAGS, build_flags,
            MACOS_FFMPEG_FLAGS,
-           VIDEO_RENDERER_SRC, MACOS_VIDEO_OBJ);
+           MAIN_SRC, MACOS_MAIN_OBJ);
 
   if (system(cmd) != 0) {
-    fprintf(stderr, "Failed to compile video_renderer.c\n");
+    fprintf(stderr, "Failed to compile main.c\n");
     return 1;
   }
 
@@ -124,22 +119,11 @@ static int build_macos(const char *build_type) {
     return 1;
   }
 
-  // Compile profiler.c
-  printf("Compiling profiler.c...\n");
-  snprintf(cmd, sizeof(cmd), "%s %s %s -c %s -o %s",
-           CC, MACOS_C_COMPILE_FLAGS, build_flags,
-           PROFILER_SRC, MACOS_PROFILER_OBJ);
-
-  if (system(cmd) != 0) {
-    fprintf(stderr, "Failed to compile profiler.c\n");
-    return 1;
-  }
-
   // Link everything together
   printf("Linking macOS application...\n");
-  snprintf(cmd, sizeof(cmd), "%s %s %s %s -o %s %s %s",
+  snprintf(cmd, sizeof(cmd), "%s %s %s -o %s %s %s",
            CC,
-           MACOS_VIDEO_OBJ, MACOS_GPU_OBJ, MACOS_PROFILER_OBJ,
+           MACOS_MAIN_OBJ, MACOS_GPU_OBJ,
            MACOS_APP_TARGET,
            MACOS_FRAMEWORKS, MACOS_FFMPEG_FLAGS);
 
@@ -186,44 +170,22 @@ static int build_linux(const char *build_type) {
     return 1;
   }
 
-  // Compile video_renderer.c
-  printf("Compiling video_renderer.c...\n");
+  // Compile main.c (unity build)
+  printf("Compiling main.c...\n");
   snprintf(cmd, sizeof(cmd), "%s %s %s -c %s -o %s",
            CC, LINUX_COMPILE_FLAGS, build_flags,
-           VIDEO_RENDERER_SRC, LINUX_VIDEO_OBJ);
+           MAIN_SRC, LINUX_MAIN_OBJ);
 
   if (system(cmd) != 0) {
-    fprintf(stderr, "Failed to compile video_renderer.c\n");
-    return 1;
-  }
-
-  // Compile gpu_backend_vulkan.c
-  printf("Compiling gpu_backend_vulkan.c...\n");
-  snprintf(cmd, sizeof(cmd), "%s %s %s -c %s -o %s",
-           CC, LINUX_COMPILE_FLAGS, build_flags,
-           GPU_BACKEND_VULKAN_SRC, LINUX_GPU_OBJ);
-
-  if (system(cmd) != 0) {
-    fprintf(stderr, "Failed to compile gpu_backend_vulkan.c\n");
-    return 1;
-  }
-
-  // Compile profiler.c
-  printf("Compiling profiler.c...\n");
-  snprintf(cmd, sizeof(cmd), "%s %s %s -c %s -o %s",
-           CC, LINUX_COMPILE_FLAGS, build_flags,
-           PROFILER_SRC, LINUX_PROFILER_OBJ);
-
-  if (system(cmd) != 0) {
-    fprintf(stderr, "Failed to compile profiler.c\n");
+    fprintf(stderr, "Failed to compile main.c\n");
     return 1;
   }
 
   // Link everything together
   printf("Linking Linux application...\n");
-  snprintf(cmd, sizeof(cmd), "%s %s %s %s -o %s %s %s -lpthread",
+  snprintf(cmd, sizeof(cmd), "%s %s -o %s %s %s -lpthread",
            CC,
-           LINUX_VIDEO_OBJ, LINUX_GPU_OBJ, LINUX_PROFILER_OBJ,
+           LINUX_MAIN_OBJ,
            LINUX_APP_TARGET,
            LINUX_VULKAN_FLAGS, LINUX_FFMPEG_FLAGS);
 

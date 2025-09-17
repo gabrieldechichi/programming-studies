@@ -4,7 +4,7 @@
 #include "typedefs.h"
 
 #ifndef PROFILER_ENABLED
-#define PROFILER_ENABLED 0
+#define PROFILER_ENABLED 1
 #endif
 
 #if PROFILER_ENABLED
@@ -42,6 +42,7 @@ extern _Thread_local u32 g_profile_stack_depth;
 
 void profiler_begin_block(ProfileBlock* block, const char* label, u32 anchor_index);
 void profiler_end_block(ProfileBlock* block);
+void profiler_begin_session(void);
 
 #define CONCAT_INTERNAL(a, b) a##b
 #define CONCAT(a, b) CONCAT_INTERNAL(a, b)
@@ -76,6 +77,6 @@ void profiler_end_and_print_session(Allocator* allocator);
 #define TimeFunction
 #define PROFILE_ASSERT_END_OF_COMPILATION_UNIT
 
-static inline void profiler_end_and_print_session(void) {}
+static inline void profiler_end_and_print_session(Allocator* allocator) {}
 
 #endif

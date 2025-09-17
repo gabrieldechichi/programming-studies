@@ -1,0 +1,5 @@
+#include "os/os.c"
+#include "src/string_builder.c"
+#include "src/profiler.c"
+#include "src/video_renderer.c"
+#include "src/gpu_backend_vulkan.c"

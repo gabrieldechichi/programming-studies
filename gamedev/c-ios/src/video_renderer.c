@@ -1,19 +1,20 @@
-#define _DEFAULT_SOURCE  // For usleep on Linux
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "../os/os.h"
+#include "memory.h"
+#include "typedefs.h"
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
-#include <time.h>
-#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/time.h>
+#include <time.h>
 
 // FFmpeg headers
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 
 // Profiler
@@ -37,7 +38,7 @@ typedef struct {
 
 // Uniform buffer structure matching Metal shader
 typedef struct {
-    float model[16];
+  float model[16];
 } uniforms_t;
 
 // Application state
@@ -80,9 +81,9 @@ static struct {
 // Triangle vertex data
 static float vertices[] = {
     // positions      colors
-     0.0f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f, // top (red)
-    -0.5f, -0.5f,  0.0f, 1.0f, 0.0f, 1.0f, // bottom left (green)
-     0.5f, -0.5f,  0.0f, 0.0f, 1.0f, 1.0f  // bottom right (blue)
+    0.0f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f, // top (red)
+    -0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, // bottom left (green)
+    0.5f,  -0.5f, 0.0f, 0.0f, 1.0f, 1.0f  // bottom right (blue)
 };
 
 // Create a 4x4 rotation matrix around Z axis
@@ -311,7 +312,7 @@ static void *encoder_thread_func(void *arg) {
     PROFILE_BEGIN("ffmpeg wait for frame");
     // Wait for the next frame to be ready
     while (!atomic_load(&app_state.frames[next_frame_to_encode].ready)) {
-      usleep(100); // Small sleep to avoid busy waiting
+      os_sleep_us(100); // Small sleep to avoid busy waiting
     }
     PROFILE_END();
 
@@ -350,23 +351,23 @@ static void *encoder_thread_func(void *arg) {
 }
 
 // Load shader from file
-static char* load_shader_file(const char* filename) {
-    FILE* file = fopen(filename, "r");
-    if (!file) {
-        printf("Warning: Could not open shader file %s\n", filename);
-        return NULL;
-    }
+static char *load_shader_file(const char *filename) {
+  FILE *file = fopen(filename, "r");
+  if (!file) {
+    printf("Warning: Could not open shader file %s\n", filename);
+    return NULL;
+  }
 
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    fseek(file, 0, SEEK_SET);
+  fseek(file, 0, SEEK_END);
+  long size = ftell(file);
+  fseek(file, 0, SEEK_SET);
 
-    char* content = (char*)malloc((size_t)(size + 1));
-    fread(content, 1, (size_t)size, file);
-    content[size] = '\0';
+  char *content = (char *)malloc((size_t)(size + 1));
+  fread(content, 1, (size_t)size, file);
+  content[size] = '\0';
 
-    fclose(file);
-    return content;
+  fclose(file);
+  return content;
 }
 
 // Initialize GPU backend
@@ -381,7 +382,7 @@ static void gpu_backend_init(void) {
   }
 
   // Load shader source - try multiple paths
-  char* shader_source = load_shader_file("triangle.metal");
+  char *shader_source = load_shader_file("triangle.metal");
   if (!shader_source) {
     shader_source = load_shader_file("src/shaders/triangle.metal");
   }
@@ -391,24 +392,20 @@ static void gpu_backend_init(void) {
 
   // Create vertex layout
   gpu_vertex_attr_t attributes[] = {
-    {.index = 0, .offset = 0, .format = 0},  // position (float2)
-    {.index = 1, .offset = 8, .format = 2}   // color (float4)
+      {.index = 0, .offset = 0, .format = 0}, // position (float2)
+      {.index = 1, .offset = 8, .format = 2}  // color (float4)
   };
 
   gpu_vertex_layout_t vertex_layout = {
-    .attributes = attributes,
-    .num_attributes = 2,
-    .stride = 24  // 2 floats + 4 floats = 6 floats = 24 bytes
+      .attributes = attributes,
+      .num_attributes = 2,
+      .stride = 24 // 2 floats + 4 floats = 6 floats = 24 bytes
   };
 
   // Create pipeline
-  app_state.pipeline = gpu_create_pipeline(
-    app_state.device,
-    shader_source,
-    "vertex_main",
-    "fragment_main",
-    &vertex_layout
-  );
+  app_state.pipeline =
+      gpu_create_pipeline(app_state.device, shader_source, "vertex_main",
+                          "fragment_main", &vertex_layout);
 
   if (shader_source) {
     free(shader_source);
@@ -420,7 +417,8 @@ static void gpu_backend_init(void) {
   }
 
   // Create vertex buffer
-  app_state.vertex_buffer = gpu_create_buffer(app_state.device, vertices, sizeof(vertices));
+  app_state.vertex_buffer =
+      gpu_create_buffer(app_state.device, vertices, sizeof(vertices));
 
   // Create render textures and readback buffers for all frames
   for (int i = 0; i < NUM_FRAMES; i++) {
@@ -452,7 +450,7 @@ static void render_all_frames(void) {
   PROFILE_BEGIN("render_submission");
 
   // Create command buffers for each frame
-  gpu_command_buffer_t* cmd_buffers[NUM_FRAMES];
+  gpu_command_buffer_t *cmd_buffers[NUM_FRAMES];
 
   for (int i = 0; i < NUM_FRAMES; i++) {
     // Calculate rotation for this frame
@@ -467,11 +465,10 @@ static void render_all_frames(void) {
     cmd_buffers[i] = gpu_begin_commands(app_state.device);
 
     // Begin render pass for this frame
-    gpu_render_encoder_t* encoder = gpu_begin_render_pass(
-      cmd_buffers[i],
-      app_state.render_textures[i],
-      0.0f, 0.0f, 0.0f, 1.0f  // Black background
-    );
+    gpu_render_encoder_t *encoder =
+        gpu_begin_render_pass(cmd_buffers[i], app_state.render_textures[i],
+                              0.0f, 0.0f, 0.0f, 1.0f // Black background
+        );
 
     // Set pipeline and vertex buffer
     gpu_set_pipeline(encoder, app_state.pipeline);
@@ -487,7 +484,7 @@ static void render_all_frames(void) {
     gpu_end_render_pass(encoder);
 
     // Commit WITHOUT waiting - batch submission
-    gpu_commit_commands(cmd_buffers[i], false);  // Non-blocking
+    gpu_commit_commands(cmd_buffers[i], false); // Non-blocking
 
     PROFILE_END();
 
@@ -506,40 +503,65 @@ static void render_all_frames(void) {
   gettimeofday(&app_state.render_complete_time, NULL);
   printf("[Renderer] All frames submitted to GPU\n");
 
-  // Second pass: Set up async readback for all frames
-  PROFILE_BEGIN("readback all frames");
-  // Now poll for completion in a separate loop
+  // Second pass: Submit all readback commands async
+  PROFILE_BEGIN("submit all readbacks");
   for (int i = 0; i < NUM_FRAMES; i++) {
-
-    PROFILE_BEGIN("read back single frame");
-
-    PROFILE_BEGIN("read back cmd");
+    PROFILE_BEGIN("create readback cmd");
     app_state.readback_commands[i] = gpu_readback_texture_async(
         app_state.device, app_state.render_textures[i],
         app_state.readback_buffers[i], FRAME_WIDTH, FRAME_HEIGHT);
     PROFILE_END();
 
-    PROFILE_BEGIN("submit read cmd");
-    // Submit the command (blocking for simplicity)
-    gpu_submit_commands(app_state.readback_commands[i], true);
+    PROFILE_BEGIN("submit readback async");
+    // Submit NON-BLOCKING for parallel execution
+    gpu_submit_commands(app_state.readback_commands[i], false);
     PROFILE_END();
+  }
+  PROFILE_END();
 
-    printf("frame %d ready\n", i);
+  // Third pass: Asynchronously check for completion and mark frames ready
+  PROFILE_BEGIN("wait for all readbacks");
 
-    PROFILE_BEGIN("copy readback data");
-    // Copy data from GPU buffer to CPU memory
-    gpu_copy_readback_data(app_state.readback_buffers[i],
-                           app_state.frames[i].data, FRAME_SIZE_BYTES);
-    PROFILE_END();
+  // Track which frames have been processed
+  bool frames_processed[NUM_FRAMES] = {false};
+  int frames_remaining = NUM_FRAMES;
 
-    // Mark frame as ready for encoding
-    atomic_store(&app_state.frames[i].ready, true);
-    atomic_fetch_add(&app_state.frames_ready, 1);
+  while (frames_remaining > 0) {
+    bool made_progress = false;
 
-    if (atomic_load(&app_state.frames_ready) == NUM_FRAMES) {
-      gettimeofday(&app_state.readback_complete_time, NULL);
+    // Check all unprocessed frames for completion
+    for (int i = 0; i < NUM_FRAMES; i++) {
+      if (frames_processed[i]) continue;
+
+      PROFILE_BEGIN("wait for single frame");
+
+      // Non-blocking check if this frame is ready
+      if (gpu_is_readback_complete(app_state.readback_commands[i])) {
+        PROFILE_BEGIN("copy readback data");
+        // Copy data from GPU buffer to CPU memory
+        gpu_copy_readback_data(app_state.readback_buffers[i],
+                               app_state.frames[i].data, FRAME_SIZE_BYTES);
+        PROFILE_END();
+
+        // Mark frame as ready for encoding (encoder can start immediately)
+        atomic_store(&app_state.frames[i].ready, true);
+        atomic_fetch_add(&app_state.frames_ready, 1);
+
+        frames_processed[i] = true;
+        frames_remaining--;
+        made_progress = true;
+
+        if (atomic_load(&app_state.frames_ready) == NUM_FRAMES) {
+          gettimeofday(&app_state.readback_complete_time, NULL);
+        }
+      }
+      PROFILE_END();
     }
-    PROFILE_END();
+
+    // If no frames completed this iteration, sleep briefly to avoid busy waiting
+    if (!made_progress) {
+      os_sleep_us(50); // Reduced from 100us for better responsiveness
+    }
   }
   PROFILE_END();
 
@@ -623,6 +645,7 @@ static void cleanup(void) {
 int main(int argc, char *argv[]) {
   (void)argc;
   (void)argv;
+  profiler_begin_session();
 
   printf("=== Fast Parallel Video Renderer ===\n");
   printf("Frames: %d, Resolution: %dx%d\n", NUM_FRAMES, FRAME_WIDTH,
@@ -653,16 +676,21 @@ int main(int argc, char *argv[]) {
   // Wait for everything to complete
   wait_for_completion();
 
+  // Print profiling results
+#ifdef PROFILER_ENABLED
+  printf("\n");
+  char *temp = calloc(1, MB(16));
+  ArenaAllocator arena = arena_from_buffer((uint8 *)temp, MB(16));
+  Allocator allocator = make_arena_allocator(&arena);
+  profiler_end_and_print_session(&allocator);
+#endif
+
   // Cleanup
   cleanup();
-
-  // Print profiling results
-  printf("\n");
-  profiler_end_and_print_session();
 
   printf("\n✅ Video generated: output.mp4\n");
   return 0;
 }
 
 // Assert we haven't exceeded max profile points
-PROFILE_ASSERT_END_OF_COMPILATION_UNIT
+PROFILE_ASSERT_END_OF_COMPILATION_UNIT;

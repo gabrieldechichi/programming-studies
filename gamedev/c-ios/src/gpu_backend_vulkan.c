@@ -25,6 +25,7 @@ struct gpu_device {
     VkQueue graphics_queue;
     VkQueue transfer_queue;
     VkCommandPool command_pool;
+    VkCommandPool transfer_command_pool;  // Separate pool for transfer operations
     uint32_t graphics_queue_family;
     uint32_t transfer_queue_family;
 
@@ -47,6 +48,8 @@ struct gpu_readback_buffer {
     VkDeviceMemory memory;
     size_t size;
     void* mapped_data;
+    gpu_device_t* device;  // Need device reference for invalidation
+    bool is_coherent;      // Track if memory is coherent (no invalidation needed)
 };
 
 struct gpu_command_buffer {
@@ -78,8 +81,8 @@ struct gpu_render_encoder {
     gpu_device_t* device;      // Need device reference
 };
 
-// Helper function to find memory type
-static uint32_t find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags properties) {
+// Helper function to find memory type (returns UINT32_MAX if not found)
+static uint32_t find_memory_type_optional(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags properties) {
     VkPhysicalDeviceMemoryProperties mem_properties;
     vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
 
@@ -89,8 +92,17 @@ static uint32_t find_memory_type(VkPhysicalDevice physical_device, uint32_t type
         }
     }
 
-    fprintf(stderr, "Failed to find suitable memory type\n");
-    exit(1);
+    return UINT32_MAX;
+}
+
+// Helper function to find memory type (exits on failure)
+static uint32_t find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags properties) {
+    uint32_t memory_type = find_memory_type_optional(physical_device, type_filter, properties);
+    if (memory_type == UINT32_MAX) {
+        fprintf(stderr, "Failed to find suitable memory type\n");
+        exit(1);
+    }
+    return memory_type;
 }
 
 // Load SPIR-V shader from file
@@ -183,11 +195,64 @@ static VkPhysicalDevice select_physical_device(VkInstance instance) {
     VkPhysicalDevice* devices = (VkPhysicalDevice*)malloc(sizeof(VkPhysicalDevice) * device_count);
     vkEnumeratePhysicalDevices(instance, &device_count, devices);
 
-    VkPhysicalDevice selected_device = devices[0];  // Just pick the first one for now
+    printf("[Vulkan] Found %u GPU(s):\n", device_count);
 
-    VkPhysicalDeviceProperties device_properties;
-    vkGetPhysicalDeviceProperties(selected_device, &device_properties);
-    printf("[Vulkan] Selected GPU: %s\n", device_properties.deviceName);
+    VkPhysicalDevice selected_device = VK_NULL_HANDLE;
+    int best_score = -1;
+
+    for (uint32_t i = 0; i < device_count; i++) {
+        VkPhysicalDeviceProperties props;
+        VkPhysicalDeviceMemoryProperties mem_props;
+        vkGetPhysicalDeviceProperties(devices[i], &props);
+        vkGetPhysicalDeviceMemoryProperties(devices[i], &mem_props);
+
+        const char* device_type_str;
+        int score = 0;
+
+        switch (props.deviceType) {
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                device_type_str = "Discrete GPU";
+                score = 1000;
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                device_type_str = "Integrated GPU";
+                score = 100;
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                device_type_str = "Virtual GPU";
+                score = 50;
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                device_type_str = "CPU";
+                score = 10;
+                break;
+            default:
+                device_type_str = "Other";
+                score = 1;
+                break;
+        }
+
+        // Calculate total VRAM
+        VkDeviceSize total_memory = 0;
+        for (uint32_t j = 0; j < mem_props.memoryHeapCount; j++) {
+            if (mem_props.memoryHeaps[j].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+                total_memory += mem_props.memoryHeaps[j].size;
+            }
+        }
+
+        printf("[Vulkan]   %u: %s (%s) - VRAM: %.1f GB\n",
+               i, props.deviceName, device_type_str,
+               (double)total_memory / (1024.0 * 1024.0 * 1024.0));
+
+        if (score > best_score) {
+            best_score = score;
+            selected_device = devices[i];
+        }
+    }
+
+    VkPhysicalDeviceProperties selected_props;
+    vkGetPhysicalDeviceProperties(selected_device, &selected_props);
+    printf("[Vulkan] Selected: %s\n", selected_props.deviceName);
 
     free(devices);
     return selected_device;
@@ -267,6 +332,15 @@ gpu_device_t* gpu_init(void) {
     };
 
     VK_CHECK(vkCreateCommandPool(device->device, &pool_info, NULL, &device->command_pool));
+
+    // Create separate command pool for transfer operations (allows concurrent command buffer allocation)
+    VkCommandPoolCreateInfo transfer_pool_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+        .queueFamilyIndex = device->graphics_queue_family
+    };
+
+    VK_CHECK(vkCreateCommandPool(device->device, &transfer_pool_info, NULL, &device->transfer_command_pool));
 
     // Load shader modules (will be compiled to SPIR-V by build system)
     device->vertex_shader = load_shader_module(device->device, "triangle.vert.spv");
@@ -360,6 +434,7 @@ void* gpu_get_native_texture(gpu_texture_t* texture) {
 gpu_readback_buffer_t* gpu_create_readback_buffer(gpu_device_t* device, size_t size) {
     gpu_readback_buffer_t* buffer = (gpu_readback_buffer_t*)calloc(1, sizeof(gpu_readback_buffer_t));
     buffer->size = size;
+    buffer->device = device;
 
     // Create staging buffer with host-visible memory
     VkBufferCreateInfo buffer_info = {
@@ -375,11 +450,23 @@ gpu_readback_buffer_t* gpu_create_readback_buffer(gpu_device_t* device, size_t s
     VkMemoryRequirements mem_requirements;
     vkGetBufferMemoryRequirements(device->device, buffer->buffer, &mem_requirements);
 
+    // Try cached memory first (better for CPU reads), fall back to coherent
+    uint32_t memory_type = find_memory_type_optional(device->physical_device, mem_requirements.memoryTypeBits,
+                                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+    if (memory_type == UINT32_MAX) {
+        memory_type = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        buffer->is_coherent = true;
+        printf("[Vulkan] Using coherent memory for readback buffers\n");
+    } else {
+        buffer->is_coherent = false;
+        printf("[Vulkan] Using cached memory for readback buffers\n");
+    }
+
     VkMemoryAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .allocationSize = mem_requirements.size,
-        .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
-                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+        .memoryTypeIndex = memory_type
     };
 
     VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &buffer->memory));
@@ -402,10 +489,10 @@ gpu_command_buffer_t* gpu_readback_texture_async(
     cmd->device = device;
     cmd->completed = false;
 
-    // Allocate command buffer
+    // Allocate command buffer from transfer pool for better concurrency
     VkCommandBufferAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = device->command_pool,
+        .commandPool = device->transfer_command_pool,
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = 1
     };
@@ -518,6 +605,18 @@ void* gpu_get_readback_data(gpu_readback_buffer_t* buffer) {
 
 void gpu_copy_readback_data(gpu_readback_buffer_t* buffer, void* dst, size_t size) {
     size_t copy_size = size < buffer->size ? size : buffer->size;
+
+    // Invalidate cache if using cached memory (non-coherent)
+    if (!buffer->is_coherent) {
+        VkMappedMemoryRange range = {
+            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+            .memory = buffer->memory,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE
+        };
+        vkInvalidateMappedMemoryRanges(buffer->device->device, 1, &range);
+    }
+
     memcpy(dst, buffer->mapped_data, copy_size);
 }
 
@@ -977,6 +1076,9 @@ void gpu_destroy(gpu_device_t* device) {
         }
         if (device->command_pool) {
             vkDestroyCommandPool(device->device, device->command_pool, NULL);
+        }
+        if (device->transfer_command_pool) {
+            vkDestroyCommandPool(device->device, device->transfer_command_pool, NULL);
         }
         if (device->device) {
             vkDestroyDevice(device->device, NULL);
