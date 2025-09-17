@@ -3,12 +3,18 @@
 #include <stdio.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+
+#ifdef MACOS
 #include <mach/mach_time.h>
+#elif defined(LINUX)
+#include <time.h>
+#endif
 
 #if PROFILER_ENABLED
 
 #include "string_builder.h"
 
+#ifdef MACOS
 static mach_timebase_info_data_t timebase = {0};
 static bool timebase_initialized = false;
 
@@ -32,6 +38,23 @@ static f64 platform_ticks_to_ms(u64 ticks) {
     return (f64)(ticks * timebase.numer / timebase.denom) / 1000000.0;
 }
 
+#elif defined(LINUX)
+static u64 platform_time_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (u64)ts.tv_sec * 1000000000ULL + (u64)ts.tv_nsec;
+}
+
+static u64 platform_time_diff(u64 new_ticks, u64 old_ticks) {
+    return new_ticks - old_ticks;
+}
+
+static f64 platform_ticks_to_ms(u64 ticks) {
+    return (f64)ticks / 1000000.0;  // Convert nanoseconds to milliseconds
+}
+#endif
+
+#ifdef MACOS
 static f64 platform_ticks_to_us(u64 ticks) {
     return stm_us(ticks);
 }
@@ -39,6 +62,15 @@ static f64 platform_ticks_to_us(u64 ticks) {
 static f64 platform_ticks_to_ns(u64 ticks) {
     return stm_ns(ticks);
 }
+#elif defined(LINUX)
+static f64 platform_ticks_to_us(u64 ticks) {
+    return (f64)ticks / 1000.0;  // Convert nanoseconds to microseconds
+}
+
+static f64 platform_ticks_to_ns(u64 ticks) {
+    return (f64)ticks;  // Already in nanoseconds
+}
+#endif
 
 // Thread-local profiler state
 _Thread_local ProfileAnchor g_profiler_anchors[PROFILER_MAX_ANCHORS] = {0};
