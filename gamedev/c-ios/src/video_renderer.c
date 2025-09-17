@@ -15,12 +15,6 @@
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
 
-// Sokol headers
-#include "sokol/sokol_gfx.h"
-#include "sokol/sokol_log.h"
-#include "sokol/sokol_time.h"
-#include "shaders/triangle.h"
-
 // Profiler
 #include "profiler.h"
 
@@ -40,6 +34,11 @@ typedef struct {
   atomic_bool ready;
 } frame_data_t;
 
+// Uniform buffer structure matching Metal shader
+typedef struct {
+    float model[16];
+} uniforms_t;
+
 // Application state
 static struct {
   // GPU backend objects
@@ -47,12 +46,8 @@ static struct {
   gpu_texture_t *render_textures[NUM_FRAMES];
   gpu_readback_buffer_t *readback_buffers[NUM_FRAMES];
   gpu_command_buffer_t *readback_commands[NUM_FRAMES];
-
-  // Sokol objects
-  sg_image render_images[NUM_FRAMES];
-  sg_pass_action pass_action;
-  sg_pipeline pip;
-  sg_bindings bind;
+  gpu_pipeline_t *pipeline;
+  gpu_buffer_t *vertex_buffer;
 
   // Frame management
   frame_data_t frames[NUM_FRAMES];
@@ -84,12 +79,10 @@ static struct {
 // Triangle vertex data
 static float vertices[] = {
     // positions      colors
-    0.0f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f, // top vertex (red)
-    0.5f,  -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, // bottom right (green)
-    -0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f  // bottom left (blue)
+     0.0f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f, // top (red)
+    -0.5f, -0.5f,  0.0f, 1.0f, 0.0f, 1.0f, // bottom left (green)
+     0.5f, -0.5f,  0.0f, 0.0f, 1.0f, 1.0f  // bottom right (blue)
 };
-
-// vs_params_t is defined in the shader header (triangle.h)
 
 // Create a 4x4 rotation matrix around Z axis
 static void mat4_rotation_z(float *m, float angle_rad) {
@@ -355,6 +348,26 @@ static void *encoder_thread_func(void *arg) {
   return NULL;
 }
 
+// Load shader from file
+static char* load_shader_file(const char* filename) {
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        printf("Warning: Could not open shader file %s\n", filename);
+        return NULL;
+    }
+
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    char* content = (char*)malloc((size_t)(size + 1));
+    fread(content, 1, (size_t)size, file);
+    content[size] = '\0';
+
+    fclose(file);
+    return content;
+}
+
 // Initialize GPU backend
 static void gpu_backend_init(void) {
   PROFILE_BEGIN("gpu_backend_init");
@@ -365,6 +378,48 @@ static void gpu_backend_init(void) {
     fprintf(stderr, "Failed to create GPU device\n");
     exit(1);
   }
+
+  // Load shader source - try multiple paths
+  char* shader_source = load_shader_file("triangle.metal");
+  if (!shader_source) {
+    shader_source = load_shader_file("src/shaders/triangle.metal");
+  }
+  if (!shader_source) {
+    shader_source = load_shader_file("../../src/shaders/triangle.metal");
+  }
+
+  // Create vertex layout
+  gpu_vertex_attr_t attributes[] = {
+    {.index = 0, .offset = 0, .format = 0},  // position (float2)
+    {.index = 1, .offset = 8, .format = 2}   // color (float4)
+  };
+
+  gpu_vertex_layout_t vertex_layout = {
+    .attributes = attributes,
+    .num_attributes = 2,
+    .stride = 24  // 2 floats + 4 floats = 6 floats = 24 bytes
+  };
+
+  // Create pipeline
+  app_state.pipeline = gpu_create_pipeline(
+    app_state.device,
+    shader_source,
+    "vertex_main",
+    "fragment_main",
+    &vertex_layout
+  );
+
+  if (shader_source) {
+    free(shader_source);
+  }
+
+  if (!app_state.pipeline) {
+    fprintf(stderr, "Failed to create render pipeline\n");
+    exit(1);
+  }
+
+  // Create vertex buffer
+  app_state.vertex_buffer = gpu_create_buffer(app_state.device, vertices, sizeof(vertices));
 
   // Create render textures and readback buffers for all frames
   for (int i = 0; i < NUM_FRAMES; i++) {
@@ -385,67 +440,6 @@ static void gpu_backend_init(void) {
   PROFILE_END();
 }
 
-static void sokol_init(void) {
-  PROFILE_BEGIN("sokol_init");
-
-  // Initialize Sokol GFX with native GPU backend
-  sg_setup(&(sg_desc){
-      .environment =
-          {
-              .metal =
-                  {
-                      .device = gpu_get_native_device(app_state.device),
-                  },
-          },
-      .image_pool_size =
-          NUM_FRAMES + 10, // Need one image per frame plus some overhead
-      .view_pool_size =
-          NUM_FRAMES + 10, // Need one view per frame plus some overhead
-      .logger.func = slog_func,
-  });
-
-  // Create Sokol image wrappers for our GPU textures
-  for (int i = 0; i < NUM_FRAMES; i++) {
-    app_state.render_images[i] = sg_make_image(&(sg_image_desc){
-        .usage =
-            {
-                .color_attachment = true,
-            },
-        .width = FRAME_WIDTH,
-        .height = FRAME_HEIGHT,
-        .pixel_format = SG_PIXELFORMAT_BGRA8,
-        .sample_count = 1,
-        .mtl_textures[0] = gpu_get_native_texture(
-            app_state.render_textures[i]), // Wrap our native texture
-        .label = "render-target"});
-  }
-
-  // Create vertex buffer
-  app_state.bind.vertex_buffers[0] = sg_make_buffer(
-      &(sg_buffer_desc){.data = {.ptr = vertices, .size = sizeof(vertices)},
-                        .label = "triangle-vertices"});
-
-  // Create shader and pipeline
-  sg_shader shd = sg_make_shader(triangle_shader_desc(sg_query_backend()));
-
-  app_state.pip = sg_make_pipeline(
-      &(sg_pipeline_desc){.shader = shd,
-                          .layout = {.attrs = {[ATTR_triangle_position].format =
-                                                   SG_VERTEXFORMAT_FLOAT2,
-                                               [ATTR_triangle_color].format =
-                                                   SG_VERTEXFORMAT_FLOAT4}},
-                          .label = "triangle-pipeline"});
-
-  // Set up clear action
-  app_state.pass_action = (sg_pass_action){
-      .colors[0] = {
-          .load_action = SG_LOADACTION_CLEAR,
-          .clear_value = {0.0f, 0.0f, 0.0f, 1.0f} // Black background
-      }};
-
-  PROFILE_END();
-}
-
 static void render_all_frames(void) {
   PROFILE_BEGIN("render_all_frames");
   printf("[Renderer] Submitting all %d frames to GPU...\n", NUM_FRAMES);
@@ -455,60 +449,50 @@ static void render_all_frames(void) {
 
   // First pass: Submit all render commands
   PROFILE_BEGIN("render_submission");
+
+  // Create command buffers for each frame
+  gpu_command_buffer_t* cmd_buffers[NUM_FRAMES];
+
   for (int i = 0; i < NUM_FRAMES; i++) {
     // Calculate rotation for this frame
     float time = (float)i * dt;
     float angle = time * rotation_speed;
-    vs_params_t vs_params;
-    mat4_rotation_z(vs_params.model, angle);
+    uniforms_t uniforms;
+    mat4_rotation_z(uniforms.model, angle);
 
-    PROFILE_BEGIN("sg make view");
-    // Create view for this frame's render target
-    sg_view color_view =
-        sg_make_view(&(sg_view_desc){.color_attachment = {
-                                         .image = app_state.render_images[i],
-                                     }});
-    PROFILE_END();
+    PROFILE_BEGIN("render_frame");
 
-    PROFILE_BEGIN("sg begin pass");
+    // Create a command buffer for this frame
+    cmd_buffers[i] = gpu_begin_commands(app_state.device);
+
     // Begin render pass for this frame
-    sg_begin_pass(&(sg_pass){.action = app_state.pass_action,
-                             .attachments = {
-                                 .colors[0] = color_view,
-                             }});
-    PROFILE_END();
+    gpu_render_encoder_t* encoder = gpu_begin_render_pass(
+      cmd_buffers[i],
+      app_state.render_textures[i],
+      0.0f, 0.0f, 0.0f, 1.0f  // Black background
+    );
 
-    PROFILE_BEGIN("sg apply pipeline");
+    // Set pipeline and vertex buffer
+    gpu_set_pipeline(encoder, app_state.pipeline);
+    gpu_set_vertex_buffer(encoder, app_state.vertex_buffer, 0);
+
+    // Set uniforms at buffer index 1 (index 0 is the vertex buffer)
+    gpu_set_uniforms(encoder, 1, &uniforms, sizeof(uniforms));
+
     // Draw triangle
-    sg_apply_pipeline(app_state.pip);
-    PROFILE_END();
+    gpu_draw(encoder, 3);
 
-    PROFILE_BEGIN("sg apply bindings");
-    sg_apply_bindings(&app_state.bind);
-    PROFILE_END();
+    // End render pass
+    gpu_end_render_pass(encoder);
 
-    PROFILE_BEGIN("sg apply uniforms");
-    sg_apply_uniforms(0, &(sg_range){&vs_params, sizeof(vs_params)});
-    PROFILE_END();
+    // Commit and wait for this frame's commands
+    gpu_commit_commands(cmd_buffers[i], true);  // Wait for each frame
 
-    PROFILE_BEGIN("sg draw");
-    sg_draw(0, 3, 1);
-    PROFILE_END();
-
-    PROFILE_BEGIN("sg end pass");
-    sg_end_pass();
-    PROFILE_END();
-
-    PROFILE_BEGIN("destroy view");
-    // Clean up view
-    sg_destroy_view(color_view);
     PROFILE_END();
 
     atomic_fetch_add(&app_state.frames_rendered, 1);
   }
 
-  // commit all frames at once
-  sg_commit();
   PROFILE_END(); // render_submission
 
   gettimeofday(&app_state.render_complete_time, NULL);
@@ -528,13 +512,10 @@ static void render_all_frames(void) {
     PROFILE_END();
 
     PROFILE_BEGIN("submit read cmd");
-    // Submit the command (non-blocking)
+    // Submit the command (blocking for simplicity)
     gpu_submit_commands(app_state.readback_commands[i], true);
     PROFILE_END();
-    // Poll until this frame's readback is complete
-    // while (!gpu_is_readback_complete(app_state.readback_commands[i])) {
-    //   usleep(100); // Small sleep to avoid busy waiting
-    // }
+
     printf("frame %d ready\n", i);
 
     PROFILE_BEGIN("copy readback data");
@@ -553,7 +534,6 @@ static void render_all_frames(void) {
     PROFILE_END();
   }
   PROFILE_END();
-
 
   PROFILE_END(); // render_all_frames
 }
@@ -602,16 +582,6 @@ static void cleanup(void) {
   // Close FFmpeg encoder
   close_ffmpeg_encoder();
 
-  // Destroy Sokol images
-  for (int i = 0; i < NUM_FRAMES; i++) {
-    if (app_state.render_images[i].id != 0) {
-      sg_destroy_image(app_state.render_images[i]);
-    }
-  }
-
-  // Cleanup Sokol
-  sg_shutdown();
-
   // Release GPU backend objects
   for (int i = 0; i < NUM_FRAMES; i++) {
     if (app_state.render_textures[i]) {
@@ -624,6 +594,14 @@ static void cleanup(void) {
       gpu_destroy_command_buffer(app_state.readback_commands[i]);
     }
     free(app_state.frames[i].data);
+  }
+
+  if (app_state.pipeline) {
+    gpu_destroy_pipeline(app_state.pipeline);
+  }
+
+  if (app_state.vertex_buffer) {
+    gpu_destroy_buffer(app_state.vertex_buffer);
   }
 
   if (app_state.device) {
@@ -642,7 +620,6 @@ int main(int argc, char *argv[]) {
   printf("Frames: %d, Resolution: %dx%d\n", NUM_FRAMES, FRAME_WIDTH,
          FRAME_HEIGHT);
   printf("=====================================\n\n");
-  stm_setup();
 
   // Initialize atomics and threading
   atomic_store(&app_state.frames_rendered, 0);
@@ -654,12 +631,9 @@ int main(int argc, char *argv[]) {
   // Start timing
   gettimeofday(&app_state.start_time, NULL);
 
-  // Initialize GPU backend and Sokol
+  // Initialize GPU backend
   printf("[Main] Initializing GPU backend...\n");
   gpu_backend_init();
-
-  printf("[Main] Initializing Sokol...\n");
-  sokol_init();
 
   // Start FFmpeg encoder thread
   printf("[Main] Starting FFmpeg encoder thread...\n");
@@ -676,11 +650,11 @@ int main(int argc, char *argv[]) {
 
   // Print profiling results
   printf("\n");
-  profiler_end_and_print_session(NULL);
+  profiler_end_and_print_session();
 
   printf("\n✅ Video generated: output.mp4\n");
   return 0;
 }
 
 // Assert we haven't exceeded max profile points
-PROFILE_ASSERT_END_OF_COMPILATION_UNIT;
+PROFILE_ASSERT_END_OF_COMPILATION_UNIT

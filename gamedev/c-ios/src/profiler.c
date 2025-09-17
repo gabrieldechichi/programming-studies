@@ -2,22 +2,34 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdatomic.h>
-#include "sokol/sokol_time.h"
+#include <stdbool.h>
+#include <mach/mach_time.h>
 
 #if PROFILER_ENABLED
 
 #include "string_builder.h"
 
+static mach_timebase_info_data_t timebase = {0};
+static bool timebase_initialized = false;
+
+static void ensure_timebase_initialized(void) {
+    if (!timebase_initialized) {
+        mach_timebase_info(&timebase);
+        timebase_initialized = true;
+    }
+}
+
 static u64 platform_time_now(void) {
-    return stm_now();
+    return mach_absolute_time();
 }
 
 static u64 platform_time_diff(u64 new_ticks, u64 old_ticks) {
-    return stm_diff(new_ticks, old_ticks);
+    return new_ticks - old_ticks;
 }
 
 static f64 platform_ticks_to_ms(u64 ticks) {
-    return stm_ms(ticks);
+    ensure_timebase_initialized();
+    return (f64)(ticks * timebase.numer / timebase.denom) / 1000000.0;
 }
 
 static f64 platform_ticks_to_us(u64 ticks) {
