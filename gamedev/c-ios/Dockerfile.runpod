@@ -1,0 +1,55 @@
+FROM ubuntu:24.04
+
+# Set non-interactive frontend to avoid prompts during build
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set NVIDIA environment variables for GPU access
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics,video
+
+# Update package list and install dependencies
+RUN apt-get update && apt-get install -y \
+    # Python runtime
+    python3 \
+    python3-pip \
+    python3-venv \
+    # Vulkan runtime libraries
+    libvulkan1 \
+    vulkan-tools \
+    # FFmpeg runtime libraries (dynamically linked)
+    libavformat60 \
+    libavcodec60 \
+    libavutil58 \
+    libswscale7 \
+    # NVIDIA utilities for GPU detection
+    pciutils \
+    # Clean up to reduce image size
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create application directory
+WORKDIR /app
+
+# Copy Python requirements and install dependencies
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+
+# Copy pre-built application and shaders
+COPY out/linux/video_renderer ./video_renderer
+COPY out/linux/*.spv ./
+# Also create the expected directory structure for shaders
+RUN mkdir -p /app/out/linux
+COPY out/linux/*.spv /app/out/linux/
+
+# Copy the RunPod handler
+COPY runpod_handler.py .
+
+# Make the binary executable
+RUN chmod +x ./video_renderer
+
+# Set Python path and working directory
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Set the entrypoint to run the RunPod handler
+CMD ["python3", "runpod_handler.py"]
