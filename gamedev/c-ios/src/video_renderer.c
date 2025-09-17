@@ -28,6 +28,9 @@
 #define FRAME_WIDTH 1080
 #define FRAME_HEIGHT 1920
 #define FRAME_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT * 4)
+#define YUV_Y_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT)          // Y plane: full resolution
+#define YUV_UV_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT / 4)     // U,V planes: quarter resolution (4:2:0)
+#define YUV_TOTAL_SIZE_BYTES (YUV_Y_SIZE_BYTES + 2 * YUV_UV_SIZE_BYTES) // Y + U + V
 
 // Frame data structure for queue
 typedef struct {
@@ -50,6 +53,14 @@ static struct {
   gpu_command_buffer_t *readback_commands[NUM_FRAMES];
   gpu_pipeline_t *pipeline;
   gpu_buffer_t *vertex_buffer;
+
+  // GPU color conversion objects
+  gpu_compute_pipeline_t *compute_pipeline;
+  gpu_texture_t *yuv_y_textures[NUM_FRAMES];
+  gpu_texture_t *yuv_u_textures[NUM_FRAMES];
+  gpu_texture_t *yuv_v_textures[NUM_FRAMES];
+  gpu_readback_buffer_t *yuv_readback_buffers[NUM_FRAMES];     // Single buffer per frame for packed YUV
+  gpu_command_buffer_t *yuv_readback_commands[NUM_FRAMES];     // Single command per frame
 
   // Frame management
   frame_data_t frames[NUM_FRAMES];
@@ -118,14 +129,33 @@ static int init_ffmpeg_encoder(const char *filename) {
     return -1;
   }
 
-  // Find H.264 encoder (use VideoToolbox on macOS)
-  const AVCodec *codec = avcodec_find_encoder_by_name("h264_videotoolbox");
-  if (!codec) {
-    // Fallback to software encoder
-    codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-    if (!codec) {
-      fprintf(stderr, "H.264 encoder not found\n");
-      return -1;
+  // Find H.264 encoder - prioritize hardware encoders
+  const AVCodec *codec = NULL;
+
+  // Try NVENC first (NVIDIA hardware encoding)
+  codec = avcodec_find_encoder_by_name("h264_nvenc");
+  if (codec) {
+    printf("[FFmpeg] Using NVENC hardware encoder\n");
+  } else {
+    // Try VideoToolbox (macOS hardware encoding)
+    codec = avcodec_find_encoder_by_name("h264_videotoolbox");
+    if (codec) {
+      printf("[FFmpeg] Using VideoToolbox hardware encoder\n");
+    } else {
+      // Try Intel QuickSync
+      codec = avcodec_find_encoder_by_name("h264_qsv");
+      if (codec) {
+        printf("[FFmpeg] Using Intel QuickSync hardware encoder\n");
+      } else {
+        // Fallback to software encoder
+        codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+        if (codec) {
+          printf("[FFmpeg] Using software encoder (libx264)\n");
+        } else {
+          fprintf(stderr, "No H.264 encoder found\n");
+          return -1;
+        }
+      }
     }
   }
 
@@ -151,12 +181,24 @@ static int init_ffmpeg_encoder(const char *filename) {
   app_state.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
   app_state.codec_ctx->bit_rate = 2000000; // 2 Mbps
 
-  // Set H.264 specific options
-  av_opt_set(app_state.codec_ctx->priv_data, "profile", "high", 0);
-  av_opt_set(app_state.codec_ctx->priv_data, "level", "4.0", 0);
-  if (codec->name && strstr(codec->name, "videotoolbox")) {
+  // Set encoder-specific options
+  if (codec->name && strstr(codec->name, "nvenc")) {
+    // NVENC specific options for best performance
+    av_opt_set(app_state.codec_ctx->priv_data, "preset", "p1", 0);     // Fastest preset
+    av_opt_set(app_state.codec_ctx->priv_data, "tune", "ll", 0);       // Low latency
+    av_opt_set(app_state.codec_ctx->priv_data, "rc", "cbr", 0);        // Constant bitrate
+    av_opt_set(app_state.codec_ctx->priv_data, "gpu", "0", 0);         // Use GPU 0
+    av_opt_set(app_state.codec_ctx->priv_data, "delay", "0", 0);       // No B-frame delay
+  } else if (codec->name && strstr(codec->name, "videotoolbox")) {
     // VideoToolbox specific options for better performance
     av_opt_set(app_state.codec_ctx->priv_data, "realtime", "1", 0);
+  } else if (codec->name && strstr(codec->name, "qsv")) {
+    // Intel QuickSync specific options
+    av_opt_set(app_state.codec_ctx->priv_data, "preset", "veryfast", 0);
+  } else {
+    // Software encoder (libx264) options
+    av_opt_set(app_state.codec_ctx->priv_data, "profile", "high", 0);
+    av_opt_set(app_state.codec_ctx->priv_data, "level", "4.0", 0);
   }
 
   // Open codec
@@ -250,20 +292,50 @@ static void close_ffmpeg_encoder(void) {
 }
 
 // Encode a single frame
-static int encode_frame(uint8_t *bgra_data) {
+static int encode_frame(uint8_t *yuv_data) {
   int ret;
-
-  // Convert BGRA to YUV420P
-  const uint8_t *src_data[4] = {bgra_data, NULL, NULL, NULL};
-  int src_linesize[4] = {FRAME_WIDTH * 4, 0, 0, 0};
 
   ret = av_frame_make_writable(app_state.frame);
   if (ret < 0) {
     return ret;
   }
 
-  sws_scale(app_state.sws_ctx, src_data, src_linesize, 0, FRAME_HEIGHT,
-            app_state.frame->data, app_state.frame->linesize);
+  // YUV data layout in memory: [Y_PLANE][U_PLANE][V_PLANE]
+  uint8_t* y_src = yuv_data;
+  uint8_t* u_src = yuv_data + YUV_Y_SIZE_BYTES;
+  uint8_t* v_src = yuv_data + YUV_Y_SIZE_BYTES + YUV_UV_SIZE_BYTES;
+
+  // Debug: Print YUV data sizes on first frame
+  static int first_frame = 1;
+  if (first_frame) {
+    printf("[Debug] YUV data sizes: Y=%d, U=%d, V=%d, Total=%d\n",
+           YUV_Y_SIZE_BYTES, YUV_UV_SIZE_BYTES, YUV_UV_SIZE_BYTES, YUV_TOTAL_SIZE_BYTES);
+    first_frame = 0;
+  }
+
+  // Copy Y plane data with proper linesize alignment
+  uint8_t* dst_y = app_state.frame->data[0];
+  for (int y = 0; y < FRAME_HEIGHT; y++) {
+    memcpy(dst_y, y_src, FRAME_WIDTH);
+    y_src += FRAME_WIDTH;                  // Source has no padding
+    dst_y += app_state.frame->linesize[0]; // FFmpeg frame might have padding
+  }
+
+  // Copy U plane data with proper linesize alignment
+  uint8_t* dst_u = app_state.frame->data[1];
+  for (int y = 0; y < FRAME_HEIGHT / 2; y++) {
+    memcpy(dst_u, u_src, FRAME_WIDTH / 2);
+    u_src += FRAME_WIDTH / 2;             // Source has no padding
+    dst_u += app_state.frame->linesize[1]; // FFmpeg frame might have padding
+  }
+
+  // Copy V plane data with proper linesize alignment
+  uint8_t* dst_v = app_state.frame->data[2];
+  for (int y = 0; y < FRAME_HEIGHT / 2; y++) {
+    memcpy(dst_v, v_src, FRAME_WIDTH / 2);
+    v_src += FRAME_WIDTH / 2;             // Source has no padding
+    dst_v += app_state.frame->linesize[2]; // FFmpeg frame might have padding
+  }
 
   app_state.frame->pts = app_state.pts_counter++;
 
@@ -420,18 +492,38 @@ static void gpu_backend_init(void) {
   app_state.vertex_buffer =
       gpu_create_buffer(app_state.device, vertices, sizeof(vertices));
 
+  // Create compute pipeline for BGRA to YUV conversion
+  app_state.compute_pipeline =
+      gpu_create_compute_pipeline(app_state.device, "out/linux/bgra_to_yuv.comp.spv");
+
+  if (!app_state.compute_pipeline) {
+    // Try alternate path
+    app_state.compute_pipeline =
+        gpu_create_compute_pipeline(app_state.device, "bgra_to_yuv.comp.spv");
+  }
+
   // Create render textures and readback buffers for all frames
   for (int i = 0; i < NUM_FRAMES; i++) {
-    // Create render texture
+    // Create render texture (BGRA)
     app_state.render_textures[i] =
         gpu_create_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT);
 
-    // Create readback buffer for this frame
-    app_state.readback_buffers[i] =
-        gpu_create_readback_buffer(app_state.device, FRAME_SIZE_BYTES);
+    // Create YUV storage textures for compute output
+    app_state.yuv_y_textures[i] =
+        gpu_create_storage_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT, 1); // R8 format
+    app_state.yuv_u_textures[i] =
+        gpu_create_storage_texture(app_state.device, FRAME_WIDTH/2, FRAME_HEIGHT/2, 1); // R8 format
+    app_state.yuv_v_textures[i] =
+        gpu_create_storage_texture(app_state.device, FRAME_WIDTH/2, FRAME_HEIGHT/2, 1); // R8 format
 
-    // Allocate CPU memory for this frame
-    app_state.frames[i].data = (uint8_t *)malloc(FRAME_SIZE_BYTES);
+    // Create single readback buffer per frame for packed YUV data (Y+U+V)
+    app_state.yuv_readback_buffers[i] =
+        gpu_create_readback_buffer(app_state.device, YUV_TOTAL_SIZE_BYTES);
+
+    // Removed old BGRA readback buffers to prevent memory exhaustion
+
+    // Allocate CPU memory for YUV frame data (smaller than BGRA)
+    app_state.frames[i].data = (uint8_t *)malloc(YUV_TOTAL_SIZE_BYTES);
     app_state.frames[i].frame_number = i;
     atomic_store(&app_state.frames[i].ready, false);
   }
@@ -503,18 +595,48 @@ static void render_all_frames(void) {
   gettimeofday(&app_state.render_complete_time, NULL);
   printf("[Renderer] All frames submitted to GPU\n");
 
-  // Second pass: Submit all readback commands async
-  PROFILE_BEGIN("submit all readbacks");
+  // Second pass: Submit compute + YUV readback commands async
+  PROFILE_BEGIN("submit all compute and readbacks");
   for (int i = 0; i < NUM_FRAMES; i++) {
-    PROFILE_BEGIN("create readback cmd");
-    app_state.readback_commands[i] = gpu_readback_texture_async(
-        app_state.device, app_state.render_textures[i],
-        app_state.readback_buffers[i], FRAME_WIDTH, FRAME_HEIGHT);
+    PROFILE_BEGIN("create compute and readback cmd");
+
+    // Create command buffer for compute dispatch
+    gpu_command_buffer_t* compute_cmd = gpu_begin_commands(app_state.device);
+
+    // Dispatch compute shader to convert BGRA -> YUV
+    gpu_texture_t* compute_textures[] = {
+        app_state.render_textures[i],  // Input BGRA
+        app_state.yuv_y_textures[i],   // Output Y
+        app_state.yuv_u_textures[i],   // Output U
+        app_state.yuv_v_textures[i]    // Output V
+    };
+
+    // Dispatch compute: 16x16 workgroups for 1080x1920 image
+    int groups_x = (FRAME_WIDTH + 15) / 16;   // ceil(1080/16) = 68
+    int groups_y = (FRAME_HEIGHT + 15) / 16;  // ceil(1920/16) = 120
+
+    gpu_dispatch_compute(compute_cmd, app_state.compute_pipeline,
+                        compute_textures, 4, groups_x, groups_y, 1);
+
     PROFILE_END();
 
-    PROFILE_BEGIN("submit readback async");
-    // Submit NON-BLOCKING for parallel execution
-    gpu_submit_commands(app_state.readback_commands[i], false);
+    PROFILE_BEGIN("submit compute readback async");
+    // Commit compute work first
+    gpu_commit_commands(compute_cmd, false);
+    PROFILE_END();
+
+    PROFILE_BEGIN("create yuv readback commands");
+    // Create single readback command for all YUV planes packed into one buffer
+    app_state.yuv_readback_commands[i] = gpu_readback_yuv_textures_async(
+        app_state.device,
+        app_state.yuv_y_textures[i],
+        app_state.yuv_u_textures[i],
+        app_state.yuv_v_textures[i],
+        app_state.yuv_readback_buffers[i],
+        FRAME_WIDTH, FRAME_HEIGHT);
+
+    // Submit the single YUV readback command
+    gpu_submit_commands(app_state.yuv_readback_commands[i], false);
     PROFILE_END();
   }
   PROFILE_END();
@@ -535,12 +657,12 @@ static void render_all_frames(void) {
 
       PROFILE_BEGIN("wait for single frame");
 
-      // Non-blocking check if this frame is ready
-      if (gpu_is_readback_complete(app_state.readback_commands[i])) {
+      // Non-blocking check if YUV readback is ready
+      if (gpu_is_readback_complete(app_state.yuv_readback_commands[i])) {
         PROFILE_BEGIN("copy readback data");
-        // Copy data from GPU buffer to CPU memory
-        gpu_copy_readback_data(app_state.readback_buffers[i],
-                               app_state.frames[i].data, FRAME_SIZE_BYTES);
+        // Copy packed YUV data (Y+U+V) from single GPU readback buffer to CPU memory
+        gpu_copy_readback_data(app_state.yuv_readback_buffers[i],
+                               app_state.frames[i].data, YUV_TOTAL_SIZE_BYTES);
         PROFILE_END();
 
         // Mark frame as ready for encoding (encoder can start immediately)

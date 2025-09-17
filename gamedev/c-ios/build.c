@@ -170,6 +170,14 @@ static int build_linux(const char *build_type) {
     return 1;
   }
 
+  // Compile compute shader
+  snprintf(cmd, sizeof(cmd), "glslangValidator -V src/shaders/bgra_to_yuv.comp -o %s/bgra_to_yuv.comp.spv 2>/dev/null || glslc src/shaders/bgra_to_yuv.comp -o %s/bgra_to_yuv.comp.spv",
+           LINUX_OUT_DIR, LINUX_OUT_DIR);
+  if (system(cmd) != 0) {
+    fprintf(stderr, "Failed to compile compute shader\n");
+    return 1;
+  }
+
   // Compile main.c (unity build)
   printf("Compiling main.c...\n");
   snprintf(cmd, sizeof(cmd), "%s %s %s -c %s -o %s",

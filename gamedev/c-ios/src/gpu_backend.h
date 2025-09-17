@@ -13,6 +13,7 @@ typedef struct gpu_command_buffer gpu_command_buffer_t;
 typedef struct gpu_pipeline gpu_pipeline_t;
 typedef struct gpu_buffer gpu_buffer_t;
 typedef struct gpu_render_encoder gpu_render_encoder_t;
+typedef struct gpu_compute_pipeline gpu_compute_pipeline_t;
 
 // Initialize the GPU backend
 gpu_device_t* gpu_init(void);
@@ -34,6 +35,17 @@ gpu_readback_buffer_t* gpu_create_readback_buffer(gpu_device_t* device, size_t s
 gpu_command_buffer_t* gpu_readback_texture_async(
     gpu_device_t* device,
     gpu_texture_t* texture,
+    gpu_readback_buffer_t* buffer,
+    int width,
+    int height
+);
+
+// Read multiple YUV textures into a single packed buffer (Y+U+V layout)
+gpu_command_buffer_t* gpu_readback_yuv_textures_async(
+    gpu_device_t* device,
+    gpu_texture_t* y_texture,
+    gpu_texture_t* u_texture,
+    gpu_texture_t* v_texture,
     gpu_readback_buffer_t* buffer,
     int width,
     int height
@@ -110,11 +122,32 @@ void gpu_commit_commands(gpu_command_buffer_t* cmd_buffer, bool wait);
 // Wait for a command buffer to complete (for batched commands)
 void gpu_wait_for_command_buffer(gpu_command_buffer_t* cmd_buffer);
 
+// === Compute Functions ===
+
+// Create compute pipeline with compute shader
+gpu_compute_pipeline_t* gpu_create_compute_pipeline(
+    gpu_device_t* device,
+    const char* compute_shader_path
+);
+
+// Create storage texture for compute shaders (read/write)
+gpu_texture_t* gpu_create_storage_texture(gpu_device_t* device, int width, int height, int format);
+
+// Dispatch compute work
+void gpu_dispatch_compute(
+    gpu_command_buffer_t* cmd_buffer,
+    gpu_compute_pipeline_t* pipeline,
+    gpu_texture_t** textures,
+    int num_textures,
+    int groups_x, int groups_y, int groups_z
+);
+
 // Cleanup functions
 void gpu_destroy_command_buffer(gpu_command_buffer_t* cmd_buffer);
 void gpu_destroy_texture(gpu_texture_t* texture);
 void gpu_destroy_readback_buffer(gpu_readback_buffer_t* buffer);
 void gpu_destroy_pipeline(gpu_pipeline_t* pipeline);
+void gpu_destroy_compute_pipeline(gpu_compute_pipeline_t* pipeline);
 void gpu_destroy_buffer(gpu_buffer_t* buffer);
 void gpu_destroy(gpu_device_t* device);
 

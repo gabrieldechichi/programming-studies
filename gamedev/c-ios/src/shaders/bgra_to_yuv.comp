@@ -1,0 +1,42 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0, rgba8) uniform readonly image2D inputBGRA;
+layout(binding = 1, r8) uniform writeonly image2D outputY;
+layout(binding = 2, r8) uniform writeonly image2D outputU;
+layout(binding = 3, r8) uniform writeonly image2D outputV;
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+
+    // Check bounds
+    ivec2 imageSize = imageSize(inputBGRA);
+    if (coord.x >= imageSize.x || coord.y >= imageSize.y) {
+        return;
+    }
+
+    vec4 bgra = imageLoad(inputBGRA, coord);
+
+    // BGRA to YUV conversion (ITU-R BT.601)
+    // Vulkan BGRA format: bgra.r=Blue, bgra.g=Green, bgra.b=Red, bgra.a=Alpha
+    // But the texture was rendered as RGBA, so we need to handle the actual color mapping
+    float r = bgra.r;  // Red component
+    float g = bgra.g;  // Green component
+    float b = bgra.b;  // Blue component
+
+    // Convert to YUV
+    float y = 0.299*r + 0.587*g + 0.114*b;
+    float u = -0.14713*r - 0.28886*g + 0.436*b + 0.5;
+    float v = 0.615*r - 0.51499*g - 0.10001*b + 0.5;
+
+    // Write Y for every pixel
+    imageStore(outputY, coord, vec4(y));
+
+    // Write UV only for even coordinates (4:2:0 subsampling)
+    if ((coord.x % 2) == 0 && (coord.y % 2) == 0) {
+        ivec2 uvCoord = coord / 2;
+        imageStore(outputU, uvCoord, vec4(u));
+        imageStore(outputV, uvCoord, vec4(v));
+    }
+}

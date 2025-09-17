@@ -81,6 +81,14 @@ struct gpu_render_encoder {
     gpu_device_t* device;      // Need device reference
 };
 
+struct gpu_compute_pipeline {
+    VkPipeline pipeline;
+    VkPipelineLayout pipeline_layout;
+    VkDescriptorSetLayout descriptor_set_layout;
+    VkDescriptorPool descriptor_pool;
+    VkShaderModule compute_shader;
+};
+
 // Helper function to find memory type (returns UINT32_MAX if not found)
 static uint32_t find_memory_type_optional(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags properties) {
     VkPhysicalDeviceMemoryProperties mem_properties;
@@ -380,7 +388,7 @@ gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
         .arrayLayers = 1,
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
     };
@@ -570,6 +578,81 @@ gpu_command_buffer_t* gpu_readback_texture_async(
 
     VK_CHECK(vkEndCommandBuffer(cmd->cmd_buffer));
 
+    return cmd;
+}
+
+gpu_command_buffer_t* gpu_readback_yuv_textures_async(
+    gpu_device_t* device,
+    gpu_texture_t* y_texture,
+    gpu_texture_t* u_texture,
+    gpu_texture_t* v_texture,
+    gpu_readback_buffer_t* buffer,
+    int width,
+    int height
+) {
+    gpu_command_buffer_t* cmd = gpu_begin_commands(device);
+
+    // Create buffer copy regions for Y, U, V planes with proper offsets
+    VkBufferImageCopy copy_regions[3];
+
+    // Y plane copy (full resolution at offset 0)
+    copy_regions[0] = (VkBufferImageCopy){
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {width, height, 1}
+    };
+
+    // U plane copy (quarter resolution at Y offset)
+    copy_regions[1] = (VkBufferImageCopy){
+        .bufferOffset = YUV_Y_SIZE_BYTES,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {width/2, height/2, 1}
+    };
+
+    // V plane copy (quarter resolution at Y+U offset)
+    copy_regions[2] = (VkBufferImageCopy){
+        .bufferOffset = YUV_Y_SIZE_BYTES + YUV_UV_SIZE_BYTES,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {width/2, height/2, 1}
+    };
+
+    // Copy Y plane
+    vkCmdCopyImageToBuffer(cmd->cmd_buffer, y_texture->image, VK_IMAGE_LAYOUT_GENERAL,
+                          buffer->buffer, 1, &copy_regions[0]);
+
+    // Copy U plane
+    vkCmdCopyImageToBuffer(cmd->cmd_buffer, u_texture->image, VK_IMAGE_LAYOUT_GENERAL,
+                          buffer->buffer, 1, &copy_regions[1]);
+
+    // Copy V plane
+    vkCmdCopyImageToBuffer(cmd->cmd_buffer, v_texture->image, VK_IMAGE_LAYOUT_GENERAL,
+                          buffer->buffer, 1, &copy_regions[2]);
+
+    VK_CHECK(vkEndCommandBuffer(cmd->cmd_buffer));
     return cmd;
 }
 
@@ -1063,6 +1146,269 @@ void gpu_destroy_buffer(gpu_buffer_t* buffer) {
     if (buffer) {
         // Note: Need device reference to properly clean up
         free(buffer);
+    }
+}
+
+// === Compute Pipeline Implementation ===
+
+gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const char* compute_shader_path) {
+    gpu_compute_pipeline_t* compute_pipeline = (gpu_compute_pipeline_t*)calloc(1, sizeof(gpu_compute_pipeline_t));
+
+    // Load compute shader
+    compute_pipeline->compute_shader = load_shader_module(device->device, compute_shader_path);
+    if (!compute_pipeline->compute_shader) {
+        fprintf(stderr, "Failed to load compute shader: %s\n", compute_shader_path);
+        free(compute_pipeline);
+        return NULL;
+    }
+
+    // Create descriptor set layout for storage images
+    VkDescriptorSetLayoutBinding bindings[4] = {
+        // Input BGRA texture
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+        },
+        // Output Y texture
+        {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+        },
+        // Output U texture
+        {
+            .binding = 2,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+        },
+        // Output V texture
+        {
+            .binding = 3,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+        }
+    };
+
+    VkDescriptorSetLayoutCreateInfo layout_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = 4,
+        .pBindings = bindings
+    };
+
+    VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, NULL, &compute_pipeline->descriptor_set_layout));
+
+    // Create pipeline layout
+    VkPipelineLayoutCreateInfo pipeline_layout_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1,
+        .pSetLayouts = &compute_pipeline->descriptor_set_layout
+    };
+
+    VK_CHECK(vkCreatePipelineLayout(device->device, &pipeline_layout_info, NULL, &compute_pipeline->pipeline_layout));
+
+    // Create compute pipeline
+    VkComputePipelineCreateInfo pipeline_info = {
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .stage = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = compute_pipeline->compute_shader,
+            .pName = "main"
+        },
+        .layout = compute_pipeline->pipeline_layout
+    };
+
+    VK_CHECK(vkCreateComputePipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &compute_pipeline->pipeline));
+
+    // Create descriptor pool (big enough for 200 frames * 4 textures each)
+    VkDescriptorPoolSize pool_size = {
+        .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        .descriptorCount = 800  // 200 frames * 4 textures per frame
+    };
+
+    VkDescriptorPoolCreateInfo pool_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,  // Allow freeing individual sets
+        .maxSets = 200,  // 200 descriptor sets (one per frame)
+        .poolSizeCount = 1,
+        .pPoolSizes = &pool_size
+    };
+
+    VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, NULL, &compute_pipeline->descriptor_pool));
+
+    printf("[Vulkan] Compute pipeline created\n");
+    return compute_pipeline;
+}
+
+gpu_texture_t* gpu_create_storage_texture(gpu_device_t* device, int width, int height, int format) {
+    gpu_texture_t* texture = (gpu_texture_t*)calloc(1, sizeof(gpu_texture_t));
+    texture->width = width;
+    texture->height = height;
+
+    // Map format: 0=RGBA8, 1=R8
+    switch (format) {
+        case 0: texture->format = VK_FORMAT_R8G8B8A8_UNORM; break;
+        case 1: texture->format = VK_FORMAT_R8_UNORM; break;
+        default: texture->format = VK_FORMAT_R8G8B8A8_UNORM; break;
+    }
+
+    // Create image with storage usage
+    VkImageCreateInfo image_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = texture->format,
+        .extent = {
+            .width = width,
+            .height = height,
+            .depth = 1
+        },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    VK_CHECK(vkCreateImage(device->device, &image_info, NULL, &texture->image));
+
+    // Allocate memory for image
+    VkMemoryRequirements mem_requirements;
+    vkGetImageMemoryRequirements(device->device, texture->image, &mem_requirements);
+
+    VkMemoryAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_requirements.size,
+        .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &texture->memory));
+    vkBindImageMemory(device->device, texture->image, texture->memory, 0);
+
+    // Create image view
+    VkImageViewCreateInfo view_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = texture->image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = texture->format,
+        .components = {
+            .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .a = VK_COMPONENT_SWIZZLE_IDENTITY
+        },
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+
+    VK_CHECK(vkCreateImageView(device->device, &view_info, NULL, &texture->image_view));
+
+    return texture;
+}
+
+void gpu_dispatch_compute(
+    gpu_command_buffer_t* cmd_buffer,
+    gpu_compute_pipeline_t* pipeline,
+    gpu_texture_t** textures,
+    int num_textures,
+    int groups_x, int groups_y, int groups_z
+) {
+    // Transition images to GENERAL layout for compute shader access
+    VkImageMemoryBarrier barriers[4];
+    for (int i = 0; i < num_textures && i < 4; i++) {
+        barriers[i] = (VkImageMemoryBarrier){
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .oldLayout = (i == 0) ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = textures[i]->image,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            },
+            .srcAccessMask = (i == 0) ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : 0,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
+        };
+    }
+
+    vkCmdPipelineBarrier(cmd_buffer->cmd_buffer,
+                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        0, 0, NULL, 0, NULL, num_textures, barriers);
+
+    // Allocate descriptor set
+    VkDescriptorSetAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = pipeline->descriptor_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &pipeline->descriptor_set_layout
+    };
+
+    VkDescriptorSet descriptor_set;
+    VK_CHECK(vkAllocateDescriptorSets(cmd_buffer->device->device, &alloc_info, &descriptor_set));
+
+    // Update descriptor set with texture bindings
+    VkDescriptorImageInfo image_infos[4];
+    VkWriteDescriptorSet writes[4];
+
+    for (int i = 0; i < num_textures && i < 4; i++) {
+        image_infos[i] = (VkDescriptorImageInfo){
+            .imageView = textures[i]->image_view,
+            .imageLayout = VK_IMAGE_LAYOUT_GENERAL
+        };
+
+        writes[i] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = descriptor_set,
+            .dstBinding = i,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .pImageInfo = &image_infos[i]
+        };
+    }
+
+    vkUpdateDescriptorSets(cmd_buffer->device->device, num_textures, writes, 0, NULL);
+
+    // Bind compute pipeline and dispatch
+    vkCmdBindPipeline(cmd_buffer->cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->pipeline);
+    vkCmdBindDescriptorSets(cmd_buffer->cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                           pipeline->pipeline_layout, 0, 1, &descriptor_set, 0, NULL);
+    vkCmdDispatch(cmd_buffer->cmd_buffer, groups_x, groups_y, groups_z);
+
+    // Add memory barrier after compute to ensure writes are visible to subsequent operations
+    VkMemoryBarrier memory_barrier = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT
+    };
+
+    vkCmdPipelineBarrier(cmd_buffer->cmd_buffer,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT,
+                        0, 1, &memory_barrier, 0, NULL, 0, NULL);
+}
+
+void gpu_destroy_compute_pipeline(gpu_compute_pipeline_t* pipeline) {
+    if (pipeline) {
+        // Note: Need device reference to properly clean up
+        // For now, we'll leak these resources (they'll be cleaned up on program exit)
+        free(pipeline);
     }
 }
 
