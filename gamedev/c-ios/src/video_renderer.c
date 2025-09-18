@@ -96,14 +96,17 @@ static struct {
   pthread_mutex_t queue_mutex;
   pthread_cond_t queue_cond;
 
-  // FFmpeg encoding context
+  // FFmpeg encoding context (per-request)
   AVFormatContext *format_ctx;
   AVCodecContext *codec_ctx;
   AVStream *video_stream;
-  AVPacket *packet;
-  AVFrame *frame;
-  struct SwsContext *sws_ctx;
   int64_t pts_counter;
+
+  // FFmpeg cached objects (initialized once)
+  const AVCodec *cached_codec;
+  struct SwsContext *cached_sws_ctx;
+  AVFrame *cached_frame;
+  AVPacket *cached_packet;
 
   // Timing
   struct timeval start_time;
@@ -140,17 +143,9 @@ static double get_time_diff(struct timeval *start, struct timeval *end) {
          (double)(end->tv_usec - start->tv_usec) / 1000000.0;
 }
 
-// Initialize FFmpeg encoder
-static int init_ffmpeg_encoder(const char *filename) {
-  int ret;
-
-  // Allocate format context
-  ret = avformat_alloc_output_context2(&app_state.format_ctx, NULL, NULL,
-                                       filename);
-  if (ret < 0) {
-    fprintf(stderr, "Failed to allocate output context\n");
-    return -1;
-  }
+// Initialize FFmpeg cached objects (call once at startup)
+static int init_ffmpeg_cache(void) {
+  printf("[FFmpeg] Initializing cached objects...\n");
 
   // Find H.264 encoder - prioritize hardware encoders
   const AVCodec *codec = NULL;
@@ -181,6 +176,46 @@ static int init_ffmpeg_encoder(const char *filename) {
       }
     }
   }
+  app_state.cached_codec = codec;
+
+  // Initialize SWS context for BGRA to YUV420P conversion
+  app_state.cached_sws_ctx = sws_getContext(
+      FRAME_WIDTH, FRAME_HEIGHT, AV_PIX_FMT_BGRA, FRAME_WIDTH, FRAME_HEIGHT,
+      AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, NULL, NULL, NULL);
+
+  if (!app_state.cached_sws_ctx) {
+    fprintf(stderr, "Failed to create SWS context\n");
+    return -1;
+  }
+
+  // Allocate frame and packet (reused across requests)
+  app_state.cached_frame = av_frame_alloc();
+  app_state.cached_frame->format = AV_PIX_FMT_YUV420P;
+  app_state.cached_frame->width = FRAME_WIDTH;
+  app_state.cached_frame->height = FRAME_HEIGHT;
+  int ret = av_frame_get_buffer(app_state.cached_frame, 0);
+  if (ret < 0) {
+    fprintf(stderr, "Failed to allocate frame buffer\n");
+    return -1;
+  }
+
+  app_state.cached_packet = av_packet_alloc();
+
+  printf("[FFmpeg] Cached objects initialized (using %s)\n", codec->name);
+  return 0;
+}
+
+// Open FFmpeg encoder for a specific request (uses cached objects)
+static int open_ffmpeg_encoder(const char *filename) {
+  int ret;
+
+  // Allocate format context
+  ret = avformat_alloc_output_context2(&app_state.format_ctx, NULL, NULL,
+                                       filename);
+  if (ret < 0) {
+    fprintf(stderr, "Failed to allocate output context\n");
+    return -1;
+  }
 
   // Create new video stream
   app_state.video_stream = avformat_new_stream(app_state.format_ctx, NULL);
@@ -189,8 +224,8 @@ static int init_ffmpeg_encoder(const char *filename) {
     return -1;
   }
 
-  // Allocate codec context
-  app_state.codec_ctx = avcodec_alloc_context3(codec);
+  // Allocate codec context using cached codec
+  app_state.codec_ctx = avcodec_alloc_context3(app_state.cached_codec);
   if (!app_state.codec_ctx) {
     fprintf(stderr, "Failed to allocate codec context\n");
     return -1;
@@ -204,8 +239,8 @@ static int init_ffmpeg_encoder(const char *filename) {
   app_state.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
   app_state.codec_ctx->bit_rate = 2000000; // 2 Mbps
 
-  // Set encoder-specific options
-  if (codec->name && strstr(codec->name, "nvenc")) {
+  // Set encoder-specific options using cached codec
+  if (app_state.cached_codec->name && strstr(app_state.cached_codec->name, "nvenc")) {
     // NVENC specific options for best performance
     av_opt_set(app_state.codec_ctx->priv_data, "preset", "p1",
                0); // Fastest preset
@@ -215,10 +250,10 @@ static int init_ffmpeg_encoder(const char *filename) {
     av_opt_set(app_state.codec_ctx->priv_data, "gpu", "0", 0); // Use GPU 0
     av_opt_set(app_state.codec_ctx->priv_data, "delay", "0",
                0); // No B-frame delay
-  } else if (codec->name && strstr(codec->name, "videotoolbox")) {
+  } else if (app_state.cached_codec->name && strstr(app_state.cached_codec->name, "videotoolbox")) {
     // VideoToolbox specific options for better performance
     av_opt_set(app_state.codec_ctx->priv_data, "realtime", "1", 0);
-  } else if (codec->name && strstr(codec->name, "qsv")) {
+  } else if (app_state.cached_codec->name && strstr(app_state.cached_codec->name, "qsv")) {
     // Intel QuickSync specific options
     av_opt_set(app_state.codec_ctx->priv_data, "preset", "veryfast", 0);
   } else {
@@ -228,7 +263,7 @@ static int init_ffmpeg_encoder(const char *filename) {
   }
 
   // Open codec
-  ret = avcodec_open2(app_state.codec_ctx, codec, NULL);
+  ret = avcodec_open2(app_state.codec_ctx, app_state.cached_codec, NULL);
   if (ret < 0) {
     fprintf(stderr, "Failed to open codec\n");
     return -1;
@@ -260,68 +295,59 @@ static int init_ffmpeg_encoder(const char *filename) {
     return -1;
   }
 
-  // Allocate frame and packet
-  app_state.frame = av_frame_alloc();
-  app_state.frame->format = app_state.codec_ctx->pix_fmt;
-  app_state.frame->width = app_state.codec_ctx->width;
-  app_state.frame->height = app_state.codec_ctx->height;
-  ret = av_frame_get_buffer(app_state.frame, 0);
-  if (ret < 0) {
-    fprintf(stderr, "Failed to allocate frame buffer\n");
-    return -1;
-  }
-
-  app_state.packet = av_packet_alloc();
-
-  // Initialize SWS context for BGRA to YUV420P conversion
-  app_state.sws_ctx = sws_getContext(
-      FRAME_WIDTH, FRAME_HEIGHT, AV_PIX_FMT_BGRA, FRAME_WIDTH, FRAME_HEIGHT,
-      AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, NULL, NULL, NULL);
-
-  if (!app_state.sws_ctx) {
-    fprintf(stderr, "Failed to create SWS context\n");
-    return -1;
-  }
-
+  // Reset PTS counter for this request
   app_state.pts_counter = 0;
 
-  printf("[FFmpeg] Encoder initialized (using %s)\n", codec->name);
+  printf("[FFmpeg] Encoder opened for file: %s\n", filename);
   return 0;
 }
 
-// Close FFmpeg encoder
+// Close FFmpeg encoder (only closes per-request objects)
 static void close_ffmpeg_encoder(void) {
   // Write trailer
   if (app_state.format_ctx) {
     av_write_trailer(app_state.format_ctx);
   }
 
-  // Clean up
-  if (app_state.sws_ctx) {
-    sws_freeContext(app_state.sws_ctx);
-  }
-  if (app_state.frame) {
-    av_frame_free(&app_state.frame);
-  }
-  if (app_state.packet) {
-    av_packet_free(&app_state.packet);
-  }
+  // Clean up per-request objects only (cached objects remain)
   if (app_state.codec_ctx) {
     avcodec_free_context(&app_state.codec_ctx);
+    app_state.codec_ctx = NULL;
   }
   if (app_state.format_ctx) {
     if (!(app_state.format_ctx->oformat->flags & AVFMT_NOFILE)) {
       avio_closep(&app_state.format_ctx->pb);
     }
     avformat_free_context(app_state.format_ctx);
+    app_state.format_ctx = NULL;
   }
+  app_state.video_stream = NULL; // Part of format_ctx, so just NULL it
+
+  printf("[FFmpeg] Encoder closed for current request\n");
+}
+
+// Clean up FFmpeg cached objects (call once at shutdown)
+static void cleanup_ffmpeg_cache(void) {
+  // Clean up cached objects
+  if (app_state.cached_sws_ctx) {
+    sws_freeContext(app_state.cached_sws_ctx);
+    app_state.cached_sws_ctx = NULL;
+  }
+  if (app_state.cached_frame) {
+    av_frame_free(&app_state.cached_frame);
+  }
+  if (app_state.cached_packet) {
+    av_packet_free(&app_state.cached_packet);
+  }
+
+  printf("[FFmpeg] Cached objects cleaned up\n");
 }
 
 // Encode a single frame
 static int encode_frame(uint8_t *yuv_data) {
   int ret;
 
-  ret = av_frame_make_writable(app_state.frame);
+  ret = av_frame_make_writable(app_state.cached_frame);
   if (ret < 0) {
     return ret;
   }
@@ -341,33 +367,33 @@ static int encode_frame(uint8_t *yuv_data) {
   }
 
   // Copy Y plane data with proper linesize alignment
-  uint8_t *dst_y = app_state.frame->data[0];
+  uint8_t *dst_y = app_state.cached_frame->data[0];
   for (int y = 0; y < FRAME_HEIGHT; y++) {
     memcpy(dst_y, y_src, FRAME_WIDTH);
     y_src += FRAME_WIDTH;                  // Source has no padding
-    dst_y += app_state.frame->linesize[0]; // FFmpeg frame might have padding
+    dst_y += app_state.cached_frame->linesize[0]; // FFmpeg frame might have padding
   }
 
   // Copy U plane data with proper linesize alignment
-  uint8_t *dst_u = app_state.frame->data[1];
+  uint8_t *dst_u = app_state.cached_frame->data[1];
   for (int y = 0; y < FRAME_HEIGHT / 2; y++) {
     memcpy(dst_u, u_src, FRAME_WIDTH / 2);
     u_src += FRAME_WIDTH / 2;              // Source has no padding
-    dst_u += app_state.frame->linesize[1]; // FFmpeg frame might have padding
+    dst_u += app_state.cached_frame->linesize[1]; // FFmpeg frame might have padding
   }
 
   // Copy V plane data with proper linesize alignment
-  uint8_t *dst_v = app_state.frame->data[2];
+  uint8_t *dst_v = app_state.cached_frame->data[2];
   for (int y = 0; y < FRAME_HEIGHT / 2; y++) {
     memcpy(dst_v, v_src, FRAME_WIDTH / 2);
     v_src += FRAME_WIDTH / 2;              // Source has no padding
-    dst_v += app_state.frame->linesize[2]; // FFmpeg frame might have padding
+    dst_v += app_state.cached_frame->linesize[2]; // FFmpeg frame might have padding
   }
 
-  app_state.frame->pts = app_state.pts_counter++;
+  app_state.cached_frame->pts = app_state.pts_counter++;
 
   // Send frame to encoder
-  ret = avcodec_send_frame(app_state.codec_ctx, app_state.frame);
+  ret = avcodec_send_frame(app_state.codec_ctx, app_state.cached_frame);
   if (ret < 0) {
     fprintf(stderr, "Error sending frame to encoder\n");
     return ret;
@@ -375,7 +401,7 @@ static int encode_frame(uint8_t *yuv_data) {
 
   // Receive encoded packets
   while (ret >= 0) {
-    ret = avcodec_receive_packet(app_state.codec_ctx, app_state.packet);
+    ret = avcodec_receive_packet(app_state.codec_ctx, app_state.cached_packet);
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
       break;
     } else if (ret < 0) {
@@ -384,13 +410,13 @@ static int encode_frame(uint8_t *yuv_data) {
     }
 
     // Rescale timestamps
-    av_packet_rescale_ts(app_state.packet, app_state.codec_ctx->time_base,
+    av_packet_rescale_ts(app_state.cached_packet, app_state.codec_ctx->time_base,
                          app_state.video_stream->time_base);
-    app_state.packet->stream_index = app_state.video_stream->index;
+    app_state.cached_packet->stream_index = app_state.video_stream->index;
 
     // Write packet to file
-    ret = av_interleaved_write_frame(app_state.format_ctx, app_state.packet);
-    av_packet_unref(app_state.packet);
+    ret = av_interleaved_write_frame(app_state.format_ctx, app_state.cached_packet);
+    av_packet_unref(app_state.cached_packet);
     if (ret < 0) {
       fprintf(stderr, "Error writing packet\n");
       return ret;
@@ -560,6 +586,12 @@ static int initialize_system(void) {
     atomic_store(&app_state.frames[i].ready, false);
   }
 
+  // Initialize FFmpeg cached objects
+  if (init_ffmpeg_cache() < 0) {
+    fprintf(stderr, "Failed to initialize FFmpeg cache\n");
+    exit(1);
+  }
+
   app_state.initialized = true;
   PROFILE_END();
   return 0;
@@ -670,9 +702,9 @@ static void render_all_frames(void) {
 static int start_ffmpeg_encoder(const char *filename) {
   PROFILE_BEGIN("start_ffmpeg_encoder");
 
-  // Initialize FFmpeg encoder
-  if (init_ffmpeg_encoder(filename) < 0) {
-    fprintf(stderr, "Failed to initialize FFmpeg encoder\n");
+  // Open FFmpeg encoder for this request
+  if (open_ffmpeg_encoder(filename) < 0) {
+    fprintf(stderr, "Failed to open FFmpeg encoder\n");
     PROFILE_END();
     return -1;
   }
@@ -711,8 +743,8 @@ static void wait_for_completion(void) {
 }
 
 static void cleanup(void) {
-  // Close FFmpeg encoder
-  close_ffmpeg_encoder();
+  // Clean up FFmpeg cached objects
+  cleanup_ffmpeg_cache();
 
   // Release GPU backend objects - pools
   for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
@@ -826,6 +858,9 @@ static int render_video(const render_request_t *request) {
 
   // Wait for completion
   wait_for_completion();
+
+  // Close the encoder to finalize the output file
+  close_ffmpeg_encoder();
 
   return 0;
 }
