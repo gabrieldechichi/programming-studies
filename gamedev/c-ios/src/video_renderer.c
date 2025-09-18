@@ -25,7 +25,7 @@
 #include "gpu_backend.h"
 
 // Application constants
-#define MAX_FRAMES 1000 // Maximum frames for longest video
+#define MAX_FRAMES 1440 // Maximum frames for longest video (60 seconds at 24fps)
 #define NUM_TEXTURE_POOLS                                                      \
   1 // Use single texture set, process frames sequentially
 #define FRAME_WIDTH 1080
@@ -38,6 +38,10 @@
 #define YUV_TOTAL_SIZE_BYTES                                                   \
   (YUV_Y_SIZE_BYTES + 2 * YUV_UV_SIZE_BYTES) // Y + U + V
 #define INPUT_BUFFER_SIZE MB(1)
+
+// Memory allocation sizes
+#define PERMANENT_MEMORY_SIZE MB(200)  // 200MB for permanent allocations (GPU objects, no frames)
+#define TEMPORARY_MEMORY_SIZE GB(5)    // 5GB for temporary allocations (frames + profiler + other temp data)
 
 // Frame data structure for queue
 typedef struct {
@@ -57,8 +61,18 @@ typedef struct {
   float model[16];
 } uniforms_t;
 
-// Application state
-static struct {
+// Application context with memory allocators
+typedef struct {
+  // Memory allocators
+  ArenaAllocator permanent_arena;
+  ArenaAllocator temporary_arena;
+  Allocator permanent_allocator;
+  Allocator temporary_allocator;
+
+  // Raw memory blocks (to be freed on exit)
+  uint8_t *permanent_memory;
+  uint8_t *temporary_memory;
+
   // GPU backend objects
   gpu_device_t *device;
   gpu_texture_t *render_texture_pool[NUM_TEXTURE_POOLS];
@@ -113,7 +127,10 @@ static struct {
   struct timeval render_complete_time;
   struct timeval readback_complete_time;
   struct timeval encode_complete_time;
-} app_state;
+} AppContext;
+
+// Global application context
+static AppContext g_ctx;
 
 // Triangle vertex data
 static float vertices[] = {
@@ -141,6 +158,83 @@ static void mat4_rotation_z(float *m, float angle_rad) {
 static double get_time_diff(struct timeval *start, struct timeval *end) {
   return (double)(end->tv_sec - start->tv_sec) +
          (double)(end->tv_usec - start->tv_usec) / 1000000.0;
+}
+
+// Initialize application context with memory allocators
+static int init_context(AppContext *ctx) {
+  // Zero out the context
+  memset(ctx, 0, sizeof(AppContext));
+
+  // Allocate permanent memory block (only malloc call #1)
+  ctx->permanent_memory = (uint8_t *)malloc(PERMANENT_MEMORY_SIZE);
+  if (!ctx->permanent_memory) {
+    fprintf(stderr, "Failed to allocate permanent memory (%d MB)\n", PERMANENT_MEMORY_SIZE / MB(1));
+    return -1;
+  }
+
+  // Allocate temporary memory block (only malloc call #2)
+  ctx->temporary_memory = (uint8_t *)malloc(TEMPORARY_MEMORY_SIZE);
+  if (!ctx->temporary_memory) {
+    fprintf(stderr, "Failed to allocate temporary memory (%d MB)\n", TEMPORARY_MEMORY_SIZE / MB(1));
+    free(ctx->permanent_memory);
+    return -1;
+  }
+
+  // Initialize arena allocators
+  ctx->permanent_arena = arena_from_buffer(ctx->permanent_memory, PERMANENT_MEMORY_SIZE);
+  ctx->temporary_arena = arena_from_buffer(ctx->temporary_memory, TEMPORARY_MEMORY_SIZE);
+
+  // Wrap arenas with allocator interface
+  ctx->permanent_allocator = make_arena_allocator(&ctx->permanent_arena);
+  ctx->temporary_allocator = make_arena_allocator(&ctx->temporary_arena);
+
+  printf("[Memory] Initialized allocators: Permanent=%dMB, Temporary=%dMB\n",
+         PERMANENT_MEMORY_SIZE / MB(1), TEMPORARY_MEMORY_SIZE / MB(1));
+
+  return 0;
+}
+
+// Clean up application context
+static void cleanup_context(AppContext *ctx) {
+  if (ctx->permanent_memory) {
+    free(ctx->permanent_memory);
+    ctx->permanent_memory = NULL;
+  }
+  if (ctx->temporary_memory) {
+    free(ctx->temporary_memory);
+    ctx->temporary_memory = NULL;
+  }
+
+  printf("[Memory] Context cleaned up\n");
+}
+
+// Allocate frame data for current request (from temporary allocator)
+static int allocate_frame_data_for_request(int num_frames) {
+  printf("[Memory] Allocating frame data for request: %d frames x %d bytes = %zu MB\n",
+         num_frames, YUV_TOTAL_SIZE_BYTES, ((size_t)num_frames * YUV_TOTAL_SIZE_BYTES) / MB(1));
+
+  for (int i = 0; i < num_frames; i++) {
+    g_ctx.frames[i].data = ALLOC_ARRAY(&g_ctx.temporary_allocator, uint8_t, YUV_TOTAL_SIZE_BYTES);
+    if (!g_ctx.frames[i].data) {
+      fprintf(stderr, "Failed to allocate frame data for frame %d (need %d bytes)\n", i, YUV_TOTAL_SIZE_BYTES);
+      fprintf(stderr, "Available: %zu MB, Requested: %zu MB total\n",
+              ALLOC_FREE_SIZE(&g_ctx.temporary_allocator) / MB(1),
+              ((size_t)num_frames * YUV_TOTAL_SIZE_BYTES) / MB(1));
+      return -1;
+    }
+    atomic_store(&g_ctx.frames[i].ready, false);
+  }
+
+  // Clear data pointers for unused frames
+  for (int i = num_frames; i < MAX_FRAMES; i++) {
+    g_ctx.frames[i].data = NULL;
+  }
+
+  printf("[Memory] Frame allocation complete for request. Temporary allocator usage: %zu/%zu MB\n",
+         ALLOC_COMMITED_SIZE(&g_ctx.temporary_allocator) / MB(1),
+         ALLOC_CAPACITY(&g_ctx.temporary_allocator) / MB(1));
+
+  return 0;
 }
 
 // Initialize FFmpeg cached objects (call once at startup)
@@ -176,30 +270,30 @@ static int init_ffmpeg_cache(void) {
       }
     }
   }
-  app_state.cached_codec = codec;
+  g_ctx.cached_codec = codec;
 
   // Initialize SWS context for BGRA to YUV420P conversion
-  app_state.cached_sws_ctx = sws_getContext(
+  g_ctx.cached_sws_ctx = sws_getContext(
       FRAME_WIDTH, FRAME_HEIGHT, AV_PIX_FMT_BGRA, FRAME_WIDTH, FRAME_HEIGHT,
       AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, NULL, NULL, NULL);
 
-  if (!app_state.cached_sws_ctx) {
+  if (!g_ctx.cached_sws_ctx) {
     fprintf(stderr, "Failed to create SWS context\n");
     return -1;
   }
 
   // Allocate frame and packet (reused across requests)
-  app_state.cached_frame = av_frame_alloc();
-  app_state.cached_frame->format = AV_PIX_FMT_YUV420P;
-  app_state.cached_frame->width = FRAME_WIDTH;
-  app_state.cached_frame->height = FRAME_HEIGHT;
-  int ret = av_frame_get_buffer(app_state.cached_frame, 0);
+  g_ctx.cached_frame = av_frame_alloc();
+  g_ctx.cached_frame->format = AV_PIX_FMT_YUV420P;
+  g_ctx.cached_frame->width = FRAME_WIDTH;
+  g_ctx.cached_frame->height = FRAME_HEIGHT;
+  int ret = av_frame_get_buffer(g_ctx.cached_frame, 0);
   if (ret < 0) {
     fprintf(stderr, "Failed to allocate frame buffer\n");
     return -1;
   }
 
-  app_state.cached_packet = av_packet_alloc();
+  g_ctx.cached_packet = av_packet_alloc();
 
   printf("[FFmpeg] Cached objects initialized (using %s)\n", codec->name);
   return 0;
@@ -210,7 +304,7 @@ static int open_ffmpeg_encoder(const char *filename) {
   int ret;
 
   // Allocate format context
-  ret = avformat_alloc_output_context2(&app_state.format_ctx, NULL, NULL,
+  ret = avformat_alloc_output_context2(&g_ctx.format_ctx, NULL, NULL,
                                        filename);
   if (ret < 0) {
     fprintf(stderr, "Failed to allocate output context\n");
@@ -218,70 +312,70 @@ static int open_ffmpeg_encoder(const char *filename) {
   }
 
   // Create new video stream
-  app_state.video_stream = avformat_new_stream(app_state.format_ctx, NULL);
-  if (!app_state.video_stream) {
+  g_ctx.video_stream = avformat_new_stream(g_ctx.format_ctx, NULL);
+  if (!g_ctx.video_stream) {
     fprintf(stderr, "Failed to create video stream\n");
     return -1;
   }
 
   // Allocate codec context using cached codec
-  app_state.codec_ctx = avcodec_alloc_context3(app_state.cached_codec);
-  if (!app_state.codec_ctx) {
+  g_ctx.codec_ctx = avcodec_alloc_context3(g_ctx.cached_codec);
+  if (!g_ctx.codec_ctx) {
     fprintf(stderr, "Failed to allocate codec context\n");
     return -1;
   }
 
   // Set codec parameters
-  app_state.codec_ctx->width = FRAME_WIDTH;
-  app_state.codec_ctx->height = FRAME_HEIGHT;
-  app_state.codec_ctx->time_base = (AVRational){1, 24};
-  app_state.codec_ctx->framerate = (AVRational){24, 1};
-  app_state.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-  app_state.codec_ctx->bit_rate = 2000000; // 2 Mbps
+  g_ctx.codec_ctx->width = FRAME_WIDTH;
+  g_ctx.codec_ctx->height = FRAME_HEIGHT;
+  g_ctx.codec_ctx->time_base = (AVRational){1, 24};
+  g_ctx.codec_ctx->framerate = (AVRational){24, 1};
+  g_ctx.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+  g_ctx.codec_ctx->bit_rate = 2000000; // 2 Mbps
 
   // Set encoder-specific options using cached codec
-  if (app_state.cached_codec->name && strstr(app_state.cached_codec->name, "nvenc")) {
+  if (g_ctx.cached_codec->name && strstr(g_ctx.cached_codec->name, "nvenc")) {
     // NVENC specific options for best performance
-    av_opt_set(app_state.codec_ctx->priv_data, "preset", "p1",
+    av_opt_set(g_ctx.codec_ctx->priv_data, "preset", "p1",
                0); // Fastest preset
-    av_opt_set(app_state.codec_ctx->priv_data, "tune", "ll", 0); // Low latency
-    av_opt_set(app_state.codec_ctx->priv_data, "rc", "cbr",
+    av_opt_set(g_ctx.codec_ctx->priv_data, "tune", "ll", 0); // Low latency
+    av_opt_set(g_ctx.codec_ctx->priv_data, "rc", "cbr",
                0); // Constant bitrate
-    av_opt_set(app_state.codec_ctx->priv_data, "gpu", "0", 0); // Use GPU 0
-    av_opt_set(app_state.codec_ctx->priv_data, "delay", "0",
+    av_opt_set(g_ctx.codec_ctx->priv_data, "gpu", "0", 0); // Use GPU 0
+    av_opt_set(g_ctx.codec_ctx->priv_data, "delay", "0",
                0); // No B-frame delay
-  } else if (app_state.cached_codec->name && strstr(app_state.cached_codec->name, "videotoolbox")) {
+  } else if (g_ctx.cached_codec->name && strstr(g_ctx.cached_codec->name, "videotoolbox")) {
     // VideoToolbox specific options for better performance
-    av_opt_set(app_state.codec_ctx->priv_data, "realtime", "1", 0);
-  } else if (app_state.cached_codec->name && strstr(app_state.cached_codec->name, "qsv")) {
+    av_opt_set(g_ctx.codec_ctx->priv_data, "realtime", "1", 0);
+  } else if (g_ctx.cached_codec->name && strstr(g_ctx.cached_codec->name, "qsv")) {
     // Intel QuickSync specific options
-    av_opt_set(app_state.codec_ctx->priv_data, "preset", "veryfast", 0);
+    av_opt_set(g_ctx.codec_ctx->priv_data, "preset", "veryfast", 0);
   } else {
     // Software encoder (libx264) options
-    av_opt_set(app_state.codec_ctx->priv_data, "profile", "high", 0);
-    av_opt_set(app_state.codec_ctx->priv_data, "level", "4.0", 0);
+    av_opt_set(g_ctx.codec_ctx->priv_data, "profile", "high", 0);
+    av_opt_set(g_ctx.codec_ctx->priv_data, "level", "4.0", 0);
   }
 
   // Open codec
-  ret = avcodec_open2(app_state.codec_ctx, app_state.cached_codec, NULL);
+  ret = avcodec_open2(g_ctx.codec_ctx, g_ctx.cached_codec, NULL);
   if (ret < 0) {
     fprintf(stderr, "Failed to open codec\n");
     return -1;
   }
 
   // Copy codec parameters to stream
-  ret = avcodec_parameters_from_context(app_state.video_stream->codecpar,
-                                        app_state.codec_ctx);
+  ret = avcodec_parameters_from_context(g_ctx.video_stream->codecpar,
+                                        g_ctx.codec_ctx);
   if (ret < 0) {
     fprintf(stderr, "Failed to copy codec parameters\n");
     return -1;
   }
 
-  app_state.video_stream->time_base = app_state.codec_ctx->time_base;
+  g_ctx.video_stream->time_base = g_ctx.codec_ctx->time_base;
 
   // Open output file
-  if (!(app_state.format_ctx->oformat->flags & AVFMT_NOFILE)) {
-    ret = avio_open(&app_state.format_ctx->pb, filename, AVIO_FLAG_WRITE);
+  if (!(g_ctx.format_ctx->oformat->flags & AVFMT_NOFILE)) {
+    ret = avio_open(&g_ctx.format_ctx->pb, filename, AVIO_FLAG_WRITE);
     if (ret < 0) {
       fprintf(stderr, "Failed to open output file\n");
       return -1;
@@ -289,14 +383,14 @@ static int open_ffmpeg_encoder(const char *filename) {
   }
 
   // Write file header
-  ret = avformat_write_header(app_state.format_ctx, NULL);
+  ret = avformat_write_header(g_ctx.format_ctx, NULL);
   if (ret < 0) {
     fprintf(stderr, "Failed to write header\n");
     return -1;
   }
 
   // Reset PTS counter for this request
-  app_state.pts_counter = 0;
+  g_ctx.pts_counter = 0;
 
   printf("[FFmpeg] Encoder opened for file: %s\n", filename);
   return 0;
@@ -305,23 +399,23 @@ static int open_ffmpeg_encoder(const char *filename) {
 // Close FFmpeg encoder (only closes per-request objects)
 static void close_ffmpeg_encoder(void) {
   // Write trailer
-  if (app_state.format_ctx) {
-    av_write_trailer(app_state.format_ctx);
+  if (g_ctx.format_ctx) {
+    av_write_trailer(g_ctx.format_ctx);
   }
 
   // Clean up per-request objects only (cached objects remain)
-  if (app_state.codec_ctx) {
-    avcodec_free_context(&app_state.codec_ctx);
-    app_state.codec_ctx = NULL;
+  if (g_ctx.codec_ctx) {
+    avcodec_free_context(&g_ctx.codec_ctx);
+    g_ctx.codec_ctx = NULL;
   }
-  if (app_state.format_ctx) {
-    if (!(app_state.format_ctx->oformat->flags & AVFMT_NOFILE)) {
-      avio_closep(&app_state.format_ctx->pb);
+  if (g_ctx.format_ctx) {
+    if (!(g_ctx.format_ctx->oformat->flags & AVFMT_NOFILE)) {
+      avio_closep(&g_ctx.format_ctx->pb);
     }
-    avformat_free_context(app_state.format_ctx);
-    app_state.format_ctx = NULL;
+    avformat_free_context(g_ctx.format_ctx);
+    g_ctx.format_ctx = NULL;
   }
-  app_state.video_stream = NULL; // Part of format_ctx, so just NULL it
+  g_ctx.video_stream = NULL; // Part of format_ctx, so just NULL it
 
   printf("[FFmpeg] Encoder closed for current request\n");
 }
@@ -329,15 +423,15 @@ static void close_ffmpeg_encoder(void) {
 // Clean up FFmpeg cached objects (call once at shutdown)
 static void cleanup_ffmpeg_cache(void) {
   // Clean up cached objects
-  if (app_state.cached_sws_ctx) {
-    sws_freeContext(app_state.cached_sws_ctx);
-    app_state.cached_sws_ctx = NULL;
+  if (g_ctx.cached_sws_ctx) {
+    sws_freeContext(g_ctx.cached_sws_ctx);
+    g_ctx.cached_sws_ctx = NULL;
   }
-  if (app_state.cached_frame) {
-    av_frame_free(&app_state.cached_frame);
+  if (g_ctx.cached_frame) {
+    av_frame_free(&g_ctx.cached_frame);
   }
-  if (app_state.cached_packet) {
-    av_packet_free(&app_state.cached_packet);
+  if (g_ctx.cached_packet) {
+    av_packet_free(&g_ctx.cached_packet);
   }
 
   printf("[FFmpeg] Cached objects cleaned up\n");
@@ -347,7 +441,7 @@ static void cleanup_ffmpeg_cache(void) {
 static int encode_frame(uint8_t *yuv_data) {
   int ret;
 
-  ret = av_frame_make_writable(app_state.cached_frame);
+  ret = av_frame_make_writable(g_ctx.cached_frame);
   if (ret < 0) {
     return ret;
   }
@@ -367,33 +461,33 @@ static int encode_frame(uint8_t *yuv_data) {
   }
 
   // Copy Y plane data with proper linesize alignment
-  uint8_t *dst_y = app_state.cached_frame->data[0];
+  uint8_t *dst_y = g_ctx.cached_frame->data[0];
   for (int y = 0; y < FRAME_HEIGHT; y++) {
     memcpy(dst_y, y_src, FRAME_WIDTH);
     y_src += FRAME_WIDTH;                  // Source has no padding
-    dst_y += app_state.cached_frame->linesize[0]; // FFmpeg frame might have padding
+    dst_y += g_ctx.cached_frame->linesize[0]; // FFmpeg frame might have padding
   }
 
   // Copy U plane data with proper linesize alignment
-  uint8_t *dst_u = app_state.cached_frame->data[1];
+  uint8_t *dst_u = g_ctx.cached_frame->data[1];
   for (int y = 0; y < FRAME_HEIGHT / 2; y++) {
     memcpy(dst_u, u_src, FRAME_WIDTH / 2);
     u_src += FRAME_WIDTH / 2;              // Source has no padding
-    dst_u += app_state.cached_frame->linesize[1]; // FFmpeg frame might have padding
+    dst_u += g_ctx.cached_frame->linesize[1]; // FFmpeg frame might have padding
   }
 
   // Copy V plane data with proper linesize alignment
-  uint8_t *dst_v = app_state.cached_frame->data[2];
+  uint8_t *dst_v = g_ctx.cached_frame->data[2];
   for (int y = 0; y < FRAME_HEIGHT / 2; y++) {
     memcpy(dst_v, v_src, FRAME_WIDTH / 2);
     v_src += FRAME_WIDTH / 2;              // Source has no padding
-    dst_v += app_state.cached_frame->linesize[2]; // FFmpeg frame might have padding
+    dst_v += g_ctx.cached_frame->linesize[2]; // FFmpeg frame might have padding
   }
 
-  app_state.cached_frame->pts = app_state.pts_counter++;
+  g_ctx.cached_frame->pts = g_ctx.pts_counter++;
 
   // Send frame to encoder
-  ret = avcodec_send_frame(app_state.codec_ctx, app_state.cached_frame);
+  ret = avcodec_send_frame(g_ctx.codec_ctx, g_ctx.cached_frame);
   if (ret < 0) {
     fprintf(stderr, "Error sending frame to encoder\n");
     return ret;
@@ -401,7 +495,7 @@ static int encode_frame(uint8_t *yuv_data) {
 
   // Receive encoded packets
   while (ret >= 0) {
-    ret = avcodec_receive_packet(app_state.codec_ctx, app_state.cached_packet);
+    ret = avcodec_receive_packet(g_ctx.codec_ctx, g_ctx.cached_packet);
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
       break;
     } else if (ret < 0) {
@@ -410,13 +504,13 @@ static int encode_frame(uint8_t *yuv_data) {
     }
 
     // Rescale timestamps
-    av_packet_rescale_ts(app_state.cached_packet, app_state.codec_ctx->time_base,
-                         app_state.video_stream->time_base);
-    app_state.cached_packet->stream_index = app_state.video_stream->index;
+    av_packet_rescale_ts(g_ctx.cached_packet, g_ctx.codec_ctx->time_base,
+                         g_ctx.video_stream->time_base);
+    g_ctx.cached_packet->stream_index = g_ctx.video_stream->index;
 
     // Write packet to file
-    ret = av_interleaved_write_frame(app_state.format_ctx, app_state.cached_packet);
-    av_packet_unref(app_state.cached_packet);
+    ret = av_interleaved_write_frame(g_ctx.format_ctx, g_ctx.cached_packet);
+    av_packet_unref(g_ctx.cached_packet);
     if (ret < 0) {
       fprintf(stderr, "Error writing packet\n");
       return ret;
@@ -433,17 +527,17 @@ static void *encoder_thread_func(void *arg) {
 
   int next_frame_to_encode = 0;
 
-  while (next_frame_to_encode < app_state.current_num_frames) {
+  while (next_frame_to_encode < g_ctx.current_num_frames) {
     PROFILE_BEGIN("ffmpeg wait for frame");
     // Wait for the next frame to be ready
-    while (!atomic_load(&app_state.frames[next_frame_to_encode].ready)) {
+    while (!atomic_load(&g_ctx.frames[next_frame_to_encode].ready)) {
       os_sleep_us(100); // Small sleep to avoid busy waiting
     }
     PROFILE_END();
 
     PROFILE_BEGIN("ffmpeg encode frame");
     // Encode frame directly in memory
-    frame_data_t *frame = &app_state.frames[next_frame_to_encode];
+    frame_data_t *frame = &g_ctx.frames[next_frame_to_encode];
 
     if (encode_frame(frame->data) < 0) {
       fprintf(stderr, "[Encoder] Failed to encode frame %d\n",
@@ -451,23 +545,23 @@ static void *encoder_thread_func(void *arg) {
     }
     PROFILE_END();
 
-    atomic_fetch_add(&app_state.frames_encoded, 1);
+    atomic_fetch_add(&g_ctx.frames_encoded, 1);
     next_frame_to_encode++;
   }
 
   // Flush encoder
-  avcodec_send_frame(app_state.codec_ctx, NULL);
+  avcodec_send_frame(g_ctx.codec_ctx, NULL);
   AVPacket *flush_pkt = av_packet_alloc();
-  while (avcodec_receive_packet(app_state.codec_ctx, flush_pkt) == 0) {
-    av_packet_rescale_ts(flush_pkt, app_state.codec_ctx->time_base,
-                         app_state.video_stream->time_base);
-    flush_pkt->stream_index = app_state.video_stream->index;
-    av_interleaved_write_frame(app_state.format_ctx, flush_pkt);
+  while (avcodec_receive_packet(g_ctx.codec_ctx, flush_pkt) == 0) {
+    av_packet_rescale_ts(flush_pkt, g_ctx.codec_ctx->time_base,
+                         g_ctx.video_stream->time_base);
+    flush_pkt->stream_index = g_ctx.video_stream->index;
+    av_interleaved_write_frame(g_ctx.format_ctx, flush_pkt);
     av_packet_unref(flush_pkt);
   }
   av_packet_free(&flush_pkt);
 
-  gettimeofday(&app_state.encode_complete_time, NULL);
+  gettimeofday(&g_ctx.encode_complete_time, NULL);
 
   printf("[Encoder] Thread finished - all frames encoded\n");
   return NULL;
@@ -485,7 +579,13 @@ static char *load_shader_file(const char *filename) {
   long size = ftell(file);
   fseek(file, 0, SEEK_SET);
 
-  char *content = (char *)malloc((size_t)(size + 1));
+  char *content = ALLOC_ARRAY(&g_ctx.temporary_allocator, char, size + 1);
+  if (!content) {
+    printf("Warning: Failed to allocate memory for shader file %s\n", filename);
+    fclose(file);
+    return NULL;
+  }
+
   fread(content, 1, (size_t)size, file);
   content[size] = '\0';
 
@@ -495,7 +595,7 @@ static char *load_shader_file(const char *filename) {
 
 // Initialize GPU backend
 static int initialize_system(void) {
-  if (app_state.initialized) {
+  if (g_ctx.initialized) {
     return 0;
   }
 
@@ -503,8 +603,8 @@ static int initialize_system(void) {
   printf("[System] Initializing GPU backend and FFmpeg...\n");
 
   // Initialize GPU device
-  app_state.device = gpu_init();
-  if (!app_state.device) {
+  g_ctx.device = gpu_init();
+  if (!g_ctx.device) {
     fprintf(stderr, "Failed to create GPU device\n");
     exit(1);
   }
@@ -531,31 +631,29 @@ static int initialize_system(void) {
   };
 
   // Create pipeline
-  app_state.pipeline =
-      gpu_create_pipeline(app_state.device, shader_source, "vertex_main",
+  g_ctx.pipeline =
+      gpu_create_pipeline(g_ctx.device, shader_source, "vertex_main",
                           "fragment_main", &vertex_layout);
 
-  if (shader_source) {
-    free(shader_source);
-  }
+  // No need to free shader_source - allocated from temporary allocator
 
-  if (!app_state.pipeline) {
+  if (!g_ctx.pipeline) {
     fprintf(stderr, "Failed to create render pipeline\n");
     exit(1);
   }
 
   // Create vertex buffer
-  app_state.vertex_buffer =
-      gpu_create_buffer(app_state.device, vertices, sizeof(vertices));
+  g_ctx.vertex_buffer =
+      gpu_create_buffer(g_ctx.device, vertices, sizeof(vertices));
 
   // Create compute pipeline for BGRA to YUV conversion
-  app_state.compute_pipeline = gpu_create_compute_pipeline(
-      app_state.device, "out/linux/bgra_to_yuv.comp.spv", MAX_FRAMES);
+  g_ctx.compute_pipeline = gpu_create_compute_pipeline(
+      g_ctx.device, "out/linux/bgra_to_yuv.comp.spv", MAX_FRAMES);
 
-  if (!app_state.compute_pipeline) {
+  if (!g_ctx.compute_pipeline) {
     // Try alternate path
-    app_state.compute_pipeline =
-        gpu_create_compute_pipeline(app_state.device, "bgra_to_yuv.comp.spv", MAX_FRAMES);
+    g_ctx.compute_pipeline =
+        gpu_create_compute_pipeline(g_ctx.device, "bgra_to_yuv.comp.spv", MAX_FRAMES);
   }
 
   // Create texture pools (4 pools instead of 200 unique textures)
@@ -563,28 +661,33 @@ static int initialize_system(void) {
          NUM_TEXTURE_POOLS);
   for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
     // Create render texture pool (BGRA)
-    app_state.render_texture_pool[i] =
-        gpu_create_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT);
+    g_ctx.render_texture_pool[i] =
+        gpu_create_texture(g_ctx.device, FRAME_WIDTH, FRAME_HEIGHT);
 
     // Create YUV storage texture pools for compute output
-    app_state.yuv_y_texture_pool[i] = gpu_create_storage_texture(
-        app_state.device, FRAME_WIDTH, FRAME_HEIGHT, 1); // R8 format
-    app_state.yuv_u_texture_pool[i] = gpu_create_storage_texture(
-        app_state.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
-    app_state.yuv_v_texture_pool[i] = gpu_create_storage_texture(
-        app_state.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
+    g_ctx.yuv_y_texture_pool[i] = gpu_create_storage_texture(
+        g_ctx.device, FRAME_WIDTH, FRAME_HEIGHT, 1); // R8 format
+    g_ctx.yuv_u_texture_pool[i] = gpu_create_storage_texture(
+        g_ctx.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
+    g_ctx.yuv_v_texture_pool[i] = gpu_create_storage_texture(
+        g_ctx.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
 
     // Create readback buffer pool for packed YUV data (Y+U+V)
-    app_state.yuv_readback_buffer_pool[i] =
-        gpu_create_readback_buffer(app_state.device, YUV_TOTAL_SIZE_BYTES);
+    g_ctx.yuv_readback_buffer_pool[i] =
+        gpu_create_readback_buffer(g_ctx.device, YUV_TOTAL_SIZE_BYTES);
   }
 
-  // Allocate CPU memory for all frame data (frame data is still per-frame)
+  // Frame data will be allocated per-request, not pre-allocated
+  // Initialize frame metadata only
   for (int i = 0; i < MAX_FRAMES; i++) {
-    app_state.frames[i].data = (uint8_t *)malloc(YUV_TOTAL_SIZE_BYTES);
-    app_state.frames[i].frame_number = i;
-    atomic_store(&app_state.frames[i].ready, false);
+    g_ctx.frames[i].data = NULL; // Will be allocated per request
+    g_ctx.frames[i].frame_number = i;
+    atomic_store(&g_ctx.frames[i].ready, false);
   }
+
+  printf("[Memory] Frame metadata initialized. Permanent allocator usage: %zu/%zu MB\n",
+         ALLOC_COMMITED_SIZE(&g_ctx.permanent_allocator) / MB(1),
+         ALLOC_CAPACITY(&g_ctx.permanent_allocator) / MB(1));
 
   // Initialize FFmpeg cached objects
   if (init_ffmpeg_cache() < 0) {
@@ -592,7 +695,7 @@ static int initialize_system(void) {
     exit(1);
   }
 
-  app_state.initialized = true;
+  g_ctx.initialized = true;
   PROFILE_END();
   return 0;
 }
@@ -601,14 +704,14 @@ static void render_all_frames(void) {
   PROFILE_BEGIN("render_all_frames");
   printf("[Renderer] Processing %d frames sequentially using single texture "
          "set...\n",
-         app_state.current_num_frames);
+         g_ctx.current_num_frames);
 
   const float dt = 1.0f / 24.0f;
   const float rotation_speed = 2.0f;
   const int pool_index = 0; // Always use pool slot 0 since we only have 1
 
   // Process frames one by one to ensure correct sequence
-  for (int i = 0; i < app_state.current_num_frames; i++) {
+  for (int i = 0; i < g_ctx.current_num_frames; i++) {
     // Calculate rotation for this frame
     float time = (float)i * dt;
     float angle = time * rotation_speed;
@@ -618,17 +721,17 @@ static void render_all_frames(void) {
     PROFILE_BEGIN("render_frame");
 
     // Create a command buffer for this frame
-    gpu_command_buffer_t *cmd_buffer = gpu_begin_commands(app_state.device);
+    gpu_command_buffer_t *cmd_buffer = gpu_begin_commands(g_ctx.device);
 
     // Begin render pass for this frame using the single texture set
     gpu_render_encoder_t *encoder = gpu_begin_render_pass(
-        cmd_buffer, app_state.render_texture_pool[pool_index], 0.0f, 0.0f, 0.0f,
+        cmd_buffer, g_ctx.render_texture_pool[pool_index], 0.0f, 0.0f, 0.0f,
         1.0f // Black background
     );
 
     // Set pipeline and vertex buffer
-    gpu_set_pipeline(encoder, app_state.pipeline);
-    gpu_set_vertex_buffer(encoder, app_state.vertex_buffer, 0);
+    gpu_set_pipeline(encoder, g_ctx.pipeline);
+    gpu_set_vertex_buffer(encoder, g_ctx.vertex_buffer, 0);
 
     // Set uniforms at buffer index 1 (index 0 is the vertex buffer)
     gpu_set_uniforms(encoder, 1, &uniforms, sizeof(uniforms));
@@ -648,53 +751,53 @@ static void render_all_frames(void) {
     PROFILE_BEGIN("compute and readback");
 
     // Create command buffer for compute dispatch
-    gpu_command_buffer_t *compute_cmd = gpu_begin_commands(app_state.device);
+    gpu_command_buffer_t *compute_cmd = gpu_begin_commands(g_ctx.device);
 
     // Dispatch compute shader to convert BGRA -> YUV using the single texture
     // set
     gpu_texture_t *compute_textures[] = {
-        app_state.render_texture_pool[pool_index], // Input BGRA
-        app_state.yuv_y_texture_pool[pool_index],  // Output Y
-        app_state.yuv_u_texture_pool[pool_index],  // Output U
-        app_state.yuv_v_texture_pool[pool_index]   // Output V
+        g_ctx.render_texture_pool[pool_index], // Input BGRA
+        g_ctx.yuv_y_texture_pool[pool_index],  // Output Y
+        g_ctx.yuv_u_texture_pool[pool_index],  // Output U
+        g_ctx.yuv_v_texture_pool[pool_index]   // Output V
     };
 
     // Dispatch compute: 16x16 workgroups for 1080x1920 image
     int groups_x = (FRAME_WIDTH + 15) / 16;  // ceil(1080/16) = 68
     int groups_y = (FRAME_HEIGHT + 15) / 16; // ceil(1920/16) = 120
 
-    gpu_dispatch_compute(compute_cmd, app_state.compute_pipeline,
+    gpu_dispatch_compute(compute_cmd, g_ctx.compute_pipeline,
                          compute_textures, 4, groups_x, groups_y, 1);
 
     // Commit compute work and wait
     gpu_commit_commands(compute_cmd, true);
 
     // Create single readback command for all YUV planes
-    app_state.yuv_readback_commands[i] = gpu_readback_yuv_textures_async(
-        app_state.device, app_state.yuv_y_texture_pool[pool_index],
-        app_state.yuv_u_texture_pool[pool_index],
-        app_state.yuv_v_texture_pool[pool_index],
-        app_state.yuv_readback_buffer_pool[pool_index], FRAME_WIDTH,
+    g_ctx.yuv_readback_commands[i] = gpu_readback_yuv_textures_async(
+        g_ctx.device, g_ctx.yuv_y_texture_pool[pool_index],
+        g_ctx.yuv_u_texture_pool[pool_index],
+        g_ctx.yuv_v_texture_pool[pool_index],
+        g_ctx.yuv_readback_buffer_pool[pool_index], FRAME_WIDTH,
         FRAME_HEIGHT);
 
     // Submit readback command and wait
-    gpu_submit_commands(app_state.yuv_readback_commands[i], true);
+    gpu_submit_commands(g_ctx.yuv_readback_commands[i], true);
 
     // Copy data to CPU memory
-    gpu_copy_readback_data(app_state.yuv_readback_buffer_pool[pool_index],
-                           app_state.frames[i].data, YUV_TOTAL_SIZE_BYTES);
+    gpu_copy_readback_data(g_ctx.yuv_readback_buffer_pool[pool_index],
+                           g_ctx.frames[i].data, YUV_TOTAL_SIZE_BYTES);
 
     // Mark frame as ready for encoding
-    atomic_store(&app_state.frames[i].ready, true);
-    atomic_fetch_add(&app_state.frames_ready, 1);
-    atomic_fetch_add(&app_state.frames_rendered, 1);
+    atomic_store(&g_ctx.frames[i].ready, true);
+    atomic_fetch_add(&g_ctx.frames_ready, 1);
+    atomic_fetch_add(&g_ctx.frames_rendered, 1);
 
     PROFILE_END();
   }
 
-  gettimeofday(&app_state.render_complete_time, NULL);
-  gettimeofday(&app_state.readback_complete_time, NULL);
-  printf("[Renderer] All %d frames completed\n", app_state.current_num_frames);
+  gettimeofday(&g_ctx.render_complete_time, NULL);
+  gettimeofday(&g_ctx.readback_complete_time, NULL);
+  printf("[Renderer] All %d frames completed\n", g_ctx.current_num_frames);
 
   PROFILE_END(); // render_all_frames
 }
@@ -710,7 +813,7 @@ static int start_ffmpeg_encoder(const char *filename) {
   }
 
   // Start encoder thread
-  pthread_create(&app_state.encoder_thread, NULL, encoder_thread_func, NULL);
+  pthread_create(&g_ctx.encoder_thread, NULL, encoder_thread_func, NULL);
 
   PROFILE_END();
   return 0;
@@ -720,17 +823,17 @@ static void wait_for_completion(void) {
   PROFILE_BEGIN("wait_for_completion");
 
   // Wait for encoder thread to finish
-  pthread_join(app_state.encoder_thread, NULL);
+  pthread_join(g_ctx.encoder_thread, NULL);
 
   PROFILE_END();
 
   // Print timing results
   double render_time =
-      get_time_diff(&app_state.start_time, &app_state.render_complete_time);
+      get_time_diff(&g_ctx.start_time, &g_ctx.render_complete_time);
   double readback_time =
-      get_time_diff(&app_state.start_time, &app_state.readback_complete_time);
+      get_time_diff(&g_ctx.start_time, &g_ctx.readback_complete_time);
   double total_time =
-      get_time_diff(&app_state.start_time, &app_state.encode_complete_time);
+      get_time_diff(&g_ctx.start_time, &g_ctx.encode_complete_time);
 
   printf("\n=== Performance Metrics ===\n");
   printf("Render submission: %.3f seconds\n", render_time);
@@ -738,7 +841,7 @@ static void wait_for_completion(void) {
   printf("Total time:        %.3f seconds\n", total_time);
   printf("Speedup:           %.2fx (vs 1.045s baseline)\n", 1.045 / total_time);
   printf("FPS achieved:      %.1f fps\n",
-         app_state.current_num_frames / total_time);
+         g_ctx.current_num_frames / total_time);
   printf("===========================\n");
 }
 
@@ -748,58 +851,56 @@ static void cleanup(void) {
 
   // Release GPU backend objects - pools
   for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
-    if (app_state.render_texture_pool[i]) {
-      gpu_destroy_texture(app_state.render_texture_pool[i]);
+    if (g_ctx.render_texture_pool[i]) {
+      gpu_destroy_texture(g_ctx.render_texture_pool[i]);
     }
-    if (app_state.yuv_y_texture_pool[i]) {
-      gpu_destroy_texture(app_state.yuv_y_texture_pool[i]);
+    if (g_ctx.yuv_y_texture_pool[i]) {
+      gpu_destroy_texture(g_ctx.yuv_y_texture_pool[i]);
     }
-    if (app_state.yuv_u_texture_pool[i]) {
-      gpu_destroy_texture(app_state.yuv_u_texture_pool[i]);
+    if (g_ctx.yuv_u_texture_pool[i]) {
+      gpu_destroy_texture(g_ctx.yuv_u_texture_pool[i]);
     }
-    if (app_state.yuv_v_texture_pool[i]) {
-      gpu_destroy_texture(app_state.yuv_v_texture_pool[i]);
+    if (g_ctx.yuv_v_texture_pool[i]) {
+      gpu_destroy_texture(g_ctx.yuv_v_texture_pool[i]);
     }
-    if (app_state.yuv_readback_buffer_pool[i]) {
-      gpu_destroy_readback_buffer(app_state.yuv_readback_buffer_pool[i]);
+    if (g_ctx.yuv_readback_buffer_pool[i]) {
+      gpu_destroy_readback_buffer(g_ctx.yuv_readback_buffer_pool[i]);
     }
   }
 
   // Release frame-specific objects
   for (int i = 0; i < MAX_FRAMES; i++) {
-    if (app_state.readback_commands[i]) {
-      gpu_destroy_command_buffer(app_state.readback_commands[i]);
+    if (g_ctx.readback_commands[i]) {
+      gpu_destroy_command_buffer(g_ctx.readback_commands[i]);
     }
-    if (app_state.yuv_readback_commands[i]) {
-      gpu_destroy_command_buffer(app_state.yuv_readback_commands[i]);
+    if (g_ctx.yuv_readback_commands[i]) {
+      gpu_destroy_command_buffer(g_ctx.yuv_readback_commands[i]);
     }
-    free(app_state.frames[i].data);
+    // No need to free g_ctx.frames[i].data - allocated from temporary allocator (auto-freed)
   }
 
-  if (app_state.pipeline) {
-    gpu_destroy_pipeline(app_state.pipeline);
+  if (g_ctx.pipeline) {
+    gpu_destroy_pipeline(g_ctx.pipeline);
   }
 
-  if (app_state.vertex_buffer) {
-    gpu_destroy_buffer(app_state.vertex_buffer);
+  if (g_ctx.vertex_buffer) {
+    gpu_destroy_buffer(g_ctx.vertex_buffer);
   }
 
-  if (app_state.device) {
-    gpu_destroy(app_state.device);
+  if (g_ctx.device) {
+    gpu_destroy(g_ctx.device);
   }
 
-  pthread_mutex_destroy(&app_state.queue_mutex);
-  pthread_cond_destroy(&app_state.queue_cond);
+  pthread_mutex_destroy(&g_ctx.queue_mutex);
+  pthread_cond_destroy(&g_ctx.queue_cond);
+
+  // Clean up context memory
+  cleanup_context(&g_ctx);
 }
 
 // Parse JSON request and extract seconds
 static int parse_request(const char *json_str, render_request_t *request) {
-  char arena_buffer[1024];
-  ArenaAllocator arena =
-      arena_from_buffer((uint8 *)arena_buffer, sizeof(arena_buffer));
-  Allocator allocator = make_arena_allocator(&arena);
-
-  JsonParser parser = json_parser_init(json_str, &allocator);
+  JsonParser parser = json_parser_init(json_str, &g_ctx.temporary_allocator);
 
   if (!json_expect_object_start(&parser)) {
     fprintf(stderr, "Expected '{' at start of JSON object\n");
@@ -834,19 +935,20 @@ static int parse_request(const char *json_str, render_request_t *request) {
 
 // Render video and return base64 encoded result
 static int render_video(const render_request_t *request) {
-  app_state.current_num_frames = request->num_frames;
+  g_ctx.current_num_frames = request->num_frames;
 
-  // Reset frame states
-  atomic_store(&app_state.frames_rendered, 0);
-  atomic_store(&app_state.frames_ready, 0);
-  atomic_store(&app_state.frames_encoded, 0);
-
-  for (int i = 0; i < request->num_frames; i++) {
-    atomic_store(&app_state.frames[i].ready, false);
+  // Allocate frame data for this request
+  if (allocate_frame_data_for_request(request->num_frames) < 0) {
+    return -1;
   }
 
+  // Reset frame states
+  atomic_store(&g_ctx.frames_rendered, 0);
+  atomic_store(&g_ctx.frames_ready, 0);
+  atomic_store(&g_ctx.frames_encoded, 0);
+
   // Start timing
-  gettimeofday(&app_state.start_time, NULL);
+  gettimeofday(&g_ctx.start_time, NULL);
 
   // Start encoder for this request
   if (start_ffmpeg_encoder("output.mp4") < 0) {
@@ -881,7 +983,14 @@ static void send_response(bool success, const char *error_msg) {
     long file_size = ftell(video_file);
     fseek(video_file, 0, SEEK_SET);
 
-    unsigned char *video_data = malloc(file_size);
+    unsigned char *video_data = ALLOC_ARRAY(&g_ctx.temporary_allocator, unsigned char, file_size);
+    if (!video_data) {
+      printf("{\"success\": false, \"error\": \"Failed to allocate memory for video data\"}\n");
+      fclose(video_file);
+      fflush(stdout);
+      return;
+    }
+
     fread(video_data, 1, file_size, video_file);
     fclose(video_file);
 
@@ -889,8 +998,6 @@ static void send_response(bool success, const char *error_msg) {
     printf("{\"success\": true, \"file_size\": %ld, \"encoding\": \"base64\", "
            "\"video\": \"<base64-data>\"}\n",
            file_size);
-
-    free(video_data);
   } else {
     printf("{\"success\": false, \"error\": \"%s\"}\n",
            error_msg ? error_msg : "Unknown error");
@@ -919,11 +1026,8 @@ void process_request(char *input_buffer) {
   send_response(true, NULL);
 
 #ifdef PROFILER_ENABLED
-  char *temp = calloc(1, MB(16));
-  ArenaAllocator arena = arena_from_buffer((uint8 *)temp, MB(16));
-  Allocator allocator = make_arena_allocator(&arena);
-  profiler_end_and_print_session(&allocator);
-  free(temp);
+  // Use temporary allocator for profiler data - will be reset after request
+  profiler_end_and_print_session(&g_ctx.temporary_allocator);
 #endif
 }
 
@@ -937,17 +1041,23 @@ int main(int argc, char *argv[]) {
   printf("Listening for JSON requests on stdin...\n");
   fflush(stdout);
 
+  // Initialize context and memory allocators first
+  if (init_context(&g_ctx) < 0) {
+    fprintf(stderr, "Failed to initialize context\n");
+    return 1;
+  }
+
   // Initialize system once
   if (initialize_system() < 0) {
     fprintf(stderr, "Failed to initialize system\n");
     return 1;
   }
 
-  pthread_mutex_init(&app_state.queue_mutex, NULL);
-  pthread_cond_init(&app_state.queue_cond, NULL);
+  pthread_mutex_init(&g_ctx.queue_mutex, NULL);
+  pthread_cond_init(&g_ctx.queue_cond, NULL);
 
   for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
-    atomic_store(&app_state.pool_slot_in_use[i], -1);
+    atomic_store(&g_ctx.pool_slot_in_use[i], -1);
   }
 
   char input_buffer[INPUT_BUFFER_SIZE];
@@ -955,6 +1065,9 @@ int main(int argc, char *argv[]) {
   // Main daemon loop
   while (fgets(input_buffer, sizeof(input_buffer), stdin)) {
     process_request(input_buffer);
+
+    // Reset temporary allocator after each request
+    ALLOC_RESET(&g_ctx.temporary_allocator);
   }
 
   cleanup();
