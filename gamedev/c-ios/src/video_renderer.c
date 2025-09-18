@@ -769,14 +769,20 @@ static int parse_request(const char *json_str, render_request_t *request) {
 
   JsonParser parser = json_parser_init(json_str, &allocator);
 
-  json_expect_object_start(&parser);
+  if (!json_expect_object_start(&parser)) {
+    fprintf(stderr, "Expected '{' at start of JSON object\n");
+    return -1;
+  }
   char *key = json_parse_string_value(&parser);
   if (!key || strcmp(key, "seconds") != 0) {
     fprintf(stderr, "Expected 'seconds' key in JSON, got: %s\n",
             key ? key : "null");
     return -1;
   }
-  json_expect_colon(&parser);
+  if (!json_expect_colon(&parser)) {
+    fprintf(stderr, "Expected ':' after 'seconds' key\n");
+    return -1;
+  }
 
   request->seconds = json_parse_number_value(&parser);
   request->num_frames = (int)(request->seconds * 24.0); // 24 fps
@@ -787,7 +793,10 @@ static int parse_request(const char *json_str, render_request_t *request) {
     return -1;
   }
 
-  json_expect_object_end(&parser);
+  if (!json_expect_object_end(&parser)) {
+    fprintf(stderr, "Expected '}' at end of JSON object\n");
+    return -1;
+  }
   return 0;
 }
 

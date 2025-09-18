@@ -153,20 +153,20 @@ bool32 json_parse_null_value(JsonParser *parser) {
 }
 
 // Structural parsing helpers
-void json_expect_object_start(JsonParser *parser) {
-  assert_msg(json_expect_char(parser, '{'), "Expected '{'");
+bool32 json_expect_object_start(JsonParser *parser) {
+  return json_expect_char(parser, '{');
 }
 
-void json_expect_object_end(JsonParser *parser) {
-  assert_msg(json_expect_char(parser, '}'), "Expected '}'");
+bool32 json_expect_object_end(JsonParser *parser) {
+  return json_expect_char(parser, '}');
 }
 
-void json_expect_colon(JsonParser *parser) {
-  assert_msg(json_expect_char(parser, ':'), "Expected ':'");
+bool32 json_expect_colon(JsonParser *parser) {
+  return json_expect_char(parser, ':');
 }
 
-void json_expect_comma(JsonParser *parser) {
-  assert_msg(json_expect_char(parser, ','), "Expected ','");
+bool32 json_expect_comma(JsonParser *parser) {
+  return json_expect_char(parser, ',');
 }
 
 char *json_expect_key(JsonParser *parser, const char *expected_key) {

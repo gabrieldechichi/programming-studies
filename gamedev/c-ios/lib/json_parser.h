@@ -21,10 +21,10 @@ bool32 json_parse_bool_value(JsonParser *parser);
 bool32 json_parse_null_value(JsonParser *parser);
 
 // Structural parsing helpers
-void json_expect_object_start(JsonParser *parser);
-void json_expect_object_end(JsonParser *parser);
-void json_expect_colon(JsonParser *parser);
-void json_expect_comma(JsonParser *parser);
+bool32 json_expect_object_start(JsonParser *parser);
+bool32 json_expect_object_end(JsonParser *parser);
+bool32 json_expect_colon(JsonParser *parser);
+bool32 json_expect_comma(JsonParser *parser);
 char *json_expect_key(JsonParser *parser, const char *expected_key);
 bool32 json_is_at_end(JsonParser *parser);
 
