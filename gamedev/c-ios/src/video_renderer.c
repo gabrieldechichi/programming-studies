@@ -1,6 +1,7 @@
 #include "../os/os.h"
 #include "memory.h"
 #include "typedefs.h"
+#include "../lib/json_parser.h"
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -24,7 +25,7 @@
 #include "gpu_backend.h"
 
 // Application constants
-#define NUM_FRAMES 200 // 2.5 seconds at 24fps
+#define MAX_FRAMES 1000 // Maximum frames for longest video
 #define NUM_TEXTURE_POOLS 1 // Use single texture set, process frames sequentially
 #define FRAME_WIDTH 1080
 #define FRAME_HEIGHT 1920
@@ -32,6 +33,7 @@
 #define YUV_Y_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT)          // Y plane: full resolution
 #define YUV_UV_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT / 4)     // U,V planes: quarter resolution (4:2:0)
 #define YUV_TOTAL_SIZE_BYTES (YUV_Y_SIZE_BYTES + 2 * YUV_UV_SIZE_BYTES) // Y + U + V
+#define INPUT_BUFFER_SIZE 1024
 
 // Frame data structure for queue
 typedef struct {
@@ -39,6 +41,12 @@ typedef struct {
   int frame_number;
   atomic_bool ready;
 } frame_data_t;
+
+// Request structure
+typedef struct {
+  double seconds;
+  int num_frames;
+} render_request_t;
 
 // Uniform buffer structure matching Metal shader
 typedef struct {
@@ -51,7 +59,7 @@ static struct {
   gpu_device_t *device;
   gpu_texture_t *render_texture_pool[NUM_TEXTURE_POOLS];
   gpu_readback_buffer_t *readback_buffer_pool[NUM_TEXTURE_POOLS];
-  gpu_command_buffer_t *readback_commands[NUM_FRAMES];
+  gpu_command_buffer_t *readback_commands[MAX_FRAMES];
   gpu_pipeline_t *pipeline;
   gpu_buffer_t *vertex_buffer;
 
@@ -61,16 +69,20 @@ static struct {
   gpu_texture_t *yuv_u_texture_pool[NUM_TEXTURE_POOLS];
   gpu_texture_t *yuv_v_texture_pool[NUM_TEXTURE_POOLS];
   gpu_readback_buffer_t *yuv_readback_buffer_pool[NUM_TEXTURE_POOLS];     // Pool of readback buffers
-  gpu_command_buffer_t *yuv_readback_commands[NUM_FRAMES];     // Single command per frame
+  gpu_command_buffer_t *yuv_readback_commands[MAX_FRAMES];     // Single command per frame
 
   // Frame management
-  frame_data_t frames[NUM_FRAMES];
+  frame_data_t frames[MAX_FRAMES];
   atomic_int frames_rendered;
   atomic_int frames_ready;
   atomic_int frames_encoded;
+  int current_num_frames;
 
   // Pool slot synchronization - track which frame is using each pool
   atomic_int pool_slot_in_use[NUM_TEXTURE_POOLS];  // -1 = free, >= 0 = frame number using this slot
+
+  // Initialization state
+  bool initialized;
 
   // Threading
   pthread_t encoder_thread;
@@ -384,7 +396,7 @@ static void *encoder_thread_func(void *arg) {
 
   int next_frame_to_encode = 0;
 
-  while (next_frame_to_encode < NUM_FRAMES) {
+  while (next_frame_to_encode < app_state.current_num_frames) {
     PROFILE_BEGIN("ffmpeg wait for frame");
     // Wait for the next frame to be ready
     while (!atomic_load(&app_state.frames[next_frame_to_encode].ready)) {
@@ -403,8 +415,6 @@ static void *encoder_thread_func(void *arg) {
     PROFILE_END();
 
     atomic_fetch_add(&app_state.frames_encoded, 1);
-    printf("[Encoder] Encoded frame %d/%d\n", next_frame_to_encode + 1,
-           NUM_FRAMES);
     next_frame_to_encode++;
   }
 
@@ -447,8 +457,13 @@ static char *load_shader_file(const char *filename) {
 }
 
 // Initialize GPU backend
-static void gpu_backend_init(void) {
-  PROFILE_BEGIN("gpu_backend_init");
+static int initialize_system(void) {
+  if (app_state.initialized) {
+    return 0;
+  }
+
+  PROFILE_BEGIN("initialize_system");
+  printf("[System] Initializing GPU backend and FFmpeg...\n");
 
   // Initialize GPU device
   app_state.device = gpu_init();
@@ -507,7 +522,7 @@ static void gpu_backend_init(void) {
   }
 
   // Create texture pools (4 pools instead of 200 unique textures)
-  printf("[GPU] Creating %d texture pools (instead of %d unique textures)\n", NUM_TEXTURE_POOLS, NUM_FRAMES);
+  printf("[GPU] Creating %d texture pools (instead of per-frame textures)\n", NUM_TEXTURE_POOLS);
   for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
     // Create render texture pool (BGRA)
     app_state.render_texture_pool[i] =
@@ -527,25 +542,27 @@ static void gpu_backend_init(void) {
   }
 
   // Allocate CPU memory for all frame data (frame data is still per-frame)
-  for (int i = 0; i < NUM_FRAMES; i++) {
+  for (int i = 0; i < MAX_FRAMES; i++) {
     app_state.frames[i].data = (uint8_t *)malloc(YUV_TOTAL_SIZE_BYTES);
     app_state.frames[i].frame_number = i;
     atomic_store(&app_state.frames[i].ready, false);
   }
 
+  app_state.initialized = true;
   PROFILE_END();
+  return 0;
 }
 
 static void render_all_frames(void) {
   PROFILE_BEGIN("render_all_frames");
-  printf("[Renderer] Processing %d frames sequentially using single texture set...\n", NUM_FRAMES);
+  printf("[Renderer] Processing %d frames sequentially using single texture set...\n", app_state.current_num_frames);
 
   const float dt = 1.0f / 24.0f;
   const float rotation_speed = 2.0f;
   const int pool_index = 0; // Always use pool slot 0 since we only have 1
 
   // Process frames one by one to ensure correct sequence
-  for (int i = 0; i < NUM_FRAMES; i++) {
+  for (int i = 0; i < app_state.current_num_frames; i++) {
     // Calculate rotation for this frame
     float time = (float)i * dt;
     float angle = time * rotation_speed;
@@ -627,30 +644,30 @@ static void render_all_frames(void) {
     atomic_fetch_add(&app_state.frames_rendered, 1);
 
     PROFILE_END();
-
-    printf("[Renderer] Frame %d/%d completed\n", i + 1, NUM_FRAMES);
   }
 
   gettimeofday(&app_state.render_complete_time, NULL);
   gettimeofday(&app_state.readback_complete_time, NULL);
-  printf("[Renderer] All %d frames completed\n", NUM_FRAMES);
+  printf("[Renderer] All %d frames completed\n", app_state.current_num_frames);
 
   PROFILE_END(); // render_all_frames
 }
 
-static void start_ffmpeg_encoder(void) {
+static int start_ffmpeg_encoder(const char* filename) {
   PROFILE_BEGIN("start_ffmpeg_encoder");
 
   // Initialize FFmpeg encoder
-  if (init_ffmpeg_encoder("output.mp4") < 0) {
+  if (init_ffmpeg_encoder(filename) < 0) {
     fprintf(stderr, "Failed to initialize FFmpeg encoder\n");
-    exit(1);
+    PROFILE_END();
+    return -1;
   }
 
   // Start encoder thread
   pthread_create(&app_state.encoder_thread, NULL, encoder_thread_func, NULL);
 
   PROFILE_END();
+  return 0;
 }
 
 static void wait_for_completion(void) {
@@ -674,7 +691,7 @@ static void wait_for_completion(void) {
   printf("All frames ready:  %.3f seconds\n", readback_time);
   printf("Total time:        %.3f seconds\n", total_time);
   printf("Speedup:           %.2fx (vs 1.045s baseline)\n", 1.045 / total_time);
-  printf("FPS achieved:      %.1f fps\n", NUM_FRAMES / total_time);
+  printf("FPS achieved:      %.1f fps\n", app_state.current_num_frames / total_time);
   printf("===========================\n");
 }
 
@@ -702,7 +719,7 @@ static void cleanup(void) {
   }
 
   // Release frame-specific objects
-  for (int i = 0; i < NUM_FRAMES; i++) {
+  for (int i = 0; i < MAX_FRAMES; i++) {
     if (app_state.readback_commands[i]) {
       gpu_destroy_command_buffer(app_state.readback_commands[i]);
     }
@@ -728,59 +745,150 @@ static void cleanup(void) {
   pthread_cond_destroy(&app_state.queue_cond);
 }
 
-int main(int argc, char *argv[]) {
-  (void)argc;
-  (void)argv;
-  profiler_begin_session();
+// Parse JSON request and extract seconds
+static int parse_request(const char* json_str, render_request_t* request) {
+  char arena_buffer[1024];
+  ArenaAllocator arena = arena_from_buffer((uint8*)arena_buffer, sizeof(arena_buffer));
+  Allocator allocator = make_arena_allocator(&arena);
 
-  printf("=== Fast Parallel Video Renderer ===\n");
-  printf("Frames: %d, Resolution: %dx%d\n", NUM_FRAMES, FRAME_WIDTH,
-         FRAME_HEIGHT);
-  printf("=====================================\n\n");
+  JsonParser parser = json_parser_init(json_str, &allocator);
 
-  // Initialize atomics and threading
+  json_expect_object_start(&parser);
+  char* key = json_parse_string_value(&parser);
+  if (!key || strcmp(key, "seconds") != 0) {
+    fprintf(stderr, "Expected 'seconds' key in JSON, got: %s\n", key ? key : "null");
+    return -1;
+  }
+  json_expect_colon(&parser);
+
+  request->seconds = json_parse_number_value(&parser);
+  request->num_frames = (int)(request->seconds * 24.0); // 24 fps
+
+  if (request->num_frames <= 0 || request->num_frames > MAX_FRAMES) {
+    fprintf(stderr, "Invalid frame count: %d (max: %d)\n", request->num_frames, MAX_FRAMES);
+    return -1;
+  }
+
+  json_expect_object_end(&parser);
+  return 0;
+}
+
+// Render video and return base64 encoded result
+static int render_video(const render_request_t* request) {
+  app_state.current_num_frames = request->num_frames;
+
+  // Reset frame states
   atomic_store(&app_state.frames_rendered, 0);
   atomic_store(&app_state.frames_ready, 0);
   atomic_store(&app_state.frames_encoded, 0);
 
-  // Initialize pool slots as free
-  for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
-    atomic_store(&app_state.pool_slot_in_use[i], -1);  // -1 = free
+  for (int i = 0; i < request->num_frames; i++) {
+    atomic_store(&app_state.frames[i].ready, false);
+  }
+
+  // Start timing
+  gettimeofday(&app_state.start_time, NULL);
+
+  // Start encoder for this request
+  if (start_ffmpeg_encoder("output.mp4") < 0) {
+    return -1;
+  }
+
+  // Render frames
+  render_all_frames();
+
+  // Wait for completion
+  wait_for_completion();
+
+  return 0;
+}
+
+// Send JSON response with base64 video
+static void send_response(bool success, const char* error_msg) {
+  if (success) {
+    // Read video file and encode as base64
+    FILE* video_file = fopen("output.mp4", "rb");
+    if (!video_file) {
+      printf("{\"success\": false, \"error\": \"Failed to open output video\"}\n");
+      fflush(stdout);
+      return;
+    }
+
+    fseek(video_file, 0, SEEK_END);
+    long file_size = ftell(video_file);
+    fseek(video_file, 0, SEEK_SET);
+
+    unsigned char* video_data = malloc(file_size);
+    fread(video_data, 1, file_size, video_file);
+    fclose(video_file);
+
+    // Simple base64 encoding (for now just indicate success)
+    printf("{\"success\": true, \"file_size\": %ld, \"encoding\": \"base64\", \"video\": \"<base64-data>\"}\n", file_size);
+
+    free(video_data);
+  } else {
+    printf("{\"success\": false, \"error\": \"%s\"}\n", error_msg ? error_msg : "Unknown error");
+  }
+  fflush(stdout);
+}
+
+int main(int argc, char *argv[]) {
+  (void)argc;
+  (void)argv;
+
+  printf("=== Video Renderer Daemon ===\n");
+  printf("Resolution: %dx%d, Max frames: %d\n", FRAME_WIDTH, FRAME_HEIGHT, MAX_FRAMES);
+  printf("Listening for JSON requests on stdin...\n");
+  fflush(stdout);
+
+  // Initialize system once
+  if (initialize_system() < 0) {
+    fprintf(stderr, "Failed to initialize system\n");
+    return 1;
   }
 
   pthread_mutex_init(&app_state.queue_mutex, NULL);
   pthread_cond_init(&app_state.queue_cond, NULL);
 
-  // Start timing
-  gettimeofday(&app_state.start_time, NULL);
+  for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
+    atomic_store(&app_state.pool_slot_in_use[i], -1);
+  }
 
-  // Initialize GPU backend
-  printf("[Main] Initializing GPU backend...\n");
-  gpu_backend_init();
+  char input_buffer[INPUT_BUFFER_SIZE];
 
-  // Start FFmpeg encoder thread
-  printf("[Main] Starting FFmpeg encoder thread...\n");
-  start_ffmpeg_encoder();
+  // Main daemon loop
+  while (fgets(input_buffer, sizeof(input_buffer), stdin)) {
+    profiler_begin_session();
 
-  // Render all frames (non-blocking)
-  render_all_frames();
+    // Remove newline
+    input_buffer[strcspn(input_buffer, "\n")] = 0;
 
-  // Wait for everything to complete
-  wait_for_completion();
+    render_request_t request;
+    if (parse_request(input_buffer, &request) < 0) {
+      send_response(false, "Invalid JSON request");
+      continue;
+    }
 
-  // Print profiling results
+    printf("Rendering %.2f seconds (%d frames)...\n", request.seconds, request.num_frames);
+    fflush(stdout);
+
+    if (render_video(&request) < 0) {
+      send_response(false, "Rendering failed");
+      continue;
+    }
+
+    send_response(true, NULL);
+
 #ifdef PROFILER_ENABLED
-  printf("\n");
-  char *temp = calloc(1, MB(16));
-  ArenaAllocator arena = arena_from_buffer((uint8 *)temp, MB(16));
-  Allocator allocator = make_arena_allocator(&arena);
-  profiler_end_and_print_session(&allocator);
+    char *temp = calloc(1, MB(16));
+    ArenaAllocator arena = arena_from_buffer((uint8 *)temp, MB(16));
+    Allocator allocator = make_arena_allocator(&arena);
+    profiler_end_and_print_session(&allocator);
+    free(temp);
 #endif
+  }
 
-  // Cleanup
   cleanup();
-
-  printf("\n✅ Video generated: output.mp4\n");
   return 0;
 }
 

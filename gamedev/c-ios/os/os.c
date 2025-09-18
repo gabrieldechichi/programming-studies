@@ -52,6 +52,9 @@ f64 os_ticks_to_ms(u64 ticks) {
     return (f64)(ticks * timebase.numer / timebase.denom) / 1000000.0;
 #elif defined(LINUX)
     return (f64)ticks / 1000000.0;  // Convert nanoseconds to milliseconds
+#else
+    (void)ticks;
+    return 0.0;
 #endif
 }
 
@@ -61,6 +64,9 @@ f64 os_ticks_to_us(u64 ticks) {
     return (f64)(ticks * timebase.numer / timebase.denom) / 1000.0;
 #elif defined(LINUX)
     return (f64)ticks / 1000.0;  // Convert nanoseconds to microseconds
+#else
+    (void)ticks;
+    return 0.0;
 #endif
 }
 
@@ -70,6 +76,9 @@ f64 os_ticks_to_ns(u64 ticks) {
     return (f64)(ticks * timebase.numer / timebase.denom);
 #elif defined(LINUX)
     return (f64)ticks;  // Already in nanoseconds
+#else
+    (void)ticks;
+    return 0.0;
 #endif
 }
 

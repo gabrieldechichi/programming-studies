@@ -6,119 +6,178 @@ import base64
 import os
 import json
 import logging
+import time
+import atexit
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global process for persistent video renderer daemon
+video_renderer_process = None
+
+def cleanup_process():
+    """Clean up the video renderer process on exit"""
+    global video_renderer_process
+    if video_renderer_process and video_renderer_process.poll() is None:
+        logger.info("Terminating video renderer daemon...")
+        video_renderer_process.terminate()
+        try:
+            video_renderer_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            logger.warning("Force killing video renderer daemon...")
+            video_renderer_process.kill()
+
+# Register cleanup function
+atexit.register(cleanup_process)
+
+def start_video_renderer_daemon():
+    """Start the persistent video renderer daemon"""
+    global video_renderer_process
+
+    if video_renderer_process and video_renderer_process.poll() is None:
+        # Process is already running
+        return True
+
+    logger.info("Starting video renderer daemon...")
+
+    # Ensure we're in the correct directory
+    os.chdir('/app')
+
+    # Check if video_renderer exists and is executable
+    if not os.path.exists('./video_renderer'):
+        logger.error("video_renderer binary not found!")
+        return False
+
+    if not os.access('./video_renderer', os.X_OK):
+        logger.error("video_renderer binary is not executable!")
+        return False
+
+    try:
+        video_renderer_process = subprocess.Popen(
+            ['./video_renderer'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+            cwd='/app'
+        )
+
+        # Give it a moment to initialize
+        time.sleep(0.1)
+
+        # Check if process started successfully
+        if video_renderer_process.poll() is not None:
+            # Process has already terminated
+            stdout, stderr = video_renderer_process.communicate()
+            logger.error(f"Video renderer daemon failed to start: {stderr}")
+            logger.error(f"STDOUT: {stdout}")
+            return False
+
+        logger.info("Video renderer daemon started successfully")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to start video renderer daemon: {e}")
+        return False
+
+def send_render_request(seconds=8.33):
+    """Send a render request to the daemon and get the response"""
+    global video_renderer_process
+
+    if not video_renderer_process or video_renderer_process.poll() is not None:
+        logger.error("Video renderer daemon is not running")
+        return None
+
+    try:
+        # Send JSON request
+        request = {"seconds": seconds}
+        request_str = json.dumps(request) + '\n'
+
+        logger.info(f"Sending render request: {request}")
+        video_renderer_process.stdin.write(request_str)
+        video_renderer_process.stdin.flush()
+
+        # Read response
+        logger.info("Waiting for response...")
+        response_line = video_renderer_process.stdout.readline()
+
+        if not response_line:
+            logger.error("No response received from daemon")
+            return None
+
+        # Try to parse JSON response
+        try:
+            response = json.loads(response_line.strip())
+            logger.info(f"Received response: {response}")
+            return response
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            logger.error(f"Raw response: {response_line}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error communicating with daemon: {e}")
+        return None
+
 def handler(event):
     """
-    RunPod serverless handler for video rendering.
+    RunPod serverless handler for video rendering using persistent daemon.
 
     Input: event with optional parameters for video generation
     Output: Base64-encoded video file
     """
     try:
-        logger.info("=== Starting video rendering ===")
+        logger.info("=== Starting video rendering (daemon mode) ===")
         logger.info(f"Event received: {event}")
 
-        # Get input parameters (for future extensibility)
+        # Get input parameters
         input_data = event.get('input', {})
-        logger.info(f"Input data: {input_data}")
+        seconds = input_data.get('seconds', 8.33)  # Default ~200 frames at 24fps
+        logger.info(f"Rendering {seconds} seconds of video")
 
-        # Ensure we're in the correct directory
-        logger.info(f"Current working directory: {os.getcwd()}")
-        os.chdir('/app')
-        logger.info(f"Changed to directory: {os.getcwd()}")
-
-        # List files in current directory for debugging
-        files = os.listdir('.')
-        logger.info(f"Files in /app: {files}")
-
-        # Check if video_renderer exists and is executable
-        if not os.path.exists('./video_renderer'):
-            logger.error("video_renderer binary not found!")
-            return {"error": "Video renderer binary not found"}
-
-        if not os.access('./video_renderer', os.X_OK):
-            logger.error("video_renderer binary is not executable!")
-            return {"error": "Video renderer binary is not executable"}
-
-        # Clean up any existing output files
-        if os.path.exists('output.mp4'):
-            os.remove('output.mp4')
-            logger.info("Removed existing output.mp4")
-
-        # Check NVIDIA driver availability
-        logger.info("=== Checking NVIDIA driver availability ===")
-        try:
-            nvidia_check = subprocess.run(['nvidia-smi'], capture_output=True, text=True, timeout=10)
-            logger.info(f"nvidia-smi return code: {nvidia_check.returncode}")
-            logger.info(f"nvidia-smi stdout: {nvidia_check.stdout}")
-            if nvidia_check.returncode != 0:
-                logger.warning(f"nvidia-smi stderr: {nvidia_check.stderr}")
-        except Exception as e:
-            logger.warning(f"nvidia-smi check failed: {e}")
-
-        # Check for NVIDIA device files
-        try:
-            nvidia_devices = [f for f in os.listdir('/dev') if f.startswith('nvidia')]
-            logger.info(f"NVIDIA device files in /dev: {nvidia_devices}")
-        except Exception as e:
-            logger.warning(f"Could not list /dev directory: {e}")
-
-        # Check NVIDIA driver libraries
-        try:
-            ldd_check = subprocess.run(['ldd', './video_renderer'], capture_output=True, text=True, timeout=10)
-            logger.info(f"ldd output for video_renderer: {ldd_check.stdout}")
-        except Exception as e:
-            logger.warning(f"ldd check failed: {e}")
-
-        # Run the video renderer
-        logger.info("=== Executing video renderer ===")
-        result = subprocess.run(
-            ['./video_renderer'],
-            capture_output=True,
-            text=True,
-            timeout=30,  # 30 second timeout
-            cwd='/app'
-        )
-
-        logger.info(f"Video renderer return code: {result.returncode}")
-        logger.info(f"STDOUT: {result.stdout}")
-        logger.info(f"STDERR: {result.stderr}")
-
-        if result.returncode != 0:
-            logger.error(f"Video renderer failed with return code {result.returncode}")
+        # Start daemon if not running
+        if not start_video_renderer_daemon():
             return {
                 "success": False,
-                "error": f"Video rendering failed: {result.stderr or result.stdout}",
-                "returncode": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr
+                "error": "Failed to start video renderer daemon"
             }
 
-        logger.info("Video renderer completed successfully")
+        # Clean up any existing output files
+        if os.path.exists('/app/output.mp4'):
+            os.remove('/app/output.mp4')
+            logger.info("Removed existing output.mp4")
 
-        # Check if output file was created
-        if not os.path.exists('output.mp4'):
-            logger.error("Output file output.mp4 was not created")
-            # List files again to see what was created
-            files_after = os.listdir('.')
-            logger.info(f"Files after execution: {files_after}")
+        # Send render request
+        response = send_render_request(seconds)
+
+        if not response:
             return {
                 "success": False,
-                "error": "Output video file was not generated",
-                "files_before": files,
-                "files_after": files_after
+                "error": "Failed to get response from video renderer daemon"
+            }
+
+        if not response.get('success', False):
+            return {
+                "success": False,
+                "error": response.get('error', 'Unknown error from daemon')
+            }
+
+        # Check if output file was created
+        if not os.path.exists('/app/output.mp4'):
+            logger.error("Output file output.mp4 was not created")
+            return {
+                "success": False,
+                "error": "Output video file was not generated"
             }
 
         # Get file size for logging
-        file_size = os.path.getsize('output.mp4')
+        file_size = os.path.getsize('/app/output.mp4')
         logger.info(f"Generated video file size: {file_size} bytes")
 
         # Read and encode the video file
-        with open('output.mp4', 'rb') as video_file:
+        with open('/app/output.mp4', 'rb') as video_file:
             video_data = video_file.read()
 
         # Encode to base64
@@ -130,14 +189,8 @@ def handler(event):
             "success": True,
             "video": video_base64,
             "file_size": file_size,
-            "encoding": "base64"
-        }
-
-    except subprocess.TimeoutExpired:
-        logger.error("Video rendering timed out after 30 seconds")
-        return {
-            "success": False,
-            "error": "Video rendering timed out"
+            "encoding": "base64",
+            "seconds_rendered": seconds
         }
 
     except Exception as e:
