@@ -25,6 +25,7 @@
 
 // Application constants
 #define NUM_FRAMES 200 // 2.5 seconds at 24fps
+#define NUM_TEXTURE_POOLS 1 // Use single texture set, process frames sequentially
 #define FRAME_WIDTH 1080
 #define FRAME_HEIGHT 1920
 #define FRAME_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT * 4)
@@ -48,18 +49,18 @@ typedef struct {
 static struct {
   // GPU backend objects
   gpu_device_t *device;
-  gpu_texture_t *render_textures[NUM_FRAMES];
-  gpu_readback_buffer_t *readback_buffers[NUM_FRAMES];
+  gpu_texture_t *render_texture_pool[NUM_TEXTURE_POOLS];
+  gpu_readback_buffer_t *readback_buffer_pool[NUM_TEXTURE_POOLS];
   gpu_command_buffer_t *readback_commands[NUM_FRAMES];
   gpu_pipeline_t *pipeline;
   gpu_buffer_t *vertex_buffer;
 
   // GPU color conversion objects
   gpu_compute_pipeline_t *compute_pipeline;
-  gpu_texture_t *yuv_y_textures[NUM_FRAMES];
-  gpu_texture_t *yuv_u_textures[NUM_FRAMES];
-  gpu_texture_t *yuv_v_textures[NUM_FRAMES];
-  gpu_readback_buffer_t *yuv_readback_buffers[NUM_FRAMES];     // Single buffer per frame for packed YUV
+  gpu_texture_t *yuv_y_texture_pool[NUM_TEXTURE_POOLS];
+  gpu_texture_t *yuv_u_texture_pool[NUM_TEXTURE_POOLS];
+  gpu_texture_t *yuv_v_texture_pool[NUM_TEXTURE_POOLS];
+  gpu_readback_buffer_t *yuv_readback_buffer_pool[NUM_TEXTURE_POOLS];     // Pool of readback buffers
   gpu_command_buffer_t *yuv_readback_commands[NUM_FRAMES];     // Single command per frame
 
   // Frame management
@@ -67,6 +68,9 @@ static struct {
   atomic_int frames_rendered;
   atomic_int frames_ready;
   atomic_int frames_encoded;
+
+  // Pool slot synchronization - track which frame is using each pool
+  atomic_int pool_slot_in_use[NUM_TEXTURE_POOLS];  // -1 = free, >= 0 = frame number using this slot
 
   // Threading
   pthread_t encoder_thread;
@@ -502,27 +506,28 @@ static void gpu_backend_init(void) {
         gpu_create_compute_pipeline(app_state.device, "bgra_to_yuv.comp.spv");
   }
 
-  // Create render textures and readback buffers for all frames
-  for (int i = 0; i < NUM_FRAMES; i++) {
-    // Create render texture (BGRA)
-    app_state.render_textures[i] =
+  // Create texture pools (4 pools instead of 200 unique textures)
+  printf("[GPU] Creating %d texture pools (instead of %d unique textures)\n", NUM_TEXTURE_POOLS, NUM_FRAMES);
+  for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
+    // Create render texture pool (BGRA)
+    app_state.render_texture_pool[i] =
         gpu_create_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT);
 
-    // Create YUV storage textures for compute output
-    app_state.yuv_y_textures[i] =
+    // Create YUV storage texture pools for compute output
+    app_state.yuv_y_texture_pool[i] =
         gpu_create_storage_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT, 1); // R8 format
-    app_state.yuv_u_textures[i] =
+    app_state.yuv_u_texture_pool[i] =
         gpu_create_storage_texture(app_state.device, FRAME_WIDTH/2, FRAME_HEIGHT/2, 1); // R8 format
-    app_state.yuv_v_textures[i] =
+    app_state.yuv_v_texture_pool[i] =
         gpu_create_storage_texture(app_state.device, FRAME_WIDTH/2, FRAME_HEIGHT/2, 1); // R8 format
 
-    // Create single readback buffer per frame for packed YUV data (Y+U+V)
-    app_state.yuv_readback_buffers[i] =
+    // Create readback buffer pool for packed YUV data (Y+U+V)
+    app_state.yuv_readback_buffer_pool[i] =
         gpu_create_readback_buffer(app_state.device, YUV_TOTAL_SIZE_BYTES);
+  }
 
-    // Removed old BGRA readback buffers to prevent memory exhaustion
-
-    // Allocate CPU memory for YUV frame data (smaller than BGRA)
+  // Allocate CPU memory for all frame data (frame data is still per-frame)
+  for (int i = 0; i < NUM_FRAMES; i++) {
     app_state.frames[i].data = (uint8_t *)malloc(YUV_TOTAL_SIZE_BYTES);
     app_state.frames[i].frame_number = i;
     atomic_store(&app_state.frames[i].ready, false);
@@ -533,17 +538,13 @@ static void gpu_backend_init(void) {
 
 static void render_all_frames(void) {
   PROFILE_BEGIN("render_all_frames");
-  printf("[Renderer] Submitting all %d frames to GPU...\n", NUM_FRAMES);
+  printf("[Renderer] Processing %d frames sequentially using single texture set...\n", NUM_FRAMES);
 
   const float dt = 1.0f / 24.0f;
   const float rotation_speed = 2.0f;
+  const int pool_index = 0; // Always use pool slot 0 since we only have 1
 
-  // First pass: Submit all render commands
-  PROFILE_BEGIN("render_submission");
-
-  // Create command buffers for each frame
-  gpu_command_buffer_t *cmd_buffers[NUM_FRAMES];
-
+  // Process frames one by one to ensure correct sequence
   for (int i = 0; i < NUM_FRAMES; i++) {
     // Calculate rotation for this frame
     float time = (float)i * dt;
@@ -554,11 +555,11 @@ static void render_all_frames(void) {
     PROFILE_BEGIN("render_frame");
 
     // Create a command buffer for this frame
-    cmd_buffers[i] = gpu_begin_commands(app_state.device);
+    gpu_command_buffer_t* cmd_buffer = gpu_begin_commands(app_state.device);
 
-    // Begin render pass for this frame
+    // Begin render pass for this frame using the single texture set
     gpu_render_encoder_t *encoder =
-        gpu_begin_render_pass(cmd_buffers[i], app_state.render_textures[i],
+        gpu_begin_render_pass(cmd_buffer, app_state.render_texture_pool[pool_index],
                               0.0f, 0.0f, 0.0f, 1.0f // Black background
         );
 
@@ -575,40 +576,23 @@ static void render_all_frames(void) {
     // End render pass
     gpu_end_render_pass(encoder);
 
-    // Commit WITHOUT waiting - batch submission
-    gpu_commit_commands(cmd_buffers[i], false); // Non-blocking
+    // Commit and wait for completion
+    gpu_commit_commands(cmd_buffer, true); // Blocking wait
 
     PROFILE_END();
 
-    atomic_fetch_add(&app_state.frames_rendered, 1);
-  }
-
-  // Now wait for all render commands to complete
-  PROFILE_BEGIN("wait_for_render_completion");
-  for (int i = 0; i < NUM_FRAMES; i++) {
-    gpu_wait_for_command_buffer(cmd_buffers[i]);
-  }
-  PROFILE_END();
-
-  PROFILE_END(); // render_submission
-
-  gettimeofday(&app_state.render_complete_time, NULL);
-  printf("[Renderer] All frames submitted to GPU\n");
-
-  // Second pass: Submit compute + YUV readback commands async
-  PROFILE_BEGIN("submit all compute and readbacks");
-  for (int i = 0; i < NUM_FRAMES; i++) {
-    PROFILE_BEGIN("create compute and readback cmd");
+    // Now do compute conversion and readback for this frame
+    PROFILE_BEGIN("compute and readback");
 
     // Create command buffer for compute dispatch
     gpu_command_buffer_t* compute_cmd = gpu_begin_commands(app_state.device);
 
-    // Dispatch compute shader to convert BGRA -> YUV
+    // Dispatch compute shader to convert BGRA -> YUV using the single texture set
     gpu_texture_t* compute_textures[] = {
-        app_state.render_textures[i],  // Input BGRA
-        app_state.yuv_y_textures[i],   // Output Y
-        app_state.yuv_u_textures[i],   // Output U
-        app_state.yuv_v_textures[i]    // Output V
+        app_state.render_texture_pool[pool_index],  // Input BGRA
+        app_state.yuv_y_texture_pool[pool_index],   // Output Y
+        app_state.yuv_u_texture_pool[pool_index],   // Output U
+        app_state.yuv_v_texture_pool[pool_index]    // Output V
     };
 
     // Dispatch compute: 16x16 workgroups for 1080x1920 image
@@ -618,74 +602,38 @@ static void render_all_frames(void) {
     gpu_dispatch_compute(compute_cmd, app_state.compute_pipeline,
                         compute_textures, 4, groups_x, groups_y, 1);
 
-    PROFILE_END();
+    // Commit compute work and wait
+    gpu_commit_commands(compute_cmd, true);
 
-    PROFILE_BEGIN("submit compute readback async");
-    // Commit compute work first
-    gpu_commit_commands(compute_cmd, false);
-    PROFILE_END();
-
-    PROFILE_BEGIN("create yuv readback commands");
-    // Create single readback command for all YUV planes packed into one buffer
+    // Create single readback command for all YUV planes
     app_state.yuv_readback_commands[i] = gpu_readback_yuv_textures_async(
         app_state.device,
-        app_state.yuv_y_textures[i],
-        app_state.yuv_u_textures[i],
-        app_state.yuv_v_textures[i],
-        app_state.yuv_readback_buffers[i],
+        app_state.yuv_y_texture_pool[pool_index],
+        app_state.yuv_u_texture_pool[pool_index],
+        app_state.yuv_v_texture_pool[pool_index],
+        app_state.yuv_readback_buffer_pool[pool_index],
         FRAME_WIDTH, FRAME_HEIGHT);
 
-    // Submit the single YUV readback command
-    gpu_submit_commands(app_state.yuv_readback_commands[i], false);
+    // Submit readback command and wait
+    gpu_submit_commands(app_state.yuv_readback_commands[i], true);
+
+    // Copy data to CPU memory
+    gpu_copy_readback_data(app_state.yuv_readback_buffer_pool[pool_index],
+                           app_state.frames[i].data, YUV_TOTAL_SIZE_BYTES);
+
+    // Mark frame as ready for encoding
+    atomic_store(&app_state.frames[i].ready, true);
+    atomic_fetch_add(&app_state.frames_ready, 1);
+    atomic_fetch_add(&app_state.frames_rendered, 1);
+
     PROFILE_END();
+
+    printf("[Renderer] Frame %d/%d completed\n", i + 1, NUM_FRAMES);
   }
-  PROFILE_END();
 
-  // Third pass: Asynchronously check for completion and mark frames ready
-  PROFILE_BEGIN("wait for all readbacks");
-
-  // Track which frames have been processed
-  bool frames_processed[NUM_FRAMES] = {false};
-  int frames_remaining = NUM_FRAMES;
-
-  while (frames_remaining > 0) {
-    bool made_progress = false;
-
-    // Check all unprocessed frames for completion
-    for (int i = 0; i < NUM_FRAMES; i++) {
-      if (frames_processed[i]) continue;
-
-      PROFILE_BEGIN("wait for single frame");
-
-      // Non-blocking check if YUV readback is ready
-      if (gpu_is_readback_complete(app_state.yuv_readback_commands[i])) {
-        PROFILE_BEGIN("copy readback data");
-        // Copy packed YUV data (Y+U+V) from single GPU readback buffer to CPU memory
-        gpu_copy_readback_data(app_state.yuv_readback_buffers[i],
-                               app_state.frames[i].data, YUV_TOTAL_SIZE_BYTES);
-        PROFILE_END();
-
-        // Mark frame as ready for encoding (encoder can start immediately)
-        atomic_store(&app_state.frames[i].ready, true);
-        atomic_fetch_add(&app_state.frames_ready, 1);
-
-        frames_processed[i] = true;
-        frames_remaining--;
-        made_progress = true;
-
-        if (atomic_load(&app_state.frames_ready) == NUM_FRAMES) {
-          gettimeofday(&app_state.readback_complete_time, NULL);
-        }
-      }
-      PROFILE_END();
-    }
-
-    // If no frames completed this iteration, sleep briefly to avoid busy waiting
-    if (!made_progress) {
-      os_sleep_us(50); // Reduced from 100us for better responsiveness
-    }
-  }
-  PROFILE_END();
+  gettimeofday(&app_state.render_complete_time, NULL);
+  gettimeofday(&app_state.readback_complete_time, NULL);
+  printf("[Renderer] All %d frames completed\n", NUM_FRAMES);
 
   PROFILE_END(); // render_all_frames
 }
@@ -734,16 +682,32 @@ static void cleanup(void) {
   // Close FFmpeg encoder
   close_ffmpeg_encoder();
 
-  // Release GPU backend objects
+  // Release GPU backend objects - pools
+  for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
+    if (app_state.render_texture_pool[i]) {
+      gpu_destroy_texture(app_state.render_texture_pool[i]);
+    }
+    if (app_state.yuv_y_texture_pool[i]) {
+      gpu_destroy_texture(app_state.yuv_y_texture_pool[i]);
+    }
+    if (app_state.yuv_u_texture_pool[i]) {
+      gpu_destroy_texture(app_state.yuv_u_texture_pool[i]);
+    }
+    if (app_state.yuv_v_texture_pool[i]) {
+      gpu_destroy_texture(app_state.yuv_v_texture_pool[i]);
+    }
+    if (app_state.yuv_readback_buffer_pool[i]) {
+      gpu_destroy_readback_buffer(app_state.yuv_readback_buffer_pool[i]);
+    }
+  }
+
+  // Release frame-specific objects
   for (int i = 0; i < NUM_FRAMES; i++) {
-    if (app_state.render_textures[i]) {
-      gpu_destroy_texture(app_state.render_textures[i]);
-    }
-    if (app_state.readback_buffers[i]) {
-      gpu_destroy_readback_buffer(app_state.readback_buffers[i]);
-    }
     if (app_state.readback_commands[i]) {
       gpu_destroy_command_buffer(app_state.readback_commands[i]);
+    }
+    if (app_state.yuv_readback_commands[i]) {
+      gpu_destroy_command_buffer(app_state.yuv_readback_commands[i]);
     }
     free(app_state.frames[i].data);
   }
@@ -778,6 +742,12 @@ int main(int argc, char *argv[]) {
   atomic_store(&app_state.frames_rendered, 0);
   atomic_store(&app_state.frames_ready, 0);
   atomic_store(&app_state.frames_encoded, 0);
+
+  // Initialize pool slots as free
+  for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
+    atomic_store(&app_state.pool_slot_in_use[i], -1);  // -1 = free
+  }
+
   pthread_mutex_init(&app_state.queue_mutex, NULL);
   pthread_cond_init(&app_state.queue_cond, NULL);
 
