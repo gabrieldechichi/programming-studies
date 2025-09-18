@@ -49,8 +49,33 @@ def handler(event):
             os.remove('output.mp4')
             logger.info("Removed existing output.mp4")
 
+        # Check NVIDIA driver availability
+        logger.info("=== Checking NVIDIA driver availability ===")
+        try:
+            nvidia_check = subprocess.run(['nvidia-smi'], capture_output=True, text=True, timeout=10)
+            logger.info(f"nvidia-smi return code: {nvidia_check.returncode}")
+            logger.info(f"nvidia-smi stdout: {nvidia_check.stdout}")
+            if nvidia_check.returncode != 0:
+                logger.warning(f"nvidia-smi stderr: {nvidia_check.stderr}")
+        except Exception as e:
+            logger.warning(f"nvidia-smi check failed: {e}")
+
+        # Check for NVIDIA device files
+        try:
+            nvidia_devices = [f for f in os.listdir('/dev') if f.startswith('nvidia')]
+            logger.info(f"NVIDIA device files in /dev: {nvidia_devices}")
+        except Exception as e:
+            logger.warning(f"Could not list /dev directory: {e}")
+
+        # Check NVIDIA driver libraries
+        try:
+            ldd_check = subprocess.run(['ldd', './video_renderer'], capture_output=True, text=True, timeout=10)
+            logger.info(f"ldd output for video_renderer: {ldd_check.stdout}")
+        except Exception as e:
+            logger.warning(f"ldd check failed: {e}")
+
         # Run the video renderer
-        logger.info("Executing video renderer...")
+        logger.info("=== Executing video renderer ===")
         result = subprocess.run(
             ['./video_renderer'],
             capture_output=True,
