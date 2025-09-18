@@ -1,5 +1,8 @@
 -- _G.build_native_debug_config("c", 'make test debug', '/out/tests/test_runner')
-_G.build_native_debug_config("c", 'make macos', '/out/macos/app')
+_G.build_native_debug_config("c", './build linux debug', '/out/linux/video_renderer')
+-- _G.build_native_debug_config("c", './build linux debug', '-- echo \'{"seconds": 10.0}\' | ./out/linux/video_renderer')
+
+
 
 vim.keymap.set('n', '<Leader>rr', function()
     -- Run the game debug build command and capture output

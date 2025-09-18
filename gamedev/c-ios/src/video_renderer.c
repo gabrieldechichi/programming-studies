@@ -1,7 +1,7 @@
+#include "../lib/json_parser.h"
 #include "../os/os.h"
 #include "memory.h"
 #include "typedefs.h"
-#include "../lib/json_parser.h"
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -26,14 +26,18 @@
 
 // Application constants
 #define MAX_FRAMES 1000 // Maximum frames for longest video
-#define NUM_TEXTURE_POOLS 1 // Use single texture set, process frames sequentially
+#define NUM_TEXTURE_POOLS                                                      \
+  1 // Use single texture set, process frames sequentially
 #define FRAME_WIDTH 1080
 #define FRAME_HEIGHT 1920
 #define FRAME_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT * 4)
-#define YUV_Y_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT)          // Y plane: full resolution
-#define YUV_UV_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT / 4)     // U,V planes: quarter resolution (4:2:0)
-#define YUV_TOTAL_SIZE_BYTES (YUV_Y_SIZE_BYTES + 2 * YUV_UV_SIZE_BYTES) // Y + U + V
-#define INPUT_BUFFER_SIZE 1024
+#define YUV_Y_SIZE_BYTES                                                       \
+  (FRAME_WIDTH * FRAME_HEIGHT) // Y plane: full resolution
+#define YUV_UV_SIZE_BYTES                                                      \
+  (FRAME_WIDTH * FRAME_HEIGHT / 4) // U,V planes: quarter resolution (4:2:0)
+#define YUV_TOTAL_SIZE_BYTES                                                   \
+  (YUV_Y_SIZE_BYTES + 2 * YUV_UV_SIZE_BYTES) // Y + U + V
+#define INPUT_BUFFER_SIZE MB(1)
 
 // Frame data structure for queue
 typedef struct {
@@ -68,8 +72,10 @@ static struct {
   gpu_texture_t *yuv_y_texture_pool[NUM_TEXTURE_POOLS];
   gpu_texture_t *yuv_u_texture_pool[NUM_TEXTURE_POOLS];
   gpu_texture_t *yuv_v_texture_pool[NUM_TEXTURE_POOLS];
-  gpu_readback_buffer_t *yuv_readback_buffer_pool[NUM_TEXTURE_POOLS];     // Pool of readback buffers
-  gpu_command_buffer_t *yuv_readback_commands[MAX_FRAMES];     // Single command per frame
+  gpu_readback_buffer_t
+      *yuv_readback_buffer_pool[NUM_TEXTURE_POOLS]; // Pool of readback buffers
+  gpu_command_buffer_t
+      *yuv_readback_commands[MAX_FRAMES]; // Single command per frame
 
   // Frame management
   frame_data_t frames[MAX_FRAMES];
@@ -79,7 +85,8 @@ static struct {
   int current_num_frames;
 
   // Pool slot synchronization - track which frame is using each pool
-  atomic_int pool_slot_in_use[NUM_TEXTURE_POOLS];  // -1 = free, >= 0 = frame number using this slot
+  atomic_int pool_slot_in_use[NUM_TEXTURE_POOLS]; // -1 = free, >= 0 = frame
+                                                  // number using this slot
 
   // Initialization state
   bool initialized;
@@ -200,11 +207,14 @@ static int init_ffmpeg_encoder(const char *filename) {
   // Set encoder-specific options
   if (codec->name && strstr(codec->name, "nvenc")) {
     // NVENC specific options for best performance
-    av_opt_set(app_state.codec_ctx->priv_data, "preset", "p1", 0);     // Fastest preset
-    av_opt_set(app_state.codec_ctx->priv_data, "tune", "ll", 0);       // Low latency
-    av_opt_set(app_state.codec_ctx->priv_data, "rc", "cbr", 0);        // Constant bitrate
-    av_opt_set(app_state.codec_ctx->priv_data, "gpu", "0", 0);         // Use GPU 0
-    av_opt_set(app_state.codec_ctx->priv_data, "delay", "0", 0);       // No B-frame delay
+    av_opt_set(app_state.codec_ctx->priv_data, "preset", "p1",
+               0); // Fastest preset
+    av_opt_set(app_state.codec_ctx->priv_data, "tune", "ll", 0); // Low latency
+    av_opt_set(app_state.codec_ctx->priv_data, "rc", "cbr",
+               0); // Constant bitrate
+    av_opt_set(app_state.codec_ctx->priv_data, "gpu", "0", 0); // Use GPU 0
+    av_opt_set(app_state.codec_ctx->priv_data, "delay", "0",
+               0); // No B-frame delay
   } else if (codec->name && strstr(codec->name, "videotoolbox")) {
     // VideoToolbox specific options for better performance
     av_opt_set(app_state.codec_ctx->priv_data, "realtime", "1", 0);
@@ -317,20 +327,21 @@ static int encode_frame(uint8_t *yuv_data) {
   }
 
   // YUV data layout in memory: [Y_PLANE][U_PLANE][V_PLANE]
-  uint8_t* y_src = yuv_data;
-  uint8_t* u_src = yuv_data + YUV_Y_SIZE_BYTES;
-  uint8_t* v_src = yuv_data + YUV_Y_SIZE_BYTES + YUV_UV_SIZE_BYTES;
+  uint8_t *y_src = yuv_data;
+  uint8_t *u_src = yuv_data + YUV_Y_SIZE_BYTES;
+  uint8_t *v_src = yuv_data + YUV_Y_SIZE_BYTES + YUV_UV_SIZE_BYTES;
 
   // Debug: Print YUV data sizes on first frame
   static int first_frame = 1;
   if (first_frame) {
     printf("[Debug] YUV data sizes: Y=%d, U=%d, V=%d, Total=%d\n",
-           YUV_Y_SIZE_BYTES, YUV_UV_SIZE_BYTES, YUV_UV_SIZE_BYTES, YUV_TOTAL_SIZE_BYTES);
+           YUV_Y_SIZE_BYTES, YUV_UV_SIZE_BYTES, YUV_UV_SIZE_BYTES,
+           YUV_TOTAL_SIZE_BYTES);
     first_frame = 0;
   }
 
   // Copy Y plane data with proper linesize alignment
-  uint8_t* dst_y = app_state.frame->data[0];
+  uint8_t *dst_y = app_state.frame->data[0];
   for (int y = 0; y < FRAME_HEIGHT; y++) {
     memcpy(dst_y, y_src, FRAME_WIDTH);
     y_src += FRAME_WIDTH;                  // Source has no padding
@@ -338,18 +349,18 @@ static int encode_frame(uint8_t *yuv_data) {
   }
 
   // Copy U plane data with proper linesize alignment
-  uint8_t* dst_u = app_state.frame->data[1];
+  uint8_t *dst_u = app_state.frame->data[1];
   for (int y = 0; y < FRAME_HEIGHT / 2; y++) {
     memcpy(dst_u, u_src, FRAME_WIDTH / 2);
-    u_src += FRAME_WIDTH / 2;             // Source has no padding
+    u_src += FRAME_WIDTH / 2;              // Source has no padding
     dst_u += app_state.frame->linesize[1]; // FFmpeg frame might have padding
   }
 
   // Copy V plane data with proper linesize alignment
-  uint8_t* dst_v = app_state.frame->data[2];
+  uint8_t *dst_v = app_state.frame->data[2];
   for (int y = 0; y < FRAME_HEIGHT / 2; y++) {
     memcpy(dst_v, v_src, FRAME_WIDTH / 2);
-    v_src += FRAME_WIDTH / 2;             // Source has no padding
+    v_src += FRAME_WIDTH / 2;              // Source has no padding
     dst_v += app_state.frame->linesize[2]; // FFmpeg frame might have padding
   }
 
@@ -512,29 +523,30 @@ static int initialize_system(void) {
       gpu_create_buffer(app_state.device, vertices, sizeof(vertices));
 
   // Create compute pipeline for BGRA to YUV conversion
-  app_state.compute_pipeline =
-      gpu_create_compute_pipeline(app_state.device, "out/linux/bgra_to_yuv.comp.spv");
+  app_state.compute_pipeline = gpu_create_compute_pipeline(
+      app_state.device, "out/linux/bgra_to_yuv.comp.spv", MAX_FRAMES);
 
   if (!app_state.compute_pipeline) {
     // Try alternate path
     app_state.compute_pipeline =
-        gpu_create_compute_pipeline(app_state.device, "bgra_to_yuv.comp.spv");
+        gpu_create_compute_pipeline(app_state.device, "bgra_to_yuv.comp.spv", MAX_FRAMES);
   }
 
   // Create texture pools (4 pools instead of 200 unique textures)
-  printf("[GPU] Creating %d texture pools (instead of per-frame textures)\n", NUM_TEXTURE_POOLS);
+  printf("[GPU] Creating %d texture pools (instead of per-frame textures)\n",
+         NUM_TEXTURE_POOLS);
   for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
     // Create render texture pool (BGRA)
     app_state.render_texture_pool[i] =
         gpu_create_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT);
 
     // Create YUV storage texture pools for compute output
-    app_state.yuv_y_texture_pool[i] =
-        gpu_create_storage_texture(app_state.device, FRAME_WIDTH, FRAME_HEIGHT, 1); // R8 format
-    app_state.yuv_u_texture_pool[i] =
-        gpu_create_storage_texture(app_state.device, FRAME_WIDTH/2, FRAME_HEIGHT/2, 1); // R8 format
-    app_state.yuv_v_texture_pool[i] =
-        gpu_create_storage_texture(app_state.device, FRAME_WIDTH/2, FRAME_HEIGHT/2, 1); // R8 format
+    app_state.yuv_y_texture_pool[i] = gpu_create_storage_texture(
+        app_state.device, FRAME_WIDTH, FRAME_HEIGHT, 1); // R8 format
+    app_state.yuv_u_texture_pool[i] = gpu_create_storage_texture(
+        app_state.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
+    app_state.yuv_v_texture_pool[i] = gpu_create_storage_texture(
+        app_state.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
 
     // Create readback buffer pool for packed YUV data (Y+U+V)
     app_state.yuv_readback_buffer_pool[i] =
@@ -555,7 +567,9 @@ static int initialize_system(void) {
 
 static void render_all_frames(void) {
   PROFILE_BEGIN("render_all_frames");
-  printf("[Renderer] Processing %d frames sequentially using single texture set...\n", app_state.current_num_frames);
+  printf("[Renderer] Processing %d frames sequentially using single texture "
+         "set...\n",
+         app_state.current_num_frames);
 
   const float dt = 1.0f / 24.0f;
   const float rotation_speed = 2.0f;
@@ -572,13 +586,13 @@ static void render_all_frames(void) {
     PROFILE_BEGIN("render_frame");
 
     // Create a command buffer for this frame
-    gpu_command_buffer_t* cmd_buffer = gpu_begin_commands(app_state.device);
+    gpu_command_buffer_t *cmd_buffer = gpu_begin_commands(app_state.device);
 
     // Begin render pass for this frame using the single texture set
-    gpu_render_encoder_t *encoder =
-        gpu_begin_render_pass(cmd_buffer, app_state.render_texture_pool[pool_index],
-                              0.0f, 0.0f, 0.0f, 1.0f // Black background
-        );
+    gpu_render_encoder_t *encoder = gpu_begin_render_pass(
+        cmd_buffer, app_state.render_texture_pool[pool_index], 0.0f, 0.0f, 0.0f,
+        1.0f // Black background
+    );
 
     // Set pipeline and vertex buffer
     gpu_set_pipeline(encoder, app_state.pipeline);
@@ -602,34 +616,34 @@ static void render_all_frames(void) {
     PROFILE_BEGIN("compute and readback");
 
     // Create command buffer for compute dispatch
-    gpu_command_buffer_t* compute_cmd = gpu_begin_commands(app_state.device);
+    gpu_command_buffer_t *compute_cmd = gpu_begin_commands(app_state.device);
 
-    // Dispatch compute shader to convert BGRA -> YUV using the single texture set
-    gpu_texture_t* compute_textures[] = {
-        app_state.render_texture_pool[pool_index],  // Input BGRA
-        app_state.yuv_y_texture_pool[pool_index],   // Output Y
-        app_state.yuv_u_texture_pool[pool_index],   // Output U
-        app_state.yuv_v_texture_pool[pool_index]    // Output V
+    // Dispatch compute shader to convert BGRA -> YUV using the single texture
+    // set
+    gpu_texture_t *compute_textures[] = {
+        app_state.render_texture_pool[pool_index], // Input BGRA
+        app_state.yuv_y_texture_pool[pool_index],  // Output Y
+        app_state.yuv_u_texture_pool[pool_index],  // Output U
+        app_state.yuv_v_texture_pool[pool_index]   // Output V
     };
 
     // Dispatch compute: 16x16 workgroups for 1080x1920 image
-    int groups_x = (FRAME_WIDTH + 15) / 16;   // ceil(1080/16) = 68
-    int groups_y = (FRAME_HEIGHT + 15) / 16;  // ceil(1920/16) = 120
+    int groups_x = (FRAME_WIDTH + 15) / 16;  // ceil(1080/16) = 68
+    int groups_y = (FRAME_HEIGHT + 15) / 16; // ceil(1920/16) = 120
 
     gpu_dispatch_compute(compute_cmd, app_state.compute_pipeline,
-                        compute_textures, 4, groups_x, groups_y, 1);
+                         compute_textures, 4, groups_x, groups_y, 1);
 
     // Commit compute work and wait
     gpu_commit_commands(compute_cmd, true);
 
     // Create single readback command for all YUV planes
     app_state.yuv_readback_commands[i] = gpu_readback_yuv_textures_async(
-        app_state.device,
-        app_state.yuv_y_texture_pool[pool_index],
+        app_state.device, app_state.yuv_y_texture_pool[pool_index],
         app_state.yuv_u_texture_pool[pool_index],
         app_state.yuv_v_texture_pool[pool_index],
-        app_state.yuv_readback_buffer_pool[pool_index],
-        FRAME_WIDTH, FRAME_HEIGHT);
+        app_state.yuv_readback_buffer_pool[pool_index], FRAME_WIDTH,
+        FRAME_HEIGHT);
 
     // Submit readback command and wait
     gpu_submit_commands(app_state.yuv_readback_commands[i], true);
@@ -653,7 +667,7 @@ static void render_all_frames(void) {
   PROFILE_END(); // render_all_frames
 }
 
-static int start_ffmpeg_encoder(const char* filename) {
+static int start_ffmpeg_encoder(const char *filename) {
   PROFILE_BEGIN("start_ffmpeg_encoder");
 
   // Initialize FFmpeg encoder
@@ -691,7 +705,8 @@ static void wait_for_completion(void) {
   printf("All frames ready:  %.3f seconds\n", readback_time);
   printf("Total time:        %.3f seconds\n", total_time);
   printf("Speedup:           %.2fx (vs 1.045s baseline)\n", 1.045 / total_time);
-  printf("FPS achieved:      %.1f fps\n", app_state.current_num_frames / total_time);
+  printf("FPS achieved:      %.1f fps\n",
+         app_state.current_num_frames / total_time);
   printf("===========================\n");
 }
 
@@ -746,17 +761,19 @@ static void cleanup(void) {
 }
 
 // Parse JSON request and extract seconds
-static int parse_request(const char* json_str, render_request_t* request) {
+static int parse_request(const char *json_str, render_request_t *request) {
   char arena_buffer[1024];
-  ArenaAllocator arena = arena_from_buffer((uint8*)arena_buffer, sizeof(arena_buffer));
+  ArenaAllocator arena =
+      arena_from_buffer((uint8 *)arena_buffer, sizeof(arena_buffer));
   Allocator allocator = make_arena_allocator(&arena);
 
   JsonParser parser = json_parser_init(json_str, &allocator);
 
   json_expect_object_start(&parser);
-  char* key = json_parse_string_value(&parser);
+  char *key = json_parse_string_value(&parser);
   if (!key || strcmp(key, "seconds") != 0) {
-    fprintf(stderr, "Expected 'seconds' key in JSON, got: %s\n", key ? key : "null");
+    fprintf(stderr, "Expected 'seconds' key in JSON, got: %s\n",
+            key ? key : "null");
     return -1;
   }
   json_expect_colon(&parser);
@@ -765,7 +782,8 @@ static int parse_request(const char* json_str, render_request_t* request) {
   request->num_frames = (int)(request->seconds * 24.0); // 24 fps
 
   if (request->num_frames <= 0 || request->num_frames > MAX_FRAMES) {
-    fprintf(stderr, "Invalid frame count: %d (max: %d)\n", request->num_frames, MAX_FRAMES);
+    fprintf(stderr, "Invalid frame count: %d (max: %d)\n", request->num_frames,
+            MAX_FRAMES);
     return -1;
   }
 
@@ -774,7 +792,7 @@ static int parse_request(const char* json_str, render_request_t* request) {
 }
 
 // Render video and return base64 encoded result
-static int render_video(const render_request_t* request) {
+static int render_video(const render_request_t *request) {
   app_state.current_num_frames = request->num_frames;
 
   // Reset frame states
@@ -804,12 +822,13 @@ static int render_video(const render_request_t* request) {
 }
 
 // Send JSON response with base64 video
-static void send_response(bool success, const char* error_msg) {
+static void send_response(bool success, const char *error_msg) {
   if (success) {
     // Read video file and encode as base64
-    FILE* video_file = fopen("output.mp4", "rb");
+    FILE *video_file = fopen("output.mp4", "rb");
     if (!video_file) {
-      printf("{\"success\": false, \"error\": \"Failed to open output video\"}\n");
+      printf(
+          "{\"success\": false, \"error\": \"Failed to open output video\"}\n");
       fflush(stdout);
       return;
     }
@@ -818,18 +837,50 @@ static void send_response(bool success, const char* error_msg) {
     long file_size = ftell(video_file);
     fseek(video_file, 0, SEEK_SET);
 
-    unsigned char* video_data = malloc(file_size);
+    unsigned char *video_data = malloc(file_size);
     fread(video_data, 1, file_size, video_file);
     fclose(video_file);
 
     // Simple base64 encoding (for now just indicate success)
-    printf("{\"success\": true, \"file_size\": %ld, \"encoding\": \"base64\", \"video\": \"<base64-data>\"}\n", file_size);
+    printf("{\"success\": true, \"file_size\": %ld, \"encoding\": \"base64\", "
+           "\"video\": \"<base64-data>\"}\n",
+           file_size);
 
     free(video_data);
   } else {
-    printf("{\"success\": false, \"error\": \"%s\"}\n", error_msg ? error_msg : "Unknown error");
+    printf("{\"success\": false, \"error\": \"%s\"}\n",
+           error_msg ? error_msg : "Unknown error");
   }
   fflush(stdout);
+}
+
+void process_request(char *input_buffer) {
+  profiler_begin_session();
+
+  render_request_t request;
+  if (parse_request(input_buffer, &request) < 0) {
+    send_response(false, "Invalid JSON request");
+    return;
+  }
+
+  printf("Rendering %.2f seconds (%d frames)...\n", request.seconds,
+         request.num_frames);
+  fflush(stdout);
+
+  if (render_video(&request) < 0) {
+    send_response(false, "Rendering failed");
+    return;
+  }
+
+  send_response(true, NULL);
+
+#ifdef PROFILER_ENABLED
+  char *temp = calloc(1, MB(16));
+  ArenaAllocator arena = arena_from_buffer((uint8 *)temp, MB(16));
+  Allocator allocator = make_arena_allocator(&arena);
+  profiler_end_and_print_session(&allocator);
+  free(temp);
+#endif
 }
 
 int main(int argc, char *argv[]) {
@@ -837,7 +888,8 @@ int main(int argc, char *argv[]) {
   (void)argv;
 
   printf("=== Video Renderer Daemon ===\n");
-  printf("Resolution: %dx%d, Max frames: %d\n", FRAME_WIDTH, FRAME_HEIGHT, MAX_FRAMES);
+  printf("Resolution: %dx%d, Max frames: %d\n", FRAME_WIDTH, FRAME_HEIGHT,
+         MAX_FRAMES);
   printf("Listening for JSON requests on stdin...\n");
   fflush(stdout);
 
@@ -858,34 +910,7 @@ int main(int argc, char *argv[]) {
 
   // Main daemon loop
   while (fgets(input_buffer, sizeof(input_buffer), stdin)) {
-    profiler_begin_session();
-
-    // Remove newline
-    input_buffer[strcspn(input_buffer, "\n")] = 0;
-
-    render_request_t request;
-    if (parse_request(input_buffer, &request) < 0) {
-      send_response(false, "Invalid JSON request");
-      continue;
-    }
-
-    printf("Rendering %.2f seconds (%d frames)...\n", request.seconds, request.num_frames);
-    fflush(stdout);
-
-    if (render_video(&request) < 0) {
-      send_response(false, "Rendering failed");
-      continue;
-    }
-
-    send_response(true, NULL);
-
-#ifdef PROFILER_ENABLED
-    char *temp = calloc(1, MB(16));
-    ArenaAllocator arena = arena_from_buffer((uint8 *)temp, MB(16));
-    Allocator allocator = make_arena_allocator(&arena);
-    profiler_end_and_print_session(&allocator);
-    free(temp);
-#endif
+    process_request(input_buffer);
   }
 
   cleanup();

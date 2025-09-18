@@ -1151,7 +1151,7 @@ void gpu_destroy_buffer(gpu_buffer_t* buffer) {
 
 // === Compute Pipeline Implementation ===
 
-gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const char* compute_shader_path) {
+gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const char* compute_shader_path, int max_frames) {
     gpu_compute_pipeline_t* compute_pipeline = (gpu_compute_pipeline_t*)calloc(1, sizeof(gpu_compute_pipeline_t));
 
     // Load compute shader
@@ -1225,23 +1225,23 @@ gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const 
 
     VK_CHECK(vkCreateComputePipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &compute_pipeline->pipeline));
 
-    // Create descriptor pool (big enough for 200 frames * 4 textures each)
+    // Create descriptor pool (big enough for max_frames * 4 textures each)
     VkDescriptorPoolSize pool_size = {
         .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .descriptorCount = 800  // 200 frames * 4 textures per frame
+        .descriptorCount = max_frames * 4  // max_frames * 4 textures per frame
     };
 
     VkDescriptorPoolCreateInfo pool_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,  // Allow freeing individual sets
-        .maxSets = 200,  // 200 descriptor sets (one per frame)
+        .maxSets = max_frames,  // max_frames descriptor sets (one per frame)
         .poolSizeCount = 1,
         .pPoolSizes = &pool_size
     };
 
     VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, NULL, &compute_pipeline->descriptor_pool));
 
-    printf("[Vulkan] Compute pipeline created\n");
+    printf("[Vulkan] Compute pipeline created (descriptor pool: %d sets, %d images)\n", max_frames, max_frames * 4);
     return compute_pipeline;
 }
 

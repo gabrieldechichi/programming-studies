@@ -127,7 +127,8 @@ void gpu_wait_for_command_buffer(gpu_command_buffer_t* cmd_buffer);
 // Create compute pipeline with compute shader
 gpu_compute_pipeline_t* gpu_create_compute_pipeline(
     gpu_device_t* device,
-    const char* compute_shader_path
+    const char* compute_shader_path,
+    int max_frames
 );
 
 // Create storage texture for compute shaders (read/write)
