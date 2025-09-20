@@ -8,6 +8,7 @@ import json
 import logging
 import time
 import atexit
+import socket
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Global process for persistent video renderer daemon
 video_renderer_process = None
+SOCKET_PATH = "/tmp/video_renderer.sock"
 
 def cleanup_process():
     """Clean up the video renderer process on exit"""
@@ -28,6 +30,14 @@ def cleanup_process():
             logger.warning("Force killing video renderer daemon...")
             video_renderer_process.kill()
 
+    # Clean up socket file if it exists
+    if os.path.exists(SOCKET_PATH):
+        try:
+            os.unlink(SOCKET_PATH)
+            logger.info(f"Removed socket file: {SOCKET_PATH}")
+        except Exception as e:
+            logger.warning(f"Failed to remove socket file: {e}")
+
 # Register cleanup function
 atexit.register(cleanup_process)
 
@@ -35,8 +45,9 @@ def start_video_renderer_daemon():
     """Start the persistent video renderer daemon"""
     global video_renderer_process
 
+    # Check if process is already running
     if video_renderer_process and video_renderer_process.poll() is None:
-        # Process is already running
+        logger.info("Video renderer daemon already running")
         return True
 
     logger.info("Starting video renderer daemon...")
@@ -54,25 +65,25 @@ def start_video_renderer_daemon():
         return False
 
     try:
+        # Start daemon as a separate process (not piped)
+        # stdout/stderr will go to container logs
         video_renderer_process = subprocess.Popen(
             ['./video_renderer'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,  # Line buffered
             cwd='/app'
         )
 
-        # Give it a moment to initialize
-        time.sleep(0.1)
+        # Give it time to initialize and create socket
+        time.sleep(1.0)
 
         # Check if process started successfully
         if video_renderer_process.poll() is not None:
             # Process has already terminated
-            stdout, stderr = video_renderer_process.communicate()
-            logger.error(f"Video renderer daemon failed to start: {stderr}")
-            logger.error(f"STDOUT: {stdout}")
+            logger.error("Video renderer daemon failed to start")
+            return False
+
+        # Check if socket file was created
+        if not os.path.exists(SOCKET_PATH):
+            logger.error(f"Socket file {SOCKET_PATH} was not created")
             return False
 
         logger.info("Video renderer daemon started successfully")
@@ -83,43 +94,68 @@ def start_video_renderer_daemon():
         return False
 
 def send_render_request(seconds=8.33):
-    """Send a render request to the daemon and get the response"""
-    global video_renderer_process
+    """Send a render request to the daemon via Unix socket and get the response"""
 
-    if not video_renderer_process or video_renderer_process.poll() is not None:
-        logger.error("Video renderer daemon is not running")
+    # Check if socket exists
+    if not os.path.exists(SOCKET_PATH):
+        logger.error(f"Socket file {SOCKET_PATH} does not exist")
         return None
 
     try:
+        # Create Unix socket client
+        client_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+        # Connect to the daemon
+        client_socket.connect(SOCKET_PATH)
+        logger.info(f"Connected to socket: {SOCKET_PATH}")
+
         # Send JSON request
         request = {"seconds": seconds}
         request_str = json.dumps(request) + '\n'
 
         logger.info(f"Sending render request: {request}")
-        video_renderer_process.stdin.write(request_str)
-        video_renderer_process.stdin.flush()
+        client_socket.send(request_str.encode('utf-8'))
 
-        # Read response
+        # Read response (up to 10MB for large base64 videos)
         logger.info("Waiting for response...")
-        response_line = video_renderer_process.stdout.readline()
+        response_data = b''
+        while True:
+            chunk = client_socket.recv(4096)
+            if not chunk:
+                break
+            response_data += chunk
+            # Check if we have a complete JSON response (ends with })
+            if response_data.rstrip().endswith(b'}'):
+                break
 
-        if not response_line:
+        client_socket.close()
+
+        if not response_data:
             logger.error("No response received from daemon")
             return None
 
-        # Try to parse JSON response
+        # Decode and parse JSON response
         try:
-            response = json.loads(response_line.strip())
-            logger.info(f"Received response: {response}")
+            response_str = response_data.decode('utf-8')
+            response = json.loads(response_str)
+            logger.info(f"Received response: success={response.get('success')}, file_size={response.get('file_size', 'N/A')}")
             return response
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {e}")
-            logger.error(f"Raw response: {response_line}")
+            logger.error(f"Raw response (first 500 chars): {response_str[:500]}")
             return None
 
+    except ConnectionRefusedError:
+        logger.error(f"Connection refused to {SOCKET_PATH} - daemon may not be ready")
+        return None
+    except FileNotFoundError:
+        logger.error(f"Socket file {SOCKET_PATH} not found")
+        return None
     except Exception as e:
         logger.error(f"Error communicating with daemon: {e}")
         return None
+
+# Don't initialize at module load - let handler do it on first request
 
 def handler(event):
     """
@@ -129,7 +165,7 @@ def handler(event):
     Output: Base64-encoded video file
     """
     try:
-        logger.info("=== Starting video rendering (daemon mode) ===")
+        logger.info("=== Processing video rendering request ===")
         logger.info(f"Event received: {event}")
 
         # Get input parameters
@@ -137,12 +173,14 @@ def handler(event):
         seconds = input_data.get('seconds', 8.33)  # Default ~200 frames at 24fps
         logger.info(f"Rendering {seconds} seconds of video")
 
-        # Start daemon if not running
-        if not start_video_renderer_daemon():
-            return {
-                "success": False,
-                "error": "Failed to start video renderer daemon"
-            }
+        # Start daemon on first request or if it has crashed
+        if video_renderer_process is None or video_renderer_process.poll() is not None:
+            logger.info("Starting video renderer daemon...")
+            if not start_video_renderer_daemon():
+                return {
+                    "success": False,
+                    "error": "Failed to start video renderer daemon"
+                }
 
         # Clean up any existing output files
         if os.path.exists('/app/output.mp4'):

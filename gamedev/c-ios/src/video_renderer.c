@@ -10,6 +10,10 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <errno.h>
 
 // FFmpeg headers
 #include <libavcodec/avcodec.h>
@@ -38,6 +42,7 @@
 #define YUV_TOTAL_SIZE_BYTES                                                   \
   (YUV_Y_SIZE_BYTES + 2 * YUV_UV_SIZE_BYTES) // Y + U + V
 #define INPUT_BUFFER_SIZE MB(1)
+#define SOCKET_PATH "/tmp/video_renderer.sock"
 
 // Memory allocation sizes
 #define PERMANENT_MEMORY_SIZE MB(200)  // 200MB for permanent allocations (GPU objects, no frames)
@@ -966,14 +971,13 @@ static int render_video(const render_request_t *request) {
 }
 
 // Send JSON response with base64 video
-static void send_response(bool success, const char *error_msg) {
+static void send_response(int client_fd, bool success, const char *error_msg) {
   if (success) {
     // Read video file and encode as base64
     FILE *video_file = fopen("output.mp4", "rb");
     if (!video_file) {
-      printf(
-          "{\"success\": false, \"error\": \"Failed to open output video\"}\n");
-      fflush(stdout);
+      const char *error_response = "{\"success\": false, \"error\": \"Failed to open output video\"}\n";
+      write(client_fd, error_response, strlen(error_response));
       return;
     }
 
@@ -983,9 +987,9 @@ static void send_response(bool success, const char *error_msg) {
 
     unsigned char *video_data = ALLOC_ARRAY(&g_ctx.temporary_allocator, unsigned char, file_size);
     if (!video_data) {
-      printf("{\"success\": false, \"error\": \"Failed to allocate memory for video data\"}\n");
+      const char *error_response = "{\"success\": false, \"error\": \"Failed to allocate memory for video data\"}\n";
+      write(client_fd, error_response, strlen(error_response));
       fclose(video_file);
-      fflush(stdout);
       return;
     }
 
@@ -993,22 +997,27 @@ static void send_response(bool success, const char *error_msg) {
     fclose(video_file);
 
     // Simple base64 encoding (for now just indicate success)
-    printf("{\"success\": true, \"file_size\": %ld, \"encoding\": \"base64\", "
-           "\"video\": \"<base64-data>\"}\n",
-           file_size);
+    char response[256];
+    snprintf(response, sizeof(response),
+             "{\"success\": true, \"file_size\": %ld, \"encoding\": \"base64\", "
+             "\"video\": \"<base64-data>\"}\n",
+             file_size);
+    write(client_fd, response, strlen(response));
   } else {
-    printf("{\"success\": false, \"error\": \"%s\"}\n",
-           error_msg ? error_msg : "Unknown error");
+    char response[512];
+    snprintf(response, sizeof(response),
+             "{\"success\": false, \"error\": \"%s\"}\n",
+             error_msg ? error_msg : "Unknown error");
+    write(client_fd, response, strlen(response));
   }
-  fflush(stdout);
 }
 
-void process_request(char *input_buffer) {
+void process_request(int client_fd, char *input_buffer) {
   profiler_begin_session();
 
   render_request_t request;
   if (parse_request(input_buffer, &request) < 0) {
-    send_response(false, "Invalid JSON request");
+    send_response(client_fd, false, "Invalid JSON request");
     return;
   }
 
@@ -1017,11 +1026,11 @@ void process_request(char *input_buffer) {
   fflush(stdout);
 
   if (render_video(&request) < 0) {
-    send_response(false, "Rendering failed");
+    send_response(client_fd, false, "Rendering failed");
     return;
   }
 
-  send_response(true, NULL);
+  send_response(client_fd, true, NULL);
 
   profiler_end_and_print_session(&g_ctx.temporary_allocator);
 }
@@ -1030,10 +1039,10 @@ int main(int argc, char *argv[]) {
   (void)argc;
   (void)argv;
 
-  printf("=== Video Renderer Daemon ===\n");
+  printf("=== Video Renderer Daemon (Unix Socket) ===\n");
   printf("Resolution: %dx%d, Max frames: %d\n", FRAME_WIDTH, FRAME_HEIGHT,
          MAX_FRAMES);
-  printf("Listening for JSON requests on stdin...\n");
+  printf("Socket path: %s\n", SOCKET_PATH);
   fflush(stdout);
 
   profiler_begin_session();
@@ -1058,16 +1067,84 @@ int main(int argc, char *argv[]) {
 
   profiler_end_and_print_session(&g_ctx.temporary_allocator);
 
+  // Create Unix socket
+  int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  if (server_fd < 0) {
+    fprintf(stderr, "Failed to create socket: %s\n", strerror(errno));
+    cleanup();
+    return 1;
+  }
+
+  // Remove existing socket file if it exists
+  unlink(SOCKET_PATH);
+
+  // Bind socket
+  struct sockaddr_un addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sun_family = AF_UNIX;
+  strncpy(addr.sun_path, SOCKET_PATH, sizeof(addr.sun_path) - 1);
+
+  if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    fprintf(stderr, "Failed to bind socket: %s\n", strerror(errno));
+    close(server_fd);
+    cleanup();
+    return 1;
+  }
+
+  // Listen for connections
+  if (listen(server_fd, 1) < 0) {
+    fprintf(stderr, "Failed to listen on socket: %s\n", strerror(errno));
+    close(server_fd);
+    cleanup();
+    return 1;
+  }
+
+  printf("Listening for connections on Unix socket...\n");
+  fflush(stdout);
+
   char input_buffer[INPUT_BUFFER_SIZE];
 
   // Main daemon loop
-  while (fgets(input_buffer, sizeof(input_buffer), stdin)) {
-    process_request(input_buffer);
+  while (1) {
+    // Accept client connection
+    int client_fd = accept(server_fd, NULL, NULL);
+    if (client_fd < 0) {
+      fprintf(stderr, "Failed to accept connection: %s\n", strerror(errno));
+      continue;
+    }
 
-    // Reset temporary allocator after each request
-    ALLOC_RESET(&g_ctx.temporary_allocator);
+    printf("Client connected\n");
+    fflush(stdout);
+
+    // Read request from client
+    ssize_t bytes_read = read(client_fd, input_buffer, sizeof(input_buffer) - 1);
+    if (bytes_read > 0) {
+      input_buffer[bytes_read] = '\0';
+
+      // Remove trailing newline if present
+      if (input_buffer[bytes_read - 1] == '\n') {
+        input_buffer[bytes_read - 1] = '\0';
+      }
+
+      printf("Received request: %s\n", input_buffer);
+      fflush(stdout);
+
+      // Process the request
+      process_request(client_fd, input_buffer);
+
+      // Reset temporary allocator after each request
+      ALLOC_RESET(&g_ctx.temporary_allocator);
+    }
+
+    // Close client connection
+    close(client_fd);
+    printf("Client disconnected\n");
+    fflush(stdout);
   }
 
+  // Cleanup (unreachable in normal operation)
+  close(server_fd);
+  unlink(SOCKET_PATH);
   cleanup();
   return 0;
 }
