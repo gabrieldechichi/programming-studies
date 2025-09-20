@@ -44,6 +44,11 @@ struct gpu_device {
     // Memory allocators
     Allocator* permanent_allocator;
     Allocator* temporary_allocator;
+
+    // Fence tracking for cleanup
+    VkFence* tracked_fences;
+    uint32_t fence_count;
+    uint32_t fence_capacity;
 };
 
 struct gpu_texture {
@@ -333,6 +338,11 @@ gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allo
     device->permanent_allocator = permanent_allocator;
     device->temporary_allocator = temporary_allocator;
 
+    // Initialize fence tracking (allocate space for up to 1000 fences)
+    device->fence_capacity = 1000;
+    device->tracked_fences = ALLOC_ARRAY(permanent_allocator, VkFence, device->fence_capacity);
+    device->fence_count = 0;
+
     // Create Vulkan instance
     device->instance = create_instance(device->temporary_allocator);
 
@@ -530,7 +540,7 @@ gpu_command_buffer_t* gpu_readback_texture_async(
     int width,
     int height
 ) {
-    gpu_command_buffer_t* cmd = ALLOC(device->permanent_allocator, gpu_command_buffer_t);
+    gpu_command_buffer_t* cmd = ALLOC(device->temporary_allocator, gpu_command_buffer_t);
     cmd->device = device;
     cmd->completed = false;
 
@@ -1013,7 +1023,7 @@ gpu_buffer_t* gpu_create_buffer(gpu_device_t* device, const void* data, size_t s
 }
 
 gpu_command_buffer_t* gpu_begin_commands(gpu_device_t* device) {
-    gpu_command_buffer_t* cmd = ALLOC(device->permanent_allocator, gpu_command_buffer_t);
+    gpu_command_buffer_t* cmd = ALLOC(device->temporary_allocator, gpu_command_buffer_t);
     cmd->device = device;
     cmd->completed = false;
 
@@ -1033,6 +1043,11 @@ gpu_command_buffer_t* gpu_begin_commands(gpu_device_t* device) {
 
     VK_CHECK(vkCreateFence(device->device, &fence_info, NULL, &cmd->fence));
 
+    // Track the fence for later cleanup
+    if (device->fence_count < device->fence_capacity) {
+        device->tracked_fences[device->fence_count++] = cmd->fence;
+    }
+
     VkCommandBufferBeginInfo begin_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
@@ -1050,7 +1065,7 @@ gpu_render_encoder_t* gpu_begin_render_pass(
 ) {
     (void)clear_r; (void)clear_g; (void)clear_b; (void)clear_a;  // Suppress warnings for now
 
-    gpu_render_encoder_t* encoder = ALLOC(cmd_buffer->device->permanent_allocator, gpu_render_encoder_t);
+    gpu_render_encoder_t* encoder = ALLOC(cmd_buffer->device->temporary_allocator, gpu_render_encoder_t);
     encoder->cmd_buffer = cmd_buffer->cmd_buffer;
     encoder->target = target;
     encoder->device = cmd_buffer->device;
@@ -1458,6 +1473,40 @@ void gpu_destroy_compute_pipeline(gpu_compute_pipeline_t* pipeline) {
         vkDestroyDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, NULL);
         vkDestroyShaderModule(pipeline->device->device, pipeline->compute_shader, NULL);
         // No need to free - allocated from arena allocator
+    }
+}
+
+void gpu_reset_command_pools(gpu_device_t* device) {
+    if (device) {
+        // Destroy all tracked fences first
+        uint32_t fences_destroyed = device->fence_count;
+        for (uint32_t i = 0; i < device->fence_count; i++) {
+            if (device->tracked_fences[i] != VK_NULL_HANDLE) {
+                vkDestroyFence(device->device, device->tracked_fences[i], NULL);
+            }
+        }
+        device->fence_count = 0;
+        if (fences_destroyed > 0) {
+            printf("[Vulkan] Destroyed %u tracked fences\n", fences_destroyed);
+        }
+
+        // Reset command pools to free all allocated command buffers
+        // This is much more efficient than freeing individual command buffers
+        if (device->command_pool) {
+            VK_CHECK(vkResetCommandPool(device->device, device->command_pool, 0));
+        }
+        if (device->transfer_command_pool) {
+            VK_CHECK(vkResetCommandPool(device->device, device->transfer_command_pool, 0));
+        }
+        printf("[Vulkan] Command pools reset - all command buffers freed\n");
+    }
+}
+
+void gpu_reset_compute_descriptor_pool(gpu_compute_pipeline_t* pipeline) {
+    if (pipeline && pipeline->descriptor_pool) {
+        // Reset descriptor pool to free all allocated descriptor sets
+        VK_CHECK(vkResetDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, 0));
+        printf("[Vulkan] Descriptor pool reset - all descriptor sets freed\n");
     }
 }
 

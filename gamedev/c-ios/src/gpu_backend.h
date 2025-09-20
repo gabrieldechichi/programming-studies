@@ -151,6 +151,8 @@ void gpu_destroy_readback_buffer(gpu_readback_buffer_t* buffer);
 void gpu_destroy_pipeline(gpu_pipeline_t* pipeline);
 void gpu_destroy_compute_pipeline(gpu_compute_pipeline_t* pipeline);
 void gpu_destroy_buffer(gpu_buffer_t* buffer);
+void gpu_reset_command_pools(gpu_device_t* device);
+void gpu_reset_compute_descriptor_pool(gpu_compute_pipeline_t* pipeline);
 void gpu_destroy(gpu_device_t* device);
 
 #endif // GPU_BACKEND_H

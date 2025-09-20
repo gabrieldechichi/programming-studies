@@ -25,7 +25,7 @@ def test_multiple_requests():
     try:
         # Send multiple requests to the same process
         for i in range(1, 21):
-            request = json.dumps({"seconds": 2.0})
+            request = json.dumps({"seconds": 8.0})
             print(f"Request {i}/20: Sending {request}")
 
             # Send request to stdin

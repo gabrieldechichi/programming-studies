@@ -964,6 +964,12 @@ static int render_video(const render_request_t *request) {
   // Close the encoder to finalize the output file
   close_ffmpeg_encoder();
 
+  // Reset GPU command pools to free all command buffers for next request
+  gpu_reset_command_pools(g_ctx.device);
+
+  // Reset compute descriptor pool to free all descriptor sets for next request
+  gpu_reset_compute_descriptor_pool(g_ctx.compute_pipeline);
+
   return 0;
 }
 
@@ -1025,10 +1031,10 @@ void process_request(char *input_buffer) {
 
   send_response(true, NULL);
 
-#ifdef PROFILER_ENABLED
-  // Use temporary allocator for profiler data - will be reset after request
-  profiler_end_and_print_session(&g_ctx.temporary_allocator);
-#endif
+// #ifdef PROFILER_ENABLED
+//   // Use temporary allocator for profiler data - will be reset after request
+//   profiler_end_and_print_session(&g_ctx.temporary_allocator);
+// #endif
 }
 
 int main(int argc, char *argv[]) {
@@ -1061,6 +1067,11 @@ int main(int argc, char *argv[]) {
   }
 
   char input_buffer[INPUT_BUFFER_SIZE];
+
+  for (u32 i = 0; i < 20; i++){
+    process_request("{\"seconds\": 8}");
+    ALLOC_RESET(&g_ctx.temporary_allocator);
+  }
 
   // Main daemon loop
   while (fgets(input_buffer, sizeof(input_buffer), stdin)) {
