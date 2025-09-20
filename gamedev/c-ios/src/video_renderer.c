@@ -1023,10 +1023,10 @@ void process_request(char *input_buffer) {
 
   send_response(true, NULL);
 
-// #ifdef PROFILER_ENABLED
-//   // Use temporary allocator for profiler data - will be reset after request
-//   profiler_end_and_print_session(&g_ctx.temporary_allocator);
-// #endif
+#ifdef PROFILER_ENABLED
+  // Use temporary allocator for profiler data - will be reset after request
+  profiler_end_and_print_session(&g_ctx.temporary_allocator);
+#endif
 }
 
 int main(int argc, char *argv[]) {
@@ -1061,7 +1061,7 @@ int main(int argc, char *argv[]) {
   char input_buffer[INPUT_BUFFER_SIZE];
 
   for (u32 i = 0; i < 20; i++){
-    process_request("{\"seconds\": 10.0}");
+    process_request("{\"seconds\": 1.0}");
     ALLOC_RESET(&g_ctx.temporary_allocator);
   }
 

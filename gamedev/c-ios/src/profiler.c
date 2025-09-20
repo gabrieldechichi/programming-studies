@@ -66,6 +66,25 @@ void profiler_end_block(ProfileBlock *block) {
 
 void profiler_begin_session(void) {
   g_profiler.start_tsc = os_time_now();
+
+  // Reset thread registration system
+  atomic_store(&g_thread_count, 0);
+
+  // Clear all thread anchor pointers
+  for (int t = 0; t < PROFILER_MAX_THREADS; t++) {
+    g_all_thread_anchors[t] = NULL;
+  }
+
+  // Reset current thread's registration flag so it re-registers
+  g_thread_registered = 0;
+
+  // Clear current thread's profiler anchors
+  for (u32 a = 0; a < PROFILER_MAX_ANCHORS; a++) {
+    g_profiler_anchors[a].tsc_elapsed_exclusive = 0;
+    g_profiler_anchors[a].tsc_elapsed_inclusive = 0;
+    g_profiler_anchors[a].hit_count = 0;
+    // Keep the label pointer as it's static
+  }
 }
 
 static void print_time_elapsed(StringBuilder *sb, u64 total_tsc_elapsed,
