@@ -196,14 +196,14 @@ static int init_context(AppContext *ctx) {
 
 // Clean up application context
 static void cleanup_context(AppContext *ctx) {
-  if (ctx->permanent_memory) {
-    free(ctx->permanent_memory);
-    ctx->permanent_memory = NULL;
-  }
-  if (ctx->temporary_memory) {
-    free(ctx->temporary_memory);
-    ctx->temporary_memory = NULL;
-  }
+  // if (ctx->permanent_memory) {
+  //   free(ctx->permanent_memory);
+  //   ctx->permanent_memory = NULL;
+  // }
+  // if (ctx->temporary_memory) {
+  //   free(ctx->temporary_memory);
+  //   ctx->temporary_memory = NULL;
+  // }
 
   printf("[Memory] Context cleaned up\n");
 }
@@ -868,16 +868,8 @@ static void cleanup(void) {
     }
   }
 
-  // Release frame-specific objects
-  for (int i = 0; i < MAX_FRAMES; i++) {
-    if (g_ctx.readback_commands[i]) {
-      gpu_destroy_command_buffer(g_ctx.readback_commands[i]);
-    }
-    if (g_ctx.yuv_readback_commands[i]) {
-      gpu_destroy_command_buffer(g_ctx.yuv_readback_commands[i]);
-    }
-    // No need to free g_ctx.frames[i].data - allocated from temporary allocator (auto-freed)
-  }
+  // Command buffers are already freed by gpu_reset_command_pools() after each request
+  // No need to destroy them individually here
 
   if (g_ctx.pipeline) {
     gpu_destroy_pipeline(g_ctx.pipeline);
@@ -1069,17 +1061,17 @@ int main(int argc, char *argv[]) {
   char input_buffer[INPUT_BUFFER_SIZE];
 
   for (u32 i = 0; i < 20; i++){
-    process_request("{\"seconds\": 8}");
+    process_request("{\"seconds\": 10.0}");
     ALLOC_RESET(&g_ctx.temporary_allocator);
   }
 
-  // Main daemon loop
-  while (fgets(input_buffer, sizeof(input_buffer), stdin)) {
-    process_request(input_buffer);
-
-    // Reset temporary allocator after each request
-    ALLOC_RESET(&g_ctx.temporary_allocator);
-  }
+  // // Main daemon loop
+  // while (fgets(input_buffer, sizeof(input_buffer), stdin)) {
+  //   process_request(input_buffer);
+  //
+  //   // Reset temporary allocator after each request
+  //   ALLOC_RESET(&g_ctx.temporary_allocator);
+  // }
 
   cleanup();
   return 0;
