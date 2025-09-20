@@ -1060,18 +1060,13 @@ int main(int argc, char *argv[]) {
 
   char input_buffer[INPUT_BUFFER_SIZE];
 
-  for (u32 i = 0; i < 20; i++){
-    process_request("{\"seconds\": 1.0}");
+  // Main daemon loop
+  while (fgets(input_buffer, sizeof(input_buffer), stdin)) {
+    process_request(input_buffer);
+
+    // Reset temporary allocator after each request
     ALLOC_RESET(&g_ctx.temporary_allocator);
   }
-
-  // // Main daemon loop
-  // while (fgets(input_buffer, sizeof(input_buffer), stdin)) {
-  //   process_request(input_buffer);
-  //
-  //   // Reset temporary allocator after each request
-  //   ALLOC_RESET(&g_ctx.temporary_allocator);
-  // }
 
   cleanup();
   return 0;
