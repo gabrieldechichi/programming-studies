@@ -1,11 +1,19 @@
 #include <vulkan/vulkan.h>
 #include "gpu_backend.h"
+#include "memory.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 
 #define MAX_FRAMES_IN_FLIGHT 2
+
+// YUV constants (matching video_renderer.c)
+#define FRAME_WIDTH 1080
+#define FRAME_HEIGHT 1920
+#define YUV_Y_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT)
+#define YUV_UV_SIZE_BYTES (FRAME_WIDTH * FRAME_HEIGHT / 4)
+#define YUV_TOTAL_SIZE_BYTES (YUV_Y_SIZE_BYTES + 2 * YUV_UV_SIZE_BYTES)
 
 // Helper macro for checking Vulkan results
 #define VK_CHECK(call) \
@@ -32,6 +40,10 @@ struct gpu_device {
     // For shader compilation
     VkShaderModule vertex_shader;
     VkShaderModule fragment_shader;
+
+    // Memory allocators
+    Allocator* permanent_allocator;
+    Allocator* temporary_allocator;
 };
 
 struct gpu_texture {
@@ -41,6 +53,7 @@ struct gpu_texture {
     VkFormat format;
     int width;
     int height;
+    gpu_device_t* device;  // For proper cleanup
 };
 
 struct gpu_readback_buffer {
@@ -64,12 +77,14 @@ struct gpu_pipeline {
     VkPipelineLayout pipeline_layout;
     VkRenderPass render_pass;
     VkFramebuffer* framebuffers;  // One per texture target
+    gpu_device_t* device;  // For proper cleanup
 };
 
 struct gpu_buffer {
     VkBuffer buffer;
     VkDeviceMemory memory;
     size_t size;
+    gpu_device_t* device;  // For proper cleanup
 };
 
 struct gpu_render_encoder {
@@ -87,6 +102,7 @@ struct gpu_compute_pipeline {
     VkDescriptorSetLayout descriptor_set_layout;
     VkDescriptorPool descriptor_pool;
     VkShaderModule compute_shader;
+    gpu_device_t* device;  // For proper cleanup
 };
 
 // Helper function to find memory type (returns UINT32_MAX if not found)
@@ -114,7 +130,7 @@ static uint32_t find_memory_type(VkPhysicalDevice physical_device, uint32_t type
 }
 
 // Load SPIR-V shader from file
-static VkShaderModule load_shader_module(VkDevice device, const char* filename) {
+static VkShaderModule load_shader_module(VkDevice device, const char* filename, Allocator* temp_allocator) {
     FILE* file = fopen(filename, "rb");
     if (!file) {
         fprintf(stderr, "Failed to open shader file: %s\n", filename);
@@ -125,7 +141,13 @@ static VkShaderModule load_shader_module(VkDevice device, const char* filename) 
     long file_size = ftell(file);
     fseek(file, 0, SEEK_SET);
 
-    uint32_t* code = (uint32_t*)malloc(file_size);
+    uint32_t* code = ALLOC_ARRAY(temp_allocator, uint32_t, file_size / sizeof(uint32_t));
+    if (!code) {
+        fprintf(stderr, "Failed to allocate memory for shader file: %s\n", filename);
+        fclose(file);
+        return VK_NULL_HANDLE;
+    }
+
     fread(code, 1, file_size, file);
     fclose(file);
 
@@ -138,12 +160,12 @@ static VkShaderModule load_shader_module(VkDevice device, const char* filename) 
     VkShaderModule shader_module;
     VK_CHECK(vkCreateShaderModule(device, &create_info, NULL, &shader_module));
 
-    free(code);
+    // No need to free - temporary allocator will handle cleanup
     return shader_module;
 }
 
 // Initialize Vulkan instance
-static VkInstance create_instance(void) {
+static VkInstance create_instance(Allocator* temp_allocator) {
     VkApplicationInfo app_info = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = "Video Renderer",
@@ -159,7 +181,11 @@ static VkInstance create_instance(void) {
 
     uint32_t layer_count;
     vkEnumerateInstanceLayerProperties(&layer_count, NULL);
-    VkLayerProperties* available_layers = (VkLayerProperties*)malloc(sizeof(VkLayerProperties) * layer_count);
+    VkLayerProperties* available_layers = ALLOC_ARRAY(temp_allocator, VkLayerProperties, layer_count);
+    if (!available_layers) {
+        fprintf(stderr, "Failed to allocate memory for layer properties\n");
+        exit(1);
+    }
     vkEnumerateInstanceLayerProperties(&layer_count, available_layers);
 
     bool validation_found = false;
@@ -169,7 +195,7 @@ static VkInstance create_instance(void) {
             break;
         }
     }
-    free(available_layers);
+    // No need to free - temporary allocator will handle cleanup
 
     VkInstanceCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -191,7 +217,7 @@ static VkInstance create_instance(void) {
 }
 
 // Select physical device
-static VkPhysicalDevice select_physical_device(VkInstance instance) {
+static VkPhysicalDevice select_physical_device(VkInstance instance, Allocator* temp_allocator) {
     uint32_t device_count = 0;
     vkEnumeratePhysicalDevices(instance, &device_count, NULL);
 
@@ -200,7 +226,11 @@ static VkPhysicalDevice select_physical_device(VkInstance instance) {
         exit(1);
     }
 
-    VkPhysicalDevice* devices = (VkPhysicalDevice*)malloc(sizeof(VkPhysicalDevice) * device_count);
+    VkPhysicalDevice* devices = ALLOC_ARRAY(temp_allocator, VkPhysicalDevice, device_count);
+    if (!devices) {
+        fprintf(stderr, "Failed to allocate memory for device enumeration\n");
+        exit(1);
+    }
     vkEnumeratePhysicalDevices(instance, &device_count, devices);
 
     printf("[Vulkan] Found %u GPU(s):\n", device_count);
@@ -262,16 +292,20 @@ static VkPhysicalDevice select_physical_device(VkInstance instance) {
     vkGetPhysicalDeviceProperties(selected_device, &selected_props);
     printf("[Vulkan] Selected: %s\n", selected_props.deviceName);
 
-    free(devices);
+    // No need to free - temporary allocator will handle cleanup
     return selected_device;
 }
 
 // Find queue families
-static void find_queue_families(VkPhysicalDevice physical_device, uint32_t* graphics_family, uint32_t* transfer_family) {
+static void find_queue_families(VkPhysicalDevice physical_device, uint32_t* graphics_family, uint32_t* transfer_family, Allocator* temp_allocator) {
     uint32_t queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, NULL);
 
-    VkQueueFamilyProperties* queue_families = (VkQueueFamilyProperties*)malloc(sizeof(VkQueueFamilyProperties) * queue_family_count);
+    VkQueueFamilyProperties* queue_families = ALLOC_ARRAY(temp_allocator, VkQueueFamilyProperties, queue_family_count);
+    if (!queue_families) {
+        fprintf(stderr, "Failed to allocate memory for queue family properties\n");
+        exit(1);
+    }
     vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families);
 
     *graphics_family = UINT32_MAX;
@@ -286,7 +320,7 @@ static void find_queue_families(VkPhysicalDevice physical_device, uint32_t* grap
         }
     }
 
-    free(queue_families);
+    // No need to free - temporary allocator will handle cleanup
 
     if (*graphics_family == UINT32_MAX) {
         fprintf(stderr, "Failed to find graphics queue family\n");
@@ -294,17 +328,19 @@ static void find_queue_families(VkPhysicalDevice physical_device, uint32_t* grap
     }
 }
 
-gpu_device_t* gpu_init(void) {
-    gpu_device_t* device = (gpu_device_t*)calloc(1, sizeof(gpu_device_t));
+gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allocator) {
+    gpu_device_t* device = ALLOC(permanent_allocator, gpu_device_t);
+    device->permanent_allocator = permanent_allocator;
+    device->temporary_allocator = temporary_allocator;
 
     // Create Vulkan instance
-    device->instance = create_instance();
+    device->instance = create_instance(device->temporary_allocator);
 
     // Select physical device
-    device->physical_device = select_physical_device(device->instance);
+    device->physical_device = select_physical_device(device->instance, device->temporary_allocator);
 
     // Find queue families
-    find_queue_families(device->physical_device, &device->graphics_queue_family, &device->transfer_queue_family);
+    find_queue_families(device->physical_device, &device->graphics_queue_family, &device->transfer_queue_family, device->temporary_allocator);
 
     // Create logical device
     float queue_priority = 1.0f;
@@ -351,13 +387,13 @@ gpu_device_t* gpu_init(void) {
     VK_CHECK(vkCreateCommandPool(device->device, &transfer_pool_info, NULL, &device->transfer_command_pool));
 
     // Load shader modules (will be compiled to SPIR-V by build system)
-    device->vertex_shader = load_shader_module(device->device, "triangle.vert.spv");
-    device->fragment_shader = load_shader_module(device->device, "triangle.frag.spv");
+    device->vertex_shader = load_shader_module(device->device, "triangle.vert.spv", device->temporary_allocator);
+    device->fragment_shader = load_shader_module(device->device, "triangle.frag.spv", device->temporary_allocator);
 
     if (!device->vertex_shader || !device->fragment_shader) {
         // Try different paths
-        device->vertex_shader = load_shader_module(device->device, "out/linux/triangle.vert.spv");
-        device->fragment_shader = load_shader_module(device->device, "out/linux/triangle.frag.spv");
+        device->vertex_shader = load_shader_module(device->device, "out/linux/triangle.vert.spv", device->temporary_allocator);
+        device->fragment_shader = load_shader_module(device->device, "out/linux/triangle.frag.spv", device->temporary_allocator);
     }
 
     printf("[Vulkan] Device initialized\n");
@@ -369,10 +405,11 @@ void* gpu_get_native_device(gpu_device_t* device) {
 }
 
 gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
-    gpu_texture_t* texture = (gpu_texture_t*)calloc(1, sizeof(gpu_texture_t));
+    gpu_texture_t* texture = ALLOC(device->permanent_allocator, gpu_texture_t);
     texture->width = width;
     texture->height = height;
     texture->format = VK_FORMAT_B8G8R8A8_UNORM;
+    texture->device = device;
 
     // Create image
     VkImageCreateInfo image_info = {
@@ -440,7 +477,7 @@ void* gpu_get_native_texture(gpu_texture_t* texture) {
 }
 
 gpu_readback_buffer_t* gpu_create_readback_buffer(gpu_device_t* device, size_t size) {
-    gpu_readback_buffer_t* buffer = (gpu_readback_buffer_t*)calloc(1, sizeof(gpu_readback_buffer_t));
+    gpu_readback_buffer_t* buffer = ALLOC(device->permanent_allocator, gpu_readback_buffer_t);
     buffer->size = size;
     buffer->device = device;
 
@@ -493,7 +530,7 @@ gpu_command_buffer_t* gpu_readback_texture_async(
     int width,
     int height
 ) {
-    gpu_command_buffer_t* cmd = (gpu_command_buffer_t*)calloc(1, sizeof(gpu_command_buffer_t));
+    gpu_command_buffer_t* cmd = ALLOC(device->permanent_allocator, gpu_command_buffer_t);
     cmd->device = device;
     cmd->completed = false;
 
@@ -711,24 +748,27 @@ void gpu_destroy_command_buffer(gpu_command_buffer_t* cmd_buffer) {
         if (cmd_buffer->cmd_buffer) {
             vkFreeCommandBuffers(cmd_buffer->device->device, cmd_buffer->device->command_pool, 1, &cmd_buffer->cmd_buffer);
         }
-        free(cmd_buffer);
+        // No need to free - allocated from arena allocator
     }
 }
 
 void gpu_destroy_texture(gpu_texture_t* texture) {
     if (texture) {
-        gpu_device_t* device = NULL;  // Need to store device reference in texture struct
-        // Note: In production code, we'd need to store the device reference
-        // For now, we'll leak these resources (they'll be cleaned up on program exit)
-        free(texture);
+        vkDestroyImageView(texture->device->device, texture->image_view, NULL);
+        vkDestroyImage(texture->device->device, texture->image, NULL);
+        vkFreeMemory(texture->device->device, texture->memory, NULL);
+        // No need to free - allocated from arena allocator
     }
 }
 
 void gpu_destroy_readback_buffer(gpu_readback_buffer_t* buffer) {
     if (buffer) {
-        // Note: In production code, we'd need to store the device reference
-        // For now, we'll leak these resources
-        free(buffer);
+        if (buffer->mapped_data) {
+            vkUnmapMemory(buffer->device->device, buffer->memory);
+        }
+        vkDestroyBuffer(buffer->device->device, buffer->buffer, NULL);
+        vkFreeMemory(buffer->device->device, buffer->memory, NULL);
+        // No need to free - allocated from arena allocator
     }
 }
 
@@ -745,7 +785,8 @@ gpu_pipeline_t* gpu_create_pipeline(
     (void)vertex_function;
     (void)fragment_function;
 
-    gpu_pipeline_t* pipeline = (gpu_pipeline_t*)calloc(1, sizeof(gpu_pipeline_t));
+    gpu_pipeline_t* pipeline = ALLOC(device->permanent_allocator, gpu_pipeline_t);
+    pipeline->device = device;
 
     // Create render pass
     VkAttachmentDescription color_attachment = {
@@ -805,7 +846,7 @@ gpu_pipeline_t* gpu_create_pipeline(
     };
 
     VkVertexInputAttributeDescription* attribute_descriptions =
-        (VkVertexInputAttributeDescription*)malloc(sizeof(VkVertexInputAttributeDescription) * vertex_layout->num_attributes);
+        ALLOC_ARRAY(device->temporary_allocator, VkVertexInputAttributeDescription, vertex_layout->num_attributes);
 
     for (int i = 0; i < vertex_layout->num_attributes; i++) {
         gpu_vertex_attr_t* attr = &vertex_layout->attributes[i];
@@ -925,15 +966,16 @@ gpu_pipeline_t* gpu_create_pipeline(
 
     VK_CHECK(vkCreateGraphicsPipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline->pipeline));
 
-    free(attribute_descriptions);
+    // No need to free - temporary allocator will handle cleanup
 
     printf("[Vulkan] Pipeline created\n");
     return pipeline;
 }
 
 gpu_buffer_t* gpu_create_buffer(gpu_device_t* device, const void* data, size_t size) {
-    gpu_buffer_t* buffer = (gpu_buffer_t*)calloc(1, sizeof(gpu_buffer_t));
+    gpu_buffer_t* buffer = ALLOC(device->permanent_allocator, gpu_buffer_t);
     buffer->size = size;
+    buffer->device = device;
 
     // Create buffer
     VkBufferCreateInfo buffer_info = {
@@ -971,7 +1013,7 @@ gpu_buffer_t* gpu_create_buffer(gpu_device_t* device, const void* data, size_t s
 }
 
 gpu_command_buffer_t* gpu_begin_commands(gpu_device_t* device) {
-    gpu_command_buffer_t* cmd = (gpu_command_buffer_t*)calloc(1, sizeof(gpu_command_buffer_t));
+    gpu_command_buffer_t* cmd = ALLOC(device->permanent_allocator, gpu_command_buffer_t);
     cmd->device = device;
     cmd->completed = false;
 
@@ -1008,7 +1050,7 @@ gpu_render_encoder_t* gpu_begin_render_pass(
 ) {
     (void)clear_r; (void)clear_g; (void)clear_b; (void)clear_a;  // Suppress warnings for now
 
-    gpu_render_encoder_t* encoder = (gpu_render_encoder_t*)calloc(1, sizeof(gpu_render_encoder_t));
+    gpu_render_encoder_t* encoder = ALLOC(cmd_buffer->device->permanent_allocator, gpu_render_encoder_t);
     encoder->cmd_buffer = cmd_buffer->cmd_buffer;
     encoder->target = target;
     encoder->device = cmd_buffer->device;
@@ -1106,7 +1148,7 @@ void gpu_end_render_pass(gpu_render_encoder_t* encoder) {
         vkDestroyFramebuffer(encoder->device->device, encoder->framebuffer, NULL);
     }
 
-    free(encoder);
+    // No need to free - allocated from arena allocator
 }
 
 void gpu_commit_commands(gpu_command_buffer_t* cmd_buffer, bool wait) {
@@ -1137,28 +1179,31 @@ void gpu_wait_for_command_buffer(gpu_command_buffer_t* cmd_buffer) {
 
 void gpu_destroy_pipeline(gpu_pipeline_t* pipeline) {
     if (pipeline) {
-        // Note: Need device reference to properly clean up
-        free(pipeline);
+        vkDestroyPipeline(pipeline->device->device, pipeline->pipeline, NULL);
+        vkDestroyPipelineLayout(pipeline->device->device, pipeline->pipeline_layout, NULL);
+        vkDestroyRenderPass(pipeline->device->device, pipeline->render_pass, NULL);
+        // No need to free - allocated from arena allocator
     }
 }
 
 void gpu_destroy_buffer(gpu_buffer_t* buffer) {
     if (buffer) {
-        // Note: Need device reference to properly clean up
-        free(buffer);
+        vkDestroyBuffer(buffer->device->device, buffer->buffer, NULL);
+        vkFreeMemory(buffer->device->device, buffer->memory, NULL);
+        // No need to free - allocated from arena allocator
     }
 }
 
 // === Compute Pipeline Implementation ===
 
 gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const char* compute_shader_path, int max_frames) {
-    gpu_compute_pipeline_t* compute_pipeline = (gpu_compute_pipeline_t*)calloc(1, sizeof(gpu_compute_pipeline_t));
+    gpu_compute_pipeline_t* compute_pipeline = ALLOC(device->permanent_allocator, gpu_compute_pipeline_t);
+    compute_pipeline->device = device;
 
     // Load compute shader
-    compute_pipeline->compute_shader = load_shader_module(device->device, compute_shader_path);
+    compute_pipeline->compute_shader = load_shader_module(device->device, compute_shader_path, device->temporary_allocator);
     if (!compute_pipeline->compute_shader) {
         fprintf(stderr, "Failed to load compute shader: %s\n", compute_shader_path);
-        free(compute_pipeline);
         return NULL;
     }
 
@@ -1246,9 +1291,10 @@ gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const 
 }
 
 gpu_texture_t* gpu_create_storage_texture(gpu_device_t* device, int width, int height, int format) {
-    gpu_texture_t* texture = (gpu_texture_t*)calloc(1, sizeof(gpu_texture_t));
+    gpu_texture_t* texture = ALLOC(device->permanent_allocator, gpu_texture_t);
     texture->width = width;
     texture->height = height;
+    texture->device = device;
 
     // Map format: 0=RGBA8, 1=R8
     switch (format) {
@@ -1406,9 +1452,12 @@ void gpu_dispatch_compute(
 
 void gpu_destroy_compute_pipeline(gpu_compute_pipeline_t* pipeline) {
     if (pipeline) {
-        // Note: Need device reference to properly clean up
-        // For now, we'll leak these resources (they'll be cleaned up on program exit)
-        free(pipeline);
+        vkDestroyPipeline(pipeline->device->device, pipeline->pipeline, NULL);
+        vkDestroyPipelineLayout(pipeline->device->device, pipeline->pipeline_layout, NULL);
+        vkDestroyDescriptorSetLayout(pipeline->device->device, pipeline->descriptor_set_layout, NULL);
+        vkDestroyDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, NULL);
+        vkDestroyShaderModule(pipeline->device->device, pipeline->compute_shader, NULL);
+        // No need to free - allocated from arena allocator
     }
 }
 

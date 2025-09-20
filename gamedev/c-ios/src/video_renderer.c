@@ -603,7 +603,7 @@ static int initialize_system(void) {
   printf("[System] Initializing GPU backend and FFmpeg...\n");
 
   // Initialize GPU device
-  g_ctx.device = gpu_init();
+  g_ctx.device = gpu_init(&g_ctx.permanent_allocator, &g_ctx.temporary_allocator);
   if (!g_ctx.device) {
     fprintf(stderr, "Failed to create GPU device\n");
     exit(1);

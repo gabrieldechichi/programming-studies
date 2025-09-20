@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "memory.h"
 
 // Opaque handle types
 typedef struct gpu_device gpu_device_t;
@@ -16,7 +17,7 @@ typedef struct gpu_render_encoder gpu_render_encoder_t;
 typedef struct gpu_compute_pipeline gpu_compute_pipeline_t;
 
 // Initialize the GPU backend
-gpu_device_t* gpu_init(void);
+gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allocator);
 
 // Get the native device handle for Sokol initialization
 void* gpu_get_native_device(gpu_device_t* device);
