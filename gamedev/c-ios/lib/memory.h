@@ -77,7 +77,10 @@ void *arena_alloc_align(ArenaAllocator *a, size_t size, size_t align) {
     void *ptr = &a->buffer[offset];
     a->offset = offset + size;
 
-    memset(ptr, 0, size);
+    // todo: this impact performance
+#if DEBUG
+     memset(ptr, 0xCD, size);
+#endif
     return ptr;
   }
 
@@ -177,23 +180,27 @@ Allocator make_arena_allocator(ArenaAllocator *arena) {
   cast(type *) arena_alloc(arena, sizeof(type) * len)
 
 #define ALLOC(allocator, type)                                                 \
-  (cast(type *)(allocator)->alloc_alloc((allocator)->ctx, sizeof(type),              \
-                                  DEFAULT_ALIGNMENT))
+  (cast(type *)(allocator)->alloc_alloc((allocator)->ctx, sizeof(type),        \
+                                        DEFAULT_ALIGNMENT))
 #define ALLOC_ARRAY(allocator, type, len)                                      \
-  (cast(type *)(allocator)->alloc_alloc((allocator)->ctx, sizeof(type) * len,        \
-                                  DEFAULT_ALIGNMENT))
+  (cast(type *)(allocator)->alloc_alloc((allocator)->ctx, sizeof(type) * len,  \
+                                        DEFAULT_ALIGNMENT))
 
 #define REALLOC(allocator, ptr, type)                                          \
-  (cast(type *)(allocator)->alloc_realloc((allocator)->ctx, (ptr), sizeof(type)))
+  (cast(type *)(allocator)->alloc_realloc((allocator)->ctx, (ptr),             \
+                                          sizeof(type)))
 
 #define REALLOC_ARRAY(allocator, ptr, type, len)                               \
-  (cast(type *)(allocator)->alloc_realloc((allocator)->ctx, ptr, sizeof(type) * len))
+  (cast(type *)(allocator)->alloc_realloc((allocator)->ctx, ptr,               \
+                                          sizeof(type) * len))
 
 #define ALLOC_RESET(allocator) (allocator)->alloc_reset((allocator)->ctx)
-#define ALLOC_CAPACITY(allocator) ((allocator)->alloc_capacity((allocator)->ctx))
+#define ALLOC_CAPACITY(allocator)                                              \
+  ((allocator)->alloc_capacity((allocator)->ctx))
 #define ALLOC_COMMITED_SIZE(allocator)                                         \
   ((allocator)->alloc_commited_size((allocator)->ctx))
-#define ALLOC_FREE_SIZE(allocator) ((allocator)->alloc_free_size((allocator)->ctx))
+#define ALLOC_FREE_SIZE(allocator)                                             \
+  ((allocator)->alloc_free_size((allocator)->ctx))
 #define ALLOC_DESTROY(allocator) (allocator)->alloc_destroy((allocator)->ctx)
 
 #endif

@@ -1023,10 +1023,7 @@ void process_request(char *input_buffer) {
 
   send_response(true, NULL);
 
-#ifdef PROFILER_ENABLED
-  // Use temporary allocator for profiler data - will be reset after request
   profiler_end_and_print_session(&g_ctx.temporary_allocator);
-#endif
 }
 
 int main(int argc, char *argv[]) {
@@ -1039,6 +1036,7 @@ int main(int argc, char *argv[]) {
   printf("Listening for JSON requests on stdin...\n");
   fflush(stdout);
 
+  profiler_begin_session();
   // Initialize context and memory allocators first
   if (init_context(&g_ctx) < 0) {
     fprintf(stderr, "Failed to initialize context\n");
@@ -1057,6 +1055,8 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
     atomic_store(&g_ctx.pool_slot_in_use[i], -1);
   }
+
+  profiler_end_and_print_session(&g_ctx.temporary_allocator);
 
   char input_buffer[INPUT_BUFFER_SIZE];
 
