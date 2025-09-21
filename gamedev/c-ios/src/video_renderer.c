@@ -27,6 +27,8 @@
 
 // GPU backend abstraction
 #include "gpu_backend.h"
+#include "vendor/cglm/types.h"
+#include "vendor/cglm/vec2.h"
 
 // Mode selection - set to 1 for standalone mode, 0 for daemon mode
 #define STANDALONE_MODE 1

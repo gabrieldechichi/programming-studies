@@ -1,2 +1,5 @@
-// Empty vendor file - all vendor code removed
-// This file can be deleted if no vendor code is needed
+/* CGLM */
+#include "cglm/cglm.h"
+
+typedef versor quaternion;
+/* END CGLM */
