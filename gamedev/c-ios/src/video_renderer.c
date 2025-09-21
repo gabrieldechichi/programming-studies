@@ -970,6 +970,43 @@ static int render_video(const render_request_t *request) {
   return 0;
 }
 
+// Base64 encoding table
+static const char base64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Base64 encode function
+static char* base64_encode(const unsigned char *data, size_t input_length, size_t *output_length) {
+    *output_length = 4 * ((input_length + 2) / 3);
+
+    char *encoded_data = ALLOC_ARRAY(&g_ctx.temporary_allocator, char, *output_length + 1);
+    if (!encoded_data) return NULL;
+
+    size_t i, j;
+    for (i = 0, j = 0; i < input_length;) {
+        uint32_t octet_a = i < input_length ? data[i++] : 0;
+        uint32_t octet_b = i < input_length ? data[i++] : 0;
+        uint32_t octet_c = i < input_length ? data[i++] : 0;
+
+        uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
+
+        encoded_data[j++] = base64_table[(triple >> 18) & 0x3F];
+        encoded_data[j++] = base64_table[(triple >> 12) & 0x3F];
+        encoded_data[j++] = base64_table[(triple >> 6) & 0x3F];
+        encoded_data[j++] = base64_table[triple & 0x3F];
+    }
+
+    // Add padding
+    size_t mod = input_length % 3;
+    if (mod == 1) {
+        encoded_data[*output_length - 2] = '=';
+        encoded_data[*output_length - 1] = '=';
+    } else if (mod == 2) {
+        encoded_data[*output_length - 1] = '=';
+    }
+
+    encoded_data[*output_length] = '\0';
+    return encoded_data;
+}
+
 // Send JSON response with base64 video
 static void send_response(int client_fd, bool success, const char *error_msg) {
   if (success) {
@@ -996,13 +1033,31 @@ static void send_response(int client_fd, bool success, const char *error_msg) {
     fread(video_data, 1, file_size, video_file);
     fclose(video_file);
 
-    // Simple base64 encoding (for now just indicate success)
-    char response[256];
-    snprintf(response, sizeof(response),
-             "{\"success\": true, \"file_size\": %ld, \"encoding\": \"base64\", "
-             "\"video\": \"<base64-data>\"}\n",
-             file_size);
-    write(client_fd, response, strlen(response));
+    // Encode video to base64
+    size_t base64_length;
+    char *base64_video = base64_encode(video_data, file_size, &base64_length);
+    if (!base64_video) {
+      const char *error_response = "{\"success\": false, \"error\": \"Failed to encode video to base64\"}\n";
+      write(client_fd, error_response, strlen(error_response));
+      return;
+    }
+
+    // Build JSON response with actual base64 data
+    // Allocate buffer for JSON response (needs to be large enough for base64 + JSON structure)
+    size_t response_size = base64_length + 256; // Extra space for JSON structure
+    char *response = ALLOC_ARRAY(&g_ctx.temporary_allocator, char, response_size);
+    if (!response) {
+      const char *error_response = "{\"success\": false, \"error\": \"Failed to allocate memory for response\"}\n";
+      write(client_fd, error_response, strlen(error_response));
+      return;
+    }
+
+    int written = snprintf(response, response_size,
+                          "{\"success\": true, \"file_size\": %ld, \"video\": \"%s\"}\n",
+                          file_size, base64_video);
+
+    // Send the complete response
+    write(client_fd, response, written);
   } else {
     char response[512];
     snprintf(response, sizeof(response),

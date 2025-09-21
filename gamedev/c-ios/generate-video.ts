@@ -34,7 +34,7 @@ async function generateVideo(seconds: number = 8.33) {
 
         const data = await response.json();
         console.log('\n✅ Video Generation Response:');
-        console.log(JSON.stringify(data, null, 2));
+        // console.log(JSON.stringify(data, null, 2));
 
         // Parse the actual response from RunPod
         if (data.output) {
