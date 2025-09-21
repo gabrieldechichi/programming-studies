@@ -406,6 +406,25 @@ gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allo
         device->fragment_shader = load_shader_module(device->device, "out/linux/triangle.frag.spv", device->temporary_allocator);
     }
 
+    // Test load toon shading shaders
+    VkShaderModule toon_vertex_shader = load_shader_module(device->device, "toon_shading.vert.spv", device->temporary_allocator);
+    VkShaderModule toon_fragment_shader = load_shader_module(device->device, "toon_shading.frag.spv", device->temporary_allocator);
+
+    if (!toon_vertex_shader || !toon_fragment_shader) {
+        // Try different paths
+        toon_vertex_shader = load_shader_module(device->device, "out/linux/toon_shading.vert.spv", device->temporary_allocator);
+        toon_fragment_shader = load_shader_module(device->device, "out/linux/toon_shading.frag.spv", device->temporary_allocator);
+    }
+
+    if (toon_vertex_shader && toon_fragment_shader) {
+        printf("[Vulkan] Toon shading shaders loaded successfully\n");
+        // Clean up test shaders - we'll properly store them later when needed
+        vkDestroyShaderModule(device->device, toon_vertex_shader, NULL);
+        vkDestroyShaderModule(device->device, toon_fragment_shader, NULL);
+    } else {
+        printf("[Vulkan] Warning: Could not load toon shading shaders\n");
+    }
+
     printf("[Vulkan] Device initialized\n");
     return device;
 }
