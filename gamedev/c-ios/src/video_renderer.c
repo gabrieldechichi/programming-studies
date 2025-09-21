@@ -27,8 +27,11 @@
 
 // GPU backend abstraction
 #include "gpu_backend.h"
+#include "renderer.h"
 #include "vendor/cglm/types.h"
 #include "vendor/cglm/vec2.h"
+#include "vendor/cglm/mat4.h"
+#include "vendor/cglm/affine.h"
 
 // Mode selection - set to 1 for standalone mode, 0 for daemon mode
 #define STANDALONE_MODE 1
@@ -92,6 +95,11 @@ typedef struct {
   gpu_command_buffer_t *readback_commands[MAX_FRAMES];
   gpu_pipeline_t *pipeline;
   gpu_buffer_t *vertex_buffer;
+
+  // Renderer objects
+  Handle triangle_mesh_handle;
+  Handle triangle_shader_handle;
+  Handle triangle_material_handle;
 
   // GPU color conversion objects
   gpu_compute_pipeline_t *compute_pipeline;
@@ -696,9 +704,36 @@ static int initialize_system(void) {
     exit(1);
   }
 
-  // Create vertex buffer
+  // Create vertex buffer (keep for backwards compatibility, will remove later)
   g_ctx.vertex_buffer =
       gpu_create_buffer(g_ctx.device, vertices, sizeof(vertices));
+
+  // Initialize renderer system
+  renderer_init(g_ctx.device, &g_ctx.permanent_allocator, &g_ctx.temporary_allocator);
+
+  // Load the shader into renderer
+  g_ctx.triangle_shader_handle = renderer_load_shader("triangle", g_ctx.pipeline);
+
+  // Create a simple material (no properties needed for this shader)
+  g_ctx.triangle_material_handle = renderer_load_material(
+      g_ctx.triangle_shader_handle,
+      NULL,  // No material properties
+      0,     // No properties
+      false  // Not transparent
+  );
+
+  // Create triangle mesh as SubMeshData
+  SubMeshData triangle_mesh = {
+      .vertex_buffer = vertices,
+      .len_vertex_buffer = sizeof(vertices) / sizeof(float),  // Total floats
+      .len_vertices = 3,  // 3 vertices
+      .indices = NULL,    // No indices, draw vertices directly
+      .len_indices = 0,
+      .len_blendshapes = 0,
+      .blendshape_deltas = NULL
+  };
+
+  g_ctx.triangle_mesh_handle = renderer_create_submesh(&triangle_mesh, false);
 
   // Create compute pipeline for BGRA to YUV conversion
   g_ctx.compute_pipeline = gpu_create_compute_pipeline(
@@ -769,32 +804,27 @@ static void render_all_frames(void) {
     // Calculate rotation for this frame
     float time = (float)i * dt;
     float angle = time * rotation_speed;
-    uniforms_t uniforms;
-    mat4_rotation_z(uniforms.model, angle);
+
+    // Create rotation matrix
+    mat4 model_matrix;
+    glm_mat4_identity(model_matrix);
+    glm_rotate_z(model_matrix, angle, model_matrix);
 
     PROFILE_BEGIN("render_frame");
 
     // Create a command buffer for this frame
     gpu_command_buffer_t *cmd_buffer = gpu_begin_commands(g_ctx.device);
 
-    // Begin render pass for this frame using the single texture set
-    gpu_render_encoder_t *encoder = gpu_begin_render_pass(
-        cmd_buffer, g_ctx.render_texture_pool[pool_index], 0.0f, 0.0f, 0.0f,
-        1.0f // Black background
-    );
+    // Reset renderer commands for this frame
+    renderer_reset_commands();
 
-    // Set pipeline and vertex buffer
-    gpu_set_pipeline(encoder, g_ctx.pipeline);
-    gpu_set_vertex_buffer(encoder, g_ctx.vertex_buffer, 0);
+    // Issue renderer commands
+    Color clear_color = {.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f};
+    renderer_clear(clear_color);
+    renderer_draw_mesh(g_ctx.triangle_mesh_handle, g_ctx.triangle_material_handle, model_matrix);
 
-    // Set uniforms at buffer index 1 (index 0 is the vertex buffer)
-    gpu_set_uniforms(encoder, 1, &uniforms, sizeof(uniforms));
-
-    // Draw triangle
-    gpu_draw(encoder, 3);
-
-    // End render pass
-    gpu_end_render_pass(encoder);
+    // Execute renderer commands
+    renderer_execute_commands(g_ctx.render_texture_pool[pool_index], cmd_buffer);
 
     // Commit and wait for completion
     gpu_commit_commands(cmd_buffer, true); // Blocking wait
@@ -900,6 +930,9 @@ static void wait_for_completion(void) {
 }
 
 static void cleanup(void) {
+  // Clean up renderer
+  renderer_cleanup();
+
   // Clean up FFmpeg cached objects
   cleanup_ffmpeg_cache();
 

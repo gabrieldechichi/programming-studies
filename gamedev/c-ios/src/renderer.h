@@ -93,6 +93,10 @@ Handle renderer_load_shader(const char *shader_name, gpu_pipeline_t *pipeline);
 Handle renderer_load_material(Handle shader_handle, MaterialProperty *properties,
                               u32 property_count, b32 transparent);
 
+// Draw simple mesh (no skinning)
+void renderer_draw_mesh(Handle mesh_handle, Handle material_handle,
+                       mat4 model_matrix);
+
 // Draw skinned mesh
 void renderer_draw_skinned_mesh(Handle mesh_handle, Handle material_handle,
                                 mat4 model_matrix, mat4 *joint_transforms,

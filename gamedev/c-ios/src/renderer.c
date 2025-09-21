@@ -268,7 +268,7 @@ void renderer_clear(Color color) {
 }
 
 Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned) {
-  if (!g_renderer || !mesh_data || !mesh_data->vertex_buffer || !mesh_data->indices) {
+  if (!g_renderer || !mesh_data || !mesh_data->vertex_buffer) {
     return INVALID_HANDLE;
   }
 
@@ -283,23 +283,32 @@ Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned) {
     return INVALID_HANDLE;
   }
 
-  // Create index buffer
-  gpu_buffer_t *index_buffer = gpu_create_buffer(
-      g_renderer->device,
-      mesh_data->indices,
-      mesh_data->len_indices * sizeof(u32)
-  );
+  // Create index buffer (optional - NULL if no indices)
+  gpu_buffer_t *index_buffer = NULL;
+  u32 count_for_draw = 0;
 
-  if (!index_buffer) {
-    gpu_destroy_buffer(vertex_buffer);
-    return INVALID_HANDLE;
+  if (mesh_data->indices && mesh_data->len_indices > 0) {
+    index_buffer = gpu_create_buffer(
+        g_renderer->device,
+        mesh_data->indices,
+        mesh_data->len_indices * sizeof(u32)
+    );
+
+    if (!index_buffer) {
+      gpu_destroy_buffer(vertex_buffer);
+      return INVALID_HANDLE;
+    }
+    count_for_draw = mesh_data->len_indices;
+  } else {
+    // No indices - use vertex count for drawing
+    count_for_draw = mesh_data->len_vertices;
   }
 
   // Store submesh data
   GPUSubMesh new_submesh = {
       .vertex_buffer = vertex_buffer,
       .index_buffer = index_buffer,
-      .index_count = mesh_data->len_indices,
+      .index_count = count_for_draw,  // Either index count or vertex count
       .num_blendshapes = mesh_data->len_blendshapes,
       .is_skinned = is_skinned,
       .has_blendshapes = mesh_data->len_blendshapes > 0
@@ -355,6 +364,24 @@ Handle renderer_load_material(Handle shader_handle, MaterialProperty *properties
   return handle;
 }
 
+void renderer_draw_mesh(Handle mesh_handle, Handle material_handle,
+                       mat4 model_matrix) {
+  if (!g_renderer || !handle_is_valid(mesh_handle) || !handle_is_valid(material_handle)) {
+    return;
+  }
+
+  RenderCommand cmd = {
+      .type = RENDER_CMD_DRAW_MESH,
+      .data.draw_mesh = {
+          .mesh_handle = mesh_handle,
+          .material_handle = material_handle,
+      }
+  };
+
+  glm_mat4_copy(model_matrix, cmd.data.draw_mesh.model_matrix);
+  add_render_command(cmd);
+}
+
 void renderer_draw_skinned_mesh(Handle mesh_handle, Handle material_handle,
                                mat4 model_matrix, mat4 *joint_transforms,
                                u32 num_joints, BlendshapeParams *blendshape_params) {
@@ -397,10 +424,52 @@ void renderer_execute_commands(gpu_texture_t *render_target, gpu_command_buffer_
 
   // Process commands and batch skinned meshes
   PROFILE_BEGIN("Process render commands");
+
+  // First pass: handle immediate commands (clear, simple meshes)
+  Color clear_color = {.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f};
+  b32 should_clear = false;
+
   arr_foreach_ptr(g_renderer->render_cmds, cmd) {
     switch (cmd->type) {
       case RENDER_CMD_CLEAR: {
-        // Clear operations handled at pass begin
+        // Store clear color for pass begin
+        clear_color = cmd->data.clear.color;
+        should_clear = true;
+      } break;
+
+      case RENDER_CMD_DRAW_MESH: {
+        // Get mesh and material
+        GPUSubMesh *mesh = ha_get(GPUSubMesh, &g_renderer->gpu_submeshes, cmd->data.draw_mesh.mesh_handle);
+        GPUMaterial *material = ha_get(GPUMaterial, &g_renderer->gpu_materials, cmd->data.draw_mesh.material_handle);
+
+        if (!mesh || !material) continue;
+
+        // Get shader
+        GPUShader *gpu_shader = ha_get(GPUShader, &g_renderer->gpu_shaders, material->shader_handle);
+        if (!gpu_shader || !gpu_shader->pipeline) continue;
+
+        // Begin render pass
+        gpu_render_encoder_t *encoder = gpu_begin_render_pass(
+            cmd_buffer, render_target,
+            clear_color.r, clear_color.g, clear_color.b, clear_color.a
+        );
+
+        // Set pipeline
+        gpu_set_pipeline(encoder, gpu_shader->pipeline);
+
+        // Set vertex buffer
+        gpu_set_vertex_buffer(encoder, mesh->vertex_buffer, 0);
+
+        // Set uniforms (model matrix at index 1)
+        gpu_set_uniforms(encoder, 1, &cmd->data.draw_mesh.model_matrix, sizeof(mat4));
+
+        // Draw (for triangle without indices, use vertex count which is 3)
+        // Note: if no indices, index_count stores vertex count
+        gpu_draw(encoder, mesh->index_count);
+
+        // End render pass
+        gpu_end_render_pass(encoder);
+
       } break;
 
       case RENDER_CMD_DRAW_SKINNED_MESH: {
