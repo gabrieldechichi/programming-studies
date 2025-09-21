@@ -1,5 +1,5 @@
 #include "profiler.h"
-#include "../os/os.h"
+#include "os/os.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdatomic.h>

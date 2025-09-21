@@ -1,5 +1,5 @@
-#include "../lib/json_parser.h"
-#include "../os/os.h"
+#include "lib/json_parser.h"
+#include "os/os.h"
 #include "memory.h"
 #include "typedefs.h"
 #include <math.h>
@@ -23,7 +23,7 @@
 #include <libswscale/swscale.h>
 
 // Profiler
-#include "profiler.h"
+#include "lib/profiler.h"
 
 // GPU backend abstraction
 #include "gpu_backend.h"

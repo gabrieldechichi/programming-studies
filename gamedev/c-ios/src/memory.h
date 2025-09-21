@@ -2,6 +2,7 @@
 #define H_MEMORY
 
 #include "assert.h"
+#include "lib/common.h"
 #include "typedefs.h"
 #include <string.h>
 
@@ -19,26 +20,6 @@
 #else
 #define memcpy_safe(to, from, len) memcpy(to, from, len)
 #endif
-
-force_inline bool32 is_power_of_two(uintptr x) { return (x & (x - 1)) == 0; }
-
-force_inline uintptr align_forward(uintptr ptr, size_t align) {
-  uintptr p, a, modulo;
-
-  assert(is_power_of_two(align));
-
-  p = ptr;
-  a = cast(uintptr) align;
-  // Same as (p % a) but faster as 'a' is a power of two
-  modulo = p & (a - 1);
-
-  if (modulo != 0) {
-    // If 'p' address is not aligned, push the address to the
-    // next value which is aligned
-    p += a - modulo;
-  }
-  return p;
-}
 
 typedef struct {
   uint8 *buffer;

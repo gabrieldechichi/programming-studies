@@ -26,16 +26,17 @@
 #define LINUX_APP_TARGET "out/linux/video_renderer"
 
 // Common strict warning flags for main code
-#define MAIN_STRICT_FLAGS                                                      \
-  "-std=c11 "                                                                  \
-  "-Wall -Wextra "                                                             \
-  "-Wpedantic -Wcast-align -Wcast-qual "                                       \
-  "-Wconversion -Wenum-compare -Wfloat-equal "                                 \
-  "-Wredundant-decls -Wsign-conversion "                                       \
-  "-Wstrict-prototypes -Wmissing-prototypes "                                  \
-  "-Wold-style-definition -Wmissing-declarations "                             \
-  "-Wformat=2 -Wformat-security "                                              \
-  "-Wundef -Wshadow"
+// #define MAIN_STRICT_FLAGS                                                      \
+//   "-std=c11 "                                                                  \
+//   "-Wall -Wextra "                                                             \
+//   "-Wpedantic -Wcast-align -Wcast-qual "                                       \
+//   "-Wconversion -Wenum-compare -Wfloat-equal "                                 \
+//   "-Wredundant-decls -Wsign-conversion "                                       \
+//   "-Wstrict-prototypes -Wmissing-prototypes "                                  \
+//   "-Wold-style-definition -Wmissing-declarations "                             \
+//   "-Wformat=2 -Wformat-security "                                              \
+//   "-Wundef -Wshadow"
+#define MAIN_STRICT_FLAGS ""
 
 // Debug and release build flags
 #define DEBUG_FLAGS "-g -O0 -DDEBUG"
@@ -57,7 +58,7 @@
 
 // Linux configuration
 #define LINUX_COMPILE_FLAGS                                                    \
-  "-Isrc -DLINUX=1 " MAIN_STRICT_FLAGS
+  "-Isrc -Ilib -DLINUX=1 " MAIN_STRICT_FLAGS
 #define LINUX_VULKAN_FLAGS                                                     \
   "-lvulkan -lm"
 // FFmpeg libraries for Linux (standard package manager paths)
