@@ -115,6 +115,13 @@ void gpu_set_uniforms(gpu_render_encoder_t *encoder, int index,
 
 // Update camera uniform buffer (for pipelines with camera support)
 void gpu_update_camera_uniforms(gpu_pipeline_t *pipeline, const void *camera_data, size_t size);
+void gpu_update_toon_shader_uniforms(gpu_pipeline_t* pipeline,
+                                     const void* camera_data,
+                                     const void* joint_transforms,
+                                     const void* model_matrix,
+                                     const void* material_color,
+                                     const void* lights_data,
+                                     const void* blendshape_params);
 
 // Draw primitives
 void gpu_draw(gpu_render_encoder_t *encoder, int vertex_count);

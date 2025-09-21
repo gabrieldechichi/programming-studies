@@ -28,7 +28,7 @@ struct BlendshapeDelta {
     vec4 normal;
 };
 
-layout(std430, binding = 1) readonly buffer BlendshapeData {
+layout(std430, binding = 7) readonly buffer BlendshapeData {
     BlendshapeDelta deltas[];
 } blendshapeData;
 

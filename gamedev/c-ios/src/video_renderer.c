@@ -155,12 +155,29 @@ typedef struct {
 // Global application context
 static AppContext g_ctx;
 
-// Triangle vertex data
+// Triangle vertex data in skinned mesh format (52 bytes per vertex)
+// Format: pos(vec3), normal(vec3), uv(vec2), joints(u8*4), weights(vec4)
 static float vertices[] = {
-    // positions      colors
-    0.0f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f, // top (red)
-    -0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, // bottom left (green)
-    0.5f,  -0.5f, 0.0f, 0.0f, 1.0f, 1.0f  // bottom right (blue)
+    // Vertex 0: top
+    0.0f,  0.5f, 0.0f,    // position (vec3)
+    0.0f,  0.0f, 1.0f,    // normal (vec3) - facing forward
+    0.5f,  0.0f,          // uv (vec2)
+    0.0f,                 // joints [0,0,0,0] as float (4 zero bytes)
+    1.0f, 0.0f, 0.0f, 0.0f, // weights (vec4) - 100% on joint 0
+
+    // Vertex 1: bottom left
+    -0.5f, -0.5f, 0.0f,   // position
+    0.0f,  0.0f, 1.0f,    // normal
+    0.0f,  1.0f,          // uv
+    0.0f,                 // joints [0,0,0,0] as float
+    1.0f, 0.0f, 0.0f, 0.0f, // weights
+
+    // Vertex 2: bottom right
+    0.5f, -0.5f, 0.0f,    // position
+    0.0f,  0.0f, 1.0f,    // normal
+    1.0f,  1.0f,          // uv
+    0.0f,                 // joints [0,0,0,0] as float
+    1.0f, 0.0f, 0.0f, 0.0f  // weights
 };
 
 // Create a 4x4 rotation matrix around Z axis
@@ -683,16 +700,19 @@ static int initialize_system(void) {
     shader_source = load_shader_file("../../src/shaders/triangle.metal");
   }
 
-  // Create vertex layout
+  // Create vertex layout for skinned mesh format (toon shader)
   gpu_vertex_attr_t attributes[] = {
-      {.index = 0, .offset = 0, .format = 0}, // position (float2)
-      {.index = 1, .offset = 8, .format = 2}  // color (float4)
+      {.index = 0, .offset = 0,  .format = 1}, // position (float3)
+      {.index = 1, .offset = 12, .format = 1}, // normal (float3)
+      {.index = 2, .offset = 24, .format = 0}, // uv (float2)
+      {.index = 3, .offset = 32, .format = 3}, // joints (ubyte4)
+      {.index = 4, .offset = 36, .format = 2}  // weights (float4)
   };
 
   gpu_vertex_layout_t vertex_layout = {
       .attributes = attributes,
-      .num_attributes = 2,
-      .stride = 24 // 2 floats + 4 floats = 6 floats = 24 bytes
+      .num_attributes = 5,
+      .stride = 52 // 3+3+2+1+4 floats = 13 floats = 52 bytes
   };
 
   // Create pipeline
@@ -714,43 +734,52 @@ static int initialize_system(void) {
   // Initialize renderer system
   renderer_init(g_ctx.device, &g_ctx.permanent_allocator, &g_ctx.temporary_allocator);
 
-  // Create camera-enabled pipeline for testing
+  // Create toon shading pipeline
+  // Try without prefix first (when running from out/linux)
   g_ctx.camera_pipeline = gpu_create_pipeline_with_camera(
       g_ctx.device,
-      "out/linux/triangle_camera.vert.spv",
-      "out/linux/triangle_camera.frag.spv",
+      "toon_shading.vert.spv",
+      "toon_shading.frag.spv",
       &vertex_layout
   );
 
   if (!g_ctx.camera_pipeline) {
-    // Try without out/linux prefix
+    // Try with out/linux prefix (when running from project root)
     g_ctx.camera_pipeline = gpu_create_pipeline_with_camera(
         g_ctx.device,
-        "triangle_camera.vert.spv",
-        "triangle_camera.frag.spv",
+        "out/linux/toon_shading.vert.spv",
+        "out/linux/toon_shading.frag.spv",
         &vertex_layout
     );
   }
 
-  // Load the shader into renderer (use camera pipeline instead of regular one)
+  // Load the shader into renderer
   if (g_ctx.camera_pipeline) {
-    g_ctx.triangle_shader_handle = renderer_load_shader("triangle_camera", g_ctx.camera_pipeline);
-    printf("[Renderer] Using camera-enabled pipeline\n");
+    g_ctx.triangle_shader_handle = renderer_load_shader("toon_shading", g_ctx.camera_pipeline);
+    printf("[Renderer] Using toon shading pipeline with skinning support\n");
   } else {
     // Fall back to regular pipeline
     g_ctx.triangle_shader_handle = renderer_load_shader("triangle", g_ctx.pipeline);
-    printf("[Renderer] Falling back to regular pipeline (no camera support)\n");
+    printf("[Renderer] Falling back to regular pipeline (no toon shading)\n");
   }
 
-  // Create a simple material (no properties needed for this shader)
+  // Create a material with white color
+  MaterialProperty material_props[1] = {
+      {
+          .name = {.value = "uColor"},
+          .type = MAT_PROP_VEC3,
+          .value.vec3_val = {1.0f, 1.0f, 1.0f}  // White color
+      }
+  };
+
   g_ctx.triangle_material_handle = renderer_load_material(
       g_ctx.triangle_shader_handle,
-      NULL,  // No material properties
-      0,     // No properties
+      material_props,
+      1,     // 1 property
       false  // Not transparent
   );
 
-  // Create triangle mesh as SubMeshData
+  // Create triangle mesh as SubMeshData (skinned format)
   SubMeshData triangle_mesh = {
       .vertex_buffer = vertices,
       .len_vertex_buffer = sizeof(vertices) / sizeof(float),  // Total floats
@@ -761,7 +790,7 @@ static int initialize_system(void) {
       .blendshape_deltas = NULL
   };
 
-  g_ctx.triangle_mesh_handle = renderer_create_submesh(&triangle_mesh, false);
+  g_ctx.triangle_mesh_handle = renderer_create_submesh(&triangle_mesh, true);  // is_skinned = true
 
   // Create compute pipeline for BGRA to YUV conversion
   g_ctx.compute_pipeline = gpu_create_compute_pipeline(
@@ -833,10 +862,11 @@ static void render_all_frames(void) {
     float time = (float)i * dt;
     float angle = time * rotation_speed;
 
-    // Create rotation matrix
+    // Create rotation matrix scaled down
     mat4 model_matrix;
     glm_mat4_identity(model_matrix);
     glm_rotate_z(model_matrix, angle, model_matrix);
+    glm_scale(model_matrix, (vec3){0.5f, 0.5f, 0.5f});
 
     PROFILE_BEGIN("render_frame");
 
@@ -846,37 +876,90 @@ static void render_all_frames(void) {
     // Reset renderer commands for this frame
     renderer_reset_commands();
 
+    // Create identity joint transforms (no actual skinning deformation)
+    mat4 joint_transforms[256];  // Shader expects 256 joints
+    for (int j = 0; j < 256; j++) {
+      glm_mat4_identity(joint_transforms[j]);
+    }
+
+    // Create default blendshape params (no blendshapes)
+    BlendshapeParams blendshape_params = {0};
+
     // Set up camera if using camera pipeline
     if (g_ctx.camera_pipeline) {
       // Create camera matrices
       CameraUniformBlock camera_data;
 
-      // Simple perspective projection
-      glm_perspective(glm_rad(60.0f), // 60 degree FOV
-                      (float)FRAME_WIDTH / (float)FRAME_HEIGHT,
-                      0.1f, 100.0f,
-                      camera_data.projection);
-
-      // Look at the origin from a distance
+      // Set camera position first
       vec3 eye = {0.0f, 0.0f, 3.0f};
       vec3 center = {0.0f, 0.0f, 0.0f};
       vec3 up = {0.0f, 1.0f, 0.0f};
-      glm_lookat(eye, center, up, camera_data.view);
-
-      // Set camera position
       glm_vec3_copy(eye, camera_data.camera_pos);
+      camera_data._padding0 = 0.0f;
 
-      // Update GPU uniform buffer
-      gpu_update_camera_uniforms(g_ctx.camera_pipeline, &camera_data, sizeof(CameraUniformBlock));
+      // Create view matrix
+      glm_lookat(eye, center, up, camera_data.view_matrix);
+
+      // Create perspective projection
+      glm_perspective(glm_rad(60.0f), // 60 degree FOV
+                      (float)FRAME_WIDTH / (float)FRAME_HEIGHT,
+                      0.1f, 100.0f,
+                      camera_data.projection_matrix);
+
+      // Calculate view_proj matrix (projection * view)
+      glm_mat4_mul(camera_data.projection_matrix, camera_data.view_matrix, camera_data.view_proj_matrix);
+
+      // Set up lights
+      DirectionalLightBlock lights;
+      lights.count = 1.0f;
+      lights._pad0 = 0.0f;
+      lights._pad1 = 0.0f;
+      lights._pad2 = 0.0f;
+
+      // Light direction (pointing down and forward)
+      vec3 light_dir = {0.0f, -0.5f, -1.0f};
+      glm_vec3_normalize(light_dir);
+      lights.lights_data[0][0] = light_dir[0];
+      lights.lights_data[0][1] = light_dir[1];
+      lights.lights_data[0][2] = light_dir[2];
+      lights.lights_data[0][3] = 0.0f;
+
+      // Light color and intensity
+      lights.lights_data[1][0] = 1.0f;  // R
+      lights.lights_data[1][1] = 1.0f;  // G
+      lights.lights_data[1][2] = 1.0f;  // B
+      lights.lights_data[1][3] = 1.0f;  // intensity
+
+      // Material color (white)
+      vec3 material_color = {1.0f, 1.0f, 1.0f};
+
+      // Update ALL uniforms for toon shader
+      gpu_update_toon_shader_uniforms(g_ctx.camera_pipeline,
+                                      &camera_data,      // camera
+                                      joint_transforms,  // joints
+                                      &model_matrix,     // model matrix
+                                      material_color,    // material color
+                                      &lights,           // lights
+                                      &blendshape_params); // blendshapes
 
       // Also update renderer's camera state
       renderer_update_camera(&camera_data);
+      renderer_set_lights(&lights);
     }
 
     // Issue renderer commands
     Color clear_color = {.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f};
     renderer_clear(clear_color);
-    renderer_draw_mesh(g_ctx.triangle_mesh_handle, g_ctx.triangle_material_handle, model_matrix);
+
+    // Use skinned mesh rendering path
+    renderer_draw_skinned_mesh(
+        g_ctx.triangle_mesh_handle,
+        g_ctx.triangle_material_handle,
+        model_matrix,
+        joint_transforms,
+        256,  // num_joints (shader expects 256)
+        &blendshape_params
+    );
 
     // Execute renderer commands
     renderer_execute_commands(g_ctx.render_texture_pool[pool_index], cmd_buffer);

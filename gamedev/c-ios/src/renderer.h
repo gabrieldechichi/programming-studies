@@ -25,22 +25,22 @@ typedef struct {
     } value;
 } MaterialProperty;
 
-// Camera uniform block (matching shader expectations)
+// Camera uniform block (matching toon shader expectations)
 typedef struct {
-    mat4 view;
-    mat4 projection;
     vec3 camera_pos;
-    float _padding1;
+    float _padding0;
+    mat4 view_matrix;
+    mat4 projection_matrix;
+    mat4 view_proj_matrix;  // view * projection
 } CameraUniformBlock;
 
-// Directional light uniform block
+// Directional light uniform block (matching toon shader)
 typedef struct {
-    vec3 light_direction;
-    float _padding1;
-    vec3 light_color;
-    float light_intensity;
-    vec3 ambient_color;
-    float ambient_intensity;
+    float count;  // Number of lights
+    float _pad0;
+    float _pad1;
+    float _pad2;
+    vec4 lights_data[8];  // 4 lights * 2 vec4s each (direction + color/intensity)
 } DirectionalLightBlock;
 
 // Blendshape parameters

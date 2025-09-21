@@ -88,10 +88,19 @@ struct gpu_pipeline {
     VkDescriptorSetLayout descriptor_set_layout;
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet descriptor_set;
-    VkBuffer uniform_buffer;
-    VkDeviceMemory uniform_buffer_memory;
-    void* uniform_buffer_mapped;
+    VkBuffer uniform_buffer;  // Backward compatibility - points to uniform_buffers[0]
+    VkDeviceMemory uniform_buffer_memory;  // Points to uniform_memories[0]
+    void* uniform_buffer_mapped;  // Points to uniform_mapped[0]
     bool has_uniforms;
+
+    // Multiple uniform buffers for toon shader
+    VkBuffer* uniform_buffers;      // Array of uniform buffers (one per binding)
+    VkDeviceMemory* uniform_memories;  // Memory for each uniform buffer
+    void** uniform_mapped;           // Mapped pointers for each uniform buffer
+
+    // Storage buffer for blendshapes
+    VkBuffer storage_buffer;
+    VkDeviceMemory storage_memory;
 };
 
 struct gpu_buffer {
@@ -1063,62 +1072,133 @@ gpu_pipeline_t* gpu_create_pipeline_with_camera(
 
     VK_CHECK(vkCreateRenderPass(device->device, &render_pass_info, NULL, &pipeline->render_pass));
 
-    // Create uniform buffer for camera data
-    // Size: mat4 view + mat4 projection + vec3 camera_pos + padding = 16*4 + 16*4 + 4*4 = 144 bytes
-    VkDeviceSize buffer_size = sizeof(float) * 36;  // 144 bytes
+    // Create ALL uniform buffers needed by toon shader
+    // Binding 0: camera_params (vec3 + pad + 3 mat4 = 16 + 192 = 208 bytes)
+    // Binding 1: joint_transforms (256 mat4 = 16384 bytes)
+    // Binding 2: model_params (1 mat4 = 64 bytes)
+    // Binding 3: fs_params (1 vec4 = 16 bytes)
+    // Binding 4: light_params (vec4 + 8 vec4 = 144 bytes)
+    // Binding 6: blendshape_params (ivec4 + 8 vec4 = 144 bytes)
 
-    VkBufferCreateInfo buffer_info = {
+    // Store uniform buffer sizes for later use
+    VkDeviceSize uniform_sizes[] = {
+        208,    // camera_params
+        16384,  // joint_transforms
+        64,     // model_params
+        16,     // fs_params
+        144,    // light_params
+        0,      // binding 5 unused
+        144     // blendshape_params
+    };
+
+    // Allocate arrays for multiple uniform buffers
+    pipeline->uniform_buffers = ALLOC_ARRAY(device->permanent_allocator, VkBuffer, 7);
+    pipeline->uniform_memories = ALLOC_ARRAY(device->permanent_allocator, VkDeviceMemory, 7);
+    pipeline->uniform_mapped = ALLOC_ARRAY(device->permanent_allocator, void*, 7);
+
+    // Create each uniform buffer
+    for (int i = 0; i < 7; i++) {
+        if (i == 5 || uniform_sizes[i] == 0) continue; // Skip unused binding 5
+
+        VkBufferCreateInfo buffer_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = uniform_sizes[i],
+            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+
+        VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->uniform_buffers[i]));
+
+        VkMemoryRequirements mem_requirements;
+        vkGetBufferMemoryRequirements(device->device, pipeline->uniform_buffers[i], &mem_requirements);
+
+        VkMemoryAllocateInfo alloc_info = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = mem_requirements.size,
+            .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+        };
+
+        VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->uniform_memories[i]));
+        VK_CHECK(vkBindBufferMemory(device->device, pipeline->uniform_buffers[i], pipeline->uniform_memories[i], 0));
+        VK_CHECK(vkMapMemory(device->device, pipeline->uniform_memories[i], 0, uniform_sizes[i], 0, &pipeline->uniform_mapped[i]));
+    }
+
+    // Also create a storage buffer for blendshapes at binding 1 (set 0)
+    VkDeviceSize storage_size = sizeof(float) * 8 * 1000; // Dummy size for blendshape deltas
+    VkBuffer storage_buffer;
+    VkDeviceMemory storage_memory;
+
+    VkBufferCreateInfo storage_info = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = buffer_size,
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        .size = storage_size,
+        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
 
-    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->uniform_buffer));
+    VK_CHECK(vkCreateBuffer(device->device, &storage_info, NULL, &storage_buffer));
 
-    VkMemoryRequirements mem_requirements;
-    vkGetBufferMemoryRequirements(device->device, pipeline->uniform_buffer, &mem_requirements);
+    VkMemoryRequirements storage_mem_req;
+    vkGetBufferMemoryRequirements(device->device, storage_buffer, &storage_mem_req);
 
-    VkMemoryAllocateInfo alloc_info = {
+    VkMemoryAllocateInfo storage_alloc = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize = mem_requirements.size,
-        .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+        .allocationSize = storage_mem_req.size,
+        .memoryTypeIndex = find_memory_type(device->physical_device, storage_mem_req.memoryTypeBits,
                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
     };
 
-    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->uniform_buffer_memory));
-    VK_CHECK(vkBindBufferMemory(device->device, pipeline->uniform_buffer, pipeline->uniform_buffer_memory, 0));
+    VK_CHECK(vkAllocateMemory(device->device, &storage_alloc, NULL, &storage_memory));
+    VK_CHECK(vkBindBufferMemory(device->device, storage_buffer, storage_memory, 0));
 
-    // Map uniform buffer memory
-    VK_CHECK(vkMapMemory(device->device, pipeline->uniform_buffer_memory, 0, buffer_size, 0, &pipeline->uniform_buffer_mapped));
+    pipeline->storage_buffer = storage_buffer;
+    pipeline->storage_memory = storage_memory;
 
-    // Create descriptor set layout
-    VkDescriptorSetLayoutBinding ubo_layout_binding = {
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-        .pImmutableSamplers = NULL
+    // Keep backward compatibility
+    pipeline->uniform_buffer = pipeline->uniform_buffers[0];
+    pipeline->uniform_buffer_memory = pipeline->uniform_memories[0];
+    pipeline->uniform_buffer_mapped = pipeline->uniform_mapped[0];
+
+    // Create descriptor set layout with uniform buffer bindings only
+    // We're not using textures for now
+    VkDescriptorSetLayoutBinding layout_bindings[] = {
+        // Binding 0: camera_params (vertex shader)
+        {.binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT},
+        // Binding 1: joint_transforms (vertex shader)
+        {.binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT},
+        // Binding 2: model_params (vertex shader)
+        {.binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT},
+        // Binding 3: fs_params (fragment shader)
+        {.binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT},
+        // Binding 4: light_params (fragment shader)
+        {.binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT},
+        // Binding 6: blendshape_params (vertex shader)
+        {.binding = 6, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT}
     };
 
     VkDescriptorSetLayoutCreateInfo layout_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = 1,
-        .pBindings = &ubo_layout_binding
+        .bindingCount = 6,  // 6 uniform buffer bindings
+        .pBindings = layout_bindings
     };
 
     VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, NULL, &pipeline->descriptor_set_layout));
 
-    // Create descriptor pool
-    VkDescriptorPoolSize pool_size = {
-        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = 1
+    // Create descriptor pool with enough descriptors
+    VkDescriptorPoolSize pool_sizes[] = {
+        {.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 6}
     };
 
     VkDescriptorPoolCreateInfo pool_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
+        .pPoolSizes = pool_sizes,
         .maxSets = 1
     };
 
@@ -1134,24 +1214,43 @@ gpu_pipeline_t* gpu_create_pipeline_with_camera(
 
     VK_CHECK(vkAllocateDescriptorSets(device->device, &alloc_desc_info, &pipeline->descriptor_set));
 
-    // Update descriptor set to point to uniform buffer
-    VkDescriptorBufferInfo buffer_desc_info = {
-        .buffer = pipeline->uniform_buffer,
+    // Update descriptor sets for all uniform buffers
+    VkWriteDescriptorSet writes[7];
+    VkDescriptorBufferInfo buffer_infos[7];
+    int write_count = 0;
+
+    for (int i = 0; i < 7; i++) {
+        if (i == 5 || uniform_sizes[i] == 0) continue;
+
+        buffer_infos[write_count] = (VkDescriptorBufferInfo){
+            .buffer = pipeline->uniform_buffers[i],
+            .offset = 0,
+            .range = uniform_sizes[i]
+        };
+
+        writes[write_count] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = pipeline->descriptor_set,
+            .dstBinding = i,
+            .dstArrayElement = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .pBufferInfo = &buffer_infos[write_count]
+        };
+        write_count++;
+    }
+
+    // Add storage buffer write
+    VkDescriptorBufferInfo storage_buffer_info = {
+        .buffer = storage_buffer,
         .offset = 0,
-        .range = buffer_size
+        .range = storage_size
     };
 
-    VkWriteDescriptorSet descriptor_write = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = pipeline->descriptor_set,
-        .dstBinding = 0,
-        .dstArrayElement = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = 1,
-        .pBufferInfo = &buffer_desc_info
-    };
+    // Note: This overwrites binding 1 as storage buffer - need to handle this properly
+    // For now, we'll skip it since we're not using blendshapes
 
-    vkUpdateDescriptorSets(device->device, 1, &descriptor_write, 0, NULL);
+    vkUpdateDescriptorSets(device->device, write_count, writes, 0, NULL);
 
     // Vertex input setup
     VkVertexInputBindingDescription binding_description = {
@@ -1481,8 +1580,57 @@ void gpu_update_camera_uniforms(gpu_pipeline_t* pipeline, const void* camera_dat
         return;
     }
 
-    // Copy camera data to mapped uniform buffer
+    // Copy camera data to mapped uniform buffer (binding 0)
     memcpy(pipeline->uniform_buffer_mapped, camera_data, size);
+}
+
+// New function to update all toon shader uniforms
+void gpu_update_toon_shader_uniforms(gpu_pipeline_t* pipeline,
+                                     const void* camera_data,
+                                     const void* joint_transforms,
+                                     const void* model_matrix,
+                                     const void* material_color,
+                                     const void* lights_data,
+                                     const void* blendshape_params) {
+    if (!pipeline || !pipeline->has_uniforms || !pipeline->uniform_mapped) {
+        return;
+    }
+
+    // Update binding 0: camera_params (208 bytes)
+    if (pipeline->uniform_mapped[0] && camera_data) {
+        memcpy(pipeline->uniform_mapped[0], camera_data, 208);
+    }
+
+    // Update binding 1: joint_transforms (16384 bytes for 256 matrices)
+    if (pipeline->uniform_mapped[1] && joint_transforms) {
+        memcpy(pipeline->uniform_mapped[1], joint_transforms, 16384);
+    }
+
+    // Update binding 2: model_params (64 bytes)
+    if (pipeline->uniform_mapped[2] && model_matrix) {
+        memcpy(pipeline->uniform_mapped[2], model_matrix, 64);
+    }
+
+    // Update binding 3: fs_params (16 bytes - vec4 color)
+    if (pipeline->uniform_mapped[3]) {
+        // Material color should be vec4
+        float color_vec4[4] = {1.0f, 1.0f, 1.0f, 1.0f};  // Default white
+        if (material_color) {
+            memcpy(color_vec4, material_color, sizeof(float) * 3);
+            color_vec4[3] = 1.0f;  // Set alpha to 1
+        }
+        memcpy(pipeline->uniform_mapped[3], color_vec4, 16);
+    }
+
+    // Update binding 4: light_params (144 bytes)
+    if (pipeline->uniform_mapped[4] && lights_data) {
+        memcpy(pipeline->uniform_mapped[4], lights_data, 144);
+    }
+
+    // Update binding 6: blendshape_params (144 bytes)
+    if (pipeline->uniform_mapped[6] && blendshape_params) {
+        memcpy(pipeline->uniform_mapped[6], blendshape_params, 144);
+    }
 }
 
 void gpu_draw(gpu_render_encoder_t* encoder, int vertex_count) {

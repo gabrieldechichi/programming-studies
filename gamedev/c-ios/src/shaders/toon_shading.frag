@@ -64,12 +64,8 @@ vec3 anime_light_pass(vec3 color, vec3 normal, vec3 worldPos) {
 }
 
 void main() {
-    // Sample textures
-    vec4 tex_color = texture(sampler2D(uTexture, sampler_uTexture), vs_texcoord);
-    vec4 detail_color = texture(sampler2D(uDetailTexture, sampler_uDetailTexture), vs_texcoord).rgba;
-
-    // Mix main and detail textures
-    tex_color.rgb = mix(tex_color.rgb, detail_color.rgb, detail_color.a);
+    // For now, skip texture sampling and use white color
+    vec4 tex_color = vec4(1.0, 1.0, 1.0, 1.0);
 
     // Normalize the interpolated normal
     vec3 normal = normalize(vs_normal);
@@ -78,12 +74,9 @@ void main() {
     vec3 color = vec3(1.0);
     color = anime_light_pass(color, normal, vs_world_pos);
 
-    // Apply texture color
-    color *= tex_color.rgb;
-
     // Apply material color tint
     color *= material.uColor.rgb;
 
     // Output final color with alpha
-    frag_color = vec4(color, tex_color.a * material.uColor.a);
+    frag_color = vec4(color, material.uColor.a);
 }

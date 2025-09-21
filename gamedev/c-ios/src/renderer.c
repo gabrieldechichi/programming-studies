@@ -219,17 +219,30 @@ void renderer_init(gpu_device_t *device, Allocator *permanent_allocator, Allocat
   g_renderer->gpu_shaders = ha_init(GPUShader, permanent_allocator, 16);
 
   // Initialize camera with identity matrices
-  glm_mat4_identity(g_renderer->current_camera.view);
-  glm_mat4_identity(g_renderer->current_camera.projection);
+  glm_mat4_identity(g_renderer->current_camera.view_matrix);
+  glm_mat4_identity(g_renderer->current_camera.projection_matrix);
+  glm_mat4_identity(g_renderer->current_camera.view_proj_matrix);
   glm_vec3_zero(g_renderer->current_camera.camera_pos);
 
   // Initialize default light
-  glm_vec3_copy((vec3){0.5f, -1.0f, -0.5f}, g_renderer->current_lights.light_direction);
-  glm_vec3_normalize(g_renderer->current_lights.light_direction);
-  glm_vec3_copy((vec3){1.0f, 1.0f, 1.0f}, g_renderer->current_lights.light_color);
-  g_renderer->current_lights.light_intensity = 1.0f;
-  glm_vec3_copy((vec3){0.2f, 0.2f, 0.3f}, g_renderer->current_lights.ambient_color);
-  g_renderer->current_lights.ambient_intensity = 1.0f;
+  g_renderer->current_lights.count = 1.0f;  // One light
+  g_renderer->current_lights._pad0 = 0.0f;
+  g_renderer->current_lights._pad1 = 0.0f;
+  g_renderer->current_lights._pad2 = 0.0f;
+
+  // Light 0 - direction (normalized)
+  vec3 light_dir = {0.5f, -1.0f, -0.5f};
+  glm_vec3_normalize(light_dir);
+  g_renderer->current_lights.lights_data[0][0] = light_dir[0];
+  g_renderer->current_lights.lights_data[0][1] = light_dir[1];
+  g_renderer->current_lights.lights_data[0][2] = light_dir[2];
+  g_renderer->current_lights.lights_data[0][3] = 0.0f;
+
+  // Light 0 - color and intensity
+  g_renderer->current_lights.lights_data[1][0] = 1.0f;  // R
+  g_renderer->current_lights.lights_data[1][1] = 1.0f;  // G
+  g_renderer->current_lights.lights_data[1][2] = 1.0f;  // B
+  g_renderer->current_lights.lights_data[1][3] = 1.0f;  // intensity
 
   g_renderer->initialized = true;
   printf("[Renderer] Initialized\n");
@@ -473,7 +486,64 @@ void renderer_execute_commands(gpu_texture_t *render_target, gpu_command_buffer_
       } break;
 
       case RENDER_CMD_DRAW_SKINNED_MESH: {
-        // Collect for batching
+        // For now, render immediately instead of batching
+        // TODO: Implement proper batching with uniforms
+
+        // Get mesh and material
+        GPUSubMesh *mesh = ha_get(GPUSubMesh, &g_renderer->gpu_submeshes, cmd->data.draw_skinned_mesh.mesh_handle);
+        GPUMaterial *material = ha_get(GPUMaterial, &g_renderer->gpu_materials, cmd->data.draw_skinned_mesh.material_handle);
+
+        if (!mesh || !material) continue;
+
+        // Get shader
+        GPUShader *gpu_shader = ha_get(GPUShader, &g_renderer->gpu_shaders, material->shader_handle);
+        if (!gpu_shader || !gpu_shader->pipeline) continue;
+
+        // Begin render pass
+        gpu_render_encoder_t *encoder = gpu_begin_render_pass(
+            cmd_buffer, render_target,
+            clear_color.r, clear_color.g, clear_color.b, clear_color.a
+        );
+
+        // Set pipeline
+        gpu_set_pipeline(encoder, gpu_shader->pipeline);
+
+        // Set vertex buffer
+        gpu_set_vertex_buffer(encoder, mesh->vertex_buffer, 0);
+
+        // Update ALL uniforms for toon shader
+        if (gpu_shader->pipeline->has_uniforms) {
+          // For toon shader, we need to update all uniforms
+          vec3 material_color = {1.0f, 1.0f, 1.0f}; // Default white
+
+          // Extract material color if available
+          for (u32 i = 0; i < material->property_count; i++) {
+            if (material->properties[i].type == MAT_PROP_VEC3 &&
+                strcmp(material->properties[i].name.value, "uColor") == 0) {
+              glm_vec3_copy(material->properties[i].value.vec3_val, material_color);
+              break;
+            }
+          }
+
+          gpu_update_toon_shader_uniforms(gpu_shader->pipeline,
+                                         &g_renderer->current_camera,
+                                         cmd->data.draw_skinned_mesh.joint_transforms,
+                                         &cmd->data.draw_skinned_mesh.model_matrix,
+                                         material_color,
+                                         &g_renderer->current_lights,
+                                         cmd->data.draw_skinned_mesh.blendshape_params);
+        }
+
+        // Also set model matrix as push constant for compatibility
+        gpu_set_uniforms(encoder, 1, &cmd->data.draw_skinned_mesh.model_matrix, sizeof(mat4));
+
+        // Draw
+        gpu_draw(encoder, mesh->index_count);
+
+        // End render pass
+        gpu_end_render_pass(encoder);
+
+        // Also collect for batching (keep for future implementation)
         collect_skinned_mesh_instance(
             cmd->data.draw_skinned_mesh.material_handle,
             cmd->data.draw_skinned_mesh.mesh_handle,
