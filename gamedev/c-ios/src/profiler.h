@@ -4,7 +4,7 @@
 #include "typedefs.h"
 
 #ifndef PROFILER_ENABLED
-#define PROFILER_ENABLED 1
+#define PROFILER_ENABLED 0
 #endif
 
 #if PROFILER_ENABLED
@@ -70,6 +70,9 @@ void profiler_end_and_print_session(Allocator* allocator);
 
 #else
 
+static inline void profiler_begin_session(void){}
+static inline void profiler_end_and_print_session(Allocator* allocator) {}
+
 #define PROFILE_BEGIN(name)
 #define PROFILE_END()
 #define PROFILE_SCOPE(name)
@@ -77,6 +80,5 @@ void profiler_end_and_print_session(Allocator* allocator);
 #define TimeFunction
 #define PROFILE_ASSERT_END_OF_COMPILATION_UNIT
 
-static inline void profiler_end_and_print_session(Allocator* allocator) {}
 
 #endif

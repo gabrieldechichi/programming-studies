@@ -14,84 +14,11 @@ import socket
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global process for persistent video renderer daemon
-video_renderer_process = None
 SOCKET_PATH = "/tmp/video_renderer.sock"
-
-def cleanup_process():
-    """Clean up the video renderer process on exit"""
-    global video_renderer_process
-    if video_renderer_process and video_renderer_process.poll() is None:
-        logger.info("Terminating video renderer daemon...")
-        video_renderer_process.terminate()
-        try:
-            video_renderer_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            logger.warning("Force killing video renderer daemon...")
-            video_renderer_process.kill()
-
-    # Clean up socket file if it exists
-    if os.path.exists(SOCKET_PATH):
-        try:
-            os.unlink(SOCKET_PATH)
-            logger.info(f"Removed socket file: {SOCKET_PATH}")
-        except Exception as e:
-            logger.warning(f"Failed to remove socket file: {e}")
-
-# Register cleanup function
-atexit.register(cleanup_process)
-
-def start_video_renderer_daemon():
-    """Start the persistent video renderer daemon"""
-    global video_renderer_process
-
-    # Check if process is already running
-    if video_renderer_process and video_renderer_process.poll() is None:
-        logger.info("Video renderer daemon already running")
-        return True
-
-    logger.info("Starting video renderer daemon...")
-
-    # Ensure we're in the correct directory
-    os.chdir('/app')
-
-    # Check if video_renderer exists and is executable
-    if not os.path.exists('./video_renderer'):
-        logger.error("video_renderer binary not found!")
-        return False
-
-    if not os.access('./video_renderer', os.X_OK):
-        logger.error("video_renderer binary is not executable!")
-        return False
-
-    try:
-        # Start daemon as a separate process (not piped)
-        # stdout/stderr will go to container logs
-        video_renderer_process = subprocess.Popen(
-            ['./video_renderer'],
-            cwd='/app'
-        )
-
-        # Give it time to initialize and create socket
-        time.sleep(1.0)
-
-        # Check if process started successfully
-        if video_renderer_process.poll() is not None:
-            # Process has already terminated
-            logger.error("Video renderer daemon failed to start")
-            return False
-
-        # Check if socket file was created
-        if not os.path.exists(SOCKET_PATH):
-            logger.error(f"Socket file {SOCKET_PATH} was not created")
-            return False
-
-        logger.info("Video renderer daemon started successfully")
-        return True
-
-    except Exception as e:
-        logger.error(f"Failed to start video renderer daemon: {e}")
-        return False
+video_renderer_process = subprocess.Popen(
+    ['./video_renderer'],
+    cwd='/app'
+)
 
 def send_render_request(seconds=8.33):
     """Send a render request to the daemon via Unix socket and get the response"""
@@ -168,19 +95,27 @@ def handler(event):
         logger.info("=== Processing video rendering request ===")
         logger.info(f"Event received: {event}")
 
+        # Check if video_renderer_process is alive
+        global video_renderer_process
+        if video_renderer_process is None:
+            logger.info("video_renderer_process is None")
+        else:
+            poll_result = video_renderer_process.poll()
+            if poll_result is None:
+                logger.info(f"video_renderer_process is ALIVE (pid: {video_renderer_process.pid})")
+            else:
+                logger.info(f"video_renderer_process is DEAD (exit code: {poll_result}, pid: {video_renderer_process.pid})")
+
+        # Check if socket exists
+        if os.path.exists(SOCKET_PATH):
+            logger.info(f"Socket file EXISTS at {SOCKET_PATH}")
+        else:
+            logger.info(f"Socket file DOES NOT EXIST at {SOCKET_PATH}")
+
         # Get input parameters
         input_data = event.get('input', {})
         seconds = input_data.get('seconds', 8.33)  # Default ~200 frames at 24fps
         logger.info(f"Rendering {seconds} seconds of video")
-
-        # Start daemon on first request or if it has crashed
-        if video_renderer_process is None or video_renderer_process.poll() is not None:
-            logger.info("Starting video renderer daemon...")
-            if not start_video_renderer_daemon():
-                return {
-                    "success": False,
-                    "error": "Failed to start video renderer daemon"
-                }
 
         # Clean up any existing output files
         if os.path.exists('/app/output.mp4'):
