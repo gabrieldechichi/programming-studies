@@ -84,87 +84,78 @@ def send_render_request(seconds=8.33):
 
 # Don't initialize at module load - let handler do it on first request
 
+def health_check():
+    """Check the health of the video_renderer daemon"""
+    global video_renderer_process
+
+    daemon_alive = False
+    socket_exists = os.path.exists(SOCKET_PATH)
+
+    if video_renderer_process is not None:
+        poll_result = video_renderer_process.poll()
+        daemon_alive = poll_result is None
+        if daemon_alive:
+            logger.info(f"video_renderer_process is ALIVE (pid: {video_renderer_process.pid})")
+        else:
+            logger.info(f"video_renderer_process is DEAD (exit code: {poll_result})")
+    else:
+        logger.info("video_renderer_process is None")
+
+    logger.info(f"Socket exists: {socket_exists}")
+
+    return {
+        "success": True,
+        "daemon_alive": daemon_alive,
+        "socket_exists": socket_exists,
+        "pid": video_renderer_process.pid if video_renderer_process and daemon_alive else None
+    }
+
+def generate_video(input_data):
+    """Generate video by sending request to daemon and returning its response"""
+    seconds = input_data.get('seconds', 8.33)  # Default ~200 frames at 24fps
+    logger.info(f"Rendering {seconds} seconds of video")
+
+    # Send render request to daemon
+    response = send_render_request(seconds)
+
+    if not response:
+        return {
+            "success": False,
+            "error": "Failed to get response from video renderer daemon"
+        }
+
+    # Return the raw response from the daemon
+    logger.info(f"Returning daemon response: {response}")
+    return response
+
 def handler(event):
     """
-    RunPod serverless handler for video rendering using persistent daemon.
+    RunPod serverless handler with multiple endpoints.
 
-    Input: event with optional parameters for video generation
-    Output: Base64-encoded video file
+    Endpoints:
+    - /health: Check daemon status
+    - /generate_video: Generate video and return daemon response
     """
     try:
-        logger.info("=== Processing video rendering request ===")
+        logger.info("=== Processing request ===")
         logger.info(f"Event received: {event}")
 
-        # Check if video_renderer_process is alive
-        global video_renderer_process
-        if video_renderer_process is None:
-            logger.info("video_renderer_process is None")
-        else:
-            poll_result = video_renderer_process.poll()
-            if poll_result is None:
-                logger.info(f"video_renderer_process is ALIVE (pid: {video_renderer_process.pid})")
-            else:
-                logger.info(f"video_renderer_process is DEAD (exit code: {poll_result}, pid: {video_renderer_process.pid})")
-
-        # Check if socket exists
-        if os.path.exists(SOCKET_PATH):
-            logger.info(f"Socket file EXISTS at {SOCKET_PATH}")
-        else:
-            logger.info(f"Socket file DOES NOT EXIST at {SOCKET_PATH}")
-
-        # Get input parameters
+        # Get input data and endpoint
         input_data = event.get('input', {})
-        seconds = input_data.get('seconds', 8.33)  # Default ~200 frames at 24fps
-        logger.info(f"Rendering {seconds} seconds of video")
+        endpoint = input_data.get('endpoint', '/generate_video')  # Default to generate_video
 
-        # Clean up any existing output files
-        if os.path.exists('/app/output.mp4'):
-            os.remove('/app/output.mp4')
-            logger.info("Removed existing output.mp4")
+        logger.info(f"Endpoint requested: {endpoint}")
 
-        # Send render request
-        response = send_render_request(seconds)
-
-        if not response:
+        # Route to appropriate handler
+        if endpoint == '/health':
+            return health_check()
+        elif endpoint == '/generate_video':
+            return generate_video(input_data)
+        else:
             return {
                 "success": False,
-                "error": "Failed to get response from video renderer daemon"
+                "error": f"Unknown endpoint: {endpoint}"
             }
-
-        if not response.get('success', False):
-            return {
-                "success": False,
-                "error": response.get('error', 'Unknown error from daemon')
-            }
-
-        # Check if output file was created
-        if not os.path.exists('/app/output.mp4'):
-            logger.error("Output file output.mp4 was not created")
-            return {
-                "success": False,
-                "error": "Output video file was not generated"
-            }
-
-        # Get file size for logging
-        file_size = os.path.getsize('/app/output.mp4')
-        logger.info(f"Generated video file size: {file_size} bytes")
-
-        # Read and encode the video file
-        with open('/app/output.mp4', 'rb') as video_file:
-            video_data = video_file.read()
-
-        # Encode to base64
-        video_base64 = base64.b64encode(video_data).decode('utf-8')
-
-        logger.info(f"Video encoded to base64, length: {len(video_base64)} characters")
-
-        return {
-            "success": True,
-            "video": video_base64,
-            "file_size": file_size,
-            "encoding": "base64",
-            "seconds_rendered": seconds
-        }
 
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
