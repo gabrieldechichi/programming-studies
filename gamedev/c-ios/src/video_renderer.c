@@ -10,9 +10,9 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
+#include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <unistd.h>
 #include <errno.h>
 
 // FFmpeg headers
@@ -28,6 +28,9 @@
 // GPU backend abstraction
 #include "gpu_backend.h"
 
+// Mode selection - set to 1 for standalone mode, 0 for daemon mode
+#define STANDALONE_MODE 1
+
 // Application constants
 #define MAX_FRAMES 1440 // Maximum frames for longest video (60 seconds at 24fps)
 #define NUM_TEXTURE_POOLS                                                      \
@@ -41,8 +44,10 @@
   (FRAME_WIDTH * FRAME_HEIGHT / 4) // U,V planes: quarter resolution (4:2:0)
 #define YUV_TOTAL_SIZE_BYTES                                                   \
   (YUV_Y_SIZE_BYTES + 2 * YUV_UV_SIZE_BYTES) // Y + U + V
+#if !STANDALONE_MODE
 #define INPUT_BUFFER_SIZE MB(1)
 #define SOCKET_PATH "/tmp/video_renderer.sock"
+#endif
 
 // Memory allocation sizes
 #define PERMANENT_MEMORY_SIZE MB(200)  // 200MB for permanent allocations (GPU objects, no frames)
@@ -364,8 +369,50 @@ static int open_ffmpeg_encoder(const char *filename) {
   // Open codec
   ret = avcodec_open2(g_ctx.codec_ctx, g_ctx.cached_codec, NULL);
   if (ret < 0) {
-    fprintf(stderr, "Failed to open codec\n");
-    return -1;
+    // If hardware encoder failed, try fallback to software
+    if (g_ctx.cached_codec->name && (strstr(g_ctx.cached_codec->name, "nvenc") ||
+                                     strstr(g_ctx.cached_codec->name, "videotoolbox") ||
+                                     strstr(g_ctx.cached_codec->name, "qsv"))) {
+      fprintf(stderr, "Hardware encoder failed, falling back to software encoder\n");
+
+      // Try software encoder
+      g_ctx.cached_codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+      if (!g_ctx.cached_codec) {
+        fprintf(stderr, "Failed to find software H.264 encoder\n");
+        return -1;
+      }
+
+      // Reallocate codec context with software encoder
+      avcodec_free_context(&g_ctx.codec_ctx);
+      g_ctx.codec_ctx = avcodec_alloc_context3(g_ctx.cached_codec);
+      if (!g_ctx.codec_ctx) {
+        fprintf(stderr, "Failed to allocate codec context for software encoder\n");
+        return -1;
+      }
+
+      // Reset codec parameters
+      g_ctx.codec_ctx->width = FRAME_WIDTH;
+      g_ctx.codec_ctx->height = FRAME_HEIGHT;
+      g_ctx.codec_ctx->time_base = (AVRational){1, 24};
+      g_ctx.codec_ctx->framerate = (AVRational){24, 1};
+      g_ctx.codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+      g_ctx.codec_ctx->bit_rate = 2000000;
+
+      // Software encoder options
+      av_opt_set(g_ctx.codec_ctx->priv_data, "profile", "high", 0);
+      av_opt_set(g_ctx.codec_ctx->priv_data, "level", "4.0", 0);
+
+      // Try opening again with software encoder
+      ret = avcodec_open2(g_ctx.codec_ctx, g_ctx.cached_codec, NULL);
+      if (ret < 0) {
+        fprintf(stderr, "Failed to open software codec\n");
+        return -1;
+      }
+      printf("[FFmpeg] Fallback to software encoder successful (using %s)\n", g_ctx.cached_codec->name);
+    } else {
+      fprintf(stderr, "Failed to open codec\n");
+      return -1;
+    }
   }
 
   // Copy codec parameters to stream
@@ -653,12 +700,12 @@ static int initialize_system(void) {
 
   // Create compute pipeline for BGRA to YUV conversion
   g_ctx.compute_pipeline = gpu_create_compute_pipeline(
-      g_ctx.device, "out/linux/bgra_to_yuv.comp.spv", MAX_FRAMES);
+      g_ctx.device, "bgra_to_yuv.comp.spv", MAX_FRAMES);
 
   if (!g_ctx.compute_pipeline) {
     // Try alternate path
     g_ctx.compute_pipeline =
-        gpu_create_compute_pipeline(g_ctx.device, "bgra_to_yuv.comp.spv", MAX_FRAMES);
+        gpu_create_compute_pipeline(g_ctx.device, "out/linux/bgra_to_yuv.comp.spv", MAX_FRAMES);
   }
 
   // Create texture pools (4 pools instead of 200 unique textures)
@@ -1007,6 +1054,7 @@ static char* base64_encode(const unsigned char *data, size_t input_length, size_
     return encoded_data;
 }
 
+#if !STANDALONE_MODE
 // Send JSON response with base64 video
 static void send_response(int client_fd, bool success, const char *error_msg) {
   if (success) {
@@ -1066,13 +1114,34 @@ static void send_response(int client_fd, bool success, const char *error_msg) {
     write(client_fd, response, strlen(response));
   }
 }
+#endif
 
+// Render video without any network communication
+static int render_video_standalone(render_request_t *request) {
+  printf("Rendering %.2f seconds (%d frames)...\n", request->seconds,
+         request->num_frames);
+  fflush(stdout);
+
+  int result = render_video(request);
+
+  if (result == 0) {
+    printf("Video rendered successfully to output.mp4\n");
+  } else {
+    fprintf(stderr, "Video rendering failed\n");
+  }
+
+  return result;
+}
+
+#if !STANDALONE_MODE
+// Process request from network client
 void process_request(int client_fd, char *input_buffer) {
   profiler_begin_session();
 
   render_request_t request;
   if (parse_request(input_buffer, &request) < 0) {
     send_response(client_fd, false, "Invalid JSON request");
+    profiler_end_and_print_session(&g_ctx.temporary_allocator);
     return;
   }
 
@@ -1082,22 +1151,26 @@ void process_request(int client_fd, char *input_buffer) {
 
   if (render_video(&request) < 0) {
     send_response(client_fd, false, "Rendering failed");
-    return;
+  } else {
+    send_response(client_fd, true, NULL);
   }
-
-  send_response(client_fd, true, NULL);
 
   profiler_end_and_print_session(&g_ctx.temporary_allocator);
 }
+#endif
 
 int main(int argc, char *argv[]) {
   (void)argc;
   (void)argv;
 
+#if STANDALONE_MODE
+  printf("=== Video Renderer (Standalone Mode) ===\n");
+#else
   printf("=== Video Renderer Daemon (Unix Socket) ===\n");
+  printf("Socket path: %s\n", SOCKET_PATH);
+#endif
   printf("Resolution: %dx%d, Max frames: %d\n", FRAME_WIDTH, FRAME_HEIGHT,
          MAX_FRAMES);
-  printf("Socket path: %s\n", SOCKET_PATH);
   fflush(stdout);
 
   profiler_begin_session();
@@ -1122,6 +1195,27 @@ int main(int argc, char *argv[]) {
 
   profiler_end_and_print_session(&g_ctx.temporary_allocator);
 
+#if STANDALONE_MODE
+  // Standalone mode - render once and exit
+  profiler_begin_session();
+
+  // Create a hardcoded request for testing
+  render_request_t request = {
+    .seconds = 2.0,  // 2 second video
+    .num_frames = 48  // 2 * 24fps
+  };
+
+  printf("\nStarting standalone render...\n");
+  int result = render_video_standalone(&request);
+
+  profiler_end_and_print_session(&g_ctx.temporary_allocator);
+
+  // Cleanup and exit
+  cleanup();
+  return result;
+
+#else
+  // Daemon mode - socket server
   // Create Unix socket
   int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (server_fd < 0) {
@@ -1202,6 +1296,7 @@ int main(int argc, char *argv[]) {
   unlink(SOCKET_PATH);
   cleanup();
   return 0;
+#endif
 }
 
 // Assert we haven't exceeded max profile points
