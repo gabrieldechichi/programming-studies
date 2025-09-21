@@ -83,6 +83,15 @@ struct gpu_pipeline {
     VkRenderPass render_pass;
     VkFramebuffer* framebuffers;  // One per texture target
     gpu_device_t* device;  // For proper cleanup
+
+    // Uniform buffer support
+    VkDescriptorSetLayout descriptor_set_layout;
+    VkDescriptorPool descriptor_pool;
+    VkDescriptorSet descriptor_set;
+    VkBuffer uniform_buffer;
+    VkDeviceMemory uniform_buffer_memory;
+    void* uniform_buffer_mapped;
+    bool has_uniforms;
 };
 
 struct gpu_buffer {
@@ -997,7 +1006,298 @@ gpu_pipeline_t* gpu_create_pipeline(
 
     // No need to free - temporary allocator will handle cleanup
 
+    pipeline->has_uniforms = false;
     printf("[Vulkan] Pipeline created\n");
+    return pipeline;
+}
+
+gpu_pipeline_t* gpu_create_pipeline_with_camera(
+    gpu_device_t* device,
+    const char* vertex_shader_path,
+    const char* fragment_shader_path,
+    gpu_vertex_layout_t* vertex_layout
+) {
+    gpu_pipeline_t* pipeline = ALLOC(device->permanent_allocator, gpu_pipeline_t);
+    pipeline->device = device;
+    pipeline->has_uniforms = true;
+
+    // Load shader modules from files
+    VkShaderModule vertex_shader = load_shader_module(device->device, vertex_shader_path, device->temporary_allocator);
+    VkShaderModule fragment_shader = load_shader_module(device->device, fragment_shader_path, device->temporary_allocator);
+
+    if (!vertex_shader || !fragment_shader) {
+        printf("[Vulkan] Failed to load camera shaders from %s and %s\n", vertex_shader_path, fragment_shader_path);
+        return NULL;
+    }
+
+    // Create render pass (same as regular pipeline)
+    VkAttachmentDescription color_attachment = {
+        .format = VK_FORMAT_B8G8R8A8_UNORM,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+
+    VkAttachmentReference color_attachment_ref = {
+        .attachment = 0,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+
+    VkSubpassDescription subpass = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &color_attachment_ref
+    };
+
+    VkRenderPassCreateInfo render_pass_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 1,
+        .pAttachments = &color_attachment,
+        .subpassCount = 1,
+        .pSubpasses = &subpass
+    };
+
+    VK_CHECK(vkCreateRenderPass(device->device, &render_pass_info, NULL, &pipeline->render_pass));
+
+    // Create uniform buffer for camera data
+    // Size: mat4 view + mat4 projection + vec3 camera_pos + padding = 16*4 + 16*4 + 4*4 = 144 bytes
+    VkDeviceSize buffer_size = sizeof(float) * 36;  // 144 bytes
+
+    VkBufferCreateInfo buffer_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = buffer_size,
+        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->uniform_buffer));
+
+    VkMemoryRequirements mem_requirements;
+    vkGetBufferMemoryRequirements(device->device, pipeline->uniform_buffer, &mem_requirements);
+
+    VkMemoryAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_requirements.size,
+        .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+    };
+
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->uniform_buffer_memory));
+    VK_CHECK(vkBindBufferMemory(device->device, pipeline->uniform_buffer, pipeline->uniform_buffer_memory, 0));
+
+    // Map uniform buffer memory
+    VK_CHECK(vkMapMemory(device->device, pipeline->uniform_buffer_memory, 0, buffer_size, 0, &pipeline->uniform_buffer_mapped));
+
+    // Create descriptor set layout
+    VkDescriptorSetLayoutBinding ubo_layout_binding = {
+        .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .pImmutableSamplers = NULL
+    };
+
+    VkDescriptorSetLayoutCreateInfo layout_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = 1,
+        .pBindings = &ubo_layout_binding
+    };
+
+    VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, NULL, &pipeline->descriptor_set_layout));
+
+    // Create descriptor pool
+    VkDescriptorPoolSize pool_size = {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1
+    };
+
+    VkDescriptorPoolCreateInfo pool_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .poolSizeCount = 1,
+        .pPoolSizes = &pool_size,
+        .maxSets = 1
+    };
+
+    VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, NULL, &pipeline->descriptor_pool));
+
+    // Allocate descriptor set
+    VkDescriptorSetAllocateInfo alloc_desc_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = pipeline->descriptor_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &pipeline->descriptor_set_layout
+    };
+
+    VK_CHECK(vkAllocateDescriptorSets(device->device, &alloc_desc_info, &pipeline->descriptor_set));
+
+    // Update descriptor set to point to uniform buffer
+    VkDescriptorBufferInfo buffer_desc_info = {
+        .buffer = pipeline->uniform_buffer,
+        .offset = 0,
+        .range = buffer_size
+    };
+
+    VkWriteDescriptorSet descriptor_write = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = pipeline->descriptor_set,
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+        .pBufferInfo = &buffer_desc_info
+    };
+
+    vkUpdateDescriptorSets(device->device, 1, &descriptor_write, 0, NULL);
+
+    // Vertex input setup
+    VkVertexInputBindingDescription binding_description = {
+        .binding = 0,
+        .stride = vertex_layout->stride,
+        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+    };
+
+    VkVertexInputAttributeDescription* attribute_descriptions =
+        ALLOC_ARRAY(device->temporary_allocator, VkVertexInputAttributeDescription, vertex_layout->num_attributes);
+
+    for (int i = 0; i < vertex_layout->num_attributes; i++) {
+        gpu_vertex_attr_t* attr = &vertex_layout->attributes[i];
+        attribute_descriptions[i].binding = 0;
+        attribute_descriptions[i].location = attr->index;
+        attribute_descriptions[i].offset = attr->offset;
+
+        switch (attr->format) {
+            case 0: attribute_descriptions[i].format = VK_FORMAT_R32G32_SFLOAT; break;
+            case 1: attribute_descriptions[i].format = VK_FORMAT_R32G32B32_SFLOAT; break;
+            case 2: attribute_descriptions[i].format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
+            default: attribute_descriptions[i].format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
+        }
+    }
+
+    VkPipelineVertexInputStateCreateInfo vertex_input_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &binding_description,
+        .vertexAttributeDescriptionCount = vertex_layout->num_attributes,
+        .pVertexAttributeDescriptions = attribute_descriptions
+    };
+
+    // Shader stages
+    VkPipelineShaderStageCreateInfo vert_stage_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+        .module = vertex_shader,
+        .pName = "main"
+    };
+
+    VkPipelineShaderStageCreateInfo frag_stage_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = fragment_shader,
+        .pName = "main"
+    };
+
+    VkPipelineShaderStageCreateInfo shader_stages[] = {vert_stage_info, frag_stage_info};
+
+    // Rest of pipeline configuration
+    VkPipelineInputAssemblyStateCreateInfo input_assembly = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = VK_FALSE
+    };
+
+    VkPipelineViewportStateCreateInfo viewport_state = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .scissorCount = 1
+    };
+
+    VkPipelineRasterizationStateCreateInfo rasterizer = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = VK_FALSE,
+        .rasterizerDiscardEnable = VK_FALSE,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .lineWidth = 1.0f,
+        .cullMode = VK_CULL_MODE_NONE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .depthBiasEnable = VK_FALSE
+    };
+
+    VkPipelineMultisampleStateCreateInfo multisampling = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .sampleShadingEnable = VK_FALSE,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
+    };
+
+    VkPipelineColorBlendAttachmentState color_blend_attachment = {
+        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        .blendEnable = VK_FALSE
+    };
+
+    VkPipelineColorBlendStateCreateInfo color_blending = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = VK_FALSE,
+        .attachmentCount = 1,
+        .pAttachments = &color_blend_attachment
+    };
+
+    VkDynamicState dynamic_states[] = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+    };
+
+    VkPipelineDynamicStateCreateInfo dynamic_state = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = 2,
+        .pDynamicStates = dynamic_states
+    };
+
+    // Push constants for model matrix
+    VkPushConstantRange push_constant = {
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .offset = 0,
+        .size = sizeof(float) * 16  // mat4
+    };
+
+    // Pipeline layout with descriptor set and push constants
+    VkPipelineLayoutCreateInfo pipeline_layout_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1,
+        .pSetLayouts = &pipeline->descriptor_set_layout,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &push_constant
+    };
+
+    VK_CHECK(vkCreatePipelineLayout(device->device, &pipeline_layout_info, NULL, &pipeline->pipeline_layout));
+
+    // Create graphics pipeline
+    VkGraphicsPipelineCreateInfo pipeline_info = {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 2,
+        .pStages = shader_stages,
+        .pVertexInputState = &vertex_input_info,
+        .pInputAssemblyState = &input_assembly,
+        .pViewportState = &viewport_state,
+        .pRasterizationState = &rasterizer,
+        .pMultisampleState = &multisampling,
+        .pColorBlendState = &color_blending,
+        .pDynamicState = &dynamic_state,
+        .layout = pipeline->pipeline_layout,
+        .renderPass = pipeline->render_pass,
+        .subpass = 0
+    };
+
+    VK_CHECK(vkCreateGraphicsPipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline->pipeline));
+
+    // Clean up shader modules
+    vkDestroyShaderModule(device->device, vertex_shader, NULL);
+    vkDestroyShaderModule(device->device, fragment_shader, NULL);
+
+    printf("[Vulkan] Pipeline with camera uniforms created\n");
     return pipeline;
 }
 
@@ -1136,6 +1436,12 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline) {
     // Bind the pipeline
     vkCmdBindPipeline(encoder->cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 
+    // Bind descriptor sets if pipeline has uniforms
+    if (pipeline->has_uniforms) {
+        vkCmdBindDescriptorSets(encoder->cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                               pipeline->pipeline_layout, 0, 1, &pipeline->descriptor_set, 0, NULL);
+    }
+
     // Set viewport
     VkViewport viewport = {
         .x = 0.0f,
@@ -1168,6 +1474,15 @@ void gpu_set_uniforms(gpu_render_encoder_t* encoder, int index, const void* data
         vkCmdPushConstants(encoder->cmd_buffer, encoder->pipeline->pipeline_layout,
                           VK_SHADER_STAGE_VERTEX_BIT, 0, (uint32_t)size, data);
     }
+}
+
+void gpu_update_camera_uniforms(gpu_pipeline_t* pipeline, const void* camera_data, size_t size) {
+    if (!pipeline || !pipeline->has_uniforms || !pipeline->uniform_buffer_mapped) {
+        return;
+    }
+
+    // Copy camera data to mapped uniform buffer
+    memcpy(pipeline->uniform_buffer_mapped, camera_data, size);
 }
 
 void gpu_draw(gpu_render_encoder_t* encoder, int vertex_count) {
@@ -1216,6 +1531,17 @@ void gpu_destroy_pipeline(gpu_pipeline_t* pipeline) {
         vkDestroyPipeline(pipeline->device->device, pipeline->pipeline, NULL);
         vkDestroyPipelineLayout(pipeline->device->device, pipeline->pipeline_layout, NULL);
         vkDestroyRenderPass(pipeline->device->device, pipeline->render_pass, NULL);
+
+        // Clean up uniform buffer resources if present
+        if (pipeline->has_uniforms) {
+            vkDestroyDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, NULL);
+            vkDestroyDescriptorSetLayout(pipeline->device->device, pipeline->descriptor_set_layout, NULL);
+            if (pipeline->uniform_buffer_mapped) {
+                vkUnmapMemory(pipeline->device->device, pipeline->uniform_buffer_memory);
+            }
+            vkDestroyBuffer(pipeline->device->device, pipeline->uniform_buffer, NULL);
+            vkFreeMemory(pipeline->device->device, pipeline->uniform_buffer_memory, NULL);
+        }
         // No need to free - allocated from arena allocator
     }
 }

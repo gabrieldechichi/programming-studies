@@ -30,8 +30,10 @@
 #include "renderer.h"
 #include "vendor/cglm/types.h"
 #include "vendor/cglm/vec2.h"
+#include "vendor/cglm/vec3.h"
 #include "vendor/cglm/mat4.h"
 #include "vendor/cglm/affine.h"
+#include "vendor/cglm/cam.h"
 
 // Mode selection - set to 1 for standalone mode, 0 for daemon mode
 #define STANDALONE_MODE 1
@@ -100,6 +102,7 @@ typedef struct {
   Handle triangle_mesh_handle;
   Handle triangle_shader_handle;
   Handle triangle_material_handle;
+  gpu_pipeline_t *camera_pipeline;  // Pipeline with camera uniforms
 
   // GPU color conversion objects
   gpu_compute_pipeline_t *compute_pipeline;
@@ -711,8 +714,33 @@ static int initialize_system(void) {
   // Initialize renderer system
   renderer_init(g_ctx.device, &g_ctx.permanent_allocator, &g_ctx.temporary_allocator);
 
-  // Load the shader into renderer
-  g_ctx.triangle_shader_handle = renderer_load_shader("triangle", g_ctx.pipeline);
+  // Create camera-enabled pipeline for testing
+  g_ctx.camera_pipeline = gpu_create_pipeline_with_camera(
+      g_ctx.device,
+      "out/linux/triangle_camera.vert.spv",
+      "out/linux/triangle_camera.frag.spv",
+      &vertex_layout
+  );
+
+  if (!g_ctx.camera_pipeline) {
+    // Try without out/linux prefix
+    g_ctx.camera_pipeline = gpu_create_pipeline_with_camera(
+        g_ctx.device,
+        "triangle_camera.vert.spv",
+        "triangle_camera.frag.spv",
+        &vertex_layout
+    );
+  }
+
+  // Load the shader into renderer (use camera pipeline instead of regular one)
+  if (g_ctx.camera_pipeline) {
+    g_ctx.triangle_shader_handle = renderer_load_shader("triangle_camera", g_ctx.camera_pipeline);
+    printf("[Renderer] Using camera-enabled pipeline\n");
+  } else {
+    // Fall back to regular pipeline
+    g_ctx.triangle_shader_handle = renderer_load_shader("triangle", g_ctx.pipeline);
+    printf("[Renderer] Falling back to regular pipeline (no camera support)\n");
+  }
 
   // Create a simple material (no properties needed for this shader)
   g_ctx.triangle_material_handle = renderer_load_material(
@@ -817,6 +845,33 @@ static void render_all_frames(void) {
 
     // Reset renderer commands for this frame
     renderer_reset_commands();
+
+    // Set up camera if using camera pipeline
+    if (g_ctx.camera_pipeline) {
+      // Create camera matrices
+      CameraUniformBlock camera_data;
+
+      // Simple perspective projection
+      glm_perspective(glm_rad(60.0f), // 60 degree FOV
+                      (float)FRAME_WIDTH / (float)FRAME_HEIGHT,
+                      0.1f, 100.0f,
+                      camera_data.projection);
+
+      // Look at the origin from a distance
+      vec3 eye = {0.0f, 0.0f, 3.0f};
+      vec3 center = {0.0f, 0.0f, 0.0f};
+      vec3 up = {0.0f, 1.0f, 0.0f};
+      glm_lookat(eye, center, up, camera_data.view);
+
+      // Set camera position
+      glm_vec3_copy(eye, camera_data.camera_pos);
+
+      // Update GPU uniform buffer
+      gpu_update_camera_uniforms(g_ctx.camera_pipeline, &camera_data, sizeof(CameraUniformBlock));
+
+      // Also update renderer's camera state
+      renderer_update_camera(&camera_data);
+    }
 
     // Issue renderer commands
     Color clear_color = {.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f};
@@ -957,6 +1012,10 @@ static void cleanup(void) {
 
   // Command buffers are already freed by gpu_reset_command_pools() after each request
   // No need to destroy them individually here
+
+  if (g_ctx.camera_pipeline) {
+    gpu_destroy_pipeline(g_ctx.camera_pipeline);
+  }
 
   if (g_ctx.pipeline) {
     gpu_destroy_pipeline(g_ctx.pipeline);

@@ -83,6 +83,12 @@ gpu_pipeline_t *gpu_create_pipeline(gpu_device_t *device,
                                     const char *fragment_function,
                                     gpu_vertex_layout_t *vertex_layout);
 
+// Create a render pipeline with camera uniform buffer support
+gpu_pipeline_t *gpu_create_pipeline_with_camera(gpu_device_t *device,
+                                                const char *vertex_shader_path,
+                                                const char *fragment_shader_path,
+                                                gpu_vertex_layout_t *vertex_layout);
+
 // Create a vertex buffer
 gpu_buffer_t *gpu_create_buffer(gpu_device_t *device, const void *data,
                                 size_t size);
@@ -103,9 +109,12 @@ void gpu_set_pipeline(gpu_render_encoder_t *encoder, gpu_pipeline_t *pipeline);
 void gpu_set_vertex_buffer(gpu_render_encoder_t *encoder, gpu_buffer_t *buffer,
                            int index);
 
-// Set uniform data
+// Set uniform data (for push constants)
 void gpu_set_uniforms(gpu_render_encoder_t *encoder, int index,
                       const void *data, size_t size);
+
+// Update camera uniform buffer (for pipelines with camera support)
+void gpu_update_camera_uniforms(gpu_pipeline_t *pipeline, const void *camera_data, size_t size);
 
 // Draw primitives
 void gpu_draw(gpu_render_encoder_t *encoder, int vertex_count);
