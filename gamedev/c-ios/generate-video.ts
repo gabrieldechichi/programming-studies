@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { writeFile } from 'fs/promises';
+
 const ENDPOINT_ID = 'o7fl7avxbxw8x1';
 const RUNPOD_API_KEY = 'rpa_UDL5BNAQG68H4I99UTHBPS1LM4R1I0AGWCZGR2WW124k0y';
 
@@ -34,7 +36,6 @@ async function generateVideo(seconds: number = 8.33) {
 
         const data = await response.json();
         console.log('\n✅ Video Generation Response:');
-        // console.log(JSON.stringify(data, null, 2));
 
         // Parse the actual response from RunPod
         if (data.output) {
@@ -46,6 +47,25 @@ async function generateVideo(seconds: number = 8.33) {
             }
             if (result.error) {
                 console.log(`  • Error: ${result.error}`);
+            }
+
+            // Save base64 video to file if successful
+            if (result.success && result.video) {
+                try {
+                    // Decode base64 to buffer
+                    const videoBuffer = Buffer.from(result.video, 'base64');
+
+                    // Generate filename with timestamp
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const filename = `output_${timestamp}.mp4`;
+
+                    // Write to file
+                    await writeFile(filename, videoBuffer);
+                    console.log(`\n💾 Video saved to: ${filename}`);
+                    console.log(`  • File size: ${videoBuffer.length} bytes`);
+                } catch (saveError) {
+                    console.error('❌ Error saving video file:', saveError);
+                }
             }
         }
 
