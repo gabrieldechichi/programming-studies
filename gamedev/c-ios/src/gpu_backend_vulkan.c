@@ -115,6 +115,11 @@ struct gpu_pipeline {
     VkBuffer* storage_buffers;
     VkDeviceMemory* storage_memories;
     void** storage_mapped;
+
+    // Texture/sampler support
+    uint32_t num_texture_bindings;
+    gpu_texture_desc_t* texture_descs;  // Store texture descriptors for lookup
+    VkSampler default_sampler;          // Default sampler for all textures
 };
 
 struct gpu_buffer {
@@ -506,6 +511,202 @@ gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
 
     VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &texture->memory));
     vkBindImageMemory(device->device, texture->image, texture->memory, 0);
+
+    // Create image view
+    VkImageViewCreateInfo view_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = texture->image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = texture->format,
+        .components = {
+            .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .a = VK_COMPONENT_SWIZZLE_IDENTITY
+        },
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+
+    VK_CHECK(vkCreateImageView(device->device, &view_info, NULL, &texture->image_view));
+
+    return texture;
+}
+
+// Helper function to execute commands immediately
+static VkCommandBuffer gpu_begin_immediate_commands(gpu_device_t* device) {
+    VkCommandBufferAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = device->command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1
+    };
+
+    VkCommandBuffer cmd_buffer;
+    VK_CHECK(vkAllocateCommandBuffers(device->device, &alloc_info, &cmd_buffer));
+
+    VkCommandBufferBeginInfo begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+
+    VK_CHECK(vkBeginCommandBuffer(cmd_buffer, &begin_info));
+
+    return cmd_buffer;
+}
+
+static void gpu_end_immediate_commands(gpu_device_t* device, VkCommandBuffer cmd_buffer) {
+    VK_CHECK(vkEndCommandBuffer(cmd_buffer));
+
+    VkSubmitInfo submit_info = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd_buffer
+    };
+
+    VK_CHECK(vkQueueSubmit(device->graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueWaitIdle(device->graphics_queue));
+
+    vkFreeCommandBuffers(device->device, device->command_pool, 1, &cmd_buffer);
+}
+
+gpu_texture_t* gpu_create_texture_with_data(gpu_device_t* device, int width, int height,
+                                           const void* data, size_t data_size) {
+    gpu_texture_t* texture = ALLOC(device->permanent_allocator, gpu_texture_t);
+    texture->width = width;
+    texture->height = height;
+    texture->format = VK_FORMAT_R8G8B8A8_UNORM; // RGBA8 format for typical textures
+    texture->device = device;
+
+    // Create image with transfer dst usage for uploading data
+    VkImageCreateInfo image_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = texture->format,
+        .extent = {
+            .width = width,
+            .height = height,
+            .depth = 1
+        },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    VK_CHECK(vkCreateImage(device->device, &image_info, NULL, &texture->image));
+
+    // Allocate memory for image
+    VkMemoryRequirements mem_requirements;
+    vkGetImageMemoryRequirements(device->device, texture->image, &mem_requirements);
+
+    VkMemoryAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_requirements.size,
+        .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &texture->memory));
+    vkBindImageMemory(device->device, texture->image, texture->memory, 0);
+
+    // Create staging buffer for uploading data
+    VkBuffer staging_buffer;
+    VkDeviceMemory staging_memory;
+
+    VkBufferCreateInfo buffer_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = data_size,
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &staging_buffer));
+
+    VkMemoryRequirements buffer_mem_requirements;
+    vkGetBufferMemoryRequirements(device->device, staging_buffer, &buffer_mem_requirements);
+
+    VkMemoryAllocateInfo buffer_alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = buffer_mem_requirements.size,
+        .memoryTypeIndex = find_memory_type(device->physical_device, buffer_mem_requirements.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+    };
+
+    VK_CHECK(vkAllocateMemory(device->device, &buffer_alloc_info, NULL, &staging_memory));
+    vkBindBufferMemory(device->device, staging_buffer, staging_memory, 0);
+
+    // Copy data to staging buffer
+    void* mapped_data;
+    vkMapMemory(device->device, staging_memory, 0, data_size, 0, &mapped_data);
+    memcpy(mapped_data, data, data_size);
+    vkUnmapMemory(device->device, staging_memory);
+
+    // Copy staging buffer to image
+    VkCommandBuffer cmd_buffer = gpu_begin_immediate_commands(device);
+
+    // Transition image to transfer destination
+    VkImageMemoryBarrier barrier = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = texture->image,
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        },
+        .srcAccessMask = 0,
+        .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT
+    };
+
+    vkCmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                        0, 0, NULL, 0, NULL, 1, &barrier);
+
+    // Copy buffer to image
+    VkBufferImageCopy region = {
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {width, height, 1}
+    };
+
+    vkCmdCopyBufferToImage(cmd_buffer, staging_buffer, texture->image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    // Transition image to shader read
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        0, 0, NULL, 0, NULL, 1, &barrier);
+
+    gpu_end_immediate_commands(device, cmd_buffer);
+
+    // Clean up staging resources
+    vkDestroyBuffer(device->device, staging_buffer, NULL);
+    vkFreeMemory(device->device, staging_memory, NULL);
 
     // Create image view
     VkImageViewCreateInfo view_info = {
@@ -1040,6 +1241,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
     memset(pipeline, 0, sizeof(gpu_pipeline_t));
     pipeline->device = device;
     pipeline->has_uniforms = (desc->num_uniform_buffers > 0);
+    pipeline->num_texture_bindings = desc->num_texture_bindings;
 
     // Load shaders
     VkShaderModule vert_shader = load_shader_module(device->device, desc->vertex_shader_path, device->temporary_allocator);
@@ -1048,6 +1250,33 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
     if (!vert_shader || !frag_shader) {
         printf("Failed to load shaders: %s, %s\n", desc->vertex_shader_path, desc->fragment_shader_path);
         return NULL;
+    }
+
+    // Create default sampler for textures
+    if (desc->num_texture_bindings > 0) {
+        VkSamplerCreateInfo sampler_info = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .anisotropyEnable = VK_FALSE,
+            .maxAnisotropy = 1.0f,
+            .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+            .unnormalizedCoordinates = VK_FALSE,
+            .compareEnable = VK_FALSE,
+            .compareOp = VK_COMPARE_OP_ALWAYS,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .mipLodBias = 0.0f,
+            .minLod = 0.0f,
+            .maxLod = 0.0f
+        };
+        VK_CHECK(vkCreateSampler(device->device, &sampler_info, NULL, &pipeline->default_sampler));
+
+        // Store texture descriptors
+        pipeline->texture_descs = ALLOC_ARRAY(device->permanent_allocator, gpu_texture_desc_t, desc->num_texture_bindings);
+        memcpy(pipeline->texture_descs, desc->texture_bindings, sizeof(gpu_texture_desc_t) * desc->num_texture_bindings);
     }
 
     // Shader stages
@@ -1256,7 +1485,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
 
     // Create descriptor set layout
     VkDescriptorSetLayoutBinding* layout_bindings = NULL;
-    uint32_t total_bindings = desc->num_uniform_buffers + desc->num_storage_buffers;
+    uint32_t total_bindings = desc->num_uniform_buffers + desc->num_storage_buffers + desc->num_texture_bindings;
 
     if (total_bindings > 0) {
         layout_bindings = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorSetLayoutBinding, total_bindings);
@@ -1298,6 +1527,24 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
             };
         }
 
+        // Add texture/sampler bindings
+        for (uint32_t i = 0; i < desc->num_texture_bindings; i++) {
+            VkShaderStageFlags stage_flags = 0;
+            if (desc->texture_bindings[i].stage_flags & GPU_STAGE_VERTEX) {
+                stage_flags |= VK_SHADER_STAGE_VERTEX_BIT;
+            }
+            if (desc->texture_bindings[i].stage_flags & GPU_STAGE_FRAGMENT) {
+                stage_flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+            }
+
+            layout_bindings[binding_index++] = (VkDescriptorSetLayoutBinding){
+                .binding = desc->texture_bindings[i].binding,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = stage_flags
+            };
+        }
+
         VkDescriptorSetLayoutCreateInfo layout_info = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = total_bindings,
@@ -1307,7 +1554,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, NULL, &pipeline->descriptor_set_layout));
 
         // Create descriptor pool
-        VkDescriptorPoolSize* pool_sizes = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorPoolSize, 2);
+        VkDescriptorPoolSize* pool_sizes = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorPoolSize, 4);  // Increased to 4 for samplers
         uint32_t pool_size_count = 0;
 
         if (desc->num_uniform_buffers > 0) {
@@ -1321,6 +1568,17 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
             pool_sizes[pool_size_count++] = (VkDescriptorPoolSize){
                 .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 .descriptorCount = desc->num_storage_buffers
+            };
+        }
+
+        if (desc->num_texture_bindings > 0) {
+            pool_sizes[pool_size_count++] = (VkDescriptorPoolSize){
+                .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = desc->num_texture_bindings
+            };
+            pool_sizes[pool_size_count++] = (VkDescriptorPoolSize){
+                .type = VK_DESCRIPTOR_TYPE_SAMPLER,
+                .descriptorCount = desc->num_texture_bindings
             };
         }
 
@@ -1384,6 +1642,36 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                 .pBufferInfo = &buffer_infos[write_count]
             };
             write_count++;
+        }
+
+        // Create default white texture for initial binding
+        gpu_texture_t* default_texture = NULL;
+        VkDescriptorImageInfo* image_infos = NULL;
+        if (desc->num_texture_bindings > 0) {
+            // Create default white texture
+            uint32_t white_pixel = 0xFFFFFFFF;  // RGBA format - white with full alpha
+            default_texture = gpu_create_texture_with_data(device, 1, 1, &white_pixel, sizeof(white_pixel));
+
+            image_infos = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorImageInfo, desc->num_texture_bindings);
+
+            // Write texture descriptors
+            for (uint32_t i = 0; i < desc->num_texture_bindings; i++) {
+                image_infos[i] = (VkDescriptorImageInfo){
+                    .sampler = pipeline->default_sampler,
+                    .imageView = default_texture->image_view,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                };
+
+                writes[write_count] = (VkWriteDescriptorSet){
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = pipeline->descriptor_set,
+                    .dstBinding = desc->texture_bindings[i].binding,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &image_infos[i]
+                };
+                write_count++;
+            }
         }
 
         vkUpdateDescriptorSets(device->device, write_count, writes, 0, NULL);
@@ -2482,6 +2770,60 @@ void gpu_reset_compute_descriptor_pool(gpu_compute_pipeline_t* pipeline) {
         VK_CHECK(vkResetDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, 0));
         printf("[Vulkan] Descriptor pool reset - all descriptor sets freed\n");
     }
+}
+
+// Update texture in pipeline's descriptor set
+void gpu_update_pipeline_texture(gpu_pipeline_t* pipeline,
+                                 gpu_texture_t* texture,
+                                 uint32_t binding) {
+    if (!pipeline || !texture || pipeline->num_texture_bindings == 0) {
+        printf("[Vulkan] WARNING: Cannot update texture - pipeline=%p, texture=%p, num_bindings=%d\n",
+               (void*)pipeline, (void*)texture, pipeline ? pipeline->num_texture_bindings : -1);
+        return;
+    }
+
+    // Find the texture binding
+    for (uint32_t i = 0; i < pipeline->num_texture_bindings; i++) {
+        if (pipeline->texture_descs[i].binding == binding) {
+            // Update the descriptor set with the new texture
+            VkDescriptorImageInfo image_info = {
+                .sampler = pipeline->default_sampler,
+                .imageView = texture->image_view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            };
+
+            VkWriteDescriptorSet write = {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = pipeline->descriptor_set,
+                .dstBinding = binding,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &image_info
+            };
+
+            vkUpdateDescriptorSets(pipeline->device->device, 1, &write, 0, NULL);
+            printf("[Vulkan] Updated texture at binding %u (view: %p, sampler: %p, descriptor_set: %p)\n",
+                   binding, (void*)texture->image_view, (void*)pipeline->default_sampler,
+                   (void*)pipeline->descriptor_set);
+
+            // Force flush to ensure update is complete
+            vkQueueWaitIdle(pipeline->device->graphics_queue);
+            return;
+        }
+    }
+}
+
+// Bind a texture to a specific binding point in the pipeline
+void gpu_bind_texture(gpu_render_encoder_t* encoder,
+                     gpu_texture_t* texture,
+                     uint32_t binding) {
+    // Note: In Vulkan with descriptor sets, we can't dynamically bind textures during rendering
+    // This would require updating descriptor sets, which should be done before rendering
+    // For now, this is a no-op, but could be implemented with dynamic descriptor sets
+    // or push descriptors extension if available
+    (void)encoder;
+    (void)texture;
+    (void)binding;
 }
 
 void gpu_destroy(gpu_device_t* device) {

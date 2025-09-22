@@ -757,21 +757,58 @@ static int initialize_system(void) {
   // Note: This is a temporary workaround - ideally renderer would handle uniform updates internally
   g_ctx.camera_pipeline = NULL; // Will be set when needed
 
-  // Create a material with white color
-  MaterialProperty material_props[1] = {
+  // Create a single pixel pink texture for testing
+  printf("[Renderer] Creating test pink texture...\n");
+
+  // Reserve texture handle
+  Handle pink_texture_handle = renderer_reserve_texture();
+  if (!handle_is_valid(pink_texture_handle)) {
+    fprintf(stderr, "Failed to reserve texture handle\n");
+  } else {
+    // Create pink pixel data (RGBA format)
+    uint8_t pink_pixel[4] = {255, 0, 255, 255}; // Pink color in RGBA
+    Image pink_image = {
+        .width = 1,
+        .height = 1,
+        .byte_len = 4,
+        .data = pink_pixel
+    };
+
+    // Set the texture data
+    if (renderer_set_texture(pink_texture_handle, &pink_image)) {
+      printf("[Renderer] Pink texture created successfully (RGBA: %d,%d,%d,%d)\n",
+             pink_pixel[0], pink_pixel[1], pink_pixel[2], pink_pixel[3]);
+    } else {
+      fprintf(stderr, "Failed to set pink texture data\n");
+      pink_texture_handle = INVALID_HANDLE;
+    }
+  }
+
+  // Create a material with white color and pink texture
+  MaterialProperty material_props[2] = {
       {
           .name = {.value = "uColor"},
           .type = MAT_PROP_VEC3,
-          .value.vec3_val = {1.0f, 1.0f, 1.0f}  // White color
+          .value.vec3_val = {1.0f, 1.0f, 1.0f}  // White color to show texture
+      },
+      {
+          .name = {.value = "uTexture"},  // Assuming shader might have a texture uniform
+          .type = MAT_PROP_TEXTURE,
+          .value.texture = cast_handle(Texture_Handle, pink_texture_handle)
       }
   };
+
+  // Use 2 properties if texture is valid, otherwise 1
+  int num_props = handle_is_valid(pink_texture_handle) ? 2 : 1;
 
   g_ctx.triangle_material_handle = load_material(
       g_ctx.triangle_shader_handle,
       material_props,
-      1,     // 1 property
+      num_props,
       false  // Not transparent
   );
+
+  printf("[Renderer] Material created with %d properties\n", num_props);
 
   // Create triangle mesh as SubMeshData (skinned format)
   SubMeshData triangle_mesh = {
@@ -1365,8 +1402,8 @@ int main(int argc, char *argv[]) {
 
   // Create a hardcoded request for testing
   render_request_t request = {
-    .seconds = 8,  // 2 second video
-    .num_frames = 8*24  // 2 * 24fps
+    .seconds = 2,  // 2 second video
+    .num_frames = 2*24  // 2 * 24fps
   };
 
   printf("\nStarting standalone render...\n");

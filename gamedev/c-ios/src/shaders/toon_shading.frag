@@ -15,11 +15,9 @@ layout(binding = 4) uniform light_params {
     vec4 lights_data[MAX_DIRECTIONAL_LIGHTS * 2]; // Each light uses 2 vec4s
 } directional_lights;
 
-// Textures and samplers
-layout(binding = 0) uniform texture2D uTexture;
-layout(binding = 0) uniform sampler sampler_uTexture;
-layout(binding = 2) uniform texture2D uDetailTexture;
-layout(binding = 2) uniform sampler sampler_uDetailTexture;
+// Textures and samplers (using combined image samplers)
+layout(binding = 5) uniform sampler2D uTexture;
+layout(binding = 8) uniform sampler2D uDetailTexture;
 
 // Inputs from vertex shader
 layout(location = 0) in vec3 vs_normal;
@@ -64,19 +62,19 @@ vec3 anime_light_pass(vec3 color, vec3 normal, vec3 worldPos) {
 }
 
 void main() {
-    // For now, skip texture sampling and use white color
-    vec4 tex_color = vec4(1.0, 1.0, 1.0, 1.0);
+    // Sample the texture
+    vec4 tex_color = texture(uTexture, vs_texcoord);
 
     // Normalize the interpolated normal
     vec3 normal = normalize(vs_normal);
 
-    // Calculate toon lighting
-    vec3 color = vec3(1.0);
-    color = anime_light_pass(color, normal, vs_world_pos);
+    // Calculate toon lighting on texture color
+    vec3 color = tex_color.rgb;
+    // color += anime_light_pass(color, normal, vs_world_pos);
 
     // Apply material color tint
     color *= material.uColor.rgb;
 
-    // Output final color with alpha
-    frag_color = vec4(color, material.uColor.a);
+    // Output final color with alpha from texture
+    frag_color = vec4(color, tex_color.a * material.uColor.a);
 }

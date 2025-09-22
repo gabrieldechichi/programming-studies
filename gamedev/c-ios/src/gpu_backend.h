@@ -26,6 +26,10 @@ void *gpu_get_native_device(gpu_device_t *device);
 // Create a texture for rendering
 gpu_texture_t *gpu_create_texture(gpu_device_t *device, int width, int height);
 
+// Create a texture with initial data
+gpu_texture_t *gpu_create_texture_with_data(gpu_device_t *device, int width, int height,
+                                           const void *data, size_t data_size);
+
 // Get native texture handle for Sokol wrapping
 void *gpu_get_native_texture(gpu_texture_t *texture);
 
@@ -97,6 +101,12 @@ typedef struct {
   int stage_flags;
 } gpu_storage_buffer_desc_t;
 
+// Texture/sampler descriptor
+typedef struct {
+  uint32_t binding;
+  int stage_flags;
+} gpu_texture_desc_t;
+
 // Pipeline descriptor
 typedef struct {
   const char* vertex_shader_path;
@@ -110,6 +120,10 @@ typedef struct {
   // Storage buffer layout (for blendshapes, etc.)
   gpu_storage_buffer_desc_t* storage_buffers;
   uint32_t num_storage_buffers;
+
+  // Texture/sampler layout
+  gpu_texture_desc_t* texture_bindings;
+  uint32_t num_texture_bindings;
 
   // Render state
   bool depth_test;
@@ -167,6 +181,16 @@ void gpu_update_storage_buffer(gpu_pipeline_t* pipeline,
                                uint32_t binding,
                                const void* data,
                                size_t size);
+
+// Texture binding functions
+void gpu_bind_texture(gpu_render_encoder_t* encoder,
+                     gpu_texture_t* texture,
+                     uint32_t binding);
+
+// Update texture in pipeline's descriptor set (must be done before rendering)
+void gpu_update_pipeline_texture(gpu_pipeline_t* pipeline,
+                                 gpu_texture_t* texture,
+                       uint32_t binding);
 
 // DEPRECATED: Old uniform update functions (will be removed)
 void gpu_update_camera_uniforms(gpu_pipeline_t *pipeline, const void *camera_data, size_t size);
