@@ -5,6 +5,8 @@
 #include "lib/json_parser.c"
 #include "lib/profiler.c"
 #include "lib/handle.c"
+#include "lib/common.c"
+#include "src/game.c"
 #include "src/video_renderer.c"
 #include "src/gpu_backend_vulkan.c"
 #include "src/renderer.c"

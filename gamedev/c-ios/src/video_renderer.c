@@ -14,6 +14,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <errno.h>
+#include "game.h"
 
 // FFmpeg headers
 #include <libavcodec/avcodec.h>
@@ -59,6 +60,8 @@
 // Memory allocation sizes
 #define PERMANENT_MEMORY_SIZE MB(200)  // 200MB for permanent allocations (GPU objects, no frames)
 #define TEMPORARY_MEMORY_SIZE GB(5)    // 5GB for temporary allocations (frames + profiler + other temp data)
+#define GAME_PERMANENT_MEMORY_SIZE MB(100)  // 100MB for game permanent allocations
+#define GAME_TEMPORARY_MEMORY_SIZE MB(200)  // 200MB for game temporary allocations
 
 // Frame data structure for queue
 typedef struct {
@@ -89,6 +92,13 @@ typedef struct {
   // Raw memory blocks (to be freed on exit)
   uint8_t *permanent_memory;
   uint8_t *temporary_memory;
+
+  // Game-specific memory blocks
+  uint8_t *game_permanent_memory;
+  uint8_t *game_temporary_memory;
+
+  // Game memory for game module integration
+  GameMemory game_memory;
 
   // GPU backend objects
   gpu_device_t *device;
@@ -220,6 +230,25 @@ static int init_context(AppContext *ctx) {
     return -1;
   }
 
+  // Allocate game permanent memory block (malloc call #3)
+  ctx->game_permanent_memory = (uint8_t *)malloc(GAME_PERMANENT_MEMORY_SIZE);
+  if (!ctx->game_permanent_memory) {
+    fprintf(stderr, "Failed to allocate game permanent memory (%d MB)\n", GAME_PERMANENT_MEMORY_SIZE / MB(1));
+    free(ctx->permanent_memory);
+    free(ctx->temporary_memory);
+    return -1;
+  }
+
+  // Allocate game temporary memory block (malloc call #4)
+  ctx->game_temporary_memory = (uint8_t *)malloc(GAME_TEMPORARY_MEMORY_SIZE);
+  if (!ctx->game_temporary_memory) {
+    fprintf(stderr, "Failed to allocate game temporary memory (%d MB)\n", GAME_TEMPORARY_MEMORY_SIZE / MB(1));
+    free(ctx->permanent_memory);
+    free(ctx->temporary_memory);
+    free(ctx->game_permanent_memory);
+    return -1;
+  }
+
   // Initialize arena allocators
   ctx->permanent_arena = arena_from_buffer(ctx->permanent_memory, PERMANENT_MEMORY_SIZE);
   ctx->temporary_arena = arena_from_buffer(ctx->temporary_memory, TEMPORARY_MEMORY_SIZE);
@@ -230,6 +259,19 @@ static int init_context(AppContext *ctx) {
 
   printf("[Memory] Initialized allocators: Permanent=%dMB, Temporary=%dMB\n",
          PERMANENT_MEMORY_SIZE / MB(1), TEMPORARY_MEMORY_SIZE / MB(1));
+  printf("[Memory] Game memory: Permanent=%dMB, Temporary=%dMB\n",
+         GAME_PERMANENT_MEMORY_SIZE / MB(1), GAME_TEMPORARY_MEMORY_SIZE / MB(1));
+
+  // Initialize GameMemory structure with dedicated game buffers
+  ctx->game_memory.permanent_memory = ctx->game_permanent_memory;
+  ctx->game_memory.pernament_memory_size = GAME_PERMANENT_MEMORY_SIZE;
+  ctx->game_memory.temporary_memory = ctx->game_temporary_memory;
+  ctx->game_memory.temporary_memory_size = GAME_TEMPORARY_MEMORY_SIZE;
+  ctx->game_memory.canvas.width = FRAME_WIDTH;
+  ctx->game_memory.canvas.height = FRAME_HEIGHT;
+  ctx->game_memory.time.now = 0.0f;
+  ctx->game_memory.time.dt = 1.0f / 24.0f;  // 24 fps
+  ctx->game_memory.input_events.len = 0;  // No input events
 
   return 0;
 }
@@ -243,6 +285,14 @@ static void cleanup_context(AppContext *ctx) {
   // if (ctx->temporary_memory) {
   //   free(ctx->temporary_memory);
   //   ctx->temporary_memory = NULL;
+  // }
+  // if (ctx->game_permanent_memory) {
+  //   free(ctx->game_permanent_memory);
+  //   ctx->game_permanent_memory = NULL;
+  // }
+  // if (ctx->game_temporary_memory) {
+  //   free(ctx->game_temporary_memory);
+  //   ctx->game_temporary_memory = NULL;
   // }
 
   printf("[Memory] Context cleaned up\n");
@@ -872,6 +922,10 @@ static int initialize_system(void) {
     exit(1);
   }
 
+  // Initialize the game module
+  printf("[Game] Initializing game module...\n");
+  game_init(&g_ctx.game_memory);
+
   g_ctx.initialized = true;
   PROFILE_END();
   return 0;
@@ -889,6 +943,13 @@ static void render_all_frames(void) {
 
   // Process frames one by one to ensure correct sequence
   for (int i = 0; i < g_ctx.current_num_frames; i++) {
+    // Update game time for this frame
+    g_ctx.game_memory.time.now = (float)i * dt;
+    g_ctx.game_memory.time.dt = dt;
+
+    // Call game update and render for this frame
+    game_update_and_render(&g_ctx.game_memory);
+
     // Calculate rotation for this frame
     float time = (float)i * dt;
     float angle = time * rotation_speed;

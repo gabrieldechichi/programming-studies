@@ -1,0 +1,1100 @@
+#include "animation.h"
+#include "animation_system.h"
+#include "assets.h"
+#include "camera.h"
+#include "context.h"
+#include "game.h"
+#include "gameplay_lib.c"
+#include "lib/array.h"
+#include "lib/audio.h"
+#include "lib/math.h"
+#include "lib/memory.h"
+#include "lib/typedefs.h"
+#include "platform/platform.h"
+#include "renderer/renderer.h"
+#include "stats.h"
+#include "cglm/vec3.h"
+#include "cglm/util.h"
+#include "stb/stb_image.h"
+
+slice_define(AnimationAsset_Handle);
+typedef Animation *AnimationPtr;
+slice_define(AnimationPtr);
+
+#define ANIMATIONS_CAP 64
+#define MAX_COSTUMES 8
+
+typedef struct {
+  mat4 model_matrix;
+  SkinnedModel skinned_model;
+  AnimatedEntity animated;
+} Character;
+
+typedef struct {
+  // memory
+  ArenaAllocator permanent_arena;
+  ArenaAllocator temporary_arena;
+  GameContext ctx;
+
+  AssetSystem asset_system;
+  AudioState audio_system;
+  GameInput input;
+
+  // assets
+  Model3DData_Handle model_asset_handle;
+  AnimationAsset_Handle_Slice anim_asset_handles;
+  MaterialAsset_Handle *material_asset_handles;
+  u32 material_count;
+  Model3DData *model_data;
+  AnimationPtr_Slice animations;
+  AnimationPtr_Slice lower_body_animations_loaded;
+  AnimationPtr_Slice upper_body_animations_loaded;
+  AnimationPtr_Slice face_animations_loaded;
+  Material_Slice materials;
+
+  u32 face_layer_index;
+
+  // skybox material
+  Texture_Handle skybox_texture_handle;
+  Handle skybox_material_handle;
+  b32 skybox_material_ready;
+
+  // costume data - supports multiple costumes
+  u32 num_costumes;
+  Model3DData_Handle costume_model_handles[MAX_COSTUMES];
+  Model3DData *costume_model_datas[MAX_COSTUMES];
+  MaterialAsset_Handle *costume_material_handles_array[MAX_COSTUMES];
+  u32 costume_material_counts[MAX_COSTUMES];
+  Material_Slice costume_materials_array[MAX_COSTUMES];
+  SkinnedModel costume_skinned_models[MAX_COSTUMES];
+  i32 *costume_to_tolan_joint_maps[MAX_COSTUMES];
+  u32 costume_joint_counts[MAX_COSTUMES];
+  b32 costume_map_created[MAX_COSTUMES];
+
+  // 3D scene data
+  DirectionalLightBlock directional_lights;
+  PointLightsBlock point_lights;
+  Camera camera;
+
+  Character character;
+
+  GameStats stats;
+
+  i32 neck_joint_idx;
+  i32 left_eye_mesh_idx;
+  i32 right_eye_mesh_idx;
+  i32 left_eye_olive_bs_idx;
+  i32 right_eye_olive_bs_idx;
+} GymState;
+
+global char *lower_body_animations[] = {
+    "tolan/Tolan - Idle 02 - Loop.hasset",
+};
+
+global char *upper_body_animations[] = {
+    "tolan/Tolan - Idle 03 Loop.hasset",
+};
+
+global char *face_animations[] = {};
+
+global char *costume_paths[] = {
+    "tolanCostumes/tolan_veeNeckShortSleeve.hasset",
+    "tolanCostumes/ShortsSimpleGreyRed.hasset",
+    "tolanCostumes/tolan_shoesBubblegum.hasset",
+    "tolanCostumes/tolan_scarfSpikey.hasset",
+};
+
+global char *texture_preload_paths[] = {
+    "tolan/Tolan_tex.png",
+    "textures/transparent_pixel.png",
+    "backgrounds/tolan_bg_2.png",
+    "tolanCostumes/Clothes_01.png",
+    "tolanCostumes/tolan_cosmeticPalette_GreyRed.png",
+    "textures/white_pixel.png",
+    "tolanCostumes/tolan_veeNeckShortSleeve_tshirtAlpha_flower.png",
+};
+
+global GameContext *g_ctx;
+
+extern GameContext *get_global_ctx() { return g_ctx; }
+
+void gym_init(GameMemory *memory) {
+  GymState *gym_state = cast(GymState *) memory->permanent_memory;
+  g_ctx = &gym_state->ctx;
+  GameContext *ctx = &gym_state->ctx;
+
+  gym_state->permanent_arena =
+      arena_from_buffer(memory->permanent_memory + sizeof(GymState),
+                        memory->pernament_memory_size - sizeof(GymState));
+  gym_state->temporary_arena = arena_from_buffer((u8 *)memory->temporary_memory,
+                                                 memory->temporary_memory_size);
+
+  gym_state->input = input_init();
+  // Create GameContext with allocators
+  gym_state->ctx.allocator = make_arena_allocator(&gym_state->permanent_arena);
+  gym_state->ctx.temp_allocator =
+      make_arena_allocator(&gym_state->temporary_arena);
+
+  gym_state->neck_joint_idx = -1;
+  gym_state->left_eye_mesh_idx = -1;
+  gym_state->right_eye_mesh_idx = -1;
+  gym_state->left_eye_olive_bs_idx = -1;
+  gym_state->right_eye_olive_bs_idx = -1;
+
+  gym_state->input = input_init();
+  gym_state->audio_system = audio_init(ctx);
+  gym_state->asset_system = asset_system_init(&ctx->allocator, 512);
+
+  // Preload all textures
+  u32 num_textures = sizeof(texture_preload_paths) / sizeof(texture_preload_paths[0]);
+  for (u32 i = 0; i < num_textures; i++) {
+    asset_request(Texture, &gym_state->asset_system, ctx, texture_preload_paths[i]);
+  }
+
+  gym_state->model_asset_handle = asset_request(
+      Model3DData, &gym_state->asset_system, ctx, "tolan/tolan.hasset");
+
+  // Initialize costume data
+  gym_state->num_costumes = sizeof(costume_paths) / sizeof(costume_paths[0]);
+
+  // Request all costume models
+  for (u32 i = 0; i < gym_state->num_costumes; i++) {
+    gym_state->costume_model_handles[i] = asset_request(
+        Model3DData, &gym_state->asset_system, ctx, costume_paths[i]);
+    gym_state->costume_model_datas[i] = NULL;
+    gym_state->costume_material_handles_array[i] = NULL;
+    gym_state->costume_material_counts[i] = 0;
+    gym_state->costume_materials_array[i] = (Material_Slice){0};
+    gym_state->costume_skinned_models[i] = (SkinnedModel){0};
+    gym_state->costume_to_tolan_joint_maps[i] = NULL;
+    gym_state->costume_joint_counts[i] = 0;
+    gym_state->costume_map_created[i] = false;
+  }
+
+  // Request multiple animations
+  gym_state->anim_asset_handles =
+      slice_new_ALLOC(&ctx->allocator, AnimationAsset_Handle, ANIMATIONS_CAP);
+
+  // Request lower body animations
+  u32 num_lower_body =
+      sizeof(lower_body_animations) / sizeof(lower_body_animations[0]);
+  for (u32 i = 0; i < num_lower_body; i++) {
+    slice_append(gym_state->anim_asset_handles,
+                 asset_request(AnimationAsset, &gym_state->asset_system, ctx,
+                               lower_body_animations[i]));
+  }
+
+  // Request upper body animations
+  u32 num_upper_body =
+      sizeof(upper_body_animations) / sizeof(upper_body_animations[0]);
+  for (u32 i = 0; i < num_upper_body; i++) {
+    slice_append(gym_state->anim_asset_handles,
+                 asset_request(AnimationAsset, &gym_state->asset_system, ctx,
+                               upper_body_animations[i]));
+  }
+
+  // Request face animations
+  u32 num_face_animations =
+      sizeof(face_animations) / sizeof(face_animations[0]);
+  for (u32 i = 0; i < num_face_animations; i++) {
+    slice_append(gym_state->anim_asset_handles,
+                 asset_request(AnimationAsset, &gym_state->asset_system, ctx,
+                               face_animations[i]));
+  }
+
+  // Initialize animations slices
+  gym_state->animations =
+      slice_new_ALLOC(&ctx->allocator, AnimationPtr, ANIMATIONS_CAP);
+  gym_state->lower_body_animations_loaded =
+      slice_new_ALLOC(&ctx->allocator, AnimationPtr, num_lower_body);
+  gym_state->upper_body_animations_loaded =
+      slice_new_ALLOC(&ctx->allocator, AnimationPtr, num_upper_body);
+  gym_state->face_animations_loaded =
+      slice_new_ALLOC(&ctx->allocator, AnimationPtr, num_face_animations);
+
+  // Request skybox background texture (using existing texture for now)
+  gym_state->skybox_texture_handle = asset_request(
+      Texture, &gym_state->asset_system, ctx, "tolan/Tolan_tex.png");
+  gym_state->skybox_material_ready = false;
+
+  gym_state->camera = (Camera){
+      .pos = {0.0, 0.7, 9.35},
+      .pitch = 0.0f,
+      .fov = 14.0f,
+  };
+  quat_identity(gym_state->camera.rot);
+}
+
+void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
+  GameContext *ctx = &gym_state->ctx;
+  // Load model data first
+  if (!gym_state->model_data &&
+      asset_is_ready(asset_system, gym_state->model_asset_handle)) {
+    gym_state->model_data = asset_get_data(
+        Model3DData, &gym_state->asset_system, gym_state->model_asset_handle);
+
+    // Count total submeshes across all meshes
+    u32 total_submeshes = 0;
+    for (u32 i = 0; i < gym_state->model_data->num_meshes; i++) {
+      MeshData *mesh_data = &gym_state->model_data->meshes[i];
+      total_submeshes += mesh_data->submeshes.len;
+    }
+
+    // Request materials based on submesh material_path
+    gym_state->material_count = total_submeshes;
+    gym_state->material_asset_handles =
+        ALLOC_ARRAY(&ctx->allocator, MaterialAsset_Handle, total_submeshes);
+
+    u32 material_idx = 0;
+    for (u32 i = 0; i < gym_state->model_data->num_meshes; i++) {
+      MeshData *mesh_data = &gym_state->model_data->meshes[i];
+
+      for (u32 j = 0; j < mesh_data->submeshes.len; j++) {
+        SubMeshData *submesh_data = &mesh_data->submeshes.items[j];
+
+        if (submesh_data->material_path.len > 0 &&
+            submesh_data->material_path.value != NULL) {
+          // Request material asset - path is already absolute
+          gym_state->material_asset_handles[material_idx] =
+              asset_request(MaterialAsset, &gym_state->asset_system, ctx,
+                            submesh_data->material_path.value);
+          LOG_INFO("Requesting material % for mesh % submesh %",
+                   FMT_STR(submesh_data->material_path.value), FMT_UINT(i),
+                   FMT_UINT(j));
+        } else {
+          // No material path - will use white material
+          gym_state->material_asset_handles[material_idx] =
+              (MaterialAsset_Handle){0};
+          LOG_INFO(
+              "No material path for mesh % submesh %, will use white material",
+              FMT_UINT(i), FMT_UINT(j));
+        }
+        material_idx++;
+      }
+    }
+
+    // init animated entity
+    AnimatedEntity *animated_entity = &gym_state->character.animated;
+    animated_entity_init(animated_entity, gym_state->model_data,
+                         &ctx->allocator);
+
+    // Create skeleton masks for upper and lower body layers
+    String lower_body_joints[] = {
+        STR_FROM_CSTR("Hips"),           STR_FROM_CSTR("Left leg"),
+        STR_FROM_CSTR("Left knee"),      STR_FROM_CSTR("Left ankle"),
+        STR_FROM_CSTR("Left toe"),       STR_FROM_CSTR("Right leg"),
+        STR_FROM_CSTR("Right knee"),     STR_FROM_CSTR("Right ankle"),
+        STR_FROM_CSTR("Right toe"),      STR_FROM_CSTR("DynamicSkirtL"),
+        STR_FROM_CSTR("DynamicSkirtL1"), STR_FROM_CSTR("DynamicSkirtR"),
+        STR_FROM_CSTR("DynamicSkirtR1")};
+    u32 num_lower_joints =
+        sizeof(lower_body_joints) / sizeof(lower_body_joints[0]);
+
+    String upper_body_joints[] = {STR_FROM_CSTR("Spine"),
+                                  STR_FROM_CSTR("Chest"),
+                                  STR_FROM_CSTR("Neck"),
+                                  STR_FROM_CSTR("Head"),
+                                  STR_FROM_CSTR("LeftEye"),
+                                  STR_FROM_CSTR("RightEye"),
+                                  STR_FROM_CSTR("Left shoulder"),
+                                  STR_FROM_CSTR("Left arm"),
+                                  STR_FROM_CSTR("Left elbow"),
+                                  STR_FROM_CSTR("Left Hand"),
+                                  STR_FROM_CSTR("Right shoulder"),
+                                  STR_FROM_CSTR("Right arm"),
+                                  STR_FROM_CSTR("Right elbow"),
+                                  STR_FROM_CSTR("Right hand"),
+                                  STR_FROM_CSTR("IndexFinger1_L"),
+                                  STR_FROM_CSTR("IndexFinger2_L"),
+                                  STR_FROM_CSTR("IndexFinger3_L"),
+                                  STR_FROM_CSTR("MiddleFinger1_L"),
+                                  STR_FROM_CSTR("MiddleFinger2_L"),
+                                  STR_FROM_CSTR("MiddleFinger3_L"),
+                                  STR_FROM_CSTR("RingFinger1_L"),
+                                  STR_FROM_CSTR("RingFinger2_L"),
+                                  STR_FROM_CSTR("RingFinger3_L"),
+                                  STR_FROM_CSTR("Thumb0_L"),
+                                  STR_FROM_CSTR("Thumb1_L"),
+                                  STR_FROM_CSTR("Thumb2_L"),
+                                  STR_FROM_CSTR("LittleFinger1_L"),
+                                  STR_FROM_CSTR("LittleFinger2_L"),
+                                  STR_FROM_CSTR("LittleFinger3_L"),
+                                  STR_FROM_CSTR("LittleFinger1_R"),
+                                  STR_FROM_CSTR("LittleFinger2_R"),
+                                  STR_FROM_CSTR("LittleFinger3_R"),
+                                  STR_FROM_CSTR("MiddleFinger1_R"),
+                                  STR_FROM_CSTR("MiddleFinger2_R"),
+                                  STR_FROM_CSTR("MiddleFinger3_R"),
+                                  STR_FROM_CSTR("Thumb0_R"),
+                                  STR_FROM_CSTR("Thumb1_R"),
+                                  STR_FROM_CSTR("Thumb2_R"),
+                                  STR_FROM_CSTR("IndexFinger1_R"),
+                                  STR_FROM_CSTR("IndexFinger2_R"),
+                                  STR_FROM_CSTR("IndexFinger3_R"),
+                                  STR_FROM_CSTR("RingFinger1_R"),
+                                  STR_FROM_CSTR("RingFinger2_R"),
+                                  STR_FROM_CSTR("RingFinger3_R"),
+                                  STR_FROM_CSTR("DynamicHairROOT"),
+                                  STR_FROM_CSTR("HairBone00"),
+                                  STR_FROM_CSTR("HairBone01"),
+                                  STR_FROM_CSTR("HairBone02"),
+                                  STR_FROM_CSTR("HairBone03"),
+                                  STR_FROM_CSTR("HairBone04"),
+                                  STR_FROM_CSTR("HairBone05"),
+                                  STR_FROM_CSTR("HairBone06"),
+                                  STR_FROM_CSTR("HairBone07"),
+                                  STR_FROM_CSTR("HairBone08"),
+                                  STR_FROM_CSTR("HairBone09"),
+                                  STR_FROM_CSTR("HairBone10"),
+                                  STR_FROM_CSTR("HairBone11")};
+    u32 num_upper_joints =
+        sizeof(upper_body_joints) / sizeof(upper_body_joints[0]);
+
+    SkeletonMask lower_body_mask = skeleton_mask_create_from_joint_names(
+        &ctx->allocator, gym_state->model_data, lower_body_joints,
+        num_lower_joints);
+    SkeletonMask upper_body_mask = skeleton_mask_create_from_joint_names(
+        &ctx->allocator, gym_state->model_data, upper_body_joints,
+        num_upper_joints);
+    // SkeletonMask lower_body_mask = skeleton_mask_create_from_joint_names(
+    //     &ctx->allocator, gym_state->model_data, lower_body_joints,
+    //     num_lower_joints);
+    // SkeletonMask upper_body_mask = skeleton_mask_create_all(
+    //     &ctx->allocator, gym_state->model_data->len_joints);
+
+    // Create animation layers (default layer already exists at index 0)
+    // Remove default layer since we want separate upper/lower layers
+    animated_entity_remove_layer(animated_entity, 0);
+
+    // Create face layer with no joints (blendshapes only)
+    SkeletonMask face_mask =
+        skeleton_mask_create_from_joints(&ctx->allocator, NULL, 0);
+    gym_state->face_layer_index =
+        animated_entity_add_layer(animated_entity, STR_FROM_CSTR("Face"),
+                                  face_mask, 1.0f, &ctx->allocator);
+
+    LOG_INFO("VRoid Male Model loaded with % meshes, % "
+             "total submeshes",
+             FMT_UINT(gym_state->model_data->num_meshes),
+             FMT_UINT(total_submeshes));
+  }
+
+  // Wait for all materials to load, then create SkinnedModel
+  if (gym_state->model_data &&
+      !gym_state->character.skinned_model.meshes.items) {
+    bool all_materials_ready = true;
+
+    for (u32 i = 0; i < gym_state->material_count; i++) {
+      if (gym_state->material_asset_handles[i].idx != 0) {
+        if (!asset_is_ready(asset_system,
+                            gym_state->material_asset_handles[i])) {
+          all_materials_ready = false;
+          break;
+        }
+      }
+    }
+
+    if (all_materials_ready) {
+      // Create materials array
+      gym_state->materials =
+          slice_new_ALLOC(&ctx->allocator, Material, gym_state->material_count);
+
+      for (u32 i = 0; i < gym_state->material_count; i++) {
+        if (gym_state->material_asset_handles[i].idx != 0) {
+          // Load material from asset
+          MaterialAsset *material_asset =
+              asset_get_data(MaterialAsset, &gym_state->asset_system,
+                             gym_state->material_asset_handles[i]);
+          assert(material_asset);
+          Material *material = material_from_asset(
+              material_asset, &gym_state->asset_system, ctx);
+          slice_append(gym_state->materials, *material);
+          LOG_INFO("Loaded material % for submesh %",
+                   FMT_STR(material_asset->name.value), FMT_UINT(i));
+        } else {
+          // Use default white material for submeshes without materials
+          // This would need a default material implementation
+          LOG_WARN("No material for submesh %, skipping", FMT_UINT(i));
+          // For now, just add a placeholder - this might need proper default
+          // material handling
+          Material default_material = {0};
+          slice_append(gym_state->materials, default_material);
+        }
+      }
+
+      // Create SkinnedModel with loaded materials
+      Character *entity = &gym_state->character;
+
+      quaternion temp_rot;
+      quat_from_euler((vec3){0, 0, 0}, temp_rot);
+      mat_trs((vec3){0, 0, 0}, temp_rot, (vec3){0.01, 0.01, 0.01},
+              entity->model_matrix);
+
+      entity->skinned_model =
+          skmodel_from_asset(ctx, gym_state->model_data, gym_state->materials);
+
+      LOG_INFO("SkinnedModel created with % materials",
+               FMT_UINT(gym_state->materials.len));
+    }
+  }
+
+  // Load animations as they become ready
+  if (gym_state->model_data && gym_state->materials.len > 0 &&
+      gym_state->animations.len < gym_state->anim_asset_handles.len) {
+
+    u32 num_lower_body =
+        sizeof(lower_body_animations) / sizeof(lower_body_animations[0]);
+    u32 num_upper_body =
+        sizeof(upper_body_animations) / sizeof(upper_body_animations[0]);
+    u32 num_face_animations =
+        sizeof(face_animations) / sizeof(face_animations[0]);
+
+    for (u32 i = gym_state->animations.len;
+         i < gym_state->anim_asset_handles.len; i++) {
+      AnimationAsset_Handle handle = gym_state->anim_asset_handles.items[i];
+      if (asset_is_ready(asset_system, handle)) {
+        AnimationAsset *anim_asset =
+            asset_get_data(AnimationAsset, &gym_state->asset_system, handle);
+        Animation *anim = animation_from_asset(
+            anim_asset, gym_state->model_data, &ctx->allocator);
+        slice_append(gym_state->animations, anim);
+
+        // Also add to appropriate body animation array
+        if (i < num_lower_body) {
+          // Lower body animation
+          slice_append(gym_state->lower_body_animations_loaded, anim);
+        } else if (i < num_lower_body + num_upper_body) {
+          // Upper body animation
+          slice_append(gym_state->upper_body_animations_loaded, anim);
+        } else if (i < num_lower_body + num_upper_body + num_face_animations) {
+          // Face animation
+          slice_append(gym_state->face_animations_loaded, anim);
+        }
+      } else {
+        break; // Stop checking once we hit an unready asset
+      }
+    }
+
+    gym_state->neck_joint_idx = arr_find_index_pred_raw(
+        gym_state->model_data->joint_names, gym_state->model_data->len_joints,
+        str_equal(_item.value, "Neck"));
+    debug_assert(gym_state->neck_joint_idx >= 0);
+
+    if (gym_state->neck_joint_idx >= 0) {
+      LOG_INFO("Found neck joint at index %",
+               FMT_UINT(gym_state->neck_joint_idx));
+    } else {
+      LOG_WARN("Neck joint not found in model");
+    }
+
+    gym_state->left_eye_mesh_idx = arr_find_index_pred_raw(
+        gym_state->model_data->meshes, gym_state->model_data->num_meshes,
+        str_equal(_item.mesh_name.value, "l_eye_geo"));
+    debug_assert(gym_state->left_eye_mesh_idx >= 0);
+
+    gym_state->right_eye_mesh_idx = arr_find_index_pred_raw(
+        gym_state->model_data->meshes, gym_state->model_data->num_meshes,
+        str_equal(_item.mesh_name.value, "r_eye_geo"));
+    debug_assert(gym_state->right_eye_mesh_idx >= 0);
+
+    if (gym_state->left_eye_mesh_idx >= 0) {
+      MeshData *left_eye_mesh =
+          &gym_state->model_data->meshes[gym_state->left_eye_mesh_idx];
+      gym_state->left_eye_olive_bs_idx = arr_find_index_pred_raw(
+          left_eye_mesh->blendshape_names.items,
+          left_eye_mesh->blendshape_names.len, str_equal(_item.value, "olive"));
+
+      debug_assert(gym_state->left_eye_olive_bs_idx >= 0);
+
+      LOG_INFO("Found left eye mesh at index %, Olive blendshape at index %",
+               FMT_UINT(gym_state->left_eye_mesh_idx),
+               FMT_INT(gym_state->left_eye_olive_bs_idx));
+    } else {
+      LOG_WARN("l_eye_geo mesh not found in model");
+    }
+
+    if (gym_state->right_eye_mesh_idx >= 0) {
+      MeshData *right_eye_mesh =
+          &gym_state->model_data->meshes[gym_state->right_eye_mesh_idx];
+      gym_state->right_eye_olive_bs_idx =
+          arr_find_index_pred_raw(right_eye_mesh->blendshape_names.items,
+                                  right_eye_mesh->blendshape_names.len,
+                                  str_equal(_item.value, "olive"));
+      debug_assert(gym_state->right_eye_olive_bs_idx >= 0);
+
+      LOG_INFO("Found right eye mesh at index %, Olive blendshape at index %",
+               FMT_UINT(gym_state->right_eye_mesh_idx),
+               FMT_INT(gym_state->right_eye_olive_bs_idx));
+    } else {
+      LOG_WARN("r_eye_geo mesh not found in model");
+    }
+  }
+
+  // Setup skybox material when texture is ready
+  // Note: We should also wait for the shader to be loaded, but for now just
+  // check texture
+  if (!gym_state->skybox_material_ready &&
+      asset_is_ready(asset_system, gym_state->skybox_texture_handle)) {
+
+    // Create MaterialAsset in memory
+    MaterialAsset *skybox_mat_asset = ALLOC(&ctx->allocator, MaterialAsset);
+    *skybox_mat_asset = (MaterialAsset){
+        .name = STR_FROM_CSTR("SkyboxMaterial"),
+        .shader_path = STR_FROM_CSTR("skybox"),
+        .transparent = false,
+        .shader_defines = arr_new_ALLOC(&ctx->allocator, ShaderDefine, 0),
+        .properties =
+            arr_from_c_array_alloc(MaterialAssetProperty, &ctx->allocator,
+                                   ((MaterialAssetProperty[]){
+                                       {
+                                           .name = STR_FROM_CSTR("uTexture"),
+                                           .type = MAT_PROP_TEXTURE,
+                                           .texture_path = STR_FROM_CSTR(
+                                               "backgrounds/tolan_bg_2.png"),
+                                       },
+                                       {
+                                           .name = STR_FROM_CSTR("uColor"),
+                                           .type = MAT_PROP_VEC3,
+                                           .color = {{{0.9, 0.9, 0.9, 1.0}}},
+                                       },
+                                   })),
+    };
+
+    // Create Material from asset
+    Material *skybox_material =
+        material_from_asset(skybox_mat_asset, asset_system, ctx);
+
+    LOG_INFO("Created skybox material with shader handle idx=%, gen=%",
+             FMT_UINT(skybox_material->gpu_material.idx),
+             FMT_UINT(skybox_material->gpu_material.gen));
+
+    // Store the material handle
+    gym_state->skybox_material_handle = skybox_material->gpu_material;
+    gym_state->skybox_material_ready = true;
+    LOG_INFO("Skybox material set successfully");
+  }
+
+  // Load costume model data for all costumes
+  for (u32 costume_idx = 0; costume_idx < gym_state->num_costumes;
+       costume_idx++) {
+    if (!gym_state->costume_model_datas[costume_idx] &&
+        asset_is_ready(asset_system,
+                       gym_state->costume_model_handles[costume_idx])) {
+      gym_state->costume_model_datas[costume_idx] =
+          asset_get_data(Model3DData, &gym_state->asset_system,
+                         gym_state->costume_model_handles[costume_idx]);
+
+      // Count total submeshes for this costume
+      u32 total_costume_submeshes = 0;
+      for (u32 i = 0;
+           i < gym_state->costume_model_datas[costume_idx]->num_meshes; i++) {
+        MeshData *mesh_data =
+            &gym_state->costume_model_datas[costume_idx]->meshes[i];
+        total_costume_submeshes += mesh_data->submeshes.len;
+      }
+
+      // Request materials for this costume
+      gym_state->costume_material_counts[costume_idx] = total_costume_submeshes;
+      gym_state->costume_material_handles_array[costume_idx] = ALLOC_ARRAY(
+          &ctx->allocator, MaterialAsset_Handle, total_costume_submeshes);
+
+      u32 material_idx = 0;
+      for (u32 i = 0;
+           i < gym_state->costume_model_datas[costume_idx]->num_meshes; i++) {
+        MeshData *mesh_data =
+            &gym_state->costume_model_datas[costume_idx]->meshes[i];
+
+        for (u32 j = 0; j < mesh_data->submeshes.len; j++) {
+          SubMeshData *submesh_data = &mesh_data->submeshes.items[j];
+
+          if (submesh_data->material_path.len > 0 &&
+              submesh_data->material_path.value != NULL) {
+            gym_state
+                ->costume_material_handles_array[costume_idx][material_idx] =
+                asset_request(MaterialAsset, &gym_state->asset_system, ctx,
+                              submesh_data->material_path.value);
+            LOG_INFO("Requesting costume % material % for mesh % submesh %",
+                     FMT_UINT(costume_idx),
+                     FMT_STR(submesh_data->material_path.value), FMT_UINT(i),
+                     FMT_UINT(j));
+          } else {
+            gym_state
+                ->costume_material_handles_array[costume_idx][material_idx] =
+                (MaterialAsset_Handle){0};
+            LOG_INFO("No material path for costume % mesh % submesh %",
+                     FMT_UINT(costume_idx), FMT_UINT(i), FMT_UINT(j));
+          }
+          material_idx++;
+        }
+      }
+
+      LOG_INFO(
+          "Costume % model loaded with % meshes, % total submeshes",
+          FMT_UINT(costume_idx),
+          FMT_UINT(gym_state->costume_model_datas[costume_idx]->num_meshes),
+          FMT_UINT(total_costume_submeshes));
+    }
+  }
+
+  // Create costume SkinnedModels when materials are ready
+  for (u32 costume_idx = 0; costume_idx < gym_state->num_costumes;
+       costume_idx++) {
+    if (gym_state->costume_model_datas[costume_idx] &&
+        !gym_state->costume_skinned_models[costume_idx].meshes.items) {
+      bool all_costume_materials_ready = true;
+
+      for (u32 i = 0; i < gym_state->costume_material_counts[costume_idx];
+           i++) {
+        if (gym_state->costume_material_handles_array[costume_idx][i].idx !=
+            0) {
+          if (!asset_is_ready(
+                  asset_system,
+                  gym_state->costume_material_handles_array[costume_idx][i])) {
+            all_costume_materials_ready = false;
+            break;
+          }
+        }
+      }
+
+      if (all_costume_materials_ready) {
+        // Create materials array for this costume
+        gym_state->costume_materials_array[costume_idx] =
+            slice_new_ALLOC(&ctx->allocator, Material,
+                            gym_state->costume_material_counts[costume_idx]);
+
+        for (u32 i = 0; i < gym_state->costume_material_counts[costume_idx];
+             i++) {
+          if (gym_state->costume_material_handles_array[costume_idx][i].idx !=
+              0) {
+            MaterialAsset *material_asset = asset_get_data(
+                MaterialAsset, &gym_state->asset_system,
+                gym_state->costume_material_handles_array[costume_idx][i]);
+            assert(material_asset);
+            Material *material = material_from_asset(
+                material_asset, &gym_state->asset_system, ctx);
+            slice_append(gym_state->costume_materials_array[costume_idx],
+                         *material);
+            LOG_INFO("Loaded costume % material % for submesh %",
+                     FMT_UINT(costume_idx), FMT_STR(material_asset->name.value),
+                     FMT_UINT(i));
+          } else {
+            LOG_WARN("No material for costume % submesh %, using default",
+                     FMT_UINT(costume_idx), FMT_UINT(i));
+            Material default_material = {0};
+            slice_append(gym_state->costume_materials_array[costume_idx],
+                         default_material);
+          }
+        }
+
+        // Create costume SkinnedModel
+        gym_state->costume_skinned_models[costume_idx] =
+            skmodel_from_asset(ctx, gym_state->costume_model_datas[costume_idx],
+                               gym_state->costume_materials_array[costume_idx]);
+
+        LOG_INFO("Costume % SkinnedModel created with % materials",
+                 FMT_UINT(costume_idx),
+                 FMT_UINT(gym_state->costume_materials_array[costume_idx].len));
+
+        // Create joint mapping between this costume and Tolan
+        if (gym_state->model_data &&
+            gym_state->costume_model_datas[costume_idx] &&
+            !gym_state->costume_map_created[costume_idx]) {
+          gym_state->costume_joint_counts[costume_idx] =
+              gym_state->costume_model_datas[costume_idx]->len_joints;
+          gym_state->costume_to_tolan_joint_maps[costume_idx] =
+              ALLOC_ARRAY(&ctx->allocator, i32,
+                          gym_state->costume_joint_counts[costume_idx]);
+
+          u32 mapped_count = 0;
+          u32 unmapped_count = 0;
+
+          // For each costume joint, find matching Tolan joint by name
+          for (u32 joint_idx = 0;
+               joint_idx < gym_state->costume_joint_counts[costume_idx];
+               joint_idx++) {
+            String costume_joint_name =
+                gym_state->costume_model_datas[costume_idx]
+                    ->joint_names[joint_idx];
+            i32 tolan_idx = -1;
+
+            if (joint_idx == 0) {
+              costume_joint_name = (String){.value = "geo", .len = 3};
+            }
+
+            // Search for matching joint in Tolan model
+            for (u32 tolan_joint_idx = 0;
+                 tolan_joint_idx < gym_state->model_data->len_joints;
+                 tolan_joint_idx++) {
+              if (str_equal(
+                      gym_state->model_data->joint_names[tolan_joint_idx].value,
+                      costume_joint_name.value)) {
+                tolan_idx = tolan_joint_idx;
+                break;
+              }
+            }
+
+            gym_state->costume_to_tolan_joint_maps[costume_idx][joint_idx] =
+                tolan_idx;
+
+            if (tolan_idx >= 0) {
+              mapped_count++;
+              LOG_INFO("Costume % - Mapped joint % (%) to Tolan joint %",
+                       FMT_UINT(costume_idx), FMT_STR(costume_joint_name.value),
+                       FMT_UINT(joint_idx), FMT_UINT(tolan_idx));
+            } else {
+              unmapped_count++;
+              LOG_WARN("Costume % - No match for joint % (%)",
+                       FMT_UINT(costume_idx), FMT_STR(costume_joint_name.value),
+                       FMT_UINT(joint_idx));
+            }
+          }
+
+          gym_state->costume_map_created[costume_idx] = true;
+          LOG_INFO(
+              "Costume % joint mapping created: % mapped, % unmapped (total %)",
+              FMT_UINT(costume_idx), FMT_UINT(mapped_count),
+              FMT_UINT(unmapped_count),
+              FMT_UINT(gym_state->costume_joint_counts[costume_idx]));
+        }
+      }
+    }
+  }
+}
+
+void gym_update_and_render(GameMemory *memory) {
+  GymState *gym_state = cast(GymState *) memory->permanent_memory;
+  GameContext *ctx = &gym_state->ctx;
+  GameTime *time = &memory->time;
+
+  f32 dt = time->dt;
+
+  AudioState *audio_system = &gym_state->audio_system;
+  AssetSystem *asset_system = &gym_state->asset_system;
+  GameInput *input = &gym_state->input;
+
+  handle_loading(gym_state, asset_system);
+
+  asset_system_update(asset_system, ctx);
+
+  input_update(input, &memory->input_events, memory->time.now);
+  // camera_update(&gym_state->camera, input, dt);
+
+  audio_update(audio_system, ctx, dt);
+
+  Character *entity = &gym_state->character;
+
+  camera_update_uniforms(&gym_state->camera, memory->canvas.width,
+                         memory->canvas.height);
+  renderer_update_camera(&gym_state->camera.uniforms);
+
+  local_persist vec3 light_dir = {0.490610, 0.141831, 0.859758};
+  // if (input->right.is_pressed) {
+  //   light_dir[0] += 2 * dt;
+  // }
+  // if (input->left.is_pressed) {
+  //   light_dir[0] -= 2 * dt;
+  // }
+  // if (input->space.is_pressed) {
+  //
+  //   if (input->up.is_pressed) {
+  //     light_dir[2] += 2 * dt;
+  //   }
+  //   if (input->down.is_pressed) {
+  //     light_dir[2] -= 2 * dt;
+  //   }
+  // } else {
+  //
+  //   if (input->up.is_pressed) {
+  //     light_dir[1] += 2 * dt;
+  //   }
+  //   if (input->down.is_pressed) {
+  //     light_dir[1] -= 2 * dt;
+  //   }
+  // }
+  //
+  // LOG_INFO("% % %", FMT_VEC3(light_dir));
+  glm_normalize(light_dir);
+
+  gym_state->directional_lights.count = 1;
+  gym_state->directional_lights.lights[0] = (DirectionalLight){
+      .direction = {light_dir[0], light_dir[1], light_dir[2]},
+      .color = {1, 1, 1},
+      .intensity = 1.0};
+
+  renderer_set_lights(&gym_state->directional_lights);
+
+  // Handle layered animations
+  if ((gym_state->lower_body_animations_loaded.len > 0 ||
+       gym_state->upper_body_animations_loaded.len > 0 ||
+       gym_state->face_animations_loaded.len > 0) &&
+      gym_state->character.animated.layers.len >= 2) {
+    AnimatedEntity *animated = &entity->animated;
+
+    // Start lower body animation if none playing
+    if (gym_state->lower_body_animations_loaded.len > 0) {
+      AnimationLayer *lower_layer = &animated->layers.items[0];
+      if (lower_layer->animation_states.len == 0) {
+        // Start with "anya/Anya - Run Fwd 1.hasset"
+        animated_entity_play_animation_on_layer(
+            animated, 0, gym_state->lower_body_animations_loaded.items[0], 0.0f,
+            1.0, true);
+        LOG_INFO(
+            "Started lower body animation: %",
+            FMT_STR(
+                gym_state->lower_body_animations_loaded.items[0]->name.value));
+      }
+
+      // Handle lower body animation cycling
+      if (!lower_layer->current_transition.active &&
+          lower_layer->animation_states.len > 0 &&
+          gym_state->lower_body_animations_loaded.len > 1) {
+        AnimationState *current_state =
+            &lower_layer->animation_states
+                 .items[lower_layer->current_animation_index];
+
+        f32 transition_trigger_time = current_state->animation->length - 0.5f;
+        if (current_state->time > transition_trigger_time) {
+          // Find current animation in lower body list
+          u32 current_index = 0;
+          for (u32 i = 0; i < gym_state->lower_body_animations_loaded.len;
+               i++) {
+            if (gym_state->lower_body_animations_loaded.items[i] ==
+                current_state->animation) {
+              current_index = i;
+              break;
+            }
+          }
+
+          u32 next_index =
+              (current_index + 1) % gym_state->lower_body_animations_loaded.len;
+          animated_entity_play_animation_on_layer(
+              animated, 0,
+              gym_state->lower_body_animations_loaded.items[next_index], 0.3f,
+              1.0, true);
+          LOG_INFO(
+              "Transitioning lower body to: %",
+              FMT_STR(gym_state->lower_body_animations_loaded.items[next_index]
+                          ->name.value));
+        }
+      }
+    }
+
+    // Start face animation if none playing
+    if (gym_state->face_animations_loaded.len > 0) {
+      AnimationLayer *face_layer =
+          &animated->layers.items[gym_state->face_layer_index];
+      if (face_layer->animation_states.len == 0) {
+        LOG_INFO(
+            "Here playing face animation %",
+            FMT_STR(gym_state->face_animations_loaded.items[0]->name.value));
+        // Start with first face animation - no looping for face animations
+        animated_entity_play_animation_on_layer(
+            animated, gym_state->face_layer_index,
+            gym_state->face_animations_loaded.items[0], 0.0f, 1.0, false);
+        LOG_INFO(
+            "Started face animation: %",
+            FMT_STR(gym_state->face_animations_loaded.items[0]->name.value));
+      }
+
+      local_persist f32 time_since_last_face_change = 4;
+
+      // Handle face animation cycling
+      if (!face_layer->current_transition.active &&
+          face_layer->animation_states.len > 0 &&
+          gym_state->face_animations_loaded.len > 1) {
+        AnimationState *current_state =
+            &face_layer->animation_states
+                 .items[face_layer->current_animation_index];
+
+        // For face animations, wait at least 1 second before switching
+        if (time->now > time_since_last_face_change) {
+          time_since_last_face_change = time->now + 3.0;
+          // Find current animation in face list
+          u32 current_index = 0;
+          for (u32 i = 0; i < gym_state->face_animations_loaded.len; i++) {
+            if (gym_state->face_animations_loaded.items[i] ==
+                current_state->animation) {
+              current_index = i;
+              break;
+            }
+          }
+
+          u32 next_index =
+              (current_index + 1) % gym_state->face_animations_loaded.len;
+          // Face animations don't loop
+          animated_entity_play_animation_on_layer(
+              animated, gym_state->face_layer_index,
+              gym_state->face_animations_loaded.items[next_index], 0.3f, 1.0f,
+              false);
+          LOG_INFO("Transitioning face to: %",
+                   FMT_STR(gym_state->face_animations_loaded.items[next_index]
+                               ->name.value));
+        }
+      }
+    }
+
+    animated_entity_update(animated, dt);
+    animated_entity_evaluate_pose(animated, gym_state->model_data);
+
+    // tolan stuff
+    {
+      if (gym_state->left_eye_mesh_idx >= 0 &&
+          gym_state->left_eye_olive_bs_idx >= 0 &&
+          (u32)gym_state->left_eye_mesh_idx <
+              animated->blendshape_results.len) {
+        BlendshapeEvalResult *left_eye_result =
+            &animated->blendshape_results.items[gym_state->left_eye_mesh_idx];
+        if ((u32)gym_state->left_eye_olive_bs_idx <
+            left_eye_result->blendshape_weights.len) {
+          left_eye_result->blendshape_weights
+              .items[gym_state->left_eye_olive_bs_idx] = 1.0f;
+        }
+      }
+
+      if (gym_state->right_eye_mesh_idx >= 0 &&
+          gym_state->right_eye_olive_bs_idx >= 0 &&
+          (u32)gym_state->right_eye_mesh_idx <
+              animated->blendshape_results.len) {
+        BlendshapeEvalResult *left_eye_result =
+            &animated->blendshape_results.items[gym_state->right_eye_mesh_idx];
+        if ((u32)gym_state->right_eye_olive_bs_idx <
+            left_eye_result->blendshape_weights.len) {
+          left_eye_result->blendshape_weights
+              .items[gym_state->right_eye_olive_bs_idx] = 1.0f;
+        }
+      }
+
+      if (gym_state->neck_joint_idx >= 0 &&
+          (u32)gym_state->neck_joint_idx < animated->final_pose.len) {
+        JointTransform *joint =
+            &animated->final_pose.items[gym_state->neck_joint_idx];
+
+        joint->translation[1] = 5.5;
+      }
+    }
+
+    animated_entity_apply_pose(animated, gym_state->model_data,
+                               &entity->skinned_model);
+  }
+
+  Color clear_color = color_from_hex(0xebebeb);
+  renderer_clear(clear_color);
+
+  // Draw skybox if material is ready
+  if (gym_state->skybox_material_ready) {
+    renderer_draw_skybox(gym_state->skybox_material_handle);
+  }
+
+  // todo: draw skinned mesh function
+  SkinnedModel *skinned_model = &entity->skinned_model;
+  mat4 *model_matrix = &entity->model_matrix;
+  for (u32 i = 0; i < skinned_model->meshes.len; i++) {
+    SkinnedMesh *mesh = &skinned_model->meshes.items[i];
+    // todo: blendshapes
+    BlendshapeParams *blendshape_parms =
+        ALLOC(&ctx->temp_allocator, BlendshapeParams);
+    blendshape_parms->count = mesh->blendshape_weights.len;
+
+    memcpy(blendshape_parms->weights, mesh->blendshape_weights.items,
+           sizeof(f32) * mesh->blendshape_weights.len);
+
+    for (u32 k = 0; k < mesh->submeshes.len; k++) {
+      SkinnedSubMesh *submesh = &mesh->submeshes.items[k];
+      Handle mesh_handle = submesh->mesh_handle;
+      Handle material_handle = submesh->material_handle;
+
+      if (handle_is_valid(mesh_handle) && handle_is_valid(material_handle)) {
+        renderer_draw_skinned_mesh(mesh_handle, material_handle, *model_matrix,
+                                   skinned_model->joint_matrices.items,
+                                   skinned_model->joint_matrices.len,
+                                   blendshape_parms);
+      }
+    }
+  }
+
+  // Render all costumes that are loaded
+  for (u32 costume_idx = 0; costume_idx < gym_state->num_costumes;
+       costume_idx++) {
+    if (gym_state->costume_skinned_models[costume_idx].meshes.items &&
+        entity->skinned_model.joint_matrices.items &&
+        gym_state->costume_map_created[costume_idx]) {
+
+      // Copy mapped joint matrices from Tolan to this costume
+      for (u32 joint_idx = 0;
+           joint_idx < gym_state->costume_joint_counts[costume_idx];
+           joint_idx++) {
+        i32 tolan_idx =
+            gym_state->costume_to_tolan_joint_maps[costume_idx][joint_idx];
+        mat4 *joint_mat = &gym_state->costume_skinned_models[costume_idx]
+                               .joint_matrices.items[joint_idx];
+
+        if (tolan_idx >= 0 &&
+            (u32)tolan_idx < entity->skinned_model.joint_matrices.len) {
+          glm_mat4_copy(entity->skinned_model.joint_matrices.items[tolan_idx],
+                        *joint_mat);
+          if (costume_idx == 1) { // pants
+            quaternion q;
+            quat_from_euler((vec3){glm_rad(90), 0, 0}, q);
+            mat4 t;
+            mat_tr((vec3){0, -0.061, 0.0}, q, t);
+            mat4_mul(entity->skinned_model.joint_matrices.items[tolan_idx], t,
+                     *joint_mat);
+          } else if (costume_idx == 2) { // shoes
+            f32 sign = 1.0;
+            // invert right foot
+            if (joint_idx >= 48 && joint_idx <= 52) {
+              sign = -1.0;
+            }
+            quaternion q;
+            quat_from_euler((vec3){glm_rad(90), glm_rad(-15 * sign), glm_rad(0)},
+                            q);
+            mat4 t;
+            mat_tr((vec3){0.115 * sign, -0.000, 0.0}, q, t);
+            mat4_mul(entity->skinned_model.joint_matrices.items[tolan_idx], t,
+                     *joint_mat);
+          } else if (costume_idx == 3) { // scarf
+            quaternion q;
+            quat_from_euler((vec3){glm_rad(45), glm_rad(0), glm_rad(0)}, q);
+            mat4 t;
+            mat_t((vec3){0, -0.1, 0}, t);
+            mat4_mul(*joint_mat, t, *joint_mat);
+          }
+        } else {
+          // No matching joint, use identity matrix
+          glm_mat4_identity(gym_state->costume_skinned_models[costume_idx]
+                                .joint_matrices.items[joint_idx]);
+        }
+      }
+
+      // Render this costume with same transform as Tolan
+      for (u32 i = 0; i < gym_state->costume_skinned_models[costume_idx].meshes.len; i++) {
+        SkinnedMesh *mesh = &gym_state->costume_skinned_models[costume_idx].meshes.items[i];
+        BlendshapeParams *blendshape_parms =
+            ALLOC(&ctx->temp_allocator, BlendshapeParams);
+        blendshape_parms->count = mesh->blendshape_weights.len;
+
+        memcpy(blendshape_parms->weights, mesh->blendshape_weights.items,
+               sizeof(f32) * mesh->blendshape_weights.len);
+
+        for (u32 k = 0; k < mesh->submeshes.len; k++) {
+          SkinnedSubMesh *submesh = &mesh->submeshes.items[k];
+          Handle mesh_handle = submesh->mesh_handle;
+          Handle material_handle = submesh->material_handle;
+
+          if (handle_is_valid(mesh_handle) && handle_is_valid(material_handle)) {
+            renderer_draw_skinned_mesh(mesh_handle, material_handle, *model_matrix,
+                                       gym_state->costume_skinned_models[costume_idx].joint_matrices.items,
+                                       gym_state->costume_skinned_models[costume_idx].joint_matrices.len,
+                                       blendshape_parms);
+          }
+        }
+      }
+    }
+  }
+
+  input_end_frame(input);
+
+  game_stats_update(ctx, &gym_state->stats, dt);
+
+  // ui_set_stats(&gym_state->stats);
+}

@@ -1,92 +1,87 @@
-#include "sokol/sokol_app.h"
-#include "sokol/sokol_gfx.h"
-#include "sokol/sokol_glue.h"
-#include "sokol/sokol_log.h"
-#include "shaders/triangle.h"
+#include "game.h"
+// #include "gyms/gym_triangle.c"
+// #include "gyms/character_test.c"
+// #include "gyms/audio_test.c"
+// #include "gyms/audio_wav_test.c"
+// #include "gyms/audio_stream_test_from_file.c"
+// #include "gyms/http_test.c"
+#include "lib/typedefs.h"
+#include "lib/fmt.h"
+#include <stdio.h>
 
-// Application state
-typedef enum {
-  APP_STATE_READY,
-  APP_STATE_RENDERING
-} app_state_t;
+// Simple logging implementation
+typedef enum { LOGLEVEL_INFO, LOGLEVEL_WARN, LOGLEVEL_ERROR } LogLevel;
 
-static sg_pass_action pass_action;
-static sg_pipeline pip;
-static sg_bindings bind;
-static app_state_t app_state = APP_STATE_READY;
+void platform_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
+                  const char *file_name, uint32 line_number) {
+  char buffer[1024];
+  fmt_string(buffer, sizeof(buffer), fmt, args);
 
-// Triangle vertices with position and color
-static float vertices[] = {
-    // positions      colors
-    0.0f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f, // top vertex (red)
-    0.5f,  -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, // bottom right (green)
-    -0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f  // bottom left (blue)
-};
-
-// Shader creation function
-static void create_shader_pipeline(void) {
-  // Create shader using compiled header
-  sg_shader shd = sg_make_shader(triangle_shader_desc(sg_query_backend()));
-
-  // Create pipeline
-  pip = sg_make_pipeline(&(sg_pipeline_desc){
-      .shader = shd,
-      .layout = {.attrs = {[ATTR_triangle_position].format = SG_VERTEXFORMAT_FLOAT2,
-                           [ATTR_triangle_color].format = SG_VERTEXFORMAT_FLOAT4}},
-      .label = "triangle-pipeline"});
-
-  app_state = APP_STATE_RENDERING;
-}
-
-static void init(void) {
-  sg_setup(&(sg_desc){
-      .environment = sglue_environment(),
-      .logger.func = slog_func,
-  });
-
-  // Create vertex buffer
-  bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
-      .data = SG_RANGE(vertices), .label = "triangle-vertices"});
-
-  // Create shader pipeline immediately
-  create_shader_pipeline();
-
-  // Set up clear color (black background)
-  pass_action =
-      (sg_pass_action){.colors[0] = {.load_action = SG_LOADACTION_CLEAR,
-                                     .clear_value = {0.0f, 0.0f, 0.0f, 1.0f}}};
-}
-
-static void frame(void) {
-  sg_begin_pass(
-      &(sg_pass){.action = pass_action, .swapchain = sglue_swapchain()});
-
-  // Render triangle (always ready now)
-  if (app_state == APP_STATE_RENDERING) {
-    sg_apply_pipeline(pip);
-    sg_apply_bindings(&bind);
-    sg_draw(0, 3, 1);
+  const char *level_str;
+  FILE *output;
+  switch (log_level) {
+  case LOGLEVEL_INFO:
+    level_str = "INFO";
+    output = stdout;
+    break;
+  case LOGLEVEL_WARN:
+    level_str = "WARN";
+    output = stderr;
+    break;
+  case LOGLEVEL_ERROR:
+    level_str = "ERROR";
+    output = stderr;
+    break;
+  default:
+    level_str = "UNKNOWN";
+    output = stderr;
+    break;
   }
 
-  sg_end_pass();
-  sg_commit();
+  fprintf(output, "[%s] %s:%u: %s\n", level_str, file_name, line_number,
+          buffer);
+  fflush(output);
 }
 
-static void cleanup(void) {
-  sg_shutdown();
+#define PLATFORM_LOG(level, fmt, ...)                                          \
+  do {                                                                         \
+    FmtArg args[] = {__VA_ARGS__};                                             \
+    FmtArgs fmtArgs = {args, COUNT_VARGS(FmtArg, __VA_ARGS__)};                \
+    platform_log(level, fmt, &fmtArgs, __FILE__, __LINE__);               \
+  } while (0)
+
+#define LOG_INFO(fmt, ...) PLATFORM_LOG(LOGLEVEL_INFO, fmt, __VA_ARGS__)
+#define LOG_WARN(fmt, ...) PLATFORM_LOG(LOGLEVEL_WARN, fmt, __VA_ARGS__)
+#define LOG_ERROR(fmt, ...) PLATFORM_LOG(LOGLEVEL_ERROR, fmt, __VA_ARGS__)
+
+// Define the input button and event names
+const char *input_button_names[KEY_MAX] = {
+#define INPUT_BUTTON(v, a) a
+    INPUT_BUTTONS
+#undef INPUT_BUTTON
+};
+
+const char *input_event_names[EVENT_MAX] = {
+#define EVENT_TYPE(v, a) a
+    EVENT_TYPES
+#undef EVENT_TYPE
+};
+
+// Stub implementation for get_global_ctx - not used in video_renderer
+GameContext *get_global_ctx() {
+  return NULL;
 }
 
-sapp_desc sokol_main(int argc, char *argv[]) {
-  (void)argc;
-  (void)argv;
-  return (sapp_desc){
-      .init_cb = init,
-      .frame_cb = frame,
-      .cleanup_cb = cleanup,
-      .width = 800,
-      .height = 600,
-      .window_title = "Sokol Window",
-      .icon.sokol_default = true,
-      .logger.func = slog_func,
-  };
+export void game_init(GameMemory *memory) {
+  LOG_INFO("Game initialized");
+  LOG_INFO("Permanent memory: % MB",
+           FMT_FLOAT(BYTES_TO_MB(memory->pernament_memory_size)));
+  LOG_INFO("Temporary memory: % MB",
+           FMT_FLOAT(BYTES_TO_MB(memory->temporary_memory_size)));
+
+  // gym_init(memory);
+}
+
+export void game_update_and_render(GameMemory *memory) {
+  // gym_update_and_render(memory);
 }
