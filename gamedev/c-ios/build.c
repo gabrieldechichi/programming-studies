@@ -58,7 +58,7 @@
 
 // Linux configuration
 #define LINUX_COMPILE_FLAGS                                                    \
-  "-Isrc -Ilib -DLINUX=1 " MAIN_STRICT_FLAGS
+  "-Isrc -Ilib -Isrc/vendor -DLINUX=1 " MAIN_STRICT_FLAGS
 #define LINUX_VULKAN_FLAGS                                                     \
   "-lvulkan -lm"
 // FFmpeg libraries for Linux (standard package manager paths)

@@ -791,7 +791,7 @@ static int initialize_system(void) {
       }
   };
 
-  g_ctx.triangle_material_handle = renderer_load_material(
+  g_ctx.triangle_material_handle = load_material(
       g_ctx.triangle_shader_handle,
       material_props,
       1,     // 1 property
@@ -800,7 +800,7 @@ static int initialize_system(void) {
 
   // Create triangle mesh as SubMeshData (skinned format)
   SubMeshData triangle_mesh = {
-      .vertex_buffer = vertices,
+      .vertex_buffer = (u8*)vertices,
       .len_vertex_buffer = sizeof(vertices) / sizeof(float),  // Total floats
       .len_vertices = 3,  // 3 vertices
       .indices = NULL,    // No indices, draw vertices directly
@@ -914,7 +914,6 @@ static void render_all_frames(void) {
       vec3 center = {0.0f, 0.0f, 0.0f};
       vec3 up = {0.0f, 1.0f, 0.0f};
       glm_vec3_copy(eye, camera_data.camera_pos);
-      camera_data._padding0 = 0.0f;
 
       // Create view matrix
       glm_lookat(eye, center, up, camera_data.view_matrix);
@@ -931,23 +930,21 @@ static void render_all_frames(void) {
       // Set up lights
       DirectionalLightBlock lights;
       lights.count = 1.0f;
-      lights._pad0 = 0.0f;
-      lights._pad1 = 0.0f;
-      lights._pad2 = 0.0f;
+      lights._padding[0] = 0.0f;
+      lights._padding[1] = 0.0f;
+      lights._padding[2] = 0.0f;
 
       // Light direction (pointing down and forward)
       vec3 light_dir = {0.0f, -0.5f, -1.0f};
       glm_vec3_normalize(light_dir);
-      lights.lights_data[0][0] = light_dir[0];
-      lights.lights_data[0][1] = light_dir[1];
-      lights.lights_data[0][2] = light_dir[2];
-      lights.lights_data[0][3] = 0.0f;
+      glm_vec3_copy(light_dir, lights.lights[0].direction);
+      lights.lights[0]._padding1 = 0.0f;
 
       // Light color and intensity
-      lights.lights_data[1][0] = 1.0f;  // R
-      lights.lights_data[1][1] = 1.0f;  // G
-      lights.lights_data[1][2] = 1.0f;  // B
-      lights.lights_data[1][3] = 1.0f;  // intensity
+      lights.lights[0].color[0] = 1.0f;  // R
+      lights.lights[0].color[1] = 1.0f;  // G
+      lights.lights[0].color[2] = 1.0f;  // B
+      lights.lights[0].intensity = 1.0f;
 
       // Material color (white)
       vec3 material_color = {1.0f, 1.0f, 1.0f};
@@ -1396,8 +1393,8 @@ int main(int argc, char *argv[]) {
 
   // Create a hardcoded request for testing
   render_request_t request = {
-    .seconds = 2.0,  // 2 second video
-    .num_frames = 48  // 2 * 24fps
+    .seconds = 8,  // 2 second video
+    .num_frames = 8*24  // 2 * 24fps
   };
 
   printf("\nStarting standalone render...\n");
