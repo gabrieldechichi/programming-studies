@@ -330,9 +330,6 @@ void renderer_clear(Color color);
 
 Handle load_shader(LoadShaderParams params);
 
-// Internal helper to load shader with direct pipeline - used by video_renderer.c
-Handle renderer_load_shader(const char *shader_name, gpu_pipeline_t *pipeline);
-
 Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned);
 
 Handle load_material(Handle shader_handle, MaterialProperty *properties,
@@ -355,7 +352,5 @@ void renderer_update_camera(const CameraUniformBlock *camera_uniforms);
 void renderer_set_lights(const DirectionalLightBlock *lights);
 
 void renderer_draw_skybox(Handle material_handle);
-
-void renderer_handle_resize(i32 width, i32 height);
 
 #endif

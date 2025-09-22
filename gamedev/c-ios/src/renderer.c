@@ -17,6 +17,49 @@
 
 #define internal static
 
+// ===== Shader Registry =====
+
+// Forward declaration for GPUShader
+typedef struct ShaderRegistryEntry {
+  const char* name;
+  gpu_pipeline_t* pipeline;  // Lazily initialized
+  // Hardcoded uniform slot mappings
+  int camera_slot;      // -1 if not used
+  int model_slot;
+  int joints_slot;
+  int material_slot;
+  int lights_slot;
+  int blendshape_slot;
+} ShaderRegistryEntry;
+
+// Shader registry with known shaders and their uniform mappings
+static ShaderRegistryEntry shader_registry[] = {
+  // Toon shading shader with full skinning support
+  {
+    .name = "toon_shading",
+    .pipeline = NULL,
+    .camera_slot = 0,
+    .model_slot = 2,
+    .joints_slot = 1,
+    .material_slot = 3,
+    .lights_slot = 4,
+    .blendshape_slot = 6
+  },
+  // Simple triangle shader
+  {
+    .name = "triangle",
+    .pipeline = NULL,
+    .camera_slot = -1,
+    .model_slot = 1,
+    .joints_slot = -1,
+    .material_slot = -1,
+    .lights_slot = -1,
+    .blendshape_slot = -1
+  },
+};
+
+static const int shader_registry_count = sizeof(shader_registry) / sizeof(shader_registry[0]);
+
 // ===== Internal Type Definitions =====
 
 // ===== Internal Structures =====
@@ -25,6 +68,8 @@
 typedef struct {
   gpu_pipeline_t *pipeline;
   const char *name;
+  // Store shader registry info for uniform mapping
+  ShaderRegistryEntry *registry_entry;
 } GPUShader;
 
 TYPED_HANDLE_DEFINE(GPUShader);
@@ -269,12 +314,113 @@ Handle renderer_load_shader(const char *shader_name, gpu_pipeline_t *pipeline) {
   return handle;
 }
 
+// Helper function to create pipeline for a shader
+internal gpu_pipeline_t* create_shader_pipeline(const char* shader_name) {
+  if (!g_renderer || !g_renderer->device) {
+    return NULL;
+  }
+
+  // Special handling for toon_shading shader
+  if (strcmp(shader_name, "toon_shading") == 0) {
+    // Create vertex layout for skinned mesh format
+    gpu_vertex_attr_t attributes[] = {
+        {.index = 0, .offset = 0,  .format = 1}, // position (float3)
+        {.index = 1, .offset = 12, .format = 1}, // normal (float3)
+        {.index = 2, .offset = 24, .format = 0}, // uv (float2)
+        {.index = 3, .offset = 32, .format = 3}, // joints (ubyte4)
+        {.index = 4, .offset = 36, .format = 2}  // weights (float4)
+    };
+
+    gpu_vertex_layout_t vertex_layout = {
+        .attributes = attributes,
+        .num_attributes = 5,
+        .stride = 52 // 3+3+2+1+4 floats = 13 floats = 52 bytes
+    };
+
+    // Define uniform buffer layout for toon shader
+    gpu_uniform_buffer_desc_t toon_uniforms[] = {
+        {.binding = 0, .size = sizeof(CameraUniformBlock), .stage_flags = GPU_STAGE_VERTEX},
+        {.binding = 1, .size = sizeof(float) * 16 * 256, .stage_flags = GPU_STAGE_VERTEX}, // joint_transforms
+        {.binding = 2, .size = sizeof(float) * 16, .stage_flags = GPU_STAGE_VERTEX},        // model_matrix
+        {.binding = 3, .size = sizeof(float) * 4, .stage_flags = GPU_STAGE_FRAGMENT},       // material_color
+        {.binding = 4, .size = sizeof(DirectionalLightBlock), .stage_flags = GPU_STAGE_FRAGMENT}, // lights
+        {.binding = 6, .size = sizeof(BlendshapeParams), .stage_flags = GPU_STAGE_VERTEX},  // blendshapes
+    };
+
+    gpu_storage_buffer_desc_t toon_storage[] = {
+        {.binding = 7, .size = sizeof(float) * 8 * 1000, .stage_flags = GPU_STAGE_VERTEX} // blendshape deltas
+    };
+
+    gpu_pipeline_desc_t toon_desc = {
+        .vertex_shader_path = "toon_shading.vert.spv",
+        .fragment_shader_path = "toon_shading.frag.spv",
+        .vertex_layout = &vertex_layout,
+        .uniform_buffers = toon_uniforms,
+        .num_uniform_buffers = 6,
+        .storage_buffers = toon_storage,
+        .num_storage_buffers = 1,
+        .depth_test = true,
+        .depth_write = true,
+        .cull_mode = 0  // no culling
+    };
+
+    // Try without prefix first (when running from out/linux)
+    gpu_pipeline_t* pipeline = gpu_create_pipeline_desc(g_renderer->device, &toon_desc);
+
+    if (!pipeline) {
+      // Try with out/linux prefix (when running from project root)
+      toon_desc.vertex_shader_path = "out/linux/toon_shading.vert.spv";
+      toon_desc.fragment_shader_path = "out/linux/toon_shading.frag.spv";
+      pipeline = gpu_create_pipeline_desc(g_renderer->device, &toon_desc);
+    }
+
+    return pipeline;
+  }
+
+  // For other shaders, return NULL for now
+  // Can add more shader pipeline creation logic here
+  return NULL;
+}
+
 // Public API function matching header
 Handle load_shader(LoadShaderParams params) {
-  // For now, we only support loading shaders that have already been registered
-  // This is a stub that returns invalid handle
-  // In practice, video_renderer.c uses renderer_load_shader directly
-  return INVALID_HANDLE;
+  if (!g_renderer || !params.shader_name) {
+    return INVALID_HANDLE;
+  }
+
+  // Find shader in registry
+  ShaderRegistryEntry* entry = NULL;
+  for (int i = 0; i < shader_registry_count; i++) {
+    if (strcmp(shader_registry[i].name, params.shader_name) == 0) {
+      entry = &shader_registry[i];
+      break;
+    }
+  }
+
+  if (!entry) {
+    printf("[Renderer] Shader '%s' not found in registry\n", params.shader_name);
+    return INVALID_HANDLE;
+  }
+
+  // Create pipeline if it doesn't exist (lazy initialization)
+  if (!entry->pipeline) {
+    entry->pipeline = create_shader_pipeline(params.shader_name);
+    if (!entry->pipeline) {
+      printf("[Renderer] Failed to create pipeline for shader '%s'\n", params.shader_name);
+      return INVALID_HANDLE;
+    }
+    printf("[Renderer] Created pipeline for shader '%s'\n", params.shader_name);
+  }
+
+  // Create GPUShader and store in handle array
+  GPUShader new_shader = {
+      .pipeline = entry->pipeline,
+      .name = entry->name,
+      .registry_entry = entry
+  };
+
+  Handle handle = cast_handle(Handle, ha_add(GPUShader, &g_renderer->gpu_shaders, new_shader));
+  return handle;
 }
 
 Handle load_material(Handle shader_handle, MaterialProperty *properties,
@@ -439,32 +585,57 @@ void renderer_execute_commands(gpu_texture_t *render_target, gpu_command_buffer_
         // Set vertex buffer
         gpu_set_vertex_buffer(encoder, mesh->vertex_buffer, 0);
 
-        // Update ALL uniforms for toon shader
-        if (gpu_shader->pipeline->has_uniforms) {
-          // For toon shader, we need to update all uniforms
-          vec3 material_color = {1.0f, 1.0f, 0.0f}; // Default white
+        // Update uniforms based on shader registry info
+        if (gpu_shader->pipeline->has_uniforms && gpu_shader->registry_entry) {
+          ShaderRegistryEntry *reg = gpu_shader->registry_entry;
 
-          //todo: implicity dependency on toon shader
-          // Extract material color if available
-          for (u32 i = 0; i < material->property_count; i++) {
-            if (material->properties[i].type == MAT_PROP_VEC3 &&
-                strcmp(material->properties[i].name.value, "uColor") == 0) {
-              glm_vec3_copy(material->properties[i].value.vec3_val, material_color);
-              break;
-            }
+          // Update camera uniform if shader uses it
+          if (reg->camera_slot >= 0) {
+            gpu_update_uniforms(gpu_shader->pipeline, reg->camera_slot,
+                              &g_renderer->current_camera, sizeof(CameraUniformBlock));
           }
 
-          //todo: implicit dependency on toon shader
-          // Update uniforms using slot-based API (matching shader bindings)
-          gpu_update_uniforms(gpu_shader->pipeline, 0, &g_renderer->current_camera, sizeof(CameraUniformBlock));
-          gpu_update_uniforms(gpu_shader->pipeline, 1, cmd->data.draw_skinned_mesh.joint_transforms,
-                            sizeof(float) * 16 * cmd->data.draw_skinned_mesh.num_joints);
-          gpu_update_uniforms(gpu_shader->pipeline, 2, &cmd->data.draw_skinned_mesh.model_matrix, sizeof(mat4));
-          gpu_update_uniforms(gpu_shader->pipeline, 3, material_color, sizeof(vec3));
-          gpu_update_uniforms(gpu_shader->pipeline, 4, &g_renderer->current_lights, sizeof(DirectionalLightBlock));
-          if (cmd->data.draw_skinned_mesh.blendshape_params) {
-            gpu_update_uniforms(gpu_shader->pipeline, 6, cmd->data.draw_skinned_mesh.blendshape_params,
-                              sizeof(BlendshapeParams)); // binding 6!
+          // Update joint transforms if shader uses skinning
+          if (reg->joints_slot >= 0 && cmd->data.draw_skinned_mesh.joint_transforms) {
+            gpu_update_uniforms(gpu_shader->pipeline, reg->joints_slot,
+                              cmd->data.draw_skinned_mesh.joint_transforms,
+                              sizeof(float) * 16 * cmd->data.draw_skinned_mesh.num_joints);
+          }
+
+          // Update model matrix if shader uses it
+          if (reg->model_slot >= 0) {
+            gpu_update_uniforms(gpu_shader->pipeline, reg->model_slot,
+                              &cmd->data.draw_skinned_mesh.model_matrix, sizeof(mat4));
+          }
+
+          // Update material properties if shader uses them
+          if (reg->material_slot >= 0) {
+            vec3 material_color = {1.0f, 1.0f, 1.0f}; // Default white
+
+            // Extract material color if available
+            for (u32 i = 0; i < material->property_count; i++) {
+              if (material->properties[i].type == MAT_PROP_VEC3 &&
+                  strcmp(material->properties[i].name.value, "uColor") == 0) {
+                glm_vec3_copy(material->properties[i].value.vec3_val, material_color);
+                break;
+              }
+            }
+
+            gpu_update_uniforms(gpu_shader->pipeline, reg->material_slot,
+                              material_color, sizeof(vec3));
+          }
+
+          // Update lights if shader uses them
+          if (reg->lights_slot >= 0) {
+            gpu_update_uniforms(gpu_shader->pipeline, reg->lights_slot,
+                              &g_renderer->current_lights, sizeof(DirectionalLightBlock));
+          }
+
+          // Update blendshape params if shader uses them
+          if (reg->blendshape_slot >= 0 && cmd->data.draw_skinned_mesh.blendshape_params) {
+            gpu_update_uniforms(gpu_shader->pipeline, reg->blendshape_slot,
+                              cmd->data.draw_skinned_mesh.blendshape_params,
+                              sizeof(BlendshapeParams));
           }
         }
 
@@ -551,11 +722,4 @@ void renderer_draw_skybox(Handle material_handle) {
   };
 
   add_render_command(cmd);
-}
-
-void renderer_handle_resize(i32 width, i32 height) {
-  // Stub implementation - video renderer doesn't need dynamic resize
-  // as it renders to fixed-size textures
-  (void)width;
-  (void)height;
 }
