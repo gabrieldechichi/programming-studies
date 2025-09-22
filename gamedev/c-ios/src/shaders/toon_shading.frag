@@ -62,19 +62,30 @@ vec3 anime_light_pass(vec3 color, vec3 normal, vec3 worldPos) {
 }
 
 void main() {
-    // Sample the texture
+    // Sample the main texture
     vec4 tex_color = texture(uTexture, vs_texcoord);
+    frag_color = tex_color;
+    return;
+
+    // Sample detail texture and mix with main texture
+    vec4 detail_color = texture(uDetailTexture, vs_texcoord);
+    tex_color.rgb = mix(tex_color.rgb, detail_color.rgb, detail_color.a);
 
     // Normalize the interpolated normal
     vec3 normal = normalize(vs_normal);
 
-    // Calculate toon lighting on texture color
-    vec3 color = tex_color.rgb;
-    // color += anime_light_pass(color, normal, vs_world_pos);
+    // Start with white base color for lighting
+    vec3 color = vec3(1.0);
+
+    // Apply anime/toon lighting
+    color = anime_light_pass(color, normal, vs_world_pos);
+
+    // Multiply by texture color
+    color *= tex_color.rgb;
 
     // Apply material color tint
     color *= material.uColor.rgb;
 
-    // Output final color with alpha from texture
+    // Output final color with alpha from texture and material
     frag_color = vec4(color, tex_color.a * material.uColor.a);
 }
