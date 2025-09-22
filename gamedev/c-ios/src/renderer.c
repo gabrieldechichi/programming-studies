@@ -525,13 +525,17 @@ void renderer_execute_commands(gpu_texture_t *render_target, gpu_command_buffer_
             }
           }
 
-          gpu_update_toon_shader_uniforms(gpu_shader->pipeline,
-                                         &g_renderer->current_camera,
-                                         cmd->data.draw_skinned_mesh.joint_transforms,
-                                         &cmd->data.draw_skinned_mesh.model_matrix,
-                                         material_color,
-                                         &g_renderer->current_lights,
-                                         cmd->data.draw_skinned_mesh.blendshape_params);
+          // Update uniforms using slot-based API (matching shader bindings)
+          gpu_update_uniforms(gpu_shader->pipeline, 0, &g_renderer->current_camera, sizeof(CameraUniformBlock));
+          gpu_update_uniforms(gpu_shader->pipeline, 1, cmd->data.draw_skinned_mesh.joint_transforms,
+                            sizeof(float) * 16 * cmd->data.draw_skinned_mesh.num_joints);
+          gpu_update_uniforms(gpu_shader->pipeline, 2, &cmd->data.draw_skinned_mesh.model_matrix, sizeof(mat4));
+          gpu_update_uniforms(gpu_shader->pipeline, 3, material_color, sizeof(vec3));
+          gpu_update_uniforms(gpu_shader->pipeline, 4, &g_renderer->current_lights, sizeof(DirectionalLightBlock));
+          if (cmd->data.draw_skinned_mesh.blendshape_params) {
+            gpu_update_uniforms(gpu_shader->pipeline, 6, cmd->data.draw_skinned_mesh.blendshape_params,
+                              sizeof(BlendshapeParams)); // binding 6!
+          }
         }
 
         // Also set model matrix as push constant for compatibility

@@ -734,23 +734,42 @@ static int initialize_system(void) {
   // Initialize renderer system
   renderer_init(g_ctx.device, &g_ctx.permanent_allocator, &g_ctx.temporary_allocator);
 
-  // Create toon shading pipeline
+  // Create toon shading pipeline with flexible descriptor-based API
+  // Define uniform buffer layout for toon shader
+  gpu_uniform_buffer_desc_t toon_uniforms[] = {
+      {.binding = 0, .size = sizeof(CameraUniformBlock), .stage_flags = GPU_STAGE_VERTEX},
+      {.binding = 1, .size = sizeof(float) * 16 * 256, .stage_flags = GPU_STAGE_VERTEX}, // joint_transforms
+      {.binding = 2, .size = sizeof(float) * 16, .stage_flags = GPU_STAGE_VERTEX},        // model_matrix
+      {.binding = 3, .size = sizeof(float) * 4, .stage_flags = GPU_STAGE_FRAGMENT},       // material_color
+      {.binding = 4, .size = sizeof(DirectionalLightBlock), .stage_flags = GPU_STAGE_FRAGMENT}, // lights
+      {.binding = 6, .size = sizeof(BlendshapeParams), .stage_flags = GPU_STAGE_VERTEX},  // blendshapes - NOTE: binding 6!
+  };
+
+  gpu_storage_buffer_desc_t toon_storage[] = {
+      {.binding = 7, .size = sizeof(float) * 8 * 1000, .stage_flags = GPU_STAGE_VERTEX} // blendshape deltas
+  };
+
+  gpu_pipeline_desc_t toon_desc = {
+      .vertex_shader_path = "toon_shading.vert.spv",
+      .fragment_shader_path = "toon_shading.frag.spv",
+      .vertex_layout = &vertex_layout,
+      .uniform_buffers = toon_uniforms,
+      .num_uniform_buffers = 6,
+      .storage_buffers = toon_storage,
+      .num_storage_buffers = 1,
+      .depth_test = true,
+      .depth_write = true,
+      .cull_mode = 0  // no culling
+  };
+
   // Try without prefix first (when running from out/linux)
-  g_ctx.camera_pipeline = gpu_create_pipeline_with_camera(
-      g_ctx.device,
-      "toon_shading.vert.spv",
-      "toon_shading.frag.spv",
-      &vertex_layout
-  );
+  g_ctx.camera_pipeline = gpu_create_pipeline_desc(g_ctx.device, &toon_desc);
 
   if (!g_ctx.camera_pipeline) {
     // Try with out/linux prefix (when running from project root)
-    g_ctx.camera_pipeline = gpu_create_pipeline_with_camera(
-        g_ctx.device,
-        "out/linux/toon_shading.vert.spv",
-        "out/linux/toon_shading.frag.spv",
-        &vertex_layout
-    );
+    toon_desc.vertex_shader_path = "out/linux/toon_shading.vert.spv";
+    toon_desc.fragment_shader_path = "out/linux/toon_shading.frag.spv";
+    g_ctx.camera_pipeline = gpu_create_pipeline_desc(g_ctx.device, &toon_desc);
   }
 
   // Load the shader into renderer
@@ -933,14 +952,13 @@ static void render_all_frames(void) {
       // Material color (white)
       vec3 material_color = {1.0f, 1.0f, 1.0f};
 
-      // Update ALL uniforms for toon shader
-      gpu_update_toon_shader_uniforms(g_ctx.camera_pipeline,
-                                      &camera_data,      // camera
-                                      joint_transforms,  // joints
-                                      &model_matrix,     // model matrix
-                                      material_color,    // material color
-                                      &lights,           // lights
-                                      &blendshape_params); // blendshapes
+      // Update uniforms using slot-based API (matching shader bindings)
+      gpu_update_uniforms(g_ctx.camera_pipeline, 0, &camera_data, sizeof(camera_data));
+      gpu_update_uniforms(g_ctx.camera_pipeline, 1, joint_transforms, sizeof(float) * 16 * 256);
+      gpu_update_uniforms(g_ctx.camera_pipeline, 2, &model_matrix, sizeof(float) * 16);
+      gpu_update_uniforms(g_ctx.camera_pipeline, 3, material_color, sizeof(float) * 3);
+      gpu_update_uniforms(g_ctx.camera_pipeline, 4, &lights, sizeof(lights));
+      gpu_update_uniforms(g_ctx.camera_pipeline, 6, &blendshape_params, sizeof(blendshape_params)); // binding 6!
 
       // Also update renderer's camera state
       renderer_update_camera(&camera_data);

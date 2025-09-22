@@ -100,7 +100,21 @@ struct gpu_pipeline {
 
     // Storage buffer for blendshapes
     VkBuffer storage_buffer;
-    VkDeviceMemory storage_memory;
+    VkDeviceMemory storage_buffer_memory;
+    void* storage_buffer_mapped;
+
+    // New flexible pipeline fields
+    uint32_t num_uniform_buffers;
+    uint32_t num_storage_buffers;
+    size_t* uniform_sizes;           // Size of each uniform buffer
+    size_t* storage_sizes;           // Size of each storage buffer
+    gpu_uniform_buffer_desc_t* uniform_buffer_descs; // Descriptors for lookup
+    gpu_storage_buffer_desc_t* storage_buffer_descs; // Descriptors for lookup
+
+    // Multiple storage buffers
+    VkBuffer* storage_buffers;
+    VkDeviceMemory* storage_memories;
+    void** storage_mapped;
 };
 
 struct gpu_buffer {
@@ -1020,6 +1034,473 @@ gpu_pipeline_t* gpu_create_pipeline(
     return pipeline;
 }
 
+// New flexible pipeline creation with descriptor
+gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipeline_desc_t* desc) {
+    gpu_pipeline_t* pipeline = ALLOC_ARRAY(device->permanent_allocator, gpu_pipeline_t, 1);
+    memset(pipeline, 0, sizeof(gpu_pipeline_t));
+    pipeline->device = device;
+    pipeline->has_uniforms = (desc->num_uniform_buffers > 0);
+
+    // Load shaders
+    VkShaderModule vert_shader = load_shader_module(device->device, desc->vertex_shader_path, device->temporary_allocator);
+    VkShaderModule frag_shader = load_shader_module(device->device, desc->fragment_shader_path, device->temporary_allocator);
+
+    if (!vert_shader || !frag_shader) {
+        printf("Failed to load shaders: %s, %s\n", desc->vertex_shader_path, desc->fragment_shader_path);
+        return NULL;
+    }
+
+    // Shader stages
+    VkPipelineShaderStageCreateInfo shader_stages[] = {
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_VERTEX_BIT,
+            .module = vert_shader,
+            .pName = "main"
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .module = frag_shader,
+            .pName = "main"
+        }
+    };
+
+    // Vertex input
+    VkVertexInputBindingDescription binding_description = {
+        .binding = 0,
+        .stride = desc->vertex_layout->stride,
+        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+    };
+
+    VkVertexInputAttributeDescription* attribute_descriptions =
+        ALLOC_ARRAY(device->temporary_allocator, VkVertexInputAttributeDescription, desc->vertex_layout->num_attributes);
+
+    for (int i = 0; i < desc->vertex_layout->num_attributes; i++) {
+        gpu_vertex_attr_t* attr = &desc->vertex_layout->attributes[i];
+        attribute_descriptions[i].binding = 0;
+        attribute_descriptions[i].location = attr->index;
+        attribute_descriptions[i].offset = attr->offset;
+
+        // Map format
+        switch (attr->format) {
+            case 0: attribute_descriptions[i].format = VK_FORMAT_R32G32_SFLOAT; break;
+            case 1: attribute_descriptions[i].format = VK_FORMAT_R32G32B32_SFLOAT; break;
+            case 2: attribute_descriptions[i].format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
+            case 3: attribute_descriptions[i].format = VK_FORMAT_R8G8B8A8_UNORM; break; // ubyte4
+            default: attribute_descriptions[i].format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
+        }
+    }
+
+    VkPipelineVertexInputStateCreateInfo vertex_input_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &binding_description,
+        .vertexAttributeDescriptionCount = desc->vertex_layout->num_attributes,
+        .pVertexAttributeDescriptions = attribute_descriptions
+    };
+
+    // Input assembly
+    VkPipelineInputAssemblyStateCreateInfo input_assembly = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = VK_FALSE
+    };
+
+    // Viewport state (dynamic)
+    VkPipelineViewportStateCreateInfo viewport_state = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .scissorCount = 1
+    };
+
+    // Rasterizer
+    VkPipelineRasterizationStateCreateInfo rasterizer = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = VK_FALSE,
+        .rasterizerDiscardEnable = VK_FALSE,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .lineWidth = 1.0f,
+        .cullMode = desc->cull_mode == 1 ? VK_CULL_MODE_BACK_BIT :
+                   desc->cull_mode == 2 ? VK_CULL_MODE_FRONT_BIT : VK_CULL_MODE_NONE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .depthBiasEnable = VK_FALSE
+    };
+
+    // Multisampling
+    VkPipelineMultisampleStateCreateInfo multisampling = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .sampleShadingEnable = VK_FALSE,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
+    };
+
+    // Depth stencil state
+    VkPipelineDepthStencilStateCreateInfo depth_stencil = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = desc->depth_test ? VK_TRUE : VK_FALSE,
+        .depthWriteEnable = desc->depth_write ? VK_TRUE : VK_FALSE,
+        .depthCompareOp = VK_COMPARE_OP_LESS,
+        .depthBoundsTestEnable = VK_FALSE,
+        .stencilTestEnable = VK_FALSE
+    };
+
+    // Color blending
+    VkPipelineColorBlendAttachmentState color_blend_attachment = {
+        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        .blendEnable = VK_FALSE
+    };
+
+    VkPipelineColorBlendStateCreateInfo color_blending = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = VK_FALSE,
+        .attachmentCount = 1,
+        .pAttachments = &color_blend_attachment
+    };
+
+    // Dynamic state
+    VkDynamicState dynamic_states[] = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+    };
+
+    VkPipelineDynamicStateCreateInfo dynamic_state = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = 2,
+        .pDynamicStates = dynamic_states
+    };
+
+    // Create uniform buffers if needed
+    if (desc->num_uniform_buffers > 0) {
+        pipeline->num_uniform_buffers = desc->num_uniform_buffers;
+        pipeline->uniform_buffers = ALLOC_ARRAY(device->permanent_allocator, VkBuffer, desc->num_uniform_buffers);
+        pipeline->uniform_memories = ALLOC_ARRAY(device->permanent_allocator, VkDeviceMemory, desc->num_uniform_buffers);
+        pipeline->uniform_mapped = ALLOC_ARRAY(device->permanent_allocator, void*, desc->num_uniform_buffers);
+        pipeline->uniform_sizes = ALLOC_ARRAY(device->permanent_allocator, size_t, desc->num_uniform_buffers);
+
+        for (uint32_t i = 0; i < desc->num_uniform_buffers; i++) {
+            pipeline->uniform_sizes[i] = desc->uniform_buffers[i].size;
+
+            VkBufferCreateInfo buffer_info = {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = desc->uniform_buffers[i].size,
+                .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+            };
+
+            VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->uniform_buffers[i]));
+
+            VkMemoryRequirements mem_requirements;
+            vkGetBufferMemoryRequirements(device->device, pipeline->uniform_buffers[i], &mem_requirements);
+
+            VkMemoryAllocateInfo alloc_info = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                .allocationSize = mem_requirements.size,
+                .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+            };
+
+            VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->uniform_memories[i]));
+            VK_CHECK(vkBindBufferMemory(device->device, pipeline->uniform_buffers[i], pipeline->uniform_memories[i], 0));
+            VK_CHECK(vkMapMemory(device->device, pipeline->uniform_memories[i], 0, desc->uniform_buffers[i].size, 0, &pipeline->uniform_mapped[i]));
+        }
+
+        // Keep backward compatibility pointers
+        pipeline->uniform_buffer = pipeline->uniform_buffers[0];
+        pipeline->uniform_buffer_memory = pipeline->uniform_memories[0];
+        pipeline->uniform_buffer_mapped = pipeline->uniform_mapped[0];
+    }
+
+    // Create storage buffers if needed
+    if (desc->num_storage_buffers > 0) {
+        pipeline->num_storage_buffers = desc->num_storage_buffers;
+        pipeline->storage_buffers = ALLOC_ARRAY(device->permanent_allocator, VkBuffer, desc->num_storage_buffers);
+        pipeline->storage_memories = ALLOC_ARRAY(device->permanent_allocator, VkDeviceMemory, desc->num_storage_buffers);
+        pipeline->storage_mapped = ALLOC_ARRAY(device->permanent_allocator, void*, desc->num_storage_buffers);
+        pipeline->storage_sizes = ALLOC_ARRAY(device->permanent_allocator, size_t, desc->num_storage_buffers);
+
+        for (uint32_t i = 0; i < desc->num_storage_buffers; i++) {
+            pipeline->storage_sizes[i] = desc->storage_buffers[i].size;
+
+            VkBufferCreateInfo buffer_info = {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = desc->storage_buffers[i].size,
+                .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+            };
+
+            VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->storage_buffers[i]));
+
+            VkMemoryRequirements mem_requirements;
+            vkGetBufferMemoryRequirements(device->device, pipeline->storage_buffers[i], &mem_requirements);
+
+            VkMemoryAllocateInfo alloc_info = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                .allocationSize = mem_requirements.size,
+                .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+            };
+
+            VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->storage_memories[i]));
+            VK_CHECK(vkBindBufferMemory(device->device, pipeline->storage_buffers[i], pipeline->storage_memories[i], 0));
+            VK_CHECK(vkMapMemory(device->device, pipeline->storage_memories[i], 0, desc->storage_buffers[i].size, 0, &pipeline->storage_mapped[i]));
+        }
+
+        // Keep backward compatibility
+        if (desc->num_storage_buffers > 0) {
+            pipeline->storage_buffer = pipeline->storage_buffers[0];
+            pipeline->storage_buffer_memory = pipeline->storage_memories[0];
+            pipeline->storage_buffer_mapped = pipeline->storage_mapped[0];
+        }
+    }
+
+    // Create descriptor set layout
+    VkDescriptorSetLayoutBinding* layout_bindings = NULL;
+    uint32_t total_bindings = desc->num_uniform_buffers + desc->num_storage_buffers;
+
+    if (total_bindings > 0) {
+        layout_bindings = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorSetLayoutBinding, total_bindings);
+        uint32_t binding_index = 0;
+
+        // Add uniform buffer bindings
+        for (uint32_t i = 0; i < desc->num_uniform_buffers; i++) {
+            VkShaderStageFlags stage_flags = 0;
+            if (desc->uniform_buffers[i].stage_flags & GPU_STAGE_VERTEX) {
+                stage_flags |= VK_SHADER_STAGE_VERTEX_BIT;
+            }
+            if (desc->uniform_buffers[i].stage_flags & GPU_STAGE_FRAGMENT) {
+                stage_flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+            }
+
+            layout_bindings[binding_index++] = (VkDescriptorSetLayoutBinding){
+                .binding = desc->uniform_buffers[i].binding,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = stage_flags
+            };
+        }
+
+        // Add storage buffer bindings
+        for (uint32_t i = 0; i < desc->num_storage_buffers; i++) {
+            VkShaderStageFlags stage_flags = 0;
+            if (desc->storage_buffers[i].stage_flags & GPU_STAGE_VERTEX) {
+                stage_flags |= VK_SHADER_STAGE_VERTEX_BIT;
+            }
+            if (desc->storage_buffers[i].stage_flags & GPU_STAGE_FRAGMENT) {
+                stage_flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+            }
+
+            layout_bindings[binding_index++] = (VkDescriptorSetLayoutBinding){
+                .binding = desc->storage_buffers[i].binding,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = stage_flags
+            };
+        }
+
+        VkDescriptorSetLayoutCreateInfo layout_info = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .bindingCount = total_bindings,
+            .pBindings = layout_bindings
+        };
+
+        VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, NULL, &pipeline->descriptor_set_layout));
+
+        // Create descriptor pool
+        VkDescriptorPoolSize* pool_sizes = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorPoolSize, 2);
+        uint32_t pool_size_count = 0;
+
+        if (desc->num_uniform_buffers > 0) {
+            pool_sizes[pool_size_count++] = (VkDescriptorPoolSize){
+                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = desc->num_uniform_buffers
+            };
+        }
+
+        if (desc->num_storage_buffers > 0) {
+            pool_sizes[pool_size_count++] = (VkDescriptorPoolSize){
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = desc->num_storage_buffers
+            };
+        }
+
+        VkDescriptorPoolCreateInfo pool_info = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .maxSets = 1,
+            .poolSizeCount = pool_size_count,
+            .pPoolSizes = pool_sizes
+        };
+
+        VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, NULL, &pipeline->descriptor_pool));
+
+        // Allocate descriptor set
+        VkDescriptorSetAllocateInfo alloc_info = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = pipeline->descriptor_pool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &pipeline->descriptor_set_layout
+        };
+
+        VK_CHECK(vkAllocateDescriptorSets(device->device, &alloc_info, &pipeline->descriptor_set));
+
+        // Write descriptor sets
+        VkWriteDescriptorSet* writes = ALLOC_ARRAY(device->temporary_allocator, VkWriteDescriptorSet, total_bindings);
+        VkDescriptorBufferInfo* buffer_infos = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorBufferInfo, total_bindings);
+        uint32_t write_count = 0;
+
+        // Write uniform buffer descriptors
+        for (uint32_t i = 0; i < desc->num_uniform_buffers; i++) {
+            buffer_infos[write_count] = (VkDescriptorBufferInfo){
+                .buffer = pipeline->uniform_buffers[i],
+                .offset = 0,
+                .range = desc->uniform_buffers[i].size
+            };
+
+            writes[write_count] = (VkWriteDescriptorSet){
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = pipeline->descriptor_set,
+                .dstBinding = desc->uniform_buffers[i].binding,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .pBufferInfo = &buffer_infos[write_count]
+            };
+            write_count++;
+        }
+
+        // Write storage buffer descriptors
+        for (uint32_t i = 0; i < desc->num_storage_buffers; i++) {
+            buffer_infos[write_count] = (VkDescriptorBufferInfo){
+                .buffer = pipeline->storage_buffers[i],
+                .offset = 0,
+                .range = desc->storage_buffers[i].size
+            };
+
+            writes[write_count] = (VkWriteDescriptorSet){
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = pipeline->descriptor_set,
+                .dstBinding = desc->storage_buffers[i].binding,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &buffer_infos[write_count]
+            };
+            write_count++;
+        }
+
+        vkUpdateDescriptorSets(device->device, write_count, writes, 0, NULL);
+    }
+
+    // Create render pass
+    VkAttachmentDescription color_attachment = {
+        .format = VK_FORMAT_B8G8R8A8_UNORM,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+
+    VkAttachmentReference color_attachment_ref = {
+        .attachment = 0,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+
+    VkSubpassDescription subpass = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &color_attachment_ref
+    };
+
+    VkRenderPassCreateInfo render_pass_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 1,
+        .pAttachments = &color_attachment,
+        .subpassCount = 1,
+        .pSubpasses = &subpass
+    };
+
+    VK_CHECK(vkCreateRenderPass(device->device, &render_pass_info, NULL, &pipeline->render_pass));
+
+    // Pipeline layout
+    VkPipelineLayoutCreateInfo pipeline_layout_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = total_bindings > 0 ? 1 : 0,
+        .pSetLayouts = total_bindings > 0 ? &pipeline->descriptor_set_layout : NULL,
+        .pushConstantRangeCount = 0
+    };
+
+    VK_CHECK(vkCreatePipelineLayout(device->device, &pipeline_layout_info, NULL, &pipeline->pipeline_layout));
+
+    // Create graphics pipeline
+    VkGraphicsPipelineCreateInfo pipeline_info = {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 2,
+        .pStages = shader_stages,
+        .pVertexInputState = &vertex_input_info,
+        .pInputAssemblyState = &input_assembly,
+        .pViewportState = &viewport_state,
+        .pRasterizationState = &rasterizer,
+        .pMultisampleState = &multisampling,
+        .pDepthStencilState = &depth_stencil,
+        .pColorBlendState = &color_blending,
+        .pDynamicState = &dynamic_state,
+        .layout = pipeline->pipeline_layout,
+        .renderPass = pipeline->render_pass,
+        .subpass = 0
+    };
+
+    VK_CHECK(vkCreateGraphicsPipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline->pipeline));
+
+    vkDestroyShaderModule(device->device, vert_shader, NULL);
+    vkDestroyShaderModule(device->device, frag_shader, NULL);
+
+    // Store uniform buffer info for flexible updates
+    pipeline->uniform_buffer_descs = ALLOC_ARRAY(device->permanent_allocator, gpu_uniform_buffer_desc_t, desc->num_uniform_buffers);
+    memcpy(pipeline->uniform_buffer_descs, desc->uniform_buffers, sizeof(gpu_uniform_buffer_desc_t) * desc->num_uniform_buffers);
+
+    if (desc->num_storage_buffers > 0) {
+        pipeline->storage_buffer_descs = ALLOC_ARRAY(device->permanent_allocator, gpu_storage_buffer_desc_t, desc->num_storage_buffers);
+        memcpy(pipeline->storage_buffer_descs, desc->storage_buffers, sizeof(gpu_storage_buffer_desc_t) * desc->num_storage_buffers);
+    }
+
+    return pipeline;
+}
+
+// New slot-based uniform update function
+void gpu_update_uniforms(gpu_pipeline_t* pipeline, uint32_t binding, const void* data, size_t size) {
+    if (!pipeline || !pipeline->has_uniforms) {
+        return;
+    }
+
+    // Find the uniform buffer with this binding
+    for (uint32_t i = 0; i < pipeline->num_uniform_buffers; i++) {
+        if (pipeline->uniform_buffer_descs[i].binding == binding) {
+            if (pipeline->uniform_mapped[i] && size <= pipeline->uniform_sizes[i]) {
+                memcpy(pipeline->uniform_mapped[i], data, size);
+            }
+            return;
+        }
+    }
+}
+
+// New storage buffer update function
+void gpu_update_storage_buffer(gpu_pipeline_t* pipeline, uint32_t binding, const void* data, size_t size) {
+    if (!pipeline || pipeline->num_storage_buffers == 0) {
+        return;
+    }
+
+    // Find the storage buffer with this binding
+    for (uint32_t i = 0; i < pipeline->num_storage_buffers; i++) {
+        if (pipeline->storage_buffer_descs[i].binding == binding) {
+            if (pipeline->storage_mapped[i] && size <= pipeline->storage_sizes[i]) {
+                memcpy(pipeline->storage_mapped[i], data, size);
+            }
+            return;
+        }
+    }
+}
+
 gpu_pipeline_t* gpu_create_pipeline_with_camera(
     gpu_device_t* device,
     const char* vertex_shader_path,
@@ -1152,7 +1633,7 @@ gpu_pipeline_t* gpu_create_pipeline_with_camera(
     VK_CHECK(vkBindBufferMemory(device->device, storage_buffer, storage_memory, 0));
 
     pipeline->storage_buffer = storage_buffer;
-    pipeline->storage_memory = storage_memory;
+    pipeline->storage_buffer_memory = storage_memory;
 
     // Keep backward compatibility
     pipeline->uniform_buffer = pipeline->uniform_buffers[0];

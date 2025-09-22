@@ -66,7 +66,7 @@ typedef struct {
   int index;  // Attribute index (0, 1, 2, etc.)
   int offset; // Offset in bytes within vertex
   // todo: format should be a enum
-  int format; // Format: 0=float2, 1=float3, 2=float4
+  int format; // Format: 0=float2, 1=float3, 2=float4, 3=ubyte4
 } gpu_vertex_attr_t;
 
 // Vertex layout description
@@ -76,14 +76,57 @@ typedef struct {
   int stride; // Total size of one vertex in bytes
 } gpu_vertex_layout_t;
 
-// Create a render pipeline with shaders
+// Shader stage flags
+typedef enum {
+  GPU_STAGE_VERTEX = 1,
+  GPU_STAGE_FRAGMENT = 2,
+  GPU_STAGE_COMPUTE = 4
+} gpu_shader_stage_t;
+
+// Uniform buffer descriptor
+typedef struct {
+  uint32_t binding;      // Binding slot (0, 1, 2, etc.)
+  size_t size;          // Size in bytes
+  int stage_flags;      // Which shader stages use this (vertex, fragment, both)
+} gpu_uniform_buffer_desc_t;
+
+// Storage buffer descriptor
+typedef struct {
+  uint32_t binding;
+  size_t size;
+  int stage_flags;
+} gpu_storage_buffer_desc_t;
+
+// Pipeline descriptor
+typedef struct {
+  const char* vertex_shader_path;
+  const char* fragment_shader_path;
+  gpu_vertex_layout_t* vertex_layout;
+
+  // Uniform buffer layout
+  gpu_uniform_buffer_desc_t* uniform_buffers;
+  uint32_t num_uniform_buffers;
+
+  // Storage buffer layout (for blendshapes, etc.)
+  gpu_storage_buffer_desc_t* storage_buffers;
+  uint32_t num_storage_buffers;
+
+  // Render state
+  bool depth_test;
+  bool depth_write;
+  int cull_mode;  // 0=none, 1=back, 2=front
+} gpu_pipeline_desc_t;
+
+// Create a render pipeline with descriptor
+gpu_pipeline_t *gpu_create_pipeline_desc(gpu_device_t *device, const gpu_pipeline_desc_t *desc);
+
+// DEPRECATED: Old pipeline creation functions (will be removed)
 gpu_pipeline_t *gpu_create_pipeline(gpu_device_t *device,
                                     const char *shader_source,
                                     const char *vertex_function,
                                     const char *fragment_function,
                                     gpu_vertex_layout_t *vertex_layout);
 
-// Create a render pipeline with camera uniform buffer support
 gpu_pipeline_t *gpu_create_pipeline_with_camera(gpu_device_t *device,
                                                 const char *vertex_shader_path,
                                                 const char *fragment_shader_path,
@@ -113,7 +156,19 @@ void gpu_set_vertex_buffer(gpu_render_encoder_t *encoder, gpu_buffer_t *buffer,
 void gpu_set_uniforms(gpu_render_encoder_t *encoder, int index,
                       const void *data, size_t size);
 
-// Update camera uniform buffer (for pipelines with camera support)
+// Update uniform buffer at specific binding slot
+void gpu_update_uniforms(gpu_pipeline_t* pipeline,
+                        uint32_t binding,     // Slot index (0, 1, 2, etc.)
+                        const void* data,
+                        size_t size);
+
+// Update storage buffer at specific binding
+void gpu_update_storage_buffer(gpu_pipeline_t* pipeline,
+                               uint32_t binding,
+                               const void* data,
+                               size_t size);
+
+// DEPRECATED: Old uniform update functions (will be removed)
 void gpu_update_camera_uniforms(gpu_pipeline_t *pipeline, const void *camera_data, size_t size);
 void gpu_update_toon_shader_uniforms(gpu_pipeline_t* pipeline,
                                      const void* camera_data,
