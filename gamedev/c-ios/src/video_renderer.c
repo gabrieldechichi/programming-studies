@@ -665,7 +665,7 @@ static void *encoder_thread_func(void *arg) {
     PROFILE_BEGIN("ffmpeg wait for frame");
     // Wait for the next frame to be ready
     while (!atomic_load(&g_ctx.frames[next_frame_to_encode].ready)) {
-      os_sleep_us(100); // Small sleep to avoid busy waiting
+      platform_sleep_us(100); // Small sleep to avoid busy waiting
     }
     PROFILE_END();
 
