@@ -242,7 +242,8 @@ b32 _asset_is_ready(AssetSystem *system, Handle id) {
 }
 
 void asset_system_update(AssetSystem *system, GameContext *ctx) {
-  debug_assert_or_return_void(system);
+  debug_assert(system);
+  if (!system){return;}
 
   for (i32 i = system->pending_loads.len - 1; i >= 0; i--) {
     Handle handle = system->pending_loads.items[i];

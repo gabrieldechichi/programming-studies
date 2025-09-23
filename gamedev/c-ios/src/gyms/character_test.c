@@ -111,13 +111,13 @@ global char *texture_preload_paths[] = {
     "tolanCostumes/tolan_veeNeckShortSleeve_tshirtAlpha_flower.png",
 };
 
-global GameContext *g_ctx;
+global GameContext *g_game_ctx;
 
-extern GameContext *get_global_ctx() { return g_ctx; }
+extern GameContext *get_global_ctx() { return g_game_ctx; }
 
 void gym_init(GameMemory *memory) {
   GymState *gym_state = cast(GymState *) memory->permanent_memory;
-  g_ctx = &gym_state->ctx;
+  g_game_ctx = &gym_state->ctx;
   GameContext *ctx = &gym_state->ctx;
 
   gym_state->permanent_arena =

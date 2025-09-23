@@ -129,7 +129,10 @@ void asset_release(AssetSystem *system, Handle id);
   })
 
 u32 asset_system_pending_count(AssetSystem *system) {
-  debug_assert_or_return(system, 0);
+  debug_assert(system);
+  if (!system) {
+    return 0;
+  }
   return system->pending_loads.len;
 }
 

@@ -62,30 +62,30 @@ void camera_update_uniforms(Camera *camera, f32 canvas_width,
                   camera->rot);
   vec3 look_dir;
   glm_quat_rotatev(camera->rot, (vec3){0, 0, -1}, look_dir);
-  glm_look(camera->pos, look_dir, (vec3){0, 1, 0}, camera->uniforms.viewMatrix);
+  glm_look(camera->pos, look_dir, (vec3){0, 1, 0}, camera->uniforms.view_matrix);
 
   f32 aspect = canvas_width / canvas_height;
   f32 fov = camera->fov > 0 ? camera->fov : 60;
 
   // perspective matrix
   glm_perspective(glm_rad(fov), aspect, 0.1, 10000,
-                  camera->uniforms.projectionMatrix);
+                  camera->uniforms.projection_matrix);
 
   // mvp matrix
-  glm_mat4_mul(camera->uniforms.projectionMatrix, camera->uniforms.viewMatrix,
-               camera->uniforms.viewProjectionMatrix);
+  glm_mat4_mul(camera->uniforms.projection_matrix, camera->uniforms.view_matrix,
+               camera->uniforms.view_proj_matrix);
 
-  glm_mat4_inv_fast(camera->uniforms.viewProjectionMatrix,
-                    camera->uniforms.invViewProjectionMatrix);
+  glm_mat4_inv_fast(camera->uniforms.view_proj_matrix,
+                    camera->uniforms.inv_view_proj_matrix);
 
   glm_vec4((vec3){camera->pos[0], camera->pos[1], camera->pos[2]}, 0.0f,
-           camera->uniforms.cameraPos);
+           camera->uniforms.camera_pos);
   renderer_update_camera(&camera->uniforms);
 }
 
 void extract_frustum_planes(const Camera *camera, Frustum *frustum) {
   mat4 vp_matrix;
-  memcpy(vp_matrix, camera->uniforms.viewProjectionMatrix, sizeof(mat4));
+  memcpy(vp_matrix, camera->uniforms.view_proj_matrix, sizeof(mat4));
   glm_frustum_planes(vp_matrix, (vec4 *)frustum->planes);
 }
 

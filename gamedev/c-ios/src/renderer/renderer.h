@@ -114,6 +114,7 @@ typedef struct {
     mat4 view_matrix;
     mat4 projection_matrix;
     mat4 view_proj_matrix;  // view * projection
+    mat4 inv_view_proj_matrix;  // view * projection
 } CameraUniformBlock;
 
 // skinned mesh
