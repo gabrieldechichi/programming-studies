@@ -9,6 +9,7 @@
 
 #include "lib/lipsync.h"
 #include "lib/string.h"
+#include "lib/audio.h"
 #include "renderer/renderer.h"
 
 typedef struct {

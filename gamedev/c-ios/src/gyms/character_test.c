@@ -12,7 +12,6 @@
 #include "lib/typedefs.h"
 #include "platform/platform.h"
 #include "renderer/renderer.h"
-#include "stats.h"
 #include "cglm/vec3.h"
 #include "cglm/util.h"
 #include "stb/stb_image.h"
@@ -77,8 +76,6 @@ typedef struct {
   Camera camera;
 
   Character character;
-
-  GameStats stats;
 
   i32 neck_joint_idx;
   i32 left_eye_mesh_idx;
@@ -1093,8 +1090,4 @@ void gym_update_and_render(GameMemory *memory) {
   }
 
   input_end_frame(input);
-
-  game_stats_update(ctx, &gym_state->stats, dt);
-
-  // ui_set_stats(&gym_state->stats);
 }
