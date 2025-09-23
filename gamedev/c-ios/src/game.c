@@ -8,6 +8,7 @@
 #include "lib/typedefs.h"
 #include "lib/fmt.h"
 #include <stdio.h>
+extern GameContext *get_global_ctx() { return 0; }
 
 // Define the input button and event names
 const char *input_button_names[KEY_MAX] = {

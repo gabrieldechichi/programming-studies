@@ -1,5 +1,6 @@
 /* CGLM */
 #include "cglm/cglm.h"
+#include "lib/assert.h"
 
 typedef versor quaternion;
 /* END CGLM */

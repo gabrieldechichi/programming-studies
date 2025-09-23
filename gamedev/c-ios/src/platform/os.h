@@ -72,4 +72,12 @@ f64 platform_ticks_to_ns(u64 ticks);
 
 void platform_sleep_us(u32 microseconds);
 /*END - OS Time*/
+
+/*OS Audio*/
+void platform_audio_init(void);
+void platform_audio_shutdown(void);
+void platform_audio_update(void);
+void platform_audio_write_samples(f32 *samples, i32 sample_count);
+i32 platform_audio_get_sample_rate();
+/*END - OS Audio*/
 #endif
