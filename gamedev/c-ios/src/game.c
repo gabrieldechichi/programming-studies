@@ -1,6 +1,6 @@
 #include "game.h"
 // #include "gyms/gym_triangle.c"
-// #include "gyms/character_test.c"
+#include "gyms/character_test.c"
 // #include "gyms/audio_test.c"
 // #include "gyms/audio_wav_test.c"
 // #include "gyms/audio_stream_test_from_file.c"
@@ -8,7 +8,6 @@
 #include "lib/typedefs.h"
 #include "lib/fmt.h"
 #include <stdio.h>
-extern GameContext *get_global_ctx() { return 0; }
 
 // Define the input button and event names
 const char *input_button_names[KEY_MAX] = {
