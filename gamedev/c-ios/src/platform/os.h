@@ -1,4 +1,5 @@
-#pragma once
+#ifndef H_OS
+#define H_OS
 
 #include "lib/typedefs.h"
 
@@ -11,3 +12,4 @@ f64 platform_ticks_to_us(u64 ticks);
 f64 platform_ticks_to_ns(u64 ticks);
 
 void platform_sleep_us(u32 microseconds);
+#endif

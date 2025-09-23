@@ -18,7 +18,7 @@
 #include <libswscale/swscale.h>
 
 #include "lib/json_parser.h"
-#include "os/os.h"
+#include "platform/platform.h"
 #include "memory.h"
 #include <math.h>
 #include "game.h"

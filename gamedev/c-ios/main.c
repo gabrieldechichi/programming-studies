@@ -1,6 +1,5 @@
-
 #include "src/video_renderer.c"
-#include "os/os.c"
+#include "platform/platform.c"
 #include "lib/string_builder.c"
 #include "lib/string.c"
 #include "lib/json_parser.c"
