@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../src/typedefs.h"
+#include "lib/typedefs.h"
 
 void os_init(void);
 

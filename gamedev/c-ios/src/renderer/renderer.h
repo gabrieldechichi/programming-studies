@@ -2,6 +2,7 @@
 #define H_RENDERER
 
 #include "lib/array.h"
+#include "lib/handle.h"
 #include "lib/math.h"
 #include "lib/string.h"
 #include "lib/typedefs.h"

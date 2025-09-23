@@ -1,8 +1,3 @@
-#include "lib/json_parser.h"
-#include "os/os.h"
-#include "memory.h"
-#include "typedefs.h"
-#include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -14,7 +9,6 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <errno.h>
-#include "game.h"
 
 // FFmpeg headers
 #include <libavcodec/avcodec.h>
@@ -23,18 +17,26 @@
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 
+#include "lib/json_parser.h"
+#include "os/os.h"
+#include "memory.h"
+#include <math.h>
+#include "game.h"
+
 // Profiler
 #include "lib/profiler.h"
 
 // GPU backend abstraction
 #include "gpu_backend.h"
-#include "renderer.h"
+#include "renderer/renderer.h"
 #include "vendor/cglm/types.h"
 #include "vendor/cglm/vec2.h"
 #include "vendor/cglm/vec3.h"
 #include "vendor/cglm/mat4.h"
 #include "vendor/cglm/affine.h"
 #include "vendor/cglm/cam.h"
+
+#include "lib/typedefs.h"
 
 // Mode selection - set to 1 for standalone mode, 0 for daemon mode
 #define STANDALONE_MODE 1
