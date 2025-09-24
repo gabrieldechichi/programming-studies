@@ -439,34 +439,10 @@ gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allo
 
     VK_CHECK(vkCreateCommandPool(device->device, &transfer_pool_info, NULL, &device->transfer_command_pool));
 
-    // Load shader modules (will be compiled to SPIR-V by build system)
-    device->vertex_shader = load_shader_module(device->device, "triangle.vert.spv", device->temporary_allocator);
-    device->fragment_shader = load_shader_module(device->device, "triangle.frag.spv", device->temporary_allocator);
-
-    if (!device->vertex_shader || !device->fragment_shader) {
-        // Try different paths
-        device->vertex_shader = load_shader_module(device->device, "out/linux/triangle.vert.spv", device->temporary_allocator);
-        device->fragment_shader = load_shader_module(device->device, "out/linux/triangle.frag.spv", device->temporary_allocator);
-    }
-
-    // Test load toon shading shaders
-    VkShaderModule toon_vertex_shader = load_shader_module(device->device, "toon_shading.vert.spv", device->temporary_allocator);
-    VkShaderModule toon_fragment_shader = load_shader_module(device->device, "toon_shading.frag.spv", device->temporary_allocator);
-
-    if (!toon_vertex_shader || !toon_fragment_shader) {
-        // Try different paths
-        toon_vertex_shader = load_shader_module(device->device, "out/linux/toon_shading.vert.spv", device->temporary_allocator);
-        toon_fragment_shader = load_shader_module(device->device, "out/linux/toon_shading.frag.spv", device->temporary_allocator);
-    }
-
-    if (toon_vertex_shader && toon_fragment_shader) {
-        printf("[Vulkan] Toon shading shaders loaded successfully\n");
-        // Clean up test shaders - we'll properly store them later when needed
-        vkDestroyShaderModule(device->device, toon_vertex_shader, NULL);
-        vkDestroyShaderModule(device->device, toon_fragment_shader, NULL);
-    } else {
-        printf("[Vulkan] Warning: Could not load toon shading shaders\n");
-    }
+    // Removed loading of unused triangle shaders and test loading
+    // Shaders are now loaded on demand when pipelines are created
+    device->vertex_shader = VK_NULL_HANDLE;
+    device->fragment_shader = VK_NULL_HANDLE;
 
     printf("[Vulkan] Device initialized\n");
     return device;
@@ -2139,12 +2115,7 @@ void gpu_update_pipeline_texture(gpu_pipeline_t* pipeline,
             };
 
             vkUpdateDescriptorSets(pipeline->device->device, 1, &write, 0, NULL);
-            printf("[Vulkan] Updated texture at binding %u (view: %p, sampler: %p, descriptor_set: %p)\n",
-                   binding, (void*)texture->image_view, (void*)pipeline->default_sampler,
-                   (void*)pipeline->descriptor_set);
-
-            // Force flush to ensure update is complete
-            vkQueueWaitIdle(pipeline->device->graphics_queue);
+            // Removed forced flush for performance - descriptor update is immediate
             return;
         }
     }
@@ -2152,12 +2123,7 @@ void gpu_update_pipeline_texture(gpu_pipeline_t* pipeline,
 
 void gpu_destroy(gpu_device_t* device) {
     if (device) {
-        if (device->vertex_shader) {
-            vkDestroyShaderModule(device->device, device->vertex_shader, NULL);
-        }
-        if (device->fragment_shader) {
-            vkDestroyShaderModule(device->device, device->fragment_shader, NULL);
-        }
+        // Shaders now destroyed with their pipelines
         if (device->command_pool) {
             vkDestroyCommandPool(device->device, device->command_pool, NULL);
         }

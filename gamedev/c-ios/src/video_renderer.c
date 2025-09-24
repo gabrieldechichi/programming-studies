@@ -103,19 +103,17 @@ typedef struct {
 
   // GPU backend objects
   gpu_device_t *device;
-  gpu_texture_t *render_texture_pool[NUM_TEXTURE_POOLS];
-  gpu_readback_buffer_t *readback_buffer_pool[NUM_TEXTURE_POOLS];
-  gpu_command_buffer_t *readback_commands[MAX_FRAMES];
+  gpu_texture_t *render_texture;  // Single texture since we process sequentially
 
   // GPU color conversion objects
   gpu_compute_pipeline_t *compute_pipeline;
-  gpu_texture_t *yuv_y_texture_pool[NUM_TEXTURE_POOLS];
-  gpu_texture_t *yuv_u_texture_pool[NUM_TEXTURE_POOLS];
-  gpu_texture_t *yuv_v_texture_pool[NUM_TEXTURE_POOLS];
-  gpu_readback_buffer_t
-      *yuv_readback_buffer_pool[NUM_TEXTURE_POOLS]; // Pool of readback buffers
-  gpu_command_buffer_t
-      *yuv_readback_commands[MAX_FRAMES]; // Single command per frame
+  gpu_texture_t *yuv_y_texture;
+  gpu_texture_t *yuv_u_texture;
+  gpu_texture_t *yuv_v_texture;
+  gpu_readback_buffer_t *yuv_readback_buffer;  // Single readback buffer
+
+  // Dynamic command buffer allocation
+  gpu_command_buffer_t **yuv_readback_commands;  // Allocated per request
 
   // Frame management
   frame_data_t frames[MAX_FRAMES];
@@ -124,9 +122,7 @@ typedef struct {
   atomic_int frames_encoded;
   int current_num_frames;
 
-  // Pool slot synchronization - track which frame is using each pool
-  atomic_int pool_slot_in_use[NUM_TEXTURE_POOLS]; // -1 = free, >= 0 = frame
-                                                  // number using this slot
+  // Removed pool slot synchronization - not needed with single texture
 
   // Initialization state
   bool initialized;
@@ -144,7 +140,6 @@ typedef struct {
 
   // FFmpeg cached objects (initialized once)
   const AVCodec *cached_codec;
-  struct SwsContext *cached_sws_ctx;
   AVFrame *cached_frame;
   AVPacket *cached_packet;
 
@@ -294,15 +289,7 @@ static int init_ffmpeg_cache(void) {
   }
   g_ctx.cached_codec = codec;
 
-  // Initialize SWS context for BGRA to YUV420P conversion
-  g_ctx.cached_sws_ctx = sws_getContext(
-      FRAME_WIDTH, FRAME_HEIGHT, AV_PIX_FMT_BGRA, FRAME_WIDTH, FRAME_HEIGHT,
-      AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, NULL, NULL, NULL);
-
-  if (!g_ctx.cached_sws_ctx) {
-    fprintf(stderr, "Failed to create SWS context\n");
-    return -1;
-  }
+  // SWS context removed - GPU compute shader handles BGRA to YUV conversion
 
   // Allocate frame and packet (reused across requests)
   g_ctx.cached_frame = av_frame_alloc();
@@ -684,26 +671,22 @@ static int initialize_system(void) {
         gpu_create_compute_pipeline(g_ctx.device, "out/linux/bgra_to_yuv.comp.spv", MAX_FRAMES);
   }
 
-  // Create texture pools (4 pools instead of 200 unique textures)
-  printf("[GPU] Creating %d texture pools (instead of per-frame textures)\n",
-         NUM_TEXTURE_POOLS);
-  for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
-    // Create render texture pool (BGRA)
-    g_ctx.render_texture_pool[i] =
-        gpu_create_texture(g_ctx.device, FRAME_WIDTH, FRAME_HEIGHT);
+  // Create single texture set (no pooling needed for sequential processing)
+  printf("[GPU] Creating single texture set for sequential frame processing\n");
 
-    // Create YUV storage texture pools for compute output
-    g_ctx.yuv_y_texture_pool[i] = gpu_create_storage_texture(
-        g_ctx.device, FRAME_WIDTH, FRAME_HEIGHT, 1); // R8 format
-    g_ctx.yuv_u_texture_pool[i] = gpu_create_storage_texture(
-        g_ctx.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
-    g_ctx.yuv_v_texture_pool[i] = gpu_create_storage_texture(
-        g_ctx.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
+  // Create render texture (BGRA)
+  g_ctx.render_texture = gpu_create_texture(g_ctx.device, FRAME_WIDTH, FRAME_HEIGHT);
 
-    // Create readback buffer pool for packed YUV data (Y+U+V)
-    g_ctx.yuv_readback_buffer_pool[i] =
-        gpu_create_readback_buffer(g_ctx.device, YUV_TOTAL_SIZE_BYTES);
-  }
+  // Create YUV storage textures for compute output
+  g_ctx.yuv_y_texture = gpu_create_storage_texture(
+      g_ctx.device, FRAME_WIDTH, FRAME_HEIGHT, 1); // R8 format
+  g_ctx.yuv_u_texture = gpu_create_storage_texture(
+      g_ctx.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
+  g_ctx.yuv_v_texture = gpu_create_storage_texture(
+      g_ctx.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
+
+  // Create single readback buffer for packed YUV data (Y+U+V)
+  g_ctx.yuv_readback_buffer = gpu_create_readback_buffer(g_ctx.device, YUV_TOTAL_SIZE_BYTES);
 
   // Frame data will be allocated per-request, not pre-allocated
   // Initialize frame metadata only
@@ -740,7 +723,7 @@ static void render_all_frames(void) {
 
   const float dt = 1.0f / 24.0f;
   const float rotation_speed = 2.0f;
-  const int pool_index = 0; // Always use pool slot 0 since we only have 1
+  // No pool index needed - single texture set
 
   // Process frames one by one to ensure correct sequence
   for (int i = 0; i < g_ctx.current_num_frames; i++) {
@@ -760,7 +743,7 @@ static void render_all_frames(void) {
     PROFILE_BEGIN("render_frame");
 
     // Execute renderer commands
-    renderer_execute_commands(g_ctx.render_texture_pool[pool_index], cmd_buffer);
+    renderer_execute_commands(g_ctx.render_texture, cmd_buffer);
 
     // Commit and wait for completion
     gpu_commit_commands(cmd_buffer, true); // Blocking wait
@@ -773,13 +756,12 @@ static void render_all_frames(void) {
     // Create command buffer for compute dispatch
     gpu_command_buffer_t *compute_cmd = gpu_begin_commands(g_ctx.device);
 
-    // Dispatch compute shader to convert BGRA -> YUV using the single texture
-    // set
+    // Dispatch compute shader to convert BGRA -> YUV
     gpu_texture_t *compute_textures[] = {
-        g_ctx.render_texture_pool[pool_index], // Input BGRA
-        g_ctx.yuv_y_texture_pool[pool_index],  // Output Y
-        g_ctx.yuv_u_texture_pool[pool_index],  // Output U
-        g_ctx.yuv_v_texture_pool[pool_index]   // Output V
+        g_ctx.render_texture,  // Input BGRA
+        g_ctx.yuv_y_texture,   // Output Y
+        g_ctx.yuv_u_texture,   // Output U
+        g_ctx.yuv_v_texture    // Output V
     };
 
     // Dispatch compute: 16x16 workgroups for 1080x1920 image
@@ -793,18 +775,18 @@ static void render_all_frames(void) {
     gpu_commit_commands(compute_cmd, true);
 
     // Create single readback command for all YUV planes
-    g_ctx.yuv_readback_commands[i] = gpu_readback_yuv_textures_async(
-        g_ctx.device, g_ctx.yuv_y_texture_pool[pool_index],
-        g_ctx.yuv_u_texture_pool[pool_index],
-        g_ctx.yuv_v_texture_pool[pool_index],
-        g_ctx.yuv_readback_buffer_pool[pool_index], FRAME_WIDTH,
+    gpu_command_buffer_t *readback_cmd = gpu_readback_yuv_textures_async(
+        g_ctx.device, g_ctx.yuv_y_texture,
+        g_ctx.yuv_u_texture,
+        g_ctx.yuv_v_texture,
+        g_ctx.yuv_readback_buffer, FRAME_WIDTH,
         FRAME_HEIGHT);
 
     // Submit readback command and wait
-    gpu_submit_commands(g_ctx.yuv_readback_commands[i], true);
+    gpu_submit_commands(readback_cmd, true);
 
     // Copy data to CPU memory
-    gpu_copy_readback_data(g_ctx.yuv_readback_buffer_pool[pool_index],
+    gpu_copy_readback_data(g_ctx.yuv_readback_buffer,
                            g_ctx.frames[i].data, YUV_TOTAL_SIZE_BYTES);
 
     // Mark frame as ready for encoding
@@ -1112,9 +1094,7 @@ int main(int argc, char *argv[]) {
   pthread_mutex_init(&g_ctx.queue_mutex, NULL);
   pthread_cond_init(&g_ctx.queue_cond, NULL);
 
-  for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
-    atomic_store(&g_ctx.pool_slot_in_use[i], -1);
-  }
+  // Pool slot synchronization removed - not needed
 
   profiler_end_and_print_session(&g_ctx.temporary_allocator);
 

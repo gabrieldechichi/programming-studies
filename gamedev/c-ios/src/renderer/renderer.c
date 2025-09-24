@@ -515,7 +515,6 @@ void renderer_execute_commands(gpu_texture_t *render_target,
   PROFILE_BEGIN("Process render commands");
 
   // Pre-pass: Update all textures in pipeline descriptor sets before rendering
-  printf("[DEBUG] Pre-pass: Updating textures in pipelines\n");
   arr_foreach_ptr(g_renderer->render_cmds, cmd) {
     if (cmd->type == RENDER_CMD_DRAW_SKINNED_MESH) {
       // Get material for this mesh
@@ -546,10 +545,7 @@ void renderer_execute_commands(gpu_texture_t *render_target,
               binding = 8; // Detail texture binding
             }
 
-            printf("[DEBUG] Pre-pass: Updating texture '%s' at binding %u for "
-                   "pipeline (texture: %p, %dx%d)\n",
-                   material->properties[i].name.value, binding,
-                   (void *)gpu_tex->texture, gpu_tex->width, gpu_tex->height);
+            // Removed debug print for performance
             gpu_update_pipeline_texture(gpu_shader->pipeline, gpu_tex->texture,
                                         binding);
           } else {
