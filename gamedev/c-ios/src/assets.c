@@ -140,13 +140,13 @@ Handle _asset_request(AssetSystem *system, GameContext *ctx, AssetType type,
 
   // HACK: add /assets
   {
-    StringBuilder sb;
-    u32 size = str_len(file_path) + 20;
-    char *buffer = ALLOC_ARRAY(&ctx->temp_allocator, char, size);
-    sb_init(&sb, buffer, size);
-    sb_append(&sb, "assets/");
-    sb_append(&sb, file_path);
-    file_path = sb_get(&sb);
+    // StringBuilder sb;
+    // u32 size = str_len(file_path) + 20;
+    // char *buffer = ALLOC_ARRAY(&ctx->temp_allocator, char, size);
+    // sb_init(&sb, buffer, size);
+    // sb_append(&sb, "assets/");
+    // sb_append(&sb, file_path);
+    // file_path = sb_get(&sb);
   }
 
   u32 path_hash = fnv1a_hash(file_path);
