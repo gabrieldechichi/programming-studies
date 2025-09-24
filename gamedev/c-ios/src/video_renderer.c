@@ -106,7 +106,6 @@ typedef struct {
   gpu_texture_t *render_texture_pool[NUM_TEXTURE_POOLS];
   gpu_readback_buffer_t *readback_buffer_pool[NUM_TEXTURE_POOLS];
   gpu_command_buffer_t *readback_commands[MAX_FRAMES];
-  gpu_buffer_t *vertex_buffer;
 
   // GPU color conversion objects
   gpu_compute_pipeline_t *compute_pipeline;
@@ -158,45 +157,6 @@ typedef struct {
 
 // Global application context
 static AppContext g_ctx;
-
-// Triangle vertex data in skinned mesh format (52 bytes per vertex)
-// Format: pos(vec3), normal(vec3), uv(vec2), joints(u8*4), weights(vec4)
-static float vertices[] = {
-    // Vertex 0: top
-    0.0f,  0.5f, 0.0f,    // position (vec3)
-    0.0f,  0.0f, 1.0f,    // normal (vec3) - facing forward
-    0.5f,  0.0f,          // uv (vec2)
-    0.0f,                 // joints [0,0,0,0] as float (4 zero bytes)
-    1.0f, 0.0f, 0.0f, 0.0f, // weights (vec4) - 100% on joint 0
-
-    // Vertex 1: bottom left
-    -0.5f, -0.5f, 0.0f,   // position
-    0.0f,  0.0f, 1.0f,    // normal
-    0.0f,  1.0f,          // uv
-    0.0f,                 // joints [0,0,0,0] as float
-    1.0f, 0.0f, 0.0f, 0.0f, // weights
-
-    // Vertex 2: bottom right
-    0.5f, -0.5f, 0.0f,    // position
-    0.0f,  0.0f, 1.0f,    // normal
-    1.0f,  1.0f,          // uv
-    0.0f,                 // joints [0,0,0,0] as float
-    1.0f, 0.0f, 0.0f, 0.0f  // weights
-};
-
-// Create a 4x4 rotation matrix around Z axis
-static void mat4_rotation_z(float *m, float angle_rad) {
-  float c = cosf(angle_rad);
-  float s = sinf(angle_rad);
-
-  memset(m, 0, sizeof(float) * 16);
-  m[0] = c;
-  m[1] = s;
-  m[4] = -s;
-  m[5] = c;
-  m[10] = 1.0f;
-  m[15] = 1.0f;
-}
 
 // Timing utilities
 static double get_time_diff(struct timeval *start, struct timeval *end) {
@@ -268,28 +228,6 @@ static int init_context(AppContext *ctx) {
   ctx->game_memory.input_events.len = 0;  // No input events
 
   return 0;
-}
-
-// Clean up application context
-static void cleanup_context(AppContext *ctx) {
-  // if (ctx->permanent_memory) {
-  //   free(ctx->permanent_memory);
-  //   ctx->permanent_memory = NULL;
-  // }
-  // if (ctx->temporary_memory) {
-  //   free(ctx->temporary_memory);
-  //   ctx->temporary_memory = NULL;
-  // }
-  // if (ctx->game_permanent_memory) {
-  //   free(ctx->game_permanent_memory);
-  //   ctx->game_permanent_memory = NULL;
-  // }
-  // if (ctx->game_temporary_memory) {
-  //   free(ctx->game_temporary_memory);
-  //   ctx->game_temporary_memory = NULL;
-  // }
-
-  printf("[Memory] Context cleaned up\n");
 }
 
 // Allocate frame data for current request (from temporary allocator)
@@ -546,23 +484,6 @@ static void close_ffmpeg_encoder(void) {
   printf("[FFmpeg] Encoder closed for current request\n");
 }
 
-// Clean up FFmpeg cached objects (call once at shutdown)
-static void cleanup_ffmpeg_cache(void) {
-  // Clean up cached objects
-  if (g_ctx.cached_sws_ctx) {
-    sws_freeContext(g_ctx.cached_sws_ctx);
-    g_ctx.cached_sws_ctx = NULL;
-  }
-  if (g_ctx.cached_frame) {
-    av_frame_free(&g_ctx.cached_frame);
-  }
-  if (g_ctx.cached_packet) {
-    av_packet_free(&g_ctx.cached_packet);
-  }
-
-  printf("[FFmpeg] Cached objects cleaned up\n");
-}
-
 // Encode a single frame
 static int encode_frame(uint8_t *yuv_data) {
   int ret;
@@ -750,60 +671,8 @@ static int initialize_system(void) {
       .stride = 52 // 3+3+2+1+4 floats = 13 floats = 52 bytes
   };
 
-  // Create vertex buffer (keep for backwards compatibility, will remove later)
-  g_ctx.vertex_buffer =
-      gpu_create_buffer(g_ctx.device, vertices, sizeof(vertices));
-
   // Initialize renderer system
   renderer_init(g_ctx.device, &g_ctx.permanent_allocator, &g_ctx.temporary_allocator);
-
-  // Load the toon shading shader using the new API
-  LoadShaderParams shader_params = {.shader_name = "toon_shading"};
-
-  // Store the pipeline for later use (needed for uniform updates)
-  // Get the shader from renderer to access its pipeline
-  // Note: This is a temporary workaround - ideally renderer would handle uniform updates internally
-
-  // Create a single pixel pink texture for testing
-  printf("[Renderer] Creating test pink texture...\n");
-
-  // Reserve texture handle
-  Handle pink_texture_handle = renderer_reserve_texture();
-  if (!handle_is_valid(pink_texture_handle)) {
-    fprintf(stderr, "Failed to reserve texture handle\n");
-  } else {
-    // Create pink pixel data (RGBA format)
-    uint8_t pink_pixel[4] = {255, 0, 255, 255}; // Pink color in RGBA
-    Image pink_image = {
-        .width = 1,
-        .height = 1,
-        .byte_len = 4,
-        .data = pink_pixel
-    };
-
-    // Set the texture data
-    if (renderer_set_texture(pink_texture_handle, &pink_image)) {
-      printf("[Renderer] Pink texture created successfully (RGBA: %d,%d,%d,%d)\n",
-             pink_pixel[0], pink_pixel[1], pink_pixel[2], pink_pixel[3]);
-    } else {
-      fprintf(stderr, "Failed to set pink texture data\n");
-      pink_texture_handle = INVALID_HANDLE;
-    }
-  }
-
-  // Create a material with white color and pink texture
-  MaterialProperty material_props[2] = {
-      {
-          .name = {.value = "uColor"},
-          .type = MAT_PROP_VEC3,
-          .value.vec3_val = {1.0f, 1.0f, 1.0f}  // White color to show texture
-      },
-      {
-          .name = {.value = "uTexture"},  // Assuming shader might have a texture uniform
-          .type = MAT_PROP_TEXTURE,
-          .value.texture = cast_handle(Texture_Handle, pink_texture_handle)
-      }
-  };
 
   // Create compute pipeline for BGRA to YUV conversion
   g_ctx.compute_pipeline = gpu_create_compute_pipeline(
@@ -994,51 +863,6 @@ static void wait_for_completion(void) {
   printf("FPS achieved:      %.1f fps\n",
          g_ctx.current_num_frames / total_time);
   printf("===========================\n");
-}
-
-static void cleanup(void) {
-    return;
-  // Clean up renderer
-  renderer_cleanup();
-
-  // Clean up FFmpeg cached objects
-  cleanup_ffmpeg_cache();
-
-  // Release GPU backend objects - pools
-  for (int i = 0; i < NUM_TEXTURE_POOLS; i++) {
-    if (g_ctx.render_texture_pool[i]) {
-      gpu_destroy_texture(g_ctx.render_texture_pool[i]);
-    }
-    if (g_ctx.yuv_y_texture_pool[i]) {
-      gpu_destroy_texture(g_ctx.yuv_y_texture_pool[i]);
-    }
-    if (g_ctx.yuv_u_texture_pool[i]) {
-      gpu_destroy_texture(g_ctx.yuv_u_texture_pool[i]);
-    }
-    if (g_ctx.yuv_v_texture_pool[i]) {
-      gpu_destroy_texture(g_ctx.yuv_v_texture_pool[i]);
-    }
-    if (g_ctx.yuv_readback_buffer_pool[i]) {
-      gpu_destroy_readback_buffer(g_ctx.yuv_readback_buffer_pool[i]);
-    }
-  }
-
-  // Command buffers are already freed by gpu_reset_command_pools() after each request
-  // No need to destroy them individually here
-
-  if (g_ctx.vertex_buffer) {
-    gpu_destroy_buffer(g_ctx.vertex_buffer);
-  }
-
-  if (g_ctx.device) {
-    gpu_destroy(g_ctx.device);
-  }
-
-  pthread_mutex_destroy(&g_ctx.queue_mutex);
-  pthread_cond_destroy(&g_ctx.queue_cond);
-
-  // Clean up context memory
-  cleanup_context(&g_ctx);
 }
 
 // Parse JSON request and extract seconds
@@ -1309,8 +1133,6 @@ int main(int argc, char *argv[]) {
 
   profiler_end_and_print_session(&g_ctx.temporary_allocator);
 
-  // Cleanup and exit
-  cleanup();
   return result;
 
 #else

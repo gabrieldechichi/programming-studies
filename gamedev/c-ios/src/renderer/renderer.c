@@ -43,15 +43,6 @@ static ShaderRegistryEntry shader_registry[] = {
      .material_slot = 3,
      .lights_slot = 4,
      .blendshape_slot = 6},
-    // Simple triangle shader
-    {.name = "triangle",
-     .pipeline = NULL,
-     .camera_slot = -1,
-     .model_slot = 1,
-     .joints_slot = -1,
-     .material_slot = -1,
-     .lights_slot = -1,
-     .blendshape_slot = -1},
 };
 
 static const int shader_registry_count =
@@ -219,17 +210,6 @@ void renderer_init(gpu_device_t *device, Allocator *permanent_allocator,
 
   g_renderer->initialized = true;
   printf("[Renderer] Initialized\n");
-}
-
-void renderer_cleanup(void) {
-  if (!g_renderer)
-    return;
-
-  // TODO: Clean up GPU resources
-
-  g_renderer->initialized = false;
-  g_renderer = NULL;
-  printf("[Renderer] Cleaned up\n");
 }
 
 void renderer_reset_commands(void) {
