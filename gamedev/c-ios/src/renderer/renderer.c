@@ -590,15 +590,13 @@ void renderer_execute_commands(gpu_texture_t *render_target,
   }
 
   // First pass: handle immediate commands (clear, simple meshes)
-  Color clear_color = {.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f};
-  b32 should_clear = false;
+  Color clear_color = {0};
 
   arr_foreach_ptr(g_renderer->render_cmds, cmd) {
     switch (cmd->type) {
     case RENDER_CMD_CLEAR: {
       // Store clear color for pass begin
       clear_color = cmd->data.clear.color;
-      should_clear = true;
     } break;
 
     case RENDER_CMD_DRAW_MESH: {
@@ -623,11 +621,10 @@ void renderer_execute_commands(gpu_texture_t *render_target,
 
       // Begin render pass
       gpu_render_encoder_t *encoder =
-          gpu_begin_render_pass(cmd_buffer, render_target, clear_color.r,
-                                clear_color.g, clear_color.b, clear_color.a);
+          gpu_begin_render_pass(cmd_buffer, render_target);
 
       // Set pipeline
-      gpu_set_pipeline(encoder, gpu_shader->pipeline);
+      gpu_set_pipeline(encoder, gpu_shader->pipeline, clear_color.components);
 
       // Set vertex buffer
       gpu_set_vertex_buffer(encoder, mesh->vertex_buffer, 0);

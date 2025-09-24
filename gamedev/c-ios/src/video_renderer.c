@@ -949,6 +949,12 @@ static void render_all_frames(void) {
     g_ctx.game_memory.time.now = (float)i * dt;
     g_ctx.game_memory.time.dt = dt;
 
+    // Create a command buffer for this frame
+    gpu_command_buffer_t *cmd_buffer = gpu_begin_commands(g_ctx.device);
+
+    // Reset renderer commands for this frame
+    renderer_reset_commands();
+
     // Call game update and render for this frame
     game_update_and_render(&g_ctx.game_memory);
 
@@ -963,12 +969,6 @@ static void render_all_frames(void) {
     glm_scale(model_matrix, (vec3){0.5f, 0.5f, 0.5f});
 
     PROFILE_BEGIN("render_frame");
-
-    // Create a command buffer for this frame
-    gpu_command_buffer_t *cmd_buffer = gpu_begin_commands(g_ctx.device);
-
-    // Reset renderer commands for this frame
-    renderer_reset_commands();
 
     // Create identity joint transforms (no actual skinning deformation)
     mat4 joint_transforms[256];  // Shader expects 256 joints
@@ -1035,8 +1035,8 @@ static void render_all_frames(void) {
     }
 
     // Issue renderer commands
-    Color clear_color = {.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f};
-    renderer_clear(clear_color);
+    // Color clear_color = {.r = 1.0f, .g = 1.0f, .b = 0.0f, .a = 1.0f};
+    // renderer_clear(clear_color);
 
     // Use skinned mesh rendering path
     renderer_draw_skinned_mesh(

@@ -27,8 +27,9 @@ void *gpu_get_native_device(gpu_device_t *device);
 gpu_texture_t *gpu_create_texture(gpu_device_t *device, int width, int height);
 
 // Create a texture with initial data
-gpu_texture_t *gpu_create_texture_with_data(gpu_device_t *device, int width, int height,
-                                           const void *data, size_t data_size);
+gpu_texture_t *gpu_create_texture_with_data(gpu_device_t *device, int width,
+                                            int height, const void *data,
+                                            size_t data_size);
 
 // Get native texture handle for Sokol wrapping
 void *gpu_get_native_texture(gpu_texture_t *texture);
@@ -89,9 +90,9 @@ typedef enum {
 
 // Uniform buffer descriptor
 typedef struct {
-  uint32_t binding;      // Binding slot (0, 1, 2, etc.)
-  size_t size;          // Size in bytes
-  int stage_flags;      // Which shader stages use this (vertex, fragment, both)
+  uint32_t binding; // Binding slot (0, 1, 2, etc.)
+  size_t size;      // Size in bytes
+  int stage_flags;  // Which shader stages use this (vertex, fragment, both)
 } gpu_uniform_buffer_desc_t;
 
 // Storage buffer descriptor
@@ -109,30 +110,31 @@ typedef struct {
 
 // Pipeline descriptor
 typedef struct {
-  const char* vertex_shader_path;
-  const char* fragment_shader_path;
-  gpu_vertex_layout_t* vertex_layout;
+  const char *vertex_shader_path;
+  const char *fragment_shader_path;
+  gpu_vertex_layout_t *vertex_layout;
 
   // Uniform buffer layout
-  gpu_uniform_buffer_desc_t* uniform_buffers;
+  gpu_uniform_buffer_desc_t *uniform_buffers;
   uint32_t num_uniform_buffers;
 
   // Storage buffer layout (for blendshapes, etc.)
-  gpu_storage_buffer_desc_t* storage_buffers;
+  gpu_storage_buffer_desc_t *storage_buffers;
   uint32_t num_storage_buffers;
 
   // Texture/sampler layout
-  gpu_texture_desc_t* texture_bindings;
+  gpu_texture_desc_t *texture_bindings;
   uint32_t num_texture_bindings;
 
   // Render state
   bool depth_test;
   bool depth_write;
-  int cull_mode;  // 0=none, 1=back, 2=front
+  int cull_mode; // 0=none, 1=back, 2=front
 } gpu_pipeline_desc_t;
 
 // Create a render pipeline with descriptor
-gpu_pipeline_t *gpu_create_pipeline_desc(gpu_device_t *device, const gpu_pipeline_desc_t *desc);
+gpu_pipeline_t *gpu_create_pipeline_desc(gpu_device_t *device,
+                                         const gpu_pipeline_desc_t *desc);
 
 // DEPRECATED: Old pipeline creation functions (will be removed)
 gpu_pipeline_t *gpu_create_pipeline(gpu_device_t *device,
@@ -141,10 +143,9 @@ gpu_pipeline_t *gpu_create_pipeline(gpu_device_t *device,
                                     const char *fragment_function,
                                     gpu_vertex_layout_t *vertex_layout);
 
-gpu_pipeline_t *gpu_create_pipeline_with_camera(gpu_device_t *device,
-                                                const char *vertex_shader_path,
-                                                const char *fragment_shader_path,
-                                                gpu_vertex_layout_t *vertex_layout);
+gpu_pipeline_t *gpu_create_pipeline_with_camera(
+    gpu_device_t *device, const char *vertex_shader_path,
+    const char *fragment_shader_path, gpu_vertex_layout_t *vertex_layout);
 
 // Create a vertex buffer
 gpu_buffer_t *gpu_create_buffer(gpu_device_t *device, const void *data,
@@ -155,12 +156,11 @@ gpu_command_buffer_t *gpu_begin_commands(gpu_device_t *device);
 
 // Begin a render pass to a texture
 gpu_render_encoder_t *gpu_begin_render_pass(gpu_command_buffer_t *cmd_buffer,
-                                            gpu_texture_t *target,
-                                            float clear_r, float clear_g,
-                                            float clear_b, float clear_a);
+                                            gpu_texture_t *target);
 
 // Set the pipeline for rendering
-void gpu_set_pipeline(gpu_render_encoder_t *encoder, gpu_pipeline_t *pipeline);
+void gpu_set_pipeline(gpu_render_encoder_t *encoder, gpu_pipeline_t *pipeline,
+                      float clear_color[4]);
 
 // Set vertex buffer
 void gpu_set_vertex_buffer(gpu_render_encoder_t *encoder, gpu_buffer_t *buffer,
@@ -171,36 +171,32 @@ void gpu_set_uniforms(gpu_render_encoder_t *encoder, int index,
                       const void *data, size_t size);
 
 // Update uniform buffer at specific binding slot
-void gpu_update_uniforms(gpu_pipeline_t* pipeline,
-                        uint32_t binding,     // Slot index (0, 1, 2, etc.)
-                        const void* data,
-                        size_t size);
+void gpu_update_uniforms(gpu_pipeline_t *pipeline,
+                         uint32_t binding, // Slot index (0, 1, 2, etc.)
+                         const void *data, size_t size);
 
 // Update storage buffer at specific binding
-void gpu_update_storage_buffer(gpu_pipeline_t* pipeline,
-                               uint32_t binding,
-                               const void* data,
-                               size_t size);
+void gpu_update_storage_buffer(gpu_pipeline_t *pipeline, uint32_t binding,
+                               const void *data, size_t size);
 
 // Texture binding functions
-void gpu_bind_texture(gpu_render_encoder_t* encoder,
-                     gpu_texture_t* texture,
-                     uint32_t binding);
+void gpu_bind_texture(gpu_render_encoder_t *encoder, gpu_texture_t *texture,
+                      uint32_t binding);
 
 // Update texture in pipeline's descriptor set (must be done before rendering)
-void gpu_update_pipeline_texture(gpu_pipeline_t* pipeline,
-                                 gpu_texture_t* texture,
-                       uint32_t binding);
+void gpu_update_pipeline_texture(gpu_pipeline_t *pipeline,
+                                 gpu_texture_t *texture, uint32_t binding);
 
 // DEPRECATED: Old uniform update functions (will be removed)
-void gpu_update_camera_uniforms(gpu_pipeline_t *pipeline, const void *camera_data, size_t size);
-void gpu_update_toon_shader_uniforms(gpu_pipeline_t* pipeline,
-                                     const void* camera_data,
-                                     const void* joint_transforms,
-                                     const void* model_matrix,
-                                     const void* material_color,
-                                     const void* lights_data,
-                                     const void* blendshape_params);
+void gpu_update_camera_uniforms(gpu_pipeline_t *pipeline,
+                                const void *camera_data, size_t size);
+void gpu_update_toon_shader_uniforms(gpu_pipeline_t *pipeline,
+                                     const void *camera_data,
+                                     const void *joint_transforms,
+                                     const void *model_matrix,
+                                     const void *material_color,
+                                     const void *lights_data,
+                                     const void *blendshape_params);
 
 // Draw primitives
 void gpu_draw(gpu_render_encoder_t *encoder, int vertex_count);

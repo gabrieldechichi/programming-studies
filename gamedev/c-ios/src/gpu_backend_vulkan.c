@@ -2247,11 +2247,8 @@ gpu_command_buffer_t* gpu_begin_commands(gpu_device_t* device) {
 
 gpu_render_encoder_t* gpu_begin_render_pass(
     gpu_command_buffer_t* cmd_buffer,
-    gpu_texture_t* target,
-    float clear_r, float clear_g, float clear_b, float clear_a
+    gpu_texture_t* target
 ) {
-    (void)clear_r; (void)clear_g; (void)clear_b; (void)clear_a;  // Suppress warnings for now
-
     gpu_render_encoder_t* encoder = ALLOC(cmd_buffer->device->temporary_allocator, gpu_render_encoder_t);
     encoder->cmd_buffer = cmd_buffer->cmd_buffer;
     encoder->target = target;
@@ -2262,7 +2259,7 @@ gpu_render_encoder_t* gpu_begin_render_pass(
     return encoder;
 }
 
-void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline) {
+void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, float clear_color[4]) {
     encoder->render_pass = pipeline->render_pass;
     encoder->pipeline = pipeline;
 
@@ -2281,10 +2278,10 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline) {
 
     // Create clear value
     VkClearValue clear_value;
-    clear_value.color.float32[0] = 0.0f;
-    clear_value.color.float32[1] = 0.0f;
-    clear_value.color.float32[2] = 0.0f;
-    clear_value.color.float32[3] = 1.0f;
+    clear_value.color.float32[0] = clear_color[0];
+    clear_value.color.float32[1] = clear_color[1];
+    clear_value.color.float32[2] = clear_color[2];
+    clear_value.color.float32[3] = clear_color[3];
 
     // Begin render pass
     VkRenderPassBeginInfo render_pass_info = {
