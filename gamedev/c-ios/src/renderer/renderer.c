@@ -325,6 +325,7 @@ internal gpu_pipeline_t *create_shader_pipeline(const char *shader_name) {
     };
 
     // Define uniform buffer layout for toon shader
+    // Note: model_matrix (was binding 2) is now handled via push constants
     gpu_uniform_buffer_desc_t toon_uniforms[] = {
         {.binding = 0,
          .size = sizeof(CameraUniformBlock),
@@ -332,9 +333,6 @@ internal gpu_pipeline_t *create_shader_pipeline(const char *shader_name) {
         {.binding = 1,
          .size = sizeof(float) * 16 * 256,
          .stage_flags = GPU_STAGE_VERTEX}, // joint_transforms
-        {.binding = 2,
-         .size = sizeof(float) * 16,
-         .stage_flags = GPU_STAGE_VERTEX}, // model_matrix
         {.binding = 3,
          .size = sizeof(float) * 4,
          .stage_flags = GPU_STAGE_FRAGMENT}, // material_color
@@ -367,7 +365,7 @@ internal gpu_pipeline_t *create_shader_pipeline(const char *shader_name) {
         .fragment_shader_path = "toon_shading.frag.spv",
         .vertex_layout = &vertex_layout,
         .uniform_buffers = toon_uniforms,
-        .num_uniform_buffers = 6,
+        .num_uniform_buffers = 5,
         .storage_buffers = toon_storage,
         .num_storage_buffers = 1,
         .texture_bindings = toon_textures,
@@ -586,11 +584,22 @@ void renderer_execute_commands(gpu_texture_t *render_target,
   // First pass: handle immediate commands (clear, simple meshes)
   Color clear_color = {0};
 
+  // Collect clear color first
+  arr_foreach_ptr(g_renderer->render_cmds, cmd) {
+    if (cmd->type == RENDER_CMD_CLEAR) {
+      clear_color = cmd->data.clear.color;
+      break; // Use first clear command
+    }
+  }
+
+  // Begin ONE render pass for ALL draw commands
+  gpu_render_encoder_t *encoder = NULL;
+  b32 render_pass_begun = false;
+
   arr_foreach_ptr(g_renderer->render_cmds, cmd) {
     switch (cmd->type) {
     case RENDER_CMD_CLEAR: {
-      // Store clear color for pass begin
-      clear_color = cmd->data.clear.color;
+      // Already handled above
     } break;
 
     case RENDER_CMD_DRAW_MESH: {
@@ -613,11 +622,13 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       if (!gpu_shader || !gpu_shader->pipeline)
         continue;
 
-      // Begin render pass
-      gpu_render_encoder_t *encoder =
-          gpu_begin_render_pass(cmd_buffer, render_target);
+      // Begin render pass only once
+      if (!render_pass_begun) {
+        encoder = gpu_begin_render_pass(cmd_buffer, render_target);
+        render_pass_begun = true;
+      }
 
-      // Set pipeline
+      // Set pipeline for this draw
       gpu_set_pipeline(encoder, gpu_shader->pipeline, clear_color.components);
 
       // Set vertex buffer
@@ -646,12 +657,7 @@ void renderer_execute_commands(gpu_texture_t *render_target,
                                   cmd->data.draw_skinned_mesh.num_joints);
         }
 
-        // Update model matrix if shader uses it
-        if (reg->model_slot >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, reg->model_slot,
-                              &cmd->data.draw_skinned_mesh.model_matrix,
-                              sizeof(mat4));
-        }
+        // Model matrix is set via push constants after this block
 
         // Update material properties if shader uses them
         if (reg->material_slot >= 0) {
@@ -689,15 +695,14 @@ void renderer_execute_commands(gpu_texture_t *render_target,
         }
       }
 
-      // Also set model matrix as push constant for compatibility
-      // gpu_set_uniforms(encoder, 1, &cmd->data.draw_skinned_mesh.model_matrix,
-      //                  sizeof(mat4));
+      // Set model matrix as push constant (per-draw data)
+      gpu_set_uniforms(encoder, 0, &cmd->data.draw_skinned_mesh.model_matrix,
+                       sizeof(mat4));
 
       // Draw
       gpu_draw(encoder, mesh->index_count);
 
-      // End render pass
-      gpu_end_render_pass(encoder);
+      // Don't end render pass here - keep it open for more draws
     } break;
 
     case RENDER_CMD_DRAW_SKYBOX:
@@ -708,6 +713,12 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       break;
     }
   }
+
+  // End render pass after ALL draws are complete
+  if (render_pass_begun && encoder) {
+    gpu_end_render_pass(encoder);
+  }
+
   PROFILE_END();
 }
 

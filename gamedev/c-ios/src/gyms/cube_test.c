@@ -69,8 +69,12 @@ void gym_init(GameMemory *memory) {
   // Request the cube model
   // gym_state->model_asset_handle = asset_request(
   //     Model3DData, &gym_state->asset_system, ctx, "cube/cube.hasset");
+  // gym_state->model_asset_handle = asset_request(
+  //     Model3DData, &gym_state->asset_system, ctx,
+  //     "assets/generic_female/generic_female.hasset");
   gym_state->model_asset_handle = asset_request(
-      Model3DData, &gym_state->asset_system, ctx, "assets/generic_female/generic_female.hasset");
+      Model3DData, &gym_state->asset_system, ctx,
+      "assets/tolan/tolan.hasset");
 
   // Initialize camera
   gym_state->camera = (Camera){
@@ -258,9 +262,11 @@ void gym_update_and_render(GameMemory *memory) {
   // Create rotation matrix
   mat4 rot_matrix;
   quaternion rot;
-  quat_from_euler(VEC3(0, glm_rad(45), glm_rad(45)), rot);
-  quat_identity(rot);
+  quat_from_euler(VEC3(glm_rad(-90), glm_rad(0), glm_rad(0)), rot);
   mat_trs(VEC3(0, 0, 0), rot, VEC3(1,1,1), rot_matrix);
+
+  mat4 mat_2;
+  mat_trs(VEC3(-0.5, 0, 0), rot, VEC3(0.1, .1, 0.1), mat_2);
 
   // Draw the cube if loaded
   if (gym_state->cube.skinned_model.meshes.items) {
@@ -288,13 +294,9 @@ void gym_update_and_render(GameMemory *memory) {
 
           if (handle_is_valid(mesh_handle) &&
               handle_is_valid(material_handle)) {
-            renderer_draw_skinned_mesh(mesh_handle, material_handle, rot_matrix,
+            renderer_draw_skinned_mesh(mesh_handle, material_handle,
+                                       rot_matrix,
                                        joint_transforms, num_joints, NULL);
-
-            static int frame_count = 0;
-            if (frame_count++ % 60 == 0) {
-              LOG_INFO("Drew submesh % of mesh %", FMT_UINT(k), FMT_UINT(i));
-            }
           }
         }
       }

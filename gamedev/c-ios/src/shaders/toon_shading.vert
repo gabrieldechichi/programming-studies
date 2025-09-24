@@ -13,9 +13,10 @@ layout(binding = 1) uniform joint_transforms {
     mat4 jointTransforms[256]; // MAX_JOINTS = 256
 } joints;
 
-layout(binding = 2) uniform model_params {
+// Model matrix now comes from push constants
+layout(push_constant) uniform PushConstants {
     mat4 model;
-} model;
+} push_constants;
 
 layout(binding = 6) uniform blendshape_params {
     ivec4 countAndFlags;
@@ -102,11 +103,11 @@ void main() {
     normal = vec4(aNormal, 0.0);
 
     // Transform to world space
-    vec4 worldPos = model.model * position;
+    vec4 worldPos = push_constants.model * position;
     vs_world_pos = worldPos.xyz;
 
     // Transform normal to world space
-    vs_normal = normalize(mat3(model.model) * normal.xyz);
+    vs_normal = normalize(mat3(push_constants.model) * normal.xyz);
 
     // Pass through texture coordinates
     vs_texcoord = aTexCoord;

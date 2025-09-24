@@ -2255,52 +2255,75 @@ gpu_render_encoder_t* gpu_begin_render_pass(
     encoder->cmd_buffer = cmd_buffer->cmd_buffer;
     encoder->target = target;
     encoder->device = cmd_buffer->device;
-    encoder->render_pass = NULL;  // Will be set when pipeline is bound
-    encoder->framebuffer = VK_NULL_HANDLE;  // Will be created when pipeline is set
+    encoder->render_pass = NULL;  // Will be set from first pipeline
+    encoder->framebuffer = VK_NULL_HANDLE;
+    encoder->pipeline = NULL;
 
     return encoder;
 }
 
 void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, float clear_color[4]) {
-    encoder->render_pass = pipeline->render_pass;
-    encoder->pipeline = pipeline;
+    // First pipeline sets up the render pass
+    if (!encoder->render_pass) {
+        encoder->render_pass = pipeline->render_pass;
+        encoder->pipeline = pipeline;
 
-    // Create framebuffer for the target texture
-    VkFramebufferCreateInfo framebuffer_info = {
-        .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-        .renderPass = pipeline->render_pass,
-        .attachmentCount = 1,
-        .pAttachments = &encoder->target->image_view,
-        .width = (uint32_t)encoder->target->width,
-        .height = (uint32_t)encoder->target->height,
-        .layers = 1
-    };
+        // Create framebuffer for the target texture
+        VkFramebufferCreateInfo framebuffer_info = {
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = pipeline->render_pass,
+            .attachmentCount = 1,
+            .pAttachments = &encoder->target->image_view,
+            .width = (uint32_t)encoder->target->width,
+            .height = (uint32_t)encoder->target->height,
+            .layers = 1
+        };
 
-    VK_CHECK(vkCreateFramebuffer(encoder->device->device, &framebuffer_info, NULL, &encoder->framebuffer));
+        VK_CHECK(vkCreateFramebuffer(encoder->device->device, &framebuffer_info, NULL, &encoder->framebuffer));
 
-    // Create clear value
-    VkClearValue clear_value;
-    clear_value.color.float32[0] = clear_color[0];
-    clear_value.color.float32[1] = clear_color[1];
-    clear_value.color.float32[2] = clear_color[2];
-    clear_value.color.float32[3] = clear_color[3];
+        // Create clear value
+        VkClearValue clear_value;
+        clear_value.color.float32[0] = clear_color[0];
+        clear_value.color.float32[1] = clear_color[1];
+        clear_value.color.float32[2] = clear_color[2];
+        clear_value.color.float32[3] = clear_color[3];
 
-    // Begin render pass
-    VkRenderPassBeginInfo render_pass_info = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .renderPass = pipeline->render_pass,
-        .framebuffer = encoder->framebuffer,
-        .renderArea = {
+        // Begin render pass ONLY for the first pipeline
+        VkRenderPassBeginInfo render_pass_info = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = pipeline->render_pass,
+            .framebuffer = encoder->framebuffer,
+            .renderArea = {
+                .offset = {0, 0},
+                .extent = {(uint32_t)encoder->target->width, (uint32_t)encoder->target->height}
+            },
+            .clearValueCount = 1,
+            .pClearValues = &clear_value
+        };
+
+        vkCmdBeginRenderPass(encoder->cmd_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+        // Set viewport with Y-flip to match OpenGL convention (only once)
+        VkViewport viewport = {
+            .x = 0.0f,
+            .y = (float)encoder->target->height,  // Start from bottom
+            .width = (float)encoder->target->width,
+            .height = -(float)encoder->target->height,  // Negative height flips Y
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f
+        };
+        vkCmdSetViewport(encoder->cmd_buffer, 0, 1, &viewport);
+
+        // Set scissor (only once)
+        VkRect2D scissor = {
             .offset = {0, 0},
             .extent = {(uint32_t)encoder->target->width, (uint32_t)encoder->target->height}
-        },
-        .clearValueCount = 1,
-        .pClearValues = &clear_value
-    };
+        };
+        vkCmdSetScissor(encoder->cmd_buffer, 0, 1, &scissor);
+    }
 
-    vkCmdBeginRenderPass(encoder->cmd_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-
-    // Bind the pipeline
+    // Always bind the pipeline and descriptor sets
+    encoder->pipeline = pipeline;
     vkCmdBindPipeline(encoder->cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 
     // Bind descriptor sets if pipeline has uniforms
@@ -2308,24 +2331,6 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, f
         vkCmdBindDescriptorSets(encoder->cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                pipeline->pipeline_layout, 0, 1, &pipeline->descriptor_set, 0, NULL);
     }
-
-    // Set viewport with Y-flip to match OpenGL convention
-    VkViewport viewport = {
-        .x = 0.0f,
-        .y = (float)encoder->target->height,  // Start from bottom
-        .width = (float)encoder->target->width,
-        .height = -(float)encoder->target->height,  // Negative height flips Y
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f
-    };
-    vkCmdSetViewport(encoder->cmd_buffer, 0, 1, &viewport);
-
-    // Set scissor
-    VkRect2D scissor = {
-        .offset = {0, 0},
-        .extent = {(uint32_t)encoder->target->width, (uint32_t)encoder->target->height}
-    };
-    vkCmdSetScissor(encoder->cmd_buffer, 0, 1, &scissor);
 }
 
 void gpu_set_vertex_buffer(gpu_render_encoder_t* encoder, gpu_buffer_t* buffer, int index) {

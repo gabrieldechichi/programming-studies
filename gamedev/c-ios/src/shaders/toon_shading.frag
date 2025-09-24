@@ -55,7 +55,7 @@ vec3 anime_light_pass(vec3 color, vec3 normal, vec3 worldPos) {
     }
 
     // Add ambient light
-    float ambient_intensity = 0.45;
+    float ambient_intensity = 0.0;
     vec3 ambient_color = vec3(1.0, 1.0, 1.0);
     light_contribution += ambient_color * ambient_intensity;
 
