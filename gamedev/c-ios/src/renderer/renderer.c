@@ -263,27 +263,20 @@ Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned) {
 
   // Create index buffer (optional - NULL if no indices)
   gpu_buffer_t *index_buffer = NULL;
-  u32 count_for_draw = 0;
 
-  if (mesh_data->indices && mesh_data->len_indices > 0) {
-    index_buffer = gpu_create_buffer(g_renderer->device, mesh_data->indices,
-                                     mesh_data->len_indices * sizeof(u32));
+  index_buffer = gpu_create_buffer(g_renderer->device, mesh_data->indices,
+                                   mesh_data->len_indices * sizeof(u32));
 
-    if (!index_buffer) {
-      gpu_destroy_buffer(vertex_buffer);
-      return INVALID_HANDLE;
-    }
-    count_for_draw = mesh_data->len_indices;
-  } else {
-    // No indices - use vertex count for drawing
-    count_for_draw = mesh_data->len_vertices;
+  if (!index_buffer) {
+    gpu_destroy_buffer(vertex_buffer);
+    return INVALID_HANDLE;
   }
 
   // Store submesh data
   GPUSubMesh new_submesh = {
       .vertex_buffer = vertex_buffer,
       .index_buffer = index_buffer,
-      .index_count = count_for_draw, // Either index count or vertex count
+      .index_count = mesh_data->len_indices, // Either index count or vertex count
       .num_blendshapes = mesh_data->len_blendshapes,
       .is_skinned = is_skinned,
       .has_blendshapes = mesh_data->len_blendshapes > 0};
@@ -381,7 +374,7 @@ internal gpu_pipeline_t *create_shader_pipeline(const char *shader_name) {
         .num_texture_bindings = 2,
         .depth_test = true,
         .depth_write = true,
-        .cull_mode = 0 // no culling
+        .cull_mode = 0 // 0 = VK_CULL_MODE_NONE (no culling)
     };
 
     // Try without prefix first (when running from out/linux)
@@ -575,14 +568,15 @@ void renderer_execute_commands(gpu_texture_t *render_target,
             printf("[DEBUG] Pre-pass: Updating texture '%s' at binding %u for "
                    "pipeline (texture: %p, %dx%d)\n",
                    material->properties[i].name.value, binding,
-                   (void*)gpu_tex->texture, gpu_tex->width, gpu_tex->height);
+                   (void *)gpu_tex->texture, gpu_tex->width, gpu_tex->height);
             gpu_update_pipeline_texture(gpu_shader->pipeline, gpu_tex->texture,
                                         binding);
           } else {
-            printf("[DEBUG] Pre-pass: Texture '%s' not ready (gpu_tex: %p, is_set: %d, texture: %p)\n",
-                   material->properties[i].name.value, (void*)gpu_tex,
+            printf("[DEBUG] Pre-pass: Texture '%s' not ready (gpu_tex: %p, "
+                   "is_set: %d, texture: %p)\n",
+                   material->properties[i].name.value, (void *)gpu_tex,
                    gpu_tex ? gpu_tex->is_set : 0,
-                   gpu_tex ? (void*)gpu_tex->texture : NULL);
+                   gpu_tex ? (void *)gpu_tex->texture : NULL);
           }
         }
       }
@@ -628,6 +622,9 @@ void renderer_execute_commands(gpu_texture_t *render_target,
 
       // Set vertex buffer
       gpu_set_vertex_buffer(encoder, mesh->vertex_buffer, 0);
+
+      // Set index buffer (required for indexed drawing)
+      gpu_set_index_buffer(encoder, mesh->index_buffer);
 
       // Update uniforms based on shader registry info
       if (gpu_shader->pipeline->has_uniforms && gpu_shader->registry_entry) {
@@ -747,8 +744,8 @@ b32 renderer_set_texture(Handle tex_handle, Image *image) {
   }
 
   // Create GPU texture with data
-  printf("[Renderer] Creating GPU texture: %dx%d, %zu bytes\n",
-         image->width, image->height, image->byte_len);
+  printf("[Renderer] Creating GPU texture: %dx%d, %zu bytes\n", image->width,
+         image->height, image->byte_len);
   gpu_tex->texture =
       gpu_create_texture_with_data(g_renderer->device, image->width,
                                    image->height, image->data, image->byte_len);
@@ -770,9 +767,9 @@ void renderer_draw_skybox(Handle material_handle) {
     return;
   }
 
-  RenderCommand cmd = {
-      .type = RENDER_CMD_DRAW_SKYBOX,
-      .data.draw_skybox = {.material_handle = material_handle}};
-
-  add_render_command(cmd);
+  // RenderCommand cmd = {
+  //     .type = RENDER_CMD_DRAW_SKYBOX,
+  //     .data.draw_skybox = {.material_handle = material_handle}};
+  //
+  // add_render_command(cmd);
 }

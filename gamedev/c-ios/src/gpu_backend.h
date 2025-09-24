@@ -166,6 +166,9 @@ void gpu_set_pipeline(gpu_render_encoder_t *encoder, gpu_pipeline_t *pipeline,
 void gpu_set_vertex_buffer(gpu_render_encoder_t *encoder, gpu_buffer_t *buffer,
                            int index);
 
+// Set index buffer
+void gpu_set_index_buffer(gpu_render_encoder_t *encoder, gpu_buffer_t *buffer);
+
 // Set uniform data (for push constants)
 void gpu_set_uniforms(gpu_render_encoder_t *encoder, int index,
                       const void *data, size_t size);

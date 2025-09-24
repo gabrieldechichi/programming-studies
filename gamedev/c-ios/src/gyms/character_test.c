@@ -424,7 +424,7 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
 
       quaternion temp_rot;
       quat_from_euler((vec3){0, 0, 0}, temp_rot);
-      mat_trs((vec3){0, 0, 0}, temp_rot, (vec3){0.01, 0.01, 0.01},
+      mat_trs((vec3){0, 0, 0}, temp_rot, (vec3){100,100,100},
               entity->model_matrix);
 
       entity->skinned_model =
@@ -974,8 +974,8 @@ void gym_update_and_render(GameMemory *memory) {
                                &entity->skinned_model);
   }
 
-  Color clear_color = color_from_hex(0xebebeb);
-  // Color clear_color = color_from_hex(0xff0000);
+  // Color clear_color = color_from_hex(0xebebeb);
+  Color clear_color = color_from_hex(0xff0000);
   renderer_clear(clear_color);
 
   // Draw skybox if material is ready
@@ -1002,10 +1002,10 @@ void gym_update_and_render(GameMemory *memory) {
       Handle material_handle = submesh->material_handle;
 
       if (handle_is_valid(mesh_handle) && handle_is_valid(material_handle)) {
-        // renderer_draw_skinned_mesh(mesh_handle, material_handle, *model_matrix,
-        //                            skinned_model->joint_matrices.items,
-        //                            skinned_model->joint_matrices.len,
-        //                            blendshape_parms);
+        renderer_draw_skinned_mesh(mesh_handle, material_handle, *model_matrix,
+                                   skinned_model->joint_matrices.items,
+                                   skinned_model->joint_matrices.len,
+                                   blendshape_parms);
       }
     }
   }

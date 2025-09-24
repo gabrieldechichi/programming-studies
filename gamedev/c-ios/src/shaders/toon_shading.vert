@@ -98,6 +98,9 @@ void main() {
     position = skinnedPosition;
     normal = skinnedNormal;
 
+    position = vec4(aPosition, 1.0);
+    normal = vec4(aNormal, 0.0);
+
     // Transform to world space
     vec4 worldPos = model.model * position;
     vs_world_pos = worldPos.xyz;

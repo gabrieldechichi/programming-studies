@@ -373,7 +373,9 @@ static void find_queue_families(VkPhysicalDevice physical_device, uint32_t* grap
 gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allocator) {
     gpu_device_t* device = ALLOC(permanent_allocator, gpu_device_t);
     device->permanent_allocator = permanent_allocator;
+    //todo: use temporary_allocator correctly
     device->temporary_allocator = temporary_allocator;
+    device->temporary_allocator = permanent_allocator;
 
     // Initialize fence tracking (allocate space for up to 1000 fences)
     device->fence_capacity = 1000;
@@ -1316,7 +1318,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
             case 0: attribute_descriptions[i].format = VK_FORMAT_R32G32_SFLOAT; break;
             case 1: attribute_descriptions[i].format = VK_FORMAT_R32G32B32_SFLOAT; break;
             case 2: attribute_descriptions[i].format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
-            case 3: attribute_descriptions[i].format = VK_FORMAT_R8G8B8A8_UNORM; break; // ubyte4
+            case 3: attribute_descriptions[i].format = VK_FORMAT_R8G8B8A8_UINT; break; // ubyte4 as unsigned integers
             default: attribute_descriptions[i].format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
         }
     }
@@ -2399,8 +2401,15 @@ void gpu_update_toon_shader_uniforms(gpu_pipeline_t* pipeline,
     }
 }
 
-void gpu_draw(gpu_render_encoder_t* encoder, int vertex_count) {
-    vkCmdDraw(encoder->cmd_buffer, vertex_count, 1, 0, 0);
+void gpu_set_index_buffer(gpu_render_encoder_t* encoder, gpu_buffer_t* buffer) {
+    if (encoder && buffer && buffer->buffer) {
+        vkCmdBindIndexBuffer(encoder->cmd_buffer, buffer->buffer, 0, VK_INDEX_TYPE_UINT32);
+    }
+}
+
+void gpu_draw(gpu_render_encoder_t* encoder, int index_count) {
+    // Always use indexed drawing with 32-bit indices
+    vkCmdDrawIndexed(encoder->cmd_buffer, index_count, 1, 0, 0, 0);
 }
 
 void gpu_end_render_pass(gpu_render_encoder_t* encoder) {

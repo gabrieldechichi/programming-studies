@@ -54,7 +54,7 @@ vec3 anime_light_pass(vec3 color, vec3 normal, vec3 worldPos) {
     }
 
     // Add ambient light
-    float ambient_intensity = 0.45;
+    float ambient_intensity = 0.0;
     vec3 ambient_color = vec3(1.0, 1.0, 1.0);
     light_contribution += ambient_color * ambient_intensity;
 
@@ -64,8 +64,6 @@ vec3 anime_light_pass(vec3 color, vec3 normal, vec3 worldPos) {
 void main() {
     // Sample the main texture
     vec4 tex_color = texture(uTexture, vs_texcoord);
-    frag_color = tex_color;
-    return;
 
     // Sample detail texture and mix with main texture
     vec4 detail_color = texture(uDetailTexture, vs_texcoord);
