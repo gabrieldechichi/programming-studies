@@ -9,6 +9,8 @@
 #include "lib/string.h"
 #include "lib/string_builder.h"
 #include "memory.h"
+#include "shader_reflection.h"
+#include "shaders/toon_shading_reflection.h"
 #include "vendor/cglm/mat4.h"
 #include "vendor/cglm/vec3.h"
 #include <stdio.h>
@@ -19,30 +21,18 @@
 
 // ===== Shader Registry =====
 
-// Forward declaration for GPUShader
 typedef struct ShaderRegistryEntry {
   const char *name;
+  const ShaderReflection *reflection;
   gpu_pipeline_t *pipeline; // Lazily initialized
-  // Hardcoded uniform slot mappings
-  int camera_slot; // -1 if not used
-  int model_slot;
-  int joints_slot;
-  int material_slot;
-  int lights_slot;
-  int blendshape_slot;
 } ShaderRegistryEntry;
 
-// Shader registry with known shaders and their uniform mappings
+// Shader registry with reflection data
 static ShaderRegistryEntry shader_registry[] = {
-    // Toon shading shader with full skinning support
+    // Toon shading shader with full reflection data
     {.name = "toon_shading",
-     .pipeline = NULL,
-     .camera_slot = 0,
-     .model_slot = 2,
-     .joints_slot = 1,
-     .material_slot = 3,
-     .lights_slot = 4,
-     .blendshape_slot = 6},
+     .reflection = &toon_shading_reflection,
+     .pipeline = NULL},
 };
 
 static const int shader_registry_count =
@@ -56,8 +46,11 @@ static const int shader_registry_count =
 typedef struct {
   gpu_pipeline_t *pipeline;
   const char *name;
-  // Store shader registry info for uniform mapping
-  ShaderRegistryEntry *registry_entry;
+  const ShaderReflection *reflection;
+
+  // Fast lookup tables built at shader load time
+  i32 uniform_bindings[UNIFORM_SEMANTIC_COUNT];
+  i32 texture_bindings[TEXTURE_SEMANTIC_COUNT];
 } GPUShader;
 
 TYPED_HANDLE_DEFINE(GPUShader);
@@ -82,6 +75,8 @@ typedef struct {
   MaterialProperty *properties;
   u32 property_count;
   b32 transparent;
+  MaterialBindingCache
+      *binding_cache; // Pre-computed bindings for fast rendering
 } GPUMaterial;
 
 TYPED_HANDLE_DEFINE(GPUMaterial);
@@ -256,7 +251,8 @@ Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned) {
   GPUSubMesh new_submesh = {
       .vertex_buffer = vertex_buffer,
       .index_buffer = index_buffer,
-      .index_count = mesh_data->len_indices, // Either index count or vertex count
+      .index_count =
+          mesh_data->len_indices, // Either index count or vertex count
       .num_blendshapes = mesh_data->len_blendshapes,
       .is_skinned = is_skinned,
       .has_blendshapes = mesh_data->len_blendshapes > 0};
@@ -281,100 +277,195 @@ Handle renderer_load_shader(const char *shader_name, gpu_pipeline_t *pipeline) {
   return handle;
 }
 
-// Helper function to create pipeline for a shader
-internal gpu_pipeline_t *create_shader_pipeline(const char *shader_name) {
-  if (!g_renderer || !g_renderer->device) {
+// Convert uniform data type to GPU vertex format
+internal u32 uniform_type_to_vertex_format(UniformDataType type) {
+  switch (type) {
+  case UNIFORM_TYPE_VEC2:
+    return 0; // float2
+  case UNIFORM_TYPE_VEC3:
+    return 1; // float3
+  case UNIFORM_TYPE_VEC4:
+    return 2; // float4
+  case UNIFORM_TYPE_IVEC4:
+    return 3; // ubyte4 (for joints)
+  default:
+    return 1; // Default to float3
+  }
+}
+
+// Convert shader stage flags to GPU stage flags
+internal u32 shader_stages_to_gpu_stages(ShaderStageFlags stages) {
+  u32 gpu_stages = 0;
+  if (stages & SHADER_STAGE_VERTEX)
+    gpu_stages |= GPU_STAGE_VERTEX;
+  if (stages & SHADER_STAGE_FRAGMENT)
+    gpu_stages |= GPU_STAGE_FRAGMENT;
+  if (stages & SHADER_STAGE_COMPUTE)
+    gpu_stages |= GPU_STAGE_COMPUTE;
+  return gpu_stages;
+}
+
+// Helper function to create pipeline from reflection data
+internal gpu_pipeline_t *
+create_shader_pipeline_from_reflection(const ShaderReflection *reflection) {
+  if (!g_renderer || !g_renderer->device || !reflection) {
     return NULL;
   }
 
-  // Special handling for toon_shading shader
-  if (strcmp(shader_name, "toon_shading") == 0) {
-    // Create vertex layout for skinned mesh format
-    gpu_vertex_attr_t attributes[] = {
-        {.index = 0, .offset = 0, .format = 1},  // position (float3)
-        {.index = 1, .offset = 12, .format = 1}, // normal (float3)
-        {.index = 2, .offset = 24, .format = 0}, // uv (float2)
-        {.index = 3, .offset = 32, .format = 3}, // joints (ubyte4)
-        {.index = 4, .offset = 36, .format = 2}  // weights (float4)
-    };
+  // Build vertex layout from reflection
+  gpu_vertex_attr_t *attributes =
+      ALLOC_ARRAY(g_renderer->temp_allocator, gpu_vertex_attr_t,
+                  reflection->vertex_attribute_count);
 
-    gpu_vertex_layout_t vertex_layout = {
-        .attributes = attributes,
-        .num_attributes = 5,
-        .stride = 52 // 3+3+2+1+4 floats = 13 floats = 52 bytes
-    };
-
-    // Define uniform buffer layout for toon shader
-    // Model matrix now at binding 2 as uniform buffer
-    gpu_uniform_buffer_desc_t toon_uniforms[] = {
-        {.binding = 0,
-         .size = sizeof(CameraUniformBlock),
-         .stage_flags = GPU_STAGE_VERTEX},
-        {.binding = 1,
-         .size = sizeof(float) * 16 * 256,
-         .stage_flags = GPU_STAGE_VERTEX}, // joint_transforms
-        {.binding = 2,
-         .size = sizeof(float) * 16,
-         .stage_flags = GPU_STAGE_VERTEX}, // model_matrix
-        {.binding = 3,
-         .size = sizeof(float) * 4,
-         .stage_flags = GPU_STAGE_FRAGMENT}, // material_color
-        {.binding = 4,
-         .size = sizeof(DirectionalLightBlock),
-         .stage_flags = GPU_STAGE_FRAGMENT}, // lights
-        {.binding = 6,
-         .size = sizeof(BlendshapeParams),
-         .stage_flags = GPU_STAGE_VERTEX}, // blendshapes
-    };
-
-    gpu_storage_buffer_desc_t toon_storage[] = {
-        {.binding = 7,
-         .size = sizeof(float) * 8 * 1000,
-         .stage_flags = GPU_STAGE_VERTEX} // blendshape deltas
-    };
-
-    gpu_texture_desc_t toon_textures[] = {
-        {.binding = 5, .stage_flags = GPU_STAGE_FRAGMENT}, // diffuse texture
-        {.binding = 7,
-         .stage_flags =
-             GPU_STAGE_FRAGMENT} // detail texture (note: conflicts with storage
-                                 // buffer 7, using 8 instead)
-    };
-    // Fix the conflict: detail texture should be at binding 8
-    toon_textures[1].binding = 8;
-
-    gpu_pipeline_desc_t toon_desc = {
-        .vertex_shader_path = "toon_shading.vert.spv",
-        .fragment_shader_path = "toon_shading.frag.spv",
-        .vertex_layout = &vertex_layout,
-        .uniform_buffers = toon_uniforms,
-        .num_uniform_buffers = 6,  // Now includes model matrix at binding 2
-        .storage_buffers = toon_storage,
-        .num_storage_buffers = 1,
-        .texture_bindings = toon_textures,
-        .num_texture_bindings = 2,
-        .depth_test = true,
-        .depth_write = true,
-        .cull_mode = 1 // 1 = VK_CULL_MODE_BACK_BIT (cull back faces)
-    };
-
-    // Try without prefix first (when running from out/linux)
-    gpu_pipeline_t *pipeline =
-        gpu_create_pipeline_desc(g_renderer->device, &toon_desc);
-
-    if (!pipeline) {
-      // Try with out/linux prefix (when running from project root)
-      toon_desc.vertex_shader_path = "out/linux/toon_shading.vert.spv";
-      toon_desc.fragment_shader_path = "out/linux/toon_shading.frag.spv";
-      pipeline = gpu_create_pipeline_desc(g_renderer->device, &toon_desc);
-    }
-
-    return pipeline;
+  for (u32 i = 0; i < reflection->vertex_attribute_count; i++) {
+    const VertexAttributeDesc *attr = &reflection->vertex_attributes[i];
+    attributes[i] = (gpu_vertex_attr_t){
+        .index = attr->location,
+        .offset = attr->offset,
+        .format = uniform_type_to_vertex_format(attr->type)};
   }
 
-  // For other shaders, return NULL for now
-  // Can add more shader pipeline creation logic here
-  return NULL;
+  gpu_vertex_layout_t vertex_layout = {.attributes = attributes,
+                                       .num_attributes =
+                                           reflection->vertex_attribute_count,
+                                       .stride = reflection->vertex_stride};
+
+  // Count resources by type
+  u32 uniform_buffer_count = 0;
+  u32 storage_buffer_count = 0;
+  u32 texture_count = 0;
+
+  for (u32 i = 0; i < reflection->resource_count; i++) {
+    switch (reflection->resources[i].type) {
+    case SHADER_RESOURCE_UNIFORM_BUFFER:
+      uniform_buffer_count++;
+      break;
+    case SHADER_RESOURCE_STORAGE_BUFFER:
+      storage_buffer_count++;
+      break;
+    case SHADER_RESOURCE_TEXTURE:
+      texture_count++;
+      break;
+    default:
+      break;
+    }
+  }
+
+  // Build uniform buffer descriptors
+  gpu_uniform_buffer_desc_t *uniform_buffers = NULL;
+  if (uniform_buffer_count > 0) {
+    uniform_buffers =
+        ALLOC_ARRAY(g_renderer->temp_allocator, gpu_uniform_buffer_desc_t,
+                    uniform_buffer_count);
+    u32 ub_idx = 0;
+    for (u32 i = 0; i < reflection->resource_count; i++) {
+      const ShaderResourceDesc *res = &reflection->resources[i];
+      if (res->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
+        uniform_buffers[ub_idx++] = (gpu_uniform_buffer_desc_t){
+            .binding = res->binding,
+            .size = res->size,
+            .stage_flags = shader_stages_to_gpu_stages(res->stages)};
+      }
+    }
+  }
+
+  // Build storage buffer descriptors
+  gpu_storage_buffer_desc_t *storage_buffers = NULL;
+  if (storage_buffer_count > 0) {
+    storage_buffers =
+        ALLOC_ARRAY(g_renderer->temp_allocator, gpu_storage_buffer_desc_t,
+                    storage_buffer_count);
+    u32 sb_idx = 0;
+    for (u32 i = 0; i < reflection->resource_count; i++) {
+      const ShaderResourceDesc *res = &reflection->resources[i];
+      if (res->type == SHADER_RESOURCE_STORAGE_BUFFER) {
+        storage_buffers[sb_idx++] = (gpu_storage_buffer_desc_t){
+            .binding = res->binding,
+            .size = res->size,
+            .stage_flags = shader_stages_to_gpu_stages(res->stages)};
+      }
+    }
+  }
+
+  // Build texture descriptors
+  gpu_texture_desc_t *textures = NULL;
+  if (texture_count > 0) {
+    textures = ALLOC_ARRAY(g_renderer->temp_allocator, gpu_texture_desc_t,
+                           texture_count);
+    u32 tex_idx = 0;
+    for (u32 i = 0; i < reflection->resource_count; i++) {
+      const ShaderResourceDesc *res = &reflection->resources[i];
+      if (res->type == SHADER_RESOURCE_TEXTURE) {
+        textures[tex_idx++] = (gpu_texture_desc_t){
+            .binding = res->binding,
+            .stage_flags = shader_stages_to_gpu_stages(res->stages)};
+      }
+    }
+  }
+
+  // Create pipeline descriptor
+  gpu_pipeline_desc_t pipeline_desc = {
+      .vertex_shader_path = reflection->vertex_shader_path,
+      .fragment_shader_path = reflection->fragment_shader_path,
+      .vertex_layout = &vertex_layout,
+      .uniform_buffers = uniform_buffers,
+      .num_uniform_buffers = uniform_buffer_count,
+      .storage_buffers = storage_buffers,
+      .num_storage_buffers = storage_buffer_count,
+      .texture_bindings = textures,
+      .num_texture_bindings = texture_count,
+      .depth_test = reflection->depth_test,
+      .depth_write = reflection->depth_write,
+      .cull_mode = reflection->cull_mode};
+
+  // Try without prefix first (when running from out/linux)
+  gpu_pipeline_t *pipeline =
+      gpu_create_pipeline_desc(g_renderer->device, &pipeline_desc);
+
+  if (!pipeline) {
+    // Try with out/linux prefix (when running from project root)
+    char vertex_path[256];
+    char fragment_path[256];
+    snprintf(vertex_path, sizeof(vertex_path), "out/linux/%s",
+             reflection->vertex_shader_path);
+    snprintf(fragment_path, sizeof(fragment_path), "out/linux/%s",
+             reflection->fragment_shader_path);
+
+    pipeline_desc.vertex_shader_path = vertex_path;
+    pipeline_desc.fragment_shader_path = fragment_path;
+    pipeline = gpu_create_pipeline_desc(g_renderer->device, &pipeline_desc);
+  }
+
+  return pipeline;
+}
+
+// Build fast lookup tables for shader resources
+internal void build_shader_lookup_tables(GPUShader *shader,
+                                         const ShaderReflection *reflection) {
+  // Initialize all lookups to -1 (not found)
+  for (u32 i = 0; i < UNIFORM_SEMANTIC_COUNT; i++) {
+    shader->uniform_bindings[i] = -1;
+  }
+  for (u32 i = 0; i < TEXTURE_SEMANTIC_COUNT; i++) {
+    shader->texture_bindings[i] = -1;
+  }
+
+  // Build uniform semantic -> binding lookup
+  for (u32 i = 0; i < reflection->resource_count; i++) {
+    const ShaderResourceDesc *res = &reflection->resources[i];
+
+    if (res->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
+      UniformSemantic semantic = get_uniform_semantic(reflection, res->name);
+      if (semantic != UNIFORM_SEMANTIC_NONE) {
+        shader->uniform_bindings[semantic] = res->binding;
+      }
+    } else if (res->type == SHADER_RESOURCE_TEXTURE) {
+      TextureSemantic semantic = get_texture_semantic(reflection, res->name);
+      if (semantic != TEXTURE_SEMANTIC_NONE) {
+        shader->texture_bindings[semantic] = res->binding;
+      }
+    }
+  }
 }
 
 // Public API function matching header
@@ -400,7 +491,7 @@ Handle load_shader(LoadShaderParams params) {
 
   // Create pipeline if it doesn't exist (lazy initialization)
   if (!entry->pipeline) {
-    entry->pipeline = create_shader_pipeline(params.shader_name);
+    entry->pipeline = create_shader_pipeline_from_reflection(entry->reflection);
     if (!entry->pipeline) {
       printf("[Renderer] Failed to create pipeline for shader '%s'\n",
              params.shader_name);
@@ -409,14 +500,137 @@ Handle load_shader(LoadShaderParams params) {
     printf("[Renderer] Created pipeline for shader '%s'\n", params.shader_name);
   }
 
-  // Create GPUShader and store in handle array
+  // Create GPUShader with reflection data
   GPUShader new_shader = {.pipeline = entry->pipeline,
                           .name = entry->name,
-                          .registry_entry = entry};
+                          .reflection = entry->reflection};
+
+  // Build fast lookup tables
+  build_shader_lookup_tables(&new_shader, entry->reflection);
 
   Handle handle = cast_handle(
       Handle, ha_add(GPUShader, &g_renderer->gpu_shaders, new_shader));
   return handle;
+}
+
+// Create material binding cache for fast rendering
+internal MaterialBindingCache *
+create_material_binding_cache(const ShaderReflection *reflection,
+                              MaterialProperty *properties,
+                              u32 property_count) {
+
+  if (!reflection || property_count == 0) {
+    return NULL;
+  }
+
+  MaterialBindingCache *cache =
+      ALLOC(g_renderer->permanent_allocator, MaterialBindingCache);
+  cache->binding_count = 0;
+  cache->uniform_data_size = 0;
+
+  // First pass: count bindings and calculate uniform data size
+  u32 uniform_count = 0;
+  u32 texture_count = 0;
+  u32 total_uniform_size = 0;
+
+  for (u32 i = 0; i < property_count; i++) {
+    MaterialProperty *prop = &properties[i];
+
+    switch (prop->type) {
+    case MAT_PROP_VEC3: {
+      // Find matching uniform resource
+      const ShaderResourceDesc *res =
+          find_resource_by_name(reflection, "material_params");
+      if (res && res->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
+        uniform_count++;
+        total_uniform_size += 16; // vec3 padded to 16 bytes
+      }
+    } break;
+
+    case MAT_PROP_TEXTURE: {
+      // Find matching texture resource by name
+      const ShaderResourceDesc *res = NULL;
+      if (strcmp(prop->name.value, "uTexture") == 0) {
+        res = find_resource_by_name(reflection, "diffuse_texture");
+      } else if (strcmp(prop->name.value, "uDetailTexture") == 0) {
+        res = find_resource_by_name(reflection, "detail_texture");
+      }
+      if (res && res->type == SHADER_RESOURCE_TEXTURE) {
+        texture_count++;
+      }
+    } break;
+
+    default:
+      break;
+    }
+  }
+
+  // Allocate bindings array
+  cache->binding_count = uniform_count + texture_count;
+  if (cache->binding_count == 0) {
+    // Don't free - permanent allocator is never freed
+    return NULL;
+  }
+
+  cache->bindings = ALLOC_ARRAY(g_renderer->permanent_allocator,
+                                MaterialBinding, cache->binding_count);
+
+  // Allocate uniform data block
+  if (total_uniform_size > 0) {
+    cache->uniform_data_block =
+        ALLOC_ARRAY(g_renderer->permanent_allocator, u8, total_uniform_size);
+    cache->uniform_data_size = total_uniform_size;
+  }
+
+  // Second pass: populate bindings and pack uniform data
+  u32 binding_idx = 0;
+  u32 uniform_offset = 0;
+
+  for (u32 i = 0; i < property_count; i++) {
+    MaterialProperty *prop = &properties[i];
+
+    switch (prop->type) {
+    case MAT_PROP_VEC3: {
+      const ShaderResourceDesc *res =
+          find_resource_by_name(reflection, "material_params");
+      if (res && res->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
+        MaterialBinding *binding = &cache->bindings[binding_idx++];
+        binding->binding_index = res->binding;
+        binding->type = SHADER_RESOURCE_UNIFORM_BUFFER;
+        binding->resource.uniform.data =
+            (u8 *)cache->uniform_data_block + uniform_offset;
+        binding->resource.uniform.size = 16;
+
+        // Pack vec3 into uniform data (padded to 16 bytes)
+        f32 *dest = (f32 *)binding->resource.uniform.data;
+        glm_vec3_copy(prop->value.vec3_val, dest);
+        dest[3] = 0.0f; // Padding
+
+        uniform_offset += 16;
+      }
+    } break;
+
+    case MAT_PROP_TEXTURE: {
+      const ShaderResourceDesc *res = NULL;
+      if (strcmp(prop->name.value, "uTexture") == 0) {
+        res = find_resource_by_name(reflection, "diffuse_texture");
+      } else if (strcmp(prop->name.value, "uDetailTexture") == 0) {
+        res = find_resource_by_name(reflection, "detail_texture");
+      }
+      if (res && res->type == SHADER_RESOURCE_TEXTURE) {
+        MaterialBinding *binding = &cache->bindings[binding_idx++];
+        binding->binding_index = res->binding;
+        binding->type = SHADER_RESOURCE_TEXTURE;
+        binding->resource.texture.texture_handle_offset = i;
+      }
+    } break;
+
+    default:
+      break;
+    }
+  }
+
+  return cache;
 }
 
 Handle load_material(Handle shader_handle, MaterialProperty *properties,
@@ -425,8 +639,10 @@ Handle load_material(Handle shader_handle, MaterialProperty *properties,
     return INVALID_HANDLE;
   }
 
-  // Validate shader handle exists
-  if (!ha_get(GPUShader, &g_renderer->gpu_shaders, shader_handle)) {
+  // Get shader to access reflection data
+  GPUShader *shader =
+      ha_get(GPUShader, &g_renderer->gpu_shaders, shader_handle);
+  if (!shader) {
     return INVALID_HANDLE;
   }
 
@@ -440,10 +656,15 @@ Handle load_material(Handle shader_handle, MaterialProperty *properties,
     }
   }
 
+  // Create binding cache for fast rendering
+  MaterialBindingCache *binding_cache = create_material_binding_cache(
+      shader->reflection, prop_copy, property_count);
+
   GPUMaterial new_material = {.shader_handle = shader_handle,
                               .properties = prop_copy,
                               .property_count = property_count,
-                              .transparent = transparent};
+                              .transparent = transparent,
+                              .binding_cache = binding_cache};
 
   Handle handle = cast_handle(
       Handle, ha_add(GPUMaterial, &g_renderer->gpu_materials, new_material));
@@ -530,30 +751,30 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       if (!gpu_shader || !gpu_shader->pipeline)
         continue;
 
-      // Update textures in the pipeline's descriptor set
-      for (u32 i = 0; i < material->property_count; i++) {
-        if (material->properties[i].type == MAT_PROP_TEXTURE) {
-          Texture_Handle tex_handle = material->properties[i].value.texture;
-          Handle generic_handle = cast_handle(Handle, tex_handle);
-          GPUTexture *gpu_tex =
-              ha_get(GPUTexture, &g_renderer->gpu_textures, generic_handle);
+      debug_assert(material->binding_cache);
+      if (!material->binding_cache) {
+        continue;
+      }
 
-          if (gpu_tex && gpu_tex->is_set && gpu_tex->texture) {
-            uint32_t binding = 5; // Default to diffuse texture binding
-            if (strcmp(material->properties[i].name.value, "uDetailTexture") ==
-                0) {
-              binding = 8; // Detail texture binding
+      MaterialBindingCache *cache = material->binding_cache;
+      for (u32 i = 0; i < cache->binding_count; i++) {
+        MaterialBinding *binding = &cache->bindings[i];
+        if (binding->type == SHADER_RESOURCE_TEXTURE) {
+          // Get texture from material properties
+          u32 prop_idx = binding->resource.texture.texture_handle_offset;
+          if (prop_idx < material->property_count &&
+              material->properties[prop_idx].type == MAT_PROP_TEXTURE) {
+            Texture_Handle tex_handle =
+                material->properties[prop_idx].value.texture;
+            Handle generic_handle = cast_handle(Handle, tex_handle);
+            GPUTexture *gpu_tex =
+                ha_get(GPUTexture, &g_renderer->gpu_textures, generic_handle);
+
+            if (gpu_tex && gpu_tex->is_set && gpu_tex->texture) {
+              gpu_update_pipeline_texture(gpu_shader->pipeline,
+                                          gpu_tex->texture,
+                                          binding->binding_index);
             }
-
-            // Removed debug print for performance
-            gpu_update_pipeline_texture(gpu_shader->pipeline, gpu_tex->texture,
-                                        binding);
-          } else {
-            printf("[DEBUG] Pre-pass: Texture '%s' not ready (gpu_tex: %p, "
-                   "is_set: %d, texture: %p)\n",
-                   material->properties[i].name.value, (void *)gpu_tex,
-                   gpu_tex ? gpu_tex->is_set : 0,
-                   gpu_tex ? (void *)gpu_tex->texture : NULL);
           }
         }
       }
@@ -598,8 +819,14 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       // Get shader
       GPUShader *gpu_shader =
           ha_get(GPUShader, &g_renderer->gpu_shaders, material->shader_handle);
-      if (!gpu_shader || !gpu_shader->pipeline)
+      if (!gpu_shader || !gpu_shader->pipeline) {
         continue;
+      }
+
+      debug_assert(material->binding_cache);
+      if (!material->binding_cache) {
+        continue;
+      }
 
       // Begin render pass only once
       if (!render_pass_begun) {
@@ -616,64 +843,62 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       // Set index buffer (required for indexed drawing)
       gpu_set_index_buffer(encoder, mesh->index_buffer);
 
-      // Update uniforms based on shader registry info
-      if (gpu_shader->pipeline->has_uniforms && gpu_shader->registry_entry) {
-        ShaderRegistryEntry *reg = gpu_shader->registry_entry;
-
-        // Update camera uniform if shader uses it
-        if (reg->camera_slot >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, reg->camera_slot,
+      // Update uniforms using fast lookups from reflection system
+      if (gpu_shader->pipeline->has_uniforms && gpu_shader->reflection) {
+        // Update camera uniform using semantic lookup (no strings!)
+        i32 camera_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_CAMERA];
+        if (camera_binding >= 0) {
+          gpu_update_uniforms(gpu_shader->pipeline, camera_binding,
                               &g_renderer->current_camera,
                               sizeof(CameraUniformBlock));
         }
 
-        // Update joint transforms if shader uses skinning
-        if (reg->joints_slot >= 0 &&
+        // Update joint transforms
+        i32 joints_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_JOINTS];
+        if (joints_binding >= 0 &&
             cmd->data.draw_skinned_mesh.joint_transforms) {
-          gpu_update_uniforms(gpu_shader->pipeline, reg->joints_slot,
+          gpu_update_uniforms(gpu_shader->pipeline, joints_binding,
                               cmd->data.draw_skinned_mesh.joint_transforms,
                               sizeof(float) * 16 *
                                   cmd->data.draw_skinned_mesh.num_joints);
         }
 
-        // Update model matrix uniform if shader uses it
-        if (reg->model_slot >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, reg->model_slot,
+        // Update model matrix
+        i32 model_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_MODEL];
+        if (model_binding >= 0) {
+          gpu_update_uniforms(gpu_shader->pipeline, model_binding,
                               &cmd->data.draw_skinned_mesh.model_matrix,
                               sizeof(mat4));
         }
 
-        // Update material properties if shader uses them
-        if (reg->material_slot >= 0) {
-          vec3 material_color = {1.0f, 1.0f, 1.0f}; // Default white
-
-          // Extract material color if available
-          for (u32 i = 0; i < material->property_count; i++) {
-            if (material->properties[i].type == MAT_PROP_VEC3 &&
-                strcmp(material->properties[i].name.value, "uColor") == 0) {
-              glm_vec3_copy(material->properties[i].value.vec3_val,
-                            material_color);
-              break;
-            }
+        MaterialBindingCache *cache = material->binding_cache;
+        for (u32 i = 0; i < cache->binding_count; i++) {
+          MaterialBinding *binding = &cache->bindings[i];
+          if (binding->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
+            gpu_update_uniforms(gpu_shader->pipeline, binding->binding_index,
+                                binding->resource.uniform.data,
+                                binding->resource.uniform.size);
           }
-
-          gpu_update_uniforms(gpu_shader->pipeline, reg->material_slot,
-                              material_color, sizeof(vec3));
         }
 
-        // Textures already updated in pre-pass, no need to update again
-
-        // Update lights if shader uses them
-        if (reg->lights_slot >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, reg->lights_slot,
+        // Update lights
+        i32 lights_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_LIGHTS];
+        if (lights_binding >= 0) {
+          gpu_update_uniforms(gpu_shader->pipeline, lights_binding,
                               &g_renderer->current_lights,
                               sizeof(DirectionalLightBlock));
         }
 
-        // Update blendshape params if shader uses them
-        if (reg->blendshape_slot >= 0 &&
+        // Update blendshape params
+        i32 blendshape_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_BLENDSHAPES];
+        if (blendshape_binding >= 0 &&
             cmd->data.draw_skinned_mesh.blendshape_params) {
-          gpu_update_uniforms(gpu_shader->pipeline, reg->blendshape_slot,
+          gpu_update_uniforms(gpu_shader->pipeline, blendshape_binding,
                               cmd->data.draw_skinned_mesh.blendshape_params,
                               sizeof(BlendshapeParams));
         }
@@ -735,7 +960,7 @@ b32 renderer_set_texture(Handle tex_handle, Image *image) {
   }
 
   // Create GPU texture with data
-  printf("[Renderer] Creating GPU texture: %dx%d, %zu bytes\n", image->width,
+  printf("[Renderer] Creating GPU texture: %dx%d, %u bytes\n", image->width,
          image->height, image->byte_len);
   gpu_tex->texture =
       gpu_create_texture_with_data(g_renderer->device, image->width,
