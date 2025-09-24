@@ -305,7 +305,7 @@ internal gpu_pipeline_t *create_shader_pipeline(const char *shader_name) {
     };
 
     // Define uniform buffer layout for toon shader
-    // Note: model_matrix (was binding 2) is now handled via push constants
+    // Model matrix now at binding 2 as uniform buffer
     gpu_uniform_buffer_desc_t toon_uniforms[] = {
         {.binding = 0,
          .size = sizeof(CameraUniformBlock),
@@ -313,6 +313,9 @@ internal gpu_pipeline_t *create_shader_pipeline(const char *shader_name) {
         {.binding = 1,
          .size = sizeof(float) * 16 * 256,
          .stage_flags = GPU_STAGE_VERTEX}, // joint_transforms
+        {.binding = 2,
+         .size = sizeof(float) * 16,
+         .stage_flags = GPU_STAGE_VERTEX}, // model_matrix
         {.binding = 3,
          .size = sizeof(float) * 4,
          .stage_flags = GPU_STAGE_FRAGMENT}, // material_color
@@ -345,7 +348,7 @@ internal gpu_pipeline_t *create_shader_pipeline(const char *shader_name) {
         .fragment_shader_path = "toon_shading.frag.spv",
         .vertex_layout = &vertex_layout,
         .uniform_buffers = toon_uniforms,
-        .num_uniform_buffers = 5,
+        .num_uniform_buffers = 6,  // Now includes model matrix at binding 2
         .storage_buffers = toon_storage,
         .num_storage_buffers = 1,
         .texture_bindings = toon_textures,
@@ -637,7 +640,12 @@ void renderer_execute_commands(gpu_texture_t *render_target,
                                   cmd->data.draw_skinned_mesh.num_joints);
         }
 
-        // Model matrix is set via push constants after this block
+        // Update model matrix uniform if shader uses it
+        if (reg->model_slot >= 0) {
+          gpu_update_uniforms(gpu_shader->pipeline, reg->model_slot,
+                              &cmd->data.draw_skinned_mesh.model_matrix,
+                              sizeof(mat4));
+        }
 
         // Update material properties if shader uses them
         if (reg->material_slot >= 0) {
@@ -675,11 +683,7 @@ void renderer_execute_commands(gpu_texture_t *render_target,
         }
       }
 
-      // Set model matrix as push constant (per-draw data)
-      gpu_set_uniforms(encoder, 0, &cmd->data.draw_skinned_mesh.model_matrix,
-                       sizeof(mat4));
-
-      // Draw
+      // Draw (model matrix now updated via uniform buffer above)
       gpu_draw(encoder, mesh->index_count);
 
       // Don't end render pass here - keep it open for more draws

@@ -142,10 +142,6 @@ void gpu_set_vertex_buffer(gpu_render_encoder_t *encoder, gpu_buffer_t *buffer,
 // Set index buffer
 void gpu_set_index_buffer(gpu_render_encoder_t *encoder, gpu_buffer_t *buffer);
 
-// Set uniform data (for push constants)
-void gpu_set_uniforms(gpu_render_encoder_t *encoder, int index,
-                      const void *data, size_t size);
-
 // Update uniform buffer at specific binding slot
 void gpu_update_uniforms(gpu_pipeline_t *pipeline,
                          uint32_t binding, // Slot index (0, 1, 2, etc.)

@@ -139,7 +139,6 @@ struct gpu_render_encoder {
     gpu_texture_t* target;
     VkFramebuffer framebuffer;
     VkRenderPass render_pass;
-    gpu_pipeline_t* pipeline;  // Store pipeline for push constants
     gpu_device_t* device;      // Need device reference
 };
 
@@ -1650,7 +1649,6 @@ gpu_render_encoder_t* gpu_begin_render_pass(
     encoder->device = cmd_buffer->device;
     encoder->render_pass = NULL;  // Will be set from first pipeline
     encoder->framebuffer = VK_NULL_HANDLE;
-    encoder->pipeline = NULL;
 
     return encoder;
 }
@@ -1659,7 +1657,6 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, f
     // First pipeline sets up the render pass
     if (!encoder->render_pass) {
         encoder->render_pass = pipeline->render_pass;
-        encoder->pipeline = pipeline;
 
         // Create framebuffer with both color and depth attachments
         // Check if depth buffer exists (only for render targets)
@@ -1729,7 +1726,6 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, f
     }
 
     // Always bind the pipeline and descriptor sets
-    encoder->pipeline = pipeline;
     vkCmdBindPipeline(encoder->cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 
     // Bind descriptor sets if pipeline has uniforms
@@ -1743,15 +1739,6 @@ void gpu_set_vertex_buffer(gpu_render_encoder_t* encoder, gpu_buffer_t* buffer, 
     (void)index;  // Vulkan uses binding point 0
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(encoder->cmd_buffer, 0, 1, &buffer->buffer, offsets);
-}
-
-void gpu_set_uniforms(gpu_render_encoder_t* encoder, int index, const void* data, size_t size) {
-    (void)index;  // Not used in push constants
-
-    if (encoder->pipeline && data && size > 0) {
-        vkCmdPushConstants(encoder->cmd_buffer, encoder->pipeline->pipeline_layout,
-                          VK_SHADER_STAGE_VERTEX_BIT, 0, (uint32_t)size, data);
-    }
 }
 
 void gpu_set_index_buffer(gpu_render_encoder_t* encoder, gpu_buffer_t* buffer) {
