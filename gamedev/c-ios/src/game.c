@@ -29,9 +29,9 @@ export void game_init(GameMemory *memory) {
   LOG_INFO("Temporary memory: % MB",
            FMT_FLOAT(BYTES_TO_MB(memory->temporary_memory_size)));
 
-  // gym_init(memory);
+  gym_init(memory);
 }
 
 export void game_update_and_render(GameMemory *memory) {
-  // gym_update_and_render(memory);
+  gym_update_and_render(memory);
 }
