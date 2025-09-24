@@ -59,6 +59,11 @@ struct gpu_texture {
     int width;
     int height;
     gpu_device_t* device;  // For proper cleanup
+    // Depth buffer for render targets
+    VkImage depth_image;
+    VkImageView depth_image_view;
+    VkDeviceMemory depth_memory;
+    VkFormat depth_format;
 };
 
 struct gpu_readback_buffer {
@@ -474,6 +479,7 @@ void* gpu_get_native_device(gpu_device_t* device) {
 
 gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
     gpu_texture_t* texture = ALLOC(device->permanent_allocator, gpu_texture_t);
+    memset(texture, 0, sizeof(gpu_texture_t));  // Clear all fields including depth fields
     texture->width = width;
     texture->height = height;
     texture->format = VK_FORMAT_B8G8R8A8_UNORM;
@@ -536,6 +542,70 @@ gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
     };
 
     VK_CHECK(vkCreateImageView(device->device, &view_info, NULL, &texture->image_view));
+
+    // Only create depth buffer for render targets (textures with COLOR_ATTACHMENT usage)
+    // Check if this is a render target by checking the usage flags
+    if (image_info.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {
+        texture->depth_format = VK_FORMAT_D32_SFLOAT;
+
+        // Create depth image
+        VkImageCreateInfo depth_image_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = texture->depth_format,
+        .extent = {
+            .width = width,
+            .height = height,
+            .depth = 1
+        },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    VK_CHECK(vkCreateImage(device->device, &depth_image_info, NULL, &texture->depth_image));
+
+    // Allocate memory for depth image
+    VkMemoryRequirements depth_mem_requirements;
+    vkGetImageMemoryRequirements(device->device, texture->depth_image, &depth_mem_requirements);
+
+    VkMemoryAllocateInfo depth_alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = depth_mem_requirements.size,
+        .memoryTypeIndex = find_memory_type(device->physical_device, depth_mem_requirements.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+
+    VK_CHECK(vkAllocateMemory(device->device, &depth_alloc_info, NULL, &texture->depth_memory));
+    vkBindImageMemory(device->device, texture->depth_image, texture->depth_memory, 0);
+
+    // Create depth image view
+    VkImageViewCreateInfo depth_view_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = texture->depth_image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = texture->depth_format,
+        .components = {
+            .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .a = VK_COMPONENT_SWIZZLE_IDENTITY
+        },
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+
+    VK_CHECK(vkCreateImageView(device->device, &depth_view_info, NULL, &texture->depth_image_view));
+    } // End of depth buffer creation (only for render targets)
 
     return texture;
 }
@@ -1018,9 +1088,15 @@ void gpu_destroy_command_buffer(gpu_command_buffer_t* cmd_buffer) {
 
 void gpu_destroy_texture(gpu_texture_t* texture) {
     if (texture) {
-        vkDestroyImageView(texture->device->device, texture->image_view, NULL);
-        vkDestroyImage(texture->device->device, texture->image, NULL);
-        vkFreeMemory(texture->device->device, texture->memory, NULL);
+        // Destroy color resources
+        if (texture->image_view) vkDestroyImageView(texture->device->device, texture->image_view, NULL);
+        if (texture->image) vkDestroyImage(texture->device->device, texture->image, NULL);
+        if (texture->memory) vkFreeMemory(texture->device->device, texture->memory, NULL);
+
+        // Destroy depth resources
+        if (texture->depth_image_view) vkDestroyImageView(texture->device->device, texture->depth_image_view, NULL);
+        if (texture->depth_image) vkDestroyImage(texture->device->device, texture->depth_image, NULL);
+        if (texture->depth_memory) vkFreeMemory(texture->device->device, texture->depth_memory, NULL);
         // No need to free - allocated from arena allocator
     }
 }
@@ -1052,16 +1128,30 @@ gpu_pipeline_t* gpu_create_pipeline(
     gpu_pipeline_t* pipeline = ALLOC(device->permanent_allocator, gpu_pipeline_t);
     pipeline->device = device;
 
-    // Create render pass
-    VkAttachmentDescription color_attachment = {
-        .format = VK_FORMAT_B8G8R8A8_UNORM,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    // Create render pass with color and depth attachments
+    VkAttachmentDescription attachments[2] = {
+        // Color attachment
+        {
+            .format = VK_FORMAT_B8G8R8A8_UNORM,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        },
+        // Depth attachment
+        {
+            .format = VK_FORMAT_D32_SFLOAT,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        }
     };
 
     VkAttachmentReference color_attachment_ref = {
@@ -1069,16 +1159,22 @@ gpu_pipeline_t* gpu_create_pipeline(
         .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     };
 
+    VkAttachmentReference depth_attachment_ref = {
+        .attachment = 1,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
     VkSubpassDescription subpass = {
         .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
         .colorAttachmentCount = 1,
-        .pColorAttachments = &color_attachment_ref
+        .pColorAttachments = &color_attachment_ref,
+        .pDepthStencilAttachment = &depth_attachment_ref
     };
 
     VkRenderPassCreateInfo render_pass_info = {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = 1,
-        .pAttachments = &color_attachment,
+        .attachmentCount = 2,
+        .pAttachments = attachments,
         .subpassCount = 1,
         .pSubpasses = &subpass
     };
@@ -1679,16 +1775,30 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         vkUpdateDescriptorSets(device->device, write_count, writes, 0, NULL);
     }
 
-    // Create render pass
-    VkAttachmentDescription color_attachment = {
-        .format = VK_FORMAT_B8G8R8A8_UNORM,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    // Create render pass with color and depth attachments
+    VkAttachmentDescription attachments[2] = {
+        // Color attachment
+        {
+            .format = VK_FORMAT_B8G8R8A8_UNORM,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        },
+        // Depth attachment
+        {
+            .format = VK_FORMAT_D32_SFLOAT,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        }
     };
 
     VkAttachmentReference color_attachment_ref = {
@@ -1696,16 +1806,22 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     };
 
+    VkAttachmentReference depth_attachment_ref = {
+        .attachment = 1,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
     VkSubpassDescription subpass = {
         .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
         .colorAttachmentCount = 1,
-        .pColorAttachments = &color_attachment_ref
+        .pColorAttachments = &color_attachment_ref,
+        .pDepthStencilAttachment = &depth_attachment_ref
     };
 
     VkRenderPassCreateInfo render_pass_info = {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = 1,
-        .pAttachments = &color_attachment,
+        .attachmentCount = 2,
+        .pAttachments = attachments,
         .subpassCount = 1,
         .pSubpasses = &subpass
     };
@@ -1810,16 +1926,30 @@ gpu_pipeline_t* gpu_create_pipeline_with_camera(
         return NULL;
     }
 
-    // Create render pass (same as regular pipeline)
-    VkAttachmentDescription color_attachment = {
-        .format = VK_FORMAT_B8G8R8A8_UNORM,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    // Create render pass with color and depth attachments (same as regular pipeline)
+    VkAttachmentDescription attachments[2] = {
+        // Color attachment
+        {
+            .format = VK_FORMAT_B8G8R8A8_UNORM,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        },
+        // Depth attachment
+        {
+            .format = VK_FORMAT_D32_SFLOAT,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        }
     };
 
     VkAttachmentReference color_attachment_ref = {
@@ -1827,16 +1957,22 @@ gpu_pipeline_t* gpu_create_pipeline_with_camera(
         .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     };
 
+    VkAttachmentReference depth_attachment_ref = {
+        .attachment = 1,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
     VkSubpassDescription subpass = {
         .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
         .colorAttachmentCount = 1,
-        .pColorAttachments = &color_attachment_ref
+        .pColorAttachments = &color_attachment_ref,
+        .pDepthStencilAttachment = &depth_attachment_ref
     };
 
     VkRenderPassCreateInfo render_pass_info = {
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = 1,
-        .pAttachments = &color_attachment,
+        .attachmentCount = 2,
+        .pAttachments = attachments,
         .subpassCount = 1,
         .pSubpasses = &subpass
     };
@@ -2268,12 +2404,23 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, f
         encoder->render_pass = pipeline->render_pass;
         encoder->pipeline = pipeline;
 
-        // Create framebuffer for the target texture
+        // Create framebuffer with both color and depth attachments
+        // Check if depth buffer exists (only for render targets)
+        if (!encoder->target->depth_image_view) {
+            printf("[Vulkan] ERROR: Render target missing depth buffer!\n");
+            return;
+        }
+
+        VkImageView attachments[2] = {
+            encoder->target->image_view,       // Color attachment
+            encoder->target->depth_image_view  // Depth attachment
+        };
+
         VkFramebufferCreateInfo framebuffer_info = {
             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             .renderPass = pipeline->render_pass,
-            .attachmentCount = 1,
-            .pAttachments = &encoder->target->image_view,
+            .attachmentCount = 2,
+            .pAttachments = attachments,
             .width = (uint32_t)encoder->target->width,
             .height = (uint32_t)encoder->target->height,
             .layers = 1
@@ -2281,12 +2428,14 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, f
 
         VK_CHECK(vkCreateFramebuffer(encoder->device->device, &framebuffer_info, NULL, &encoder->framebuffer));
 
-        // Create clear value
-        VkClearValue clear_value;
-        clear_value.color.float32[0] = clear_color[0];
-        clear_value.color.float32[1] = clear_color[1];
-        clear_value.color.float32[2] = clear_color[2];
-        clear_value.color.float32[3] = clear_color[3];
+        // Create clear values for both color and depth
+        VkClearValue clear_values[2];
+        clear_values[0].color.float32[0] = clear_color[0];
+        clear_values[0].color.float32[1] = clear_color[1];
+        clear_values[0].color.float32[2] = clear_color[2];
+        clear_values[0].color.float32[3] = clear_color[3];
+        clear_values[1].depthStencil.depth = 1.0f;  // Clear depth to 1.0 (far)
+        clear_values[1].depthStencil.stencil = 0;
 
         // Begin render pass ONLY for the first pipeline
         VkRenderPassBeginInfo render_pass_info = {
@@ -2297,8 +2446,8 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, f
                 .offset = {0, 0},
                 .extent = {(uint32_t)encoder->target->width, (uint32_t)encoder->target->height}
             },
-            .clearValueCount = 1,
-            .pClearValues = &clear_value
+            .clearValueCount = 2,
+            .pClearValues = clear_values
         };
 
         vkCmdBeginRenderPass(encoder->cmd_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);

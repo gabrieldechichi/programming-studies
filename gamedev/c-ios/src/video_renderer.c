@@ -997,6 +997,7 @@ static void wait_for_completion(void) {
 }
 
 static void cleanup(void) {
+    return;
   // Clean up renderer
   renderer_cleanup();
 

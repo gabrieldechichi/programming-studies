@@ -423,8 +423,8 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
       Character *entity = &gym_state->character;
 
       quaternion temp_rot;
-      quat_from_euler((vec3){0, 0, 0}, temp_rot);
-      mat_trs((vec3){0, 0, 0}, temp_rot, (vec3){100,100,100},
+      quat_from_euler((vec3){glm_rad(0), 0, 0}, temp_rot);
+      mat_trs((vec3){0, 0, 0}, temp_rot, (vec3){0.01, 0.01, 0.01},
               entity->model_matrix);
 
       entity->skinned_model =
