@@ -195,6 +195,22 @@ static int build_linux(const char *build_type) {
     return 1;
   }
 
+  // Compile toon shading fragment shader
+  snprintf(cmd, sizeof(cmd), "glslangValidator -V src/shaders/simple_quad.frag -o %s/simple_quad.frag.spv 2>/dev/null || glslc src/shaders/simple_quad.frag -o %s/simple_quad.frag.spv",
+           LINUX_OUT_DIR, LINUX_OUT_DIR);
+  if (system(cmd) != 0) {
+    fprintf(stderr, "Failed to compile toon shading fragment shader\n");
+    return 1;
+  }
+
+  // Compile toon shading fragment shader
+  snprintf(cmd, sizeof(cmd), "glslangValidator -V src/shaders/simple_quad.vert -o %s/simple_quad.vert.spv 2>/dev/null || glslc src/shaders/simple_quad.vert -o %s/simple_quad.vert.spv",
+           LINUX_OUT_DIR, LINUX_OUT_DIR);
+  if (system(cmd) != 0) {
+    fprintf(stderr, "Failed to compile toon shading fragment shader\n");
+    return 1;
+  }
+
   // Compile triangle camera vertex shader
   printf("src/shaders/triangle_camera.vert\n");
   snprintf(cmd, sizeof(cmd), "glslangValidator -V src/shaders/triangle_camera.vert -o %s/triangle_camera.vert.spv 2>/dev/null || glslc src/shaders/triangle_camera.vert -o %s/triangle_camera.vert.spv",

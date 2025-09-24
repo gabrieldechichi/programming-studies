@@ -4,6 +4,7 @@
 #include "renderer.h"
 #include "gpu_backend.h"
 #include "lib/array.h"
+#include "lib/assert.h"
 #include "lib/handle.h"
 #include "lib/profiler.h"
 #include "lib/string.h"
@@ -11,6 +12,7 @@
 #include "memory.h"
 #include "shader_reflection.h"
 #include "shaders/toon_shading_reflection.h"
+#include "shaders/simple_quad_reflection.h"
 #include "vendor/cglm/mat4.h"
 #include "vendor/cglm/vec3.h"
 #include <stdio.h>
@@ -32,6 +34,10 @@ static ShaderRegistryEntry shader_registry[] = {
     // Toon shading shader with full reflection data
     {.name = "toon_shading",
      .reflection = &toon_shading_reflection,
+     .pipeline = NULL},
+    // Simple quad shader for testing
+    {.name = "simple_quad",
+     .reflection = &simple_quad_reflection,
      .pipeline = NULL},
 };
 
@@ -483,6 +489,7 @@ Handle load_shader(LoadShaderParams params) {
     }
   }
 
+  debug_assert(entry);
   if (!entry) {
     printf("[Renderer] Shader '%s' not found in registry\n",
            params.shader_name);
@@ -737,11 +744,18 @@ void renderer_execute_commands(gpu_texture_t *render_target,
 
   // Pre-pass: Update all textures in pipeline descriptor sets before rendering
   arr_foreach_ptr(g_renderer->render_cmds, cmd) {
-    if (cmd->type == RENDER_CMD_DRAW_SKINNED_MESH) {
+    // Handle textures for both regular and skinned meshes
+    Handle material_handle = INVALID_HANDLE;
+    if (cmd->type == RENDER_CMD_DRAW_MESH) {
+      material_handle = cmd->data.draw_mesh.material_handle;
+    } else if (cmd->type == RENDER_CMD_DRAW_SKINNED_MESH) {
+      material_handle = cmd->data.draw_skinned_mesh.material_handle;
+    }
+
+    if (handle_is_valid(material_handle)) {
       // Get material for this mesh
       GPUMaterial *material =
-          ha_get(GPUMaterial, &g_renderer->gpu_materials,
-                 cmd->data.draw_skinned_mesh.material_handle);
+          ha_get(GPUMaterial, &g_renderer->gpu_materials, material_handle);
       if (!material)
         continue;
 
@@ -803,6 +817,83 @@ void renderer_execute_commands(gpu_texture_t *render_target,
     } break;
 
     case RENDER_CMD_DRAW_MESH: {
+      // Get mesh and material
+      GPUSubMesh *mesh = ha_get(GPUSubMesh, &g_renderer->gpu_submeshes,
+                                cmd->data.draw_mesh.mesh_handle);
+      GPUMaterial *material =
+          ha_get(GPUMaterial, &g_renderer->gpu_materials,
+                 cmd->data.draw_mesh.material_handle);
+
+      if (!mesh || !material)
+        continue;
+
+      // Get shader
+      GPUShader *gpu_shader =
+          ha_get(GPUShader, &g_renderer->gpu_shaders, material->shader_handle);
+      if (!gpu_shader || !gpu_shader->pipeline) {
+        continue;
+      }
+
+      // Begin render pass only once
+      if (!render_pass_begun) {
+        encoder = gpu_begin_render_pass(cmd_buffer, render_target);
+        render_pass_begun = true;
+      }
+
+      // Set pipeline for this draw
+      gpu_set_pipeline(encoder, gpu_shader->pipeline, clear_color.components);
+
+      // Set vertex buffer
+      gpu_set_vertex_buffer(encoder, mesh->vertex_buffer, 0);
+
+      // Set index buffer (required for indexed drawing)
+      gpu_set_index_buffer(encoder, mesh->index_buffer);
+
+      // Update uniforms using fast lookups from reflection system
+      if (gpu_shader->pipeline->has_uniforms && gpu_shader->reflection) {
+        // Update camera uniform
+        i32 camera_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_CAMERA];
+        if (camera_binding >= 0) {
+          gpu_update_uniforms(gpu_shader->pipeline, camera_binding,
+                              &g_renderer->current_camera,
+                              sizeof(CameraUniformBlock));
+        }
+
+        // Update model matrix
+        i32 model_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_MODEL];
+        if (model_binding >= 0) {
+          gpu_update_uniforms(gpu_shader->pipeline, model_binding,
+                              &cmd->data.draw_mesh.model_matrix,
+                              sizeof(mat4));
+        }
+
+        // Apply material uniforms from binding cache
+        if (material->binding_cache) {
+          MaterialBindingCache *cache = material->binding_cache;
+          for (u32 i = 0; i < cache->binding_count; i++) {
+            MaterialBinding *binding = &cache->bindings[i];
+            if (binding->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
+              gpu_update_uniforms(gpu_shader->pipeline, binding->binding_index,
+                                  binding->resource.uniform.data,
+                                  binding->resource.uniform.size);
+            }
+          }
+        }
+
+        // Update lights (if shader uses them)
+        i32 lights_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_LIGHTS];
+        if (lights_binding >= 0) {
+          gpu_update_uniforms(gpu_shader->pipeline, lights_binding,
+                              &g_renderer->current_lights,
+                              sizeof(DirectionalLightBlock));
+        }
+      }
+
+      // Draw the mesh
+      gpu_draw(encoder, mesh->index_count);
     } break;
 
     case RENDER_CMD_DRAW_SKINNED_MESH: {

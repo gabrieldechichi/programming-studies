@@ -14,6 +14,7 @@
 #include "renderer/renderer.h"
 #include "cglm/vec3.h"
 #include "cglm/util.h"
+#include "cglm/affine.h"
 #include "stb/stb_image.h"
 
 slice_define(AnimationAsset_Handle);
@@ -57,6 +58,12 @@ typedef struct {
   Texture_Handle skybox_texture_handle;
   Handle skybox_material_handle;
   b32 skybox_material_ready;
+
+  // background quad
+  Handle quad_shader_handle;
+  Handle quad_material_handle;
+  Handle quad_mesh_handle;
+  b32 quad_ready;
 
   // costume data - supports multiple costumes
   u32 num_costumes;
@@ -209,10 +216,46 @@ void gym_init(GameMemory *memory) {
   gym_state->face_animations_loaded =
       slice_new_ALLOC(&ctx->allocator, AnimationPtr, num_face_animations);
 
-  // Request skybox background texture (using existing texture for now)
+  // Request background texture
   gym_state->skybox_texture_handle = asset_request(
-      Texture, &gym_state->asset_system, ctx, "tolan/Tolan_tex.png");
-  gym_state->skybox_material_ready = false;
+      Texture, &gym_state->asset_system, ctx, "backgrounds/tolan_bg_2.png");
+  gym_state->quad_ready = false;
+
+  // Load simple_quad shader
+  LoadShaderParams shader_params = {
+      .shader_name = "simple_quad"
+  };
+  gym_state->quad_shader_handle = load_shader(shader_params);
+
+  // Create quad mesh
+  {
+    // Quad vertices: position (3 floats) + uv (2 floats)
+    float quad_vertices[] = {
+        // Position        UV
+        -1.0f, -1.0f, 0.0f,  0.0f, 1.0f,  // Bottom-left
+         1.0f, -1.0f, 0.0f,  1.0f, 1.0f,  // Bottom-right
+         1.0f,  1.0f, 0.0f,  1.0f, 0.0f,  // Top-right
+        -1.0f,  1.0f, 0.0f,  0.0f, 0.0f   // Top-left
+    };
+
+    // Indices for 2 triangles (CCW winding)
+    u32 quad_indices[] = {
+        0, 2, 1,  // First triangle (reversed for CCW)
+        0, 3, 2   // Second triangle (reversed for CCW)
+    };
+
+    SubMeshData quad_mesh_data = {
+        .vertex_buffer = (u8*)quad_vertices,
+        .len_vertex_buffer = sizeof(quad_vertices) / sizeof(float),
+        .indices = quad_indices,
+        .len_indices = 6,
+        .len_vertices = 4,
+        .len_blendshapes = 0,
+        .blendshape_deltas = NULL
+    };
+
+    gym_state->quad_mesh_handle = renderer_create_submesh(&quad_mesh_data, false);
+  }
 
   gym_state->camera = (Camera){
       .pos = {0.0, 0.7, 9.35},
@@ -527,47 +570,33 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
     }
   }
 
-  // Setup skybox material when texture is ready
-  // Note: We should also wait for the shader to be loaded, but for now just
-  // check texture
-  if (!gym_state->skybox_material_ready &&
-      asset_is_ready(asset_system, gym_state->skybox_texture_handle)) {
+  // Setup quad material when texture and shader are ready
+  if (!gym_state->quad_ready &&
+      asset_is_ready(asset_system, gym_state->skybox_texture_handle) &&
+      handle_is_valid(gym_state->quad_shader_handle)) {
 
-    // Create MaterialAsset in memory
-    MaterialAsset *skybox_mat_asset = ALLOC(&ctx->allocator, MaterialAsset);
-    *skybox_mat_asset = (MaterialAsset){
-        .name = STR_FROM_CSTR("SkyboxMaterial"),
-        .shader_path = STR_FROM_CSTR("skybox"),
-        .transparent = false,
-        .shader_defines = arr_new_ALLOC(&ctx->allocator, ShaderDefine, 0),
-        .properties =
-            arr_from_c_array_alloc(MaterialAssetProperty, &ctx->allocator,
-                                   ((MaterialAssetProperty[]){
-                                       {
-                                           .name = STR_FROM_CSTR("uTexture"),
-                                           .type = MAT_PROP_TEXTURE,
-                                           .texture_path = STR_FROM_CSTR(
-                                               "backgrounds/tolan_bg_2.png"),
-                                       },
-                                       {
-                                           .name = STR_FROM_CSTR("uColor"),
-                                           .type = MAT_PROP_VEC3,
-                                           .color = {{{0.9, 0.9, 0.9, 1.0}}},
-                                       },
-                                   })),
+    // Create material properties using the texture handle directly
+    MaterialProperty properties[] = {
+        {
+            .name = STR_FROM_CSTR("uTexture"),
+            .type = MAT_PROP_TEXTURE,
+            .value.texture = gym_state->skybox_texture_handle
+        }
     };
 
-    // Create Material from asset
-    Material *skybox_material =
-        material_from_asset(skybox_mat_asset, asset_system, ctx);
+    // Load the material
+    gym_state->quad_material_handle = load_material(
+        gym_state->quad_shader_handle,
+        properties,
+        1,  // property count
+        false  // not transparent
+    );
 
-    LOG_INFO("Created skybox material with shader handle idx=%, gen=%",
-             FMT_UINT(skybox_material->gpu_material.idx),
-             FMT_UINT(skybox_material->gpu_material.gen));
+    LOG_INFO("Created quad material with shader handle idx=%, gen=%",
+             FMT_UINT(gym_state->quad_material_handle.idx),
+             FMT_UINT(gym_state->quad_material_handle.gen));
 
-    // Store the material handle
-    gym_state->skybox_material_handle = skybox_material->gpu_material;
-    gym_state->skybox_material_ready = true;
+    gym_state->quad_ready = true;
     LOG_INFO("Skybox material set successfully");
   }
 
@@ -975,12 +1004,27 @@ void gym_update_and_render(GameMemory *memory) {
   }
 
   // Color clear_color = color_from_hex(0xebebeb);
-  Color clear_color = color_from_hex(0xff0000);
+  Color clear_color = color_from_hex(0x000000);
   renderer_clear(clear_color);
 
-  // Draw skybox if material is ready
-  if (gym_state->skybox_material_ready) {
-    renderer_draw_skybox(gym_state->skybox_material_handle);
+  // Draw background quad if ready
+  if (gym_state->quad_ready) {
+    // Create model matrix for the quad (position it behind the character)
+
+    Texture* tex = asset_get_data(Texture, &gym_state->asset_system, gym_state->skybox_texture_handle);
+    assert(tex);
+    mat4 quad_model;
+    glm_mat4_identity(quad_model);
+    glm_translate(quad_model, (vec3){0.0f, 1.0f, 0.0f});  // Move back
+    f32 scale = 0.0009;
+    glm_scale(quad_model, (vec3){tex->image.width * scale, tex->image.height * scale, 1.0f});  // Scale it up reasonably
+
+    // Render the quad using the non-skinned mesh path
+    renderer_draw_mesh(
+        gym_state->quad_mesh_handle,
+        gym_state->quad_material_handle,
+        quad_model
+    );
   }
 
   // todo: draw skinned mesh function
@@ -1002,10 +1046,10 @@ void gym_update_and_render(GameMemory *memory) {
       Handle material_handle = submesh->material_handle;
 
       if (handle_is_valid(mesh_handle) && handle_is_valid(material_handle)) {
-        renderer_draw_skinned_mesh(mesh_handle, material_handle, *model_matrix,
-                                   skinned_model->joint_matrices.items,
-                                   skinned_model->joint_matrices.len,
-                                   blendshape_parms);
+        // renderer_draw_skinned_mesh(mesh_handle, material_handle, *model_matrix,
+        //                            skinned_model->joint_matrices.items,
+        //                            skinned_model->joint_matrices.len,
+        //                            blendshape_parms);
       }
     }
   }
