@@ -374,7 +374,7 @@ internal gpu_pipeline_t *create_shader_pipeline(const char *shader_name) {
         .num_texture_bindings = 2,
         .depth_test = true,
         .depth_write = true,
-        .cull_mode = 0 // 0 = VK_CULL_MODE_NONE (no culling)
+        .cull_mode = 1 // 1 = VK_CULL_MODE_BACK_BIT (cull back faces)
     };
 
     // Try without prefix first (when running from out/linux)

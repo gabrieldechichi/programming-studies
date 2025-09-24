@@ -51,6 +51,7 @@ vec3 anime_light_pass(vec3 color, vec3 normal, vec3 worldPos) {
         vec3 d = smoothstep(vec3(0), vec3(0.01), vec3(diffuse));
         d = lerp(vec3(0.5), light_color * light_intensity * 0.719, d);
         light_contribution += d;
+        // light_contribution += diffuse;
     }
 
     // Add ambient light

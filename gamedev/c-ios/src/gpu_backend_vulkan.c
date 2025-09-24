@@ -2309,12 +2309,12 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, f
                                pipeline->pipeline_layout, 0, 1, &pipeline->descriptor_set, 0, NULL);
     }
 
-    // Set viewport
+    // Set viewport with Y-flip to match OpenGL convention
     VkViewport viewport = {
         .x = 0.0f,
-        .y = 0.0f,
+        .y = (float)encoder->target->height,  // Start from bottom
         .width = (float)encoder->target->width,
-        .height = (float)encoder->target->height,
+        .height = -(float)encoder->target->height,  // Negative height flips Y
         .minDepth = 0.0f,
         .maxDepth = 1.0f
     };
