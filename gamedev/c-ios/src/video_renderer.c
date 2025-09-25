@@ -1104,8 +1104,8 @@ int main(int argc, char *argv[]) {
 
   // Create a hardcoded request for testing
   render_request_t request = {
-    .seconds = 2,  // 2 second video
-    .num_frames = 2*24  // 2 * 24fps
+    .seconds = 8,  // 2 second video
+    .num_frames = 8*24  // 2 * 24fps
   };
 
   printf("\nStarting standalone render...\n");

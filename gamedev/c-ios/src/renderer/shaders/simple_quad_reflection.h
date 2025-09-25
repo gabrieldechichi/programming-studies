@@ -97,7 +97,7 @@ static const ShaderReflection simple_quad_reflection = {
     .semantic_mapping_count = sizeof(simple_quad_semantic_mappings) / sizeof(simple_quad_semantic_mappings[0]),
     .semantic_mappings = simple_quad_semantic_mappings,
     .depth_test = true,
-    .depth_write = true,
+    .depth_write = false,
     .alpha_blending = false,
     .cull_mode = 0  // No culling for quad (to see it from both sides)
 };
