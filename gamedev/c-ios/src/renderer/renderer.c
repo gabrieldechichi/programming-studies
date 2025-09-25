@@ -144,6 +144,9 @@ typedef struct {
   // Command buffer
   RenderCommand_Slice render_cmds;
 
+  // Batching system for skinned meshes
+  MaterialBatch_Slice material_batches;
+
   b32 initialized;
 } Renderer;
 
@@ -178,6 +181,10 @@ void renderer_init(gpu_device_t *device, Allocator *permanent_allocator,
   // Initialize command buffer
   g_renderer->render_cmds =
       slice_new_ALLOC(permanent_allocator, RenderCommand, 4096);
+
+  // Initialize material batches for skinned mesh batching
+  g_renderer->material_batches =
+      slice_new_ALLOC(permanent_allocator, MaterialBatch, 32);
 
   // Initialize handle arrays
   g_renderer->gpu_textures = ha_init(GPUTexture, permanent_allocator, 32);
@@ -217,6 +224,12 @@ void renderer_reset_commands(void) {
   if (!g_renderer)
     return;
   g_renderer->render_cmds.len = 0;
+
+  // Clear material batches for next frame
+  for (u32 i = 0; i < g_renderer->material_batches.len; i++) {
+    g_renderer->material_batches.items[i].instances.len = 0;
+  }
+  g_renderer->material_batches.len = 0;
 
   // Reset temporary allocator
   ALLOC_RESET(g_renderer->temp_allocator);
@@ -733,6 +746,42 @@ void renderer_set_lights(const DirectionalLightBlock *lights) {
   g_renderer->current_lights = *lights;
 }
 
+// Helper to collect skinned mesh instances for batching
+internal void
+collect_skinned_mesh_instance(Handle material_handle, Handle mesh_handle,
+                              mat4 model_matrix, mat4 *joint_transforms,
+                              u32 num_joints,
+                              BlendshapeParams *blendshape_params) {
+  // Find or create material batch
+  MaterialBatch *batch = NULL;
+  for (u32 i = 0; i < g_renderer->material_batches.len; i++) {
+    if (handle_equals(g_renderer->material_batches.items[i].material_handle,
+                      material_handle)) {
+      batch = &g_renderer->material_batches.items[i];
+      break;
+    }
+  }
+
+  if (!batch) {
+    // Create new batch for this material
+    MaterialBatch new_batch = {
+        .material_handle = material_handle,
+        .instances = slice_new_ALLOC(g_renderer->temp_allocator,
+                                     SkinnedMeshInstance, 2048)};
+    slice_append(g_renderer->material_batches, new_batch);
+    batch =
+        &g_renderer->material_batches.items[g_renderer->material_batches.len - 1];
+  }
+
+  // Add instance to batch
+  SkinnedMeshInstance instance = {.mesh_handle = mesh_handle,
+                                  .joint_transforms = joint_transforms,
+                                  .num_joints = num_joints,
+                                  .blendshape_params = blendshape_params};
+  glm_mat4_copy(model_matrix, instance.model_matrix);
+  slice_append(batch->instances, instance);
+}
+
 // Execute accumulated render commands
 void renderer_execute_commands(gpu_texture_t *render_target,
                                gpu_command_buffer_t *cmd_buffer) {
@@ -897,108 +946,14 @@ void renderer_execute_commands(gpu_texture_t *render_target,
     } break;
 
     case RENDER_CMD_DRAW_SKINNED_MESH: {
-      // Get mesh and material
-      GPUSubMesh *mesh = ha_get(GPUSubMesh, &g_renderer->gpu_submeshes,
-                                cmd->data.draw_skinned_mesh.mesh_handle);
-      GPUMaterial *material =
-          ha_get(GPUMaterial, &g_renderer->gpu_materials,
-                 cmd->data.draw_skinned_mesh.material_handle);
-
-      if (!mesh || !material)
-        continue;
-
-      // Get shader
-      GPUShader *gpu_shader =
-          ha_get(GPUShader, &g_renderer->gpu_shaders, material->shader_handle);
-      if (!gpu_shader || !gpu_shader->pipeline) {
-        continue;
-      }
-
-      debug_assert(material->binding_cache);
-      if (!material->binding_cache) {
-        continue;
-      }
-
-      // Begin render pass only once
-      if (!render_pass_begun) {
-        encoder = gpu_begin_render_pass(cmd_buffer, render_target);
-        render_pass_begun = true;
-      }
-
-      // Set pipeline for this draw
-      gpu_set_pipeline(encoder, gpu_shader->pipeline, clear_color.components);
-
-      // Set vertex buffer
-      gpu_set_vertex_buffer(encoder, mesh->vertex_buffer, 0);
-
-      // Set index buffer (required for indexed drawing)
-      gpu_set_index_buffer(encoder, mesh->index_buffer);
-
-      // Update uniforms using fast lookups from reflection system
-      if (gpu_shader->pipeline->has_uniforms && gpu_shader->reflection) {
-        // Update camera uniform using semantic lookup (no strings!)
-        i32 camera_binding =
-            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_CAMERA];
-        if (camera_binding >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, camera_binding,
-                              &g_renderer->current_camera,
-                              sizeof(CameraUniformBlock));
-        }
-
-        // Update joint transforms
-        i32 joints_binding =
-            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_JOINTS];
-        if (joints_binding >= 0 &&
-            cmd->data.draw_skinned_mesh.joint_transforms) {
-          gpu_update_uniforms(gpu_shader->pipeline, joints_binding,
-                              cmd->data.draw_skinned_mesh.joint_transforms,
-                              sizeof(float) * 16 *
-                                  cmd->data.draw_skinned_mesh.num_joints);
-        }
-
-        // Update model matrix
-        i32 model_binding =
-            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_MODEL];
-        if (model_binding >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, model_binding,
-                              &cmd->data.draw_skinned_mesh.model_matrix,
-                              sizeof(mat4));
-        }
-
-        MaterialBindingCache *cache = material->binding_cache;
-        for (u32 i = 0; i < cache->binding_count; i++) {
-          MaterialBinding *binding = &cache->bindings[i];
-          if (binding->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
-            gpu_update_uniforms(gpu_shader->pipeline, binding->binding_index,
-                                binding->resource.uniform.data,
-                                binding->resource.uniform.size);
-          }
-        }
-
-        // Update lights
-        i32 lights_binding =
-            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_LIGHTS];
-        if (lights_binding >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, lights_binding,
-                              &g_renderer->current_lights,
-                              sizeof(DirectionalLightBlock));
-        }
-
-        // Update blendshape params
-        i32 blendshape_binding =
-            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_BLENDSHAPES];
-        if (blendshape_binding >= 0 &&
-            cmd->data.draw_skinned_mesh.blendshape_params) {
-          gpu_update_uniforms(gpu_shader->pipeline, blendshape_binding,
-                              cmd->data.draw_skinned_mesh.blendshape_params,
-                              sizeof(BlendshapeParams));
-        }
-      }
-
-      // Draw (model matrix now updated via uniform buffer above)
-      gpu_draw(encoder, mesh->index_count);
-
-      // Don't end render pass here - keep it open for more draws
+      // Collect skinned mesh for batching instead of rendering immediately
+      collect_skinned_mesh_instance(
+          cmd->data.draw_skinned_mesh.material_handle,
+          cmd->data.draw_skinned_mesh.mesh_handle,
+          cmd->data.draw_skinned_mesh.model_matrix,
+          cmd->data.draw_skinned_mesh.joint_transforms,
+          cmd->data.draw_skinned_mesh.num_joints,
+          cmd->data.draw_skinned_mesh.blendshape_params);
     } break;
 
     case RENDER_CMD_DRAW_SKYBOX:
@@ -1008,6 +963,131 @@ void renderer_execute_commands(gpu_texture_t *render_target,
     default:
       break;
     }
+  }
+
+  // Now render all collected skinned meshes in batches
+  if (g_renderer->material_batches.len > 0) {
+    PROFILE_BEGIN("Render skinned mesh batches");
+
+    for (u32 batch_idx = 0; batch_idx < g_renderer->material_batches.len;
+         batch_idx++) {
+      MaterialBatch *batch = &g_renderer->material_batches.items[batch_idx];
+      if (batch->instances.len == 0)
+        continue;
+
+      // Get material from handle
+      GPUMaterial *material =
+          ha_get(GPUMaterial, &g_renderer->gpu_materials, batch->material_handle);
+      if (!material)
+        continue;
+
+      // Get shader
+      GPUShader *gpu_shader =
+          ha_get(GPUShader, &g_renderer->gpu_shaders, material->shader_handle);
+      if (!gpu_shader || !gpu_shader->pipeline)
+        continue;
+
+      debug_assert(material->binding_cache);
+      if (!material->binding_cache)
+        continue;
+
+      // Begin render pass only once
+      if (!render_pass_begun) {
+        encoder = gpu_begin_render_pass(cmd_buffer, render_target);
+        render_pass_begun = true;
+      }
+
+      // Apply pipeline once per material
+      gpu_set_pipeline(encoder, gpu_shader->pipeline, clear_color.components);
+
+      // Setup camera, lights, and material uniforms once per material
+      if (gpu_shader->pipeline->has_uniforms && gpu_shader->reflection) {
+        // Camera uniform
+        i32 camera_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_CAMERA];
+        if (camera_binding >= 0) {
+          gpu_update_uniforms(gpu_shader->pipeline, camera_binding,
+                              &g_renderer->current_camera,
+                              sizeof(CameraUniformBlock));
+        }
+
+        // Lights uniform
+        i32 lights_binding =
+            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_LIGHTS];
+        if (lights_binding >= 0) {
+          gpu_update_uniforms(gpu_shader->pipeline, lights_binding,
+                              &g_renderer->current_lights,
+                              sizeof(DirectionalLightBlock));
+        }
+
+        // Material uniforms
+        MaterialBindingCache *cache = material->binding_cache;
+        for (u32 i = 0; i < cache->binding_count; i++) {
+          MaterialBinding *binding = &cache->bindings[i];
+          if (binding->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
+            gpu_update_uniforms(gpu_shader->pipeline, binding->binding_index,
+                                binding->resource.uniform.data,
+                                binding->resource.uniform.size);
+          }
+        }
+      }
+
+      // Now render all instances with this material
+      Handle current_mesh = INVALID_HANDLE;
+      GPUSubMesh *current_submesh = NULL;
+
+      for (u32 inst_idx = 0; inst_idx < batch->instances.len; inst_idx++) {
+        SkinnedMeshInstance *instance = &batch->instances.items[inst_idx];
+
+        // Only update vertex/index buffers if mesh changed
+        if (!handle_equals(instance->mesh_handle, current_mesh)) {
+          current_mesh = instance->mesh_handle;
+          current_submesh =
+              ha_get(GPUSubMesh, &g_renderer->gpu_submeshes, current_mesh);
+          if (!current_submesh)
+            continue;
+
+          // Update buffers with new mesh
+          gpu_set_vertex_buffer(encoder, current_submesh->vertex_buffer, 0);
+          gpu_set_index_buffer(encoder, current_submesh->index_buffer);
+        }
+
+        // Apply per-instance uniforms
+        if (gpu_shader->pipeline->has_uniforms && gpu_shader->reflection) {
+          // Joint transforms
+          i32 joints_binding =
+              gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_JOINTS];
+          if (joints_binding >= 0 && instance->joint_transforms) {
+            gpu_update_uniforms(gpu_shader->pipeline, joints_binding,
+                                instance->joint_transforms,
+                                sizeof(float) * 16 * instance->num_joints);
+          }
+
+          // Model matrix
+          i32 model_binding =
+              gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_MODEL];
+          if (model_binding >= 0) {
+            gpu_update_uniforms(gpu_shader->pipeline, model_binding,
+                                &instance->model_matrix,
+                                sizeof(mat4));
+          }
+
+          // Blendshape params
+          i32 blendshape_binding =
+              gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_BLENDSHAPES];
+          if (blendshape_binding >= 0 && instance->blendshape_params) {
+            gpu_update_uniforms(gpu_shader->pipeline, blendshape_binding,
+                                instance->blendshape_params,
+                                sizeof(BlendshapeParams));
+          }
+        }
+
+        // Draw
+        gpu_draw(encoder, current_submesh->index_count);
+      }
+    }
+
+    PROFILE_END();
   }
 
   // End render pass after ALL draws are complete

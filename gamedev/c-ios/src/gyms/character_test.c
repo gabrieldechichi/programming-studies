@@ -435,22 +435,55 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
     }
 
     if (all_materials_ready) {
-      // Create materials array
+      // First, deduplicate material assets
+      typedef struct {
+        MaterialAsset_Handle handle;
+        Material *material;
+      } UniqueMaterial;
+
+      UniqueMaterial *unique_materials = ALLOC_ARRAY(&ctx->temp_allocator, UniqueMaterial, gym_state->material_count);
+      u32 unique_count = 0;
+
+      // Create materials array that maps submesh index to material
       gym_state->materials =
           slice_new_ALLOC(&ctx->allocator, Material, gym_state->material_count);
 
       for (u32 i = 0; i < gym_state->material_count; i++) {
         if (gym_state->material_asset_handles[i].idx != 0) {
-          // Load material from asset
-          MaterialAsset *material_asset =
-              asset_get_data(MaterialAsset, &gym_state->asset_system,
-                             gym_state->material_asset_handles[i]);
-          assert(material_asset);
-          Material *material = material_from_asset(
-              material_asset, &gym_state->asset_system, ctx);
-          slice_append(gym_state->materials, *material);
-          LOG_INFO("Loaded material % for submesh %",
-                   FMT_STR(material_asset->name.value), FMT_UINT(i));
+          // Check if we already created this material
+          Material *existing_material = NULL;
+          for (u32 j = 0; j < unique_count; j++) {
+            if (handle_equals(cast_handle(Handle, unique_materials[j].handle),
+                              cast_handle(Handle, gym_state->material_asset_handles[i]))) {
+              existing_material = unique_materials[j].material;
+              break;
+            }
+          }
+
+          if (existing_material) {
+            // Reuse existing material
+            slice_append(gym_state->materials, *existing_material);
+            LOG_INFO("Reusing material for submesh %", FMT_UINT(i));
+          } else {
+            // Create new material
+            MaterialAsset *material_asset =
+                asset_get_data(MaterialAsset, &gym_state->asset_system,
+                               gym_state->material_asset_handles[i]);
+            assert(material_asset);
+            Material *material = material_from_asset(
+                material_asset, &gym_state->asset_system, ctx);
+            slice_append(gym_state->materials, *material);
+
+            // Add to unique materials list
+            unique_materials[unique_count].handle = gym_state->material_asset_handles[i];
+            unique_materials[unique_count].material = &gym_state->materials.items[gym_state->materials.len - 1];
+            unique_count++;
+
+            LOG_INFO("Created unique material % (handle idx=%) for submesh %",
+                     FMT_STR(material_asset->name.value),
+                     FMT_UINT(gym_state->material_asset_handles[i].idx),
+                     FMT_UINT(i));
+          }
         } else {
           // Use default white material for submeshes without materials
           // This would need a default material implementation
@@ -461,6 +494,9 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
           slice_append(gym_state->materials, default_material);
         }
       }
+
+      LOG_INFO("Material deduplication: % unique materials from % total submeshes",
+               FMT_UINT(unique_count), FMT_UINT(gym_state->material_count));
 
       // Create SkinnedModel with loaded materials
       Character *entity = &gym_state->character;
@@ -683,6 +719,16 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
       }
 
       if (all_costume_materials_ready) {
+        // First, deduplicate material assets for this costume
+        typedef struct {
+          MaterialAsset_Handle handle;
+          Material *material;
+        } UniqueMaterial;
+
+        UniqueMaterial *unique_materials = ALLOC_ARRAY(&ctx->temp_allocator, UniqueMaterial,
+                                                       gym_state->costume_material_counts[costume_idx]);
+        u32 unique_count = 0;
+
         // Create materials array for this costume
         gym_state->costume_materials_array[costume_idx] =
             slice_new_ALLOC(&ctx->allocator, Material,
@@ -692,17 +738,46 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
              i++) {
           if (gym_state->costume_material_handles_array[costume_idx][i].idx !=
               0) {
-            MaterialAsset *material_asset = asset_get_data(
-                MaterialAsset, &gym_state->asset_system,
-                gym_state->costume_material_handles_array[costume_idx][i]);
-            assert(material_asset);
-            Material *material = material_from_asset(
-                material_asset, &gym_state->asset_system, ctx);
-            slice_append(gym_state->costume_materials_array[costume_idx],
-                         *material);
-            LOG_INFO("Loaded costume % material % for submesh %",
-                     FMT_UINT(costume_idx), FMT_STR(material_asset->name.value),
-                     FMT_UINT(i));
+            // Check if we already created this material
+            Material *existing_material = NULL;
+            for (u32 j = 0; j < unique_count; j++) {
+              if (handle_equals(cast_handle(Handle, unique_materials[j].handle),
+                               cast_handle(Handle, gym_state->costume_material_handles_array[costume_idx][i]))) {
+                existing_material = unique_materials[j].material;
+                break;
+              }
+            }
+
+            if (existing_material) {
+              // Reuse existing material
+              slice_append(gym_state->costume_materials_array[costume_idx],
+                          *existing_material);
+              LOG_INFO("Costume % - Reusing material for submesh %",
+                       FMT_UINT(costume_idx), FMT_UINT(i));
+            } else {
+              // Create new material
+              MaterialAsset *material_asset = asset_get_data(
+                  MaterialAsset, &gym_state->asset_system,
+                  gym_state->costume_material_handles_array[costume_idx][i]);
+              assert(material_asset);
+              Material *material = material_from_asset(
+                  material_asset, &gym_state->asset_system, ctx);
+              slice_append(gym_state->costume_materials_array[costume_idx],
+                           *material);
+
+              // Add to unique materials list
+              unique_materials[unique_count].handle =
+                  gym_state->costume_material_handles_array[costume_idx][i];
+              unique_materials[unique_count].material =
+                  &gym_state->costume_materials_array[costume_idx].items[
+                      gym_state->costume_materials_array[costume_idx].len - 1];
+              unique_count++;
+
+              LOG_INFO("Costume % - Created unique material % (handle idx=%) for submesh %",
+                       FMT_UINT(costume_idx), FMT_STR(material_asset->name.value),
+                       FMT_UINT(gym_state->costume_material_handles_array[costume_idx][i].idx),
+                       FMT_UINT(i));
+            }
           } else {
             LOG_WARN("No material for costume % submesh %, using default",
                      FMT_UINT(costume_idx), FMT_UINT(i));
@@ -711,6 +786,10 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
                          default_material);
           }
         }
+
+        LOG_INFO("Costume % material deduplication: % unique materials from % total submeshes",
+                 FMT_UINT(costume_idx), FMT_UINT(unique_count),
+                 FMT_UINT(gym_state->costume_material_counts[costume_idx]));
 
         // Create costume SkinnedModel
         gym_state->costume_skinned_models[costume_idx] =
@@ -1011,13 +1090,8 @@ void gym_update_and_render(GameMemory *memory) {
   if (gym_state->quad_ready) {
     // Create model matrix for the quad (position it behind the character)
 
-    Texture* tex = asset_get_data(Texture, &gym_state->asset_system, gym_state->skybox_texture_handle);
-    assert(tex);
     mat4 quad_model;
     glm_mat4_identity(quad_model);
-    glm_translate(quad_model, (vec3){0.0f, 1.0f, 0.0f});  // Move back
-    f32 scale = 0.0009;
-    glm_scale(quad_model, (vec3){tex->image.width * scale, tex->image.height * scale, 1.0f});  // Scale it up reasonably
 
     // Render the quad using the non-skinned mesh path
     renderer_draw_mesh(
