@@ -11,8 +11,8 @@
 #include "lib/string_builder.h"
 #include "memory.h"
 #include "shader_reflection.h"
-#include "shaders/toon_shading_reflection.h"
 #include "shaders/simple_quad_reflection.h"
+#include "shaders/toon_shading_reflection.h"
 #include "vendor/cglm/mat4.h"
 #include "vendor/cglm/vec3.h"
 #include <stdio.h>
@@ -66,7 +66,7 @@ HANDLE_ARRAY_DEFINE(GPUShader);
 typedef struct {
   gpu_buffer_t *vertex_buffer;
   gpu_buffer_t *index_buffer;
-  gpu_buffer_t *blendshape_buffer;  // Storage buffer for blendshape deltas
+  gpu_buffer_t *blendshape_buffer; // Storage buffer for blendshape deltas
   u32 index_count;
   u32 num_blendshapes;
   b32 is_skinned;
@@ -133,7 +133,8 @@ typedef struct {
   gpu_device_t *device;
 
   // Default resources
-  gpu_buffer_t *default_blendshape_buffer;  // Default buffer for meshes without blendshapes
+  gpu_buffer_t *default_blendshape_buffer; // Default buffer for meshes without
+                                           // blendshapes
 
   // Resource handle arrays
   HandleArray_GPUTexture gpu_textures;
@@ -231,11 +232,12 @@ void renderer_init(gpu_device_t *device, Allocator *permanent_allocator,
         .normal = {0.0f, 0.0f, 0.0f, 0.0f},
     };
 
-    g_renderer->default_blendshape_buffer =
-        gpu_create_storage_buffer(g_renderer->device, &dummy_delta, sizeof(dummy_delta));
+    g_renderer->default_blendshape_buffer = gpu_create_storage_buffer(
+        g_renderer->device, &dummy_delta, sizeof(dummy_delta));
 
     if (!g_renderer->default_blendshape_buffer) {
-      printf("[Renderer] WARNING: Failed to create default blendshape buffer\n");
+      printf(
+          "[Renderer] WARNING: Failed to create default blendshape buffer\n");
     }
   }
 
@@ -255,11 +257,12 @@ void renderer_reset_commands(void) {
   g_renderer->material_batches.len = 0;
 
   // Reset descriptor pools for all shaders at frame start
-  // Note: We need to iterate through handles, not raw items, to skip empty slots
+  // Note: We need to iterate through handles, not raw items, to skip empty
+  // slots
   for (u32 i = 0; i < g_renderer->gpu_shaders.handles.len; i++) {
     Handle handle = g_renderer->gpu_shaders.handles.items[i];
     if (handle_is_valid(handle)) {
-      GPUShader* shader = ha_get(GPUShader, &g_renderer->gpu_shaders, handle);
+      GPUShader *shader = ha_get(GPUShader, &g_renderer->gpu_shaders, handle);
       if (shader && shader->pipeline) {
         gpu_reset_pipeline_descriptor_pool(shader->pipeline);
       }
@@ -305,13 +308,19 @@ Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned) {
   gpu_buffer_t *blendshape_buffer = NULL;
   if (mesh_data->len_blendshapes > 0 && mesh_data->blendshape_deltas) {
     // Pack deltas as BlendshapeDelta structs (2 vec4s each)
-    // Layout: [vertex_id * blendshape_count + blendshape_id] for shader indexing
+    // Layout: [vertex_id * blendshape_count + blendshape_id] for shader
+    // indexing
     u32 num_deltas = mesh_data->len_vertices * mesh_data->len_blendshapes;
     struct {
       vec4 position;
       vec4 normal;
-    } *packed_deltas =
-        ALLOC_ARRAY(g_renderer->temp_allocator, struct { vec4 position; vec4 normal; }, num_deltas);
+    } *packed_deltas = ALLOC_ARRAY(
+        g_renderer->temp_allocator,
+        struct {
+          vec4 position;
+          vec4 normal;
+        },
+        num_deltas);
 
     f32 *src = mesh_data->blendshape_deltas;
     // Reorganize data: for each vertex, store all its blendshapes contiguously
@@ -319,7 +328,8 @@ Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned) {
          vertex_idx++) {
       for (u32 bs_idx = 0; bs_idx < mesh_data->len_blendshapes; bs_idx++) {
         u32 dest_idx = vertex_idx * mesh_data->len_blendshapes + bs_idx;
-        // Source data is organized as: blendshape_idx * vertices * 6 + vertex_idx * 6
+        // Source data is organized as: blendshape_idx * vertices * 6 +
+        // vertex_idx * 6
         u32 src_idx = bs_idx * mesh_data->len_vertices * 6 + vertex_idx * 6;
 
         // Copy position delta (3 floats) and pad to vec4
@@ -337,9 +347,8 @@ Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned) {
     }
 
     // Create GPU storage buffer for blendshape data
-    blendshape_buffer =
-        gpu_create_storage_buffer(g_renderer->device, packed_deltas,
-                                  num_deltas * sizeof(*packed_deltas));
+    blendshape_buffer = gpu_create_storage_buffer(
+        g_renderer->device, packed_deltas, num_deltas * sizeof(*packed_deltas));
 
     if (!blendshape_buffer) {
       printf("[Renderer] WARNING: Failed to create blendshape buffer\n");
@@ -356,7 +365,8 @@ Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned) {
           mesh_data->len_indices, // Either index count or vertex count
       .num_blendshapes = mesh_data->len_blendshapes,
       .is_skinned = is_skinned,
-      .has_blendshapes = (mesh_data->len_blendshapes > 0 && blendshape_buffer != NULL)};
+      .has_blendshapes =
+          (mesh_data->len_blendshapes > 0 && blendshape_buffer != NULL)};
 
   // Add to handle array and return the handle
   Handle handle = cast_handle(
@@ -846,13 +856,13 @@ collect_skinned_mesh_instance(Handle material_handle, Handle mesh_handle,
 
   if (!batch) {
     // Create new batch for this material
-    MaterialBatch new_batch = {
-        .material_handle = material_handle,
-        .instances = slice_new_ALLOC(g_renderer->temp_allocator,
-                                     SkinnedMeshInstance, 2048)};
+    MaterialBatch new_batch = {.material_handle = material_handle,
+                               .instances =
+                                   slice_new_ALLOC(g_renderer->temp_allocator,
+                                                   SkinnedMeshInstance, 2048)};
     slice_append(g_renderer->material_batches, new_batch);
-    batch =
-        &g_renderer->material_batches.items[g_renderer->material_batches.len - 1];
+    batch = &g_renderer->material_batches
+                 .items[g_renderer->material_batches.len - 1];
   }
 
   // Add instance to batch
@@ -951,9 +961,8 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       // Get mesh and material
       GPUSubMesh *mesh = ha_get(GPUSubMesh, &g_renderer->gpu_submeshes,
                                 cmd->data.draw_mesh.mesh_handle);
-      GPUMaterial *material =
-          ha_get(GPUMaterial, &g_renderer->gpu_materials,
-                 cmd->data.draw_mesh.material_handle);
+      GPUMaterial *material = ha_get(GPUMaterial, &g_renderer->gpu_materials,
+                                     cmd->data.draw_mesh.material_handle);
 
       if (!mesh || !material)
         continue;
@@ -981,9 +990,11 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       gpu_set_index_buffer(encoder, mesh->index_buffer);
 
       // Allocate a new descriptor set for this draw
-      gpu_descriptor_set_t* desc_set = gpu_allocate_descriptor_set(gpu_shader->pipeline);
+      gpu_descriptor_set_t *desc_set =
+          gpu_allocate_descriptor_set(gpu_shader->pipeline);
       if (!desc_set) {
-        printf("[Renderer] WARNING: Failed to allocate descriptor set for regular mesh\n");
+        printf("[Renderer] WARNING: Failed to allocate descriptor set for "
+               "regular mesh\n");
         continue;
       }
 
@@ -994,8 +1005,8 @@ void renderer_execute_commands(gpu_texture_t *render_target,
             gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_CAMERA];
         if (camera_binding >= 0) {
           gpu_update_descriptor_uniforms(desc_set, camera_binding,
-                              &g_renderer->current_camera,
-                              sizeof(CameraUniformBlock));
+                                         &g_renderer->current_camera,
+                                         sizeof(CameraUniformBlock));
         }
 
         // Update model matrix
@@ -1003,8 +1014,8 @@ void renderer_execute_commands(gpu_texture_t *render_target,
             gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_MODEL];
         if (model_binding >= 0) {
           gpu_update_descriptor_uniforms(desc_set, model_binding,
-                              &cmd->data.draw_mesh.model_matrix,
-                              sizeof(mat4));
+                                         &cmd->data.draw_mesh.model_matrix,
+                                         sizeof(mat4));
         }
 
         // Apply material uniforms from binding cache
@@ -1014,8 +1025,8 @@ void renderer_execute_commands(gpu_texture_t *render_target,
             MaterialBinding *binding = &cache->bindings[i];
             if (binding->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
               gpu_update_descriptor_uniforms(desc_set, binding->binding_index,
-                                  binding->resource.uniform.data,
-                                  binding->resource.uniform.size);
+                                             binding->resource.uniform.data,
+                                             binding->resource.uniform.size);
             } else if (binding->type == SHADER_RESOURCE_TEXTURE) {
               // Get texture from material properties
               u32 prop_idx = binding->resource.texture.texture_handle_offset;
@@ -1024,12 +1035,12 @@ void renderer_execute_commands(gpu_texture_t *render_target,
                 Texture_Handle tex_handle =
                     material->properties[prop_idx].value.texture;
                 Handle generic_handle = cast_handle(Handle, tex_handle);
-                GPUTexture *gpu_tex =
-                    ha_get(GPUTexture, &g_renderer->gpu_textures, generic_handle);
+                GPUTexture *gpu_tex = ha_get(
+                    GPUTexture, &g_renderer->gpu_textures, generic_handle);
 
                 if (gpu_tex && gpu_tex->is_set && gpu_tex->texture) {
                   gpu_update_descriptor_texture(desc_set, gpu_tex->texture,
-                                              binding->binding_index);
+                                                binding->binding_index);
                 }
               }
             }
@@ -1041,8 +1052,8 @@ void renderer_execute_commands(gpu_texture_t *render_target,
             gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_LIGHTS];
         if (lights_binding >= 0) {
           gpu_update_descriptor_uniforms(desc_set, lights_binding,
-                              &g_renderer->current_lights,
-                              sizeof(DirectionalLightBlock));
+                                         &g_renderer->current_lights,
+                                         sizeof(DirectionalLightBlock));
         }
       }
 
@@ -1083,9 +1094,11 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       if (batch->instances.len == 0)
         continue;
 
+      PROFILE_BEGIN("skinned batch: single batch");
+
       // Get material from handle
-      GPUMaterial *material =
-          ha_get(GPUMaterial, &g_renderer->gpu_materials, batch->material_handle);
+      GPUMaterial *material = ha_get(GPUMaterial, &g_renderer->gpu_materials,
+                                     batch->material_handle);
       if (!material)
         continue;
 
@@ -1105,14 +1118,17 @@ void renderer_execute_commands(gpu_texture_t *render_target,
         render_pass_begun = true;
       }
 
+      PROFILE_BEGIN("skinned batch: set pipeline");
       // Apply pipeline once per material
       gpu_set_pipeline(encoder, gpu_shader->pipeline, clear_color.components);
+      PROFILE_END();
 
       // Now render all instances with this material
       Handle current_mesh = INVALID_HANDLE;
       GPUSubMesh *current_submesh = NULL;
 
       for (u32 inst_idx = 0; inst_idx < batch->instances.len; inst_idx++) {
+        PROFILE_BEGIN("skinned batch: single instance");
         SkinnedMeshInstance *instance = &batch->instances.items[inst_idx];
 
         // Only update vertex/index buffers if mesh changed
@@ -1120,33 +1136,31 @@ void renderer_execute_commands(gpu_texture_t *render_target,
           current_mesh = instance->mesh_handle;
           current_submesh =
               ha_get(GPUSubMesh, &g_renderer->gpu_submeshes, current_mesh);
-          if (!current_submesh)
-            continue;
 
+          PROFILE_BEGIN("skinned batch: update mesh buffer");
           // Update buffers with new mesh
           gpu_set_vertex_buffer(encoder, current_submesh->vertex_buffer, 0);
           gpu_set_index_buffer(encoder, current_submesh->index_buffer);
+          PROFILE_END();
         }
 
-        if (!current_submesh)
-          continue;
-
+        PROFILE_BEGIN("skinned batch: allocate descriptor set");
         // Allocate a new descriptor set for this draw
-        gpu_descriptor_set_t* desc_set = gpu_allocate_descriptor_set(gpu_shader->pipeline);
-        if (!desc_set) {
-          printf("[Renderer] WARNING: Failed to allocate descriptor set\n");
-          continue;
-        }
+        gpu_descriptor_set_t *desc_set =
+            gpu_allocate_descriptor_set(gpu_shader->pipeline);
 
+        PROFILE_END();
         // Apply per-instance uniforms to the new descriptor set
         if (gpu_shader->pipeline->has_uniforms && gpu_shader->reflection) {
+
+          PROFILE_BEGIN("skinned batch: update uniforms");
           // Camera uniform
           i32 camera_binding =
               gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_CAMERA];
           if (camera_binding >= 0) {
             gpu_update_descriptor_uniforms(desc_set, camera_binding,
-                                &g_renderer->current_camera,
-                                sizeof(CameraUniformBlock));
+                                           &g_renderer->current_camera,
+                                           sizeof(CameraUniformBlock));
           }
 
           // Lights uniform
@@ -1154,8 +1168,8 @@ void renderer_execute_commands(gpu_texture_t *render_target,
               gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_LIGHTS];
           if (lights_binding >= 0) {
             gpu_update_descriptor_uniforms(desc_set, lights_binding,
-                                &g_renderer->current_lights,
-                                sizeof(DirectionalLightBlock));
+                                           &g_renderer->current_lights,
+                                           sizeof(DirectionalLightBlock));
           }
 
           // Material uniforms
@@ -1164,8 +1178,8 @@ void renderer_execute_commands(gpu_texture_t *render_target,
             MaterialBinding *binding = &cache->bindings[i];
             if (binding->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
               gpu_update_descriptor_uniforms(desc_set, binding->binding_index,
-                                  binding->resource.uniform.data,
-                                  binding->resource.uniform.size);
+                                             binding->resource.uniform.data,
+                                             binding->resource.uniform.size);
             } else if (binding->type == SHADER_RESOURCE_TEXTURE) {
               // Get texture from material properties
               u32 prop_idx = binding->resource.texture.texture_handle_offset;
@@ -1174,12 +1188,12 @@ void renderer_execute_commands(gpu_texture_t *render_target,
                 Texture_Handle tex_handle =
                     material->properties[prop_idx].value.texture;
                 Handle generic_handle = cast_handle(Handle, tex_handle);
-                GPUTexture *gpu_tex =
-                    ha_get(GPUTexture, &g_renderer->gpu_textures, generic_handle);
+                GPUTexture *gpu_tex = ha_get(
+                    GPUTexture, &g_renderer->gpu_textures, generic_handle);
 
                 if (gpu_tex && gpu_tex->is_set && gpu_tex->texture) {
                   gpu_update_descriptor_texture(desc_set, gpu_tex->texture,
-                                              binding->binding_index);
+                                                binding->binding_index);
                 }
               }
             }
@@ -1189,18 +1203,17 @@ void renderer_execute_commands(gpu_texture_t *render_target,
           i32 joints_binding =
               gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_JOINTS];
           if (joints_binding >= 0 && instance->joint_transforms) {
-            gpu_update_descriptor_uniforms(desc_set, joints_binding,
-                                instance->joint_transforms,
-                                sizeof(float) * 16 * instance->num_joints);
+            gpu_update_descriptor_uniforms(
+                desc_set, joints_binding, instance->joint_transforms,
+                sizeof(float) * 16 * instance->num_joints);
           }
 
           // Model matrix
           i32 model_binding =
               gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_MODEL];
           if (model_binding >= 0) {
-            gpu_update_descriptor_uniforms(desc_set, model_binding,
-                                &instance->model_matrix,
-                                sizeof(mat4));
+            gpu_update_descriptor_uniforms(
+                desc_set, model_binding, &instance->model_matrix, sizeof(mat4));
           }
 
           // Blendshape params
@@ -1208,25 +1221,37 @@ void renderer_execute_commands(gpu_texture_t *render_target,
               gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_BLENDSHAPES];
           if (blendshape_binding >= 0 && instance->blendshape_params) {
             gpu_update_descriptor_uniforms(desc_set, blendshape_binding,
-                                instance->blendshape_params,
-                                sizeof(BlendshapeParams));
+                                           instance->blendshape_params,
+                                           sizeof(BlendshapeParams));
           }
 
           // Bind blendshape storage buffer at binding 7 (matches shader)
-          if (current_submesh->has_blendshapes && current_submesh->blendshape_buffer) {
-            gpu_update_descriptor_storage_buffer(desc_set, current_submesh->blendshape_buffer, 7);
+          if (current_submesh->has_blendshapes &&
+              current_submesh->blendshape_buffer) {
+            gpu_update_descriptor_storage_buffer(
+                desc_set, current_submesh->blendshape_buffer, 7);
           } else {
             // Use default blendshape buffer to avoid shader issues
-            gpu_update_descriptor_storage_buffer(desc_set, g_renderer->default_blendshape_buffer, 7);
+            gpu_update_descriptor_storage_buffer(
+                desc_set, g_renderer->default_blendshape_buffer, 7);
           }
-        }
 
+          PROFILE_END();
+        }
+        PROFILE_BEGIN("skinned batch: bind descriptor set");
         // Bind the per-instance descriptor set
         gpu_bind_descriptor_set(encoder, gpu_shader->pipeline, desc_set);
+        PROFILE_END();
 
+        PROFILE_BEGIN("skinned batch: draw");
         // Draw
         gpu_draw(encoder, current_submesh->index_count);
+        PROFILE_END();
+
+        PROFILE_END();
       }
+
+      PROFILE_END();
     }
 
     PROFILE_END();

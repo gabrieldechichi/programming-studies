@@ -140,6 +140,17 @@ struct gpu_pipeline {
     uint32_t num_texture_bindings;
     gpu_texture_desc_t* texture_descs;  // Store texture descriptors for lookup
     VkSampler default_sampler;          // Default sampler for all textures
+
+    // Pre-allocated buffer pools for descriptor sets
+    VkBuffer* uniform_buffer_pool;      // Pool of uniform buffers [max_sets * num_uniform_buffers]
+    VkDeviceMemory* uniform_memory_pool;  // Memory for uniform buffers
+    void** uniform_mapped_pool;          // Mapped pointers for uniform buffers
+
+    VkBuffer* storage_buffer_pool;      // Pool of storage buffers [max_sets * num_storage_buffers]
+    VkDeviceMemory* storage_memory_pool;  // Memory for storage buffers
+    void** storage_mapped_pool;          // Mapped pointers for storage buffers
+
+    uint32_t next_buffer_index;         // Next available buffer index in pools
 };
 
 struct gpu_buffer {
@@ -1364,6 +1375,87 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, NULL, &pipeline->descriptor_pool));
         printf("[Vulkan] Created descriptor pool with %u max sets\n", MAX_DESCRIPTOR_SETS);
 
+        // Pre-allocate buffer pools for all descriptor sets
+        if (desc->num_uniform_buffers > 0) {
+            uint32_t total_uniform_buffers = MAX_DESCRIPTOR_SETS * desc->num_uniform_buffers;
+            pipeline->uniform_buffer_pool = ALLOC_ARRAY(device->permanent_allocator, VkBuffer, total_uniform_buffers);
+            pipeline->uniform_memory_pool = ALLOC_ARRAY(device->permanent_allocator, VkDeviceMemory, total_uniform_buffers);
+            pipeline->uniform_mapped_pool = ALLOC_ARRAY(device->permanent_allocator, void*, total_uniform_buffers);
+
+            for (uint32_t set_idx = 0; set_idx < MAX_DESCRIPTOR_SETS; set_idx++) {
+                for (uint32_t buf_idx = 0; buf_idx < desc->num_uniform_buffers; buf_idx++) {
+                    uint32_t pool_idx = set_idx * desc->num_uniform_buffers + buf_idx;
+
+                    VkBufferCreateInfo buffer_info = {
+                        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                        .size = desc->uniform_buffers[buf_idx].size,
+                        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+                    };
+
+                    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->uniform_buffer_pool[pool_idx]));
+
+                    VkMemoryRequirements mem_requirements;
+                    vkGetBufferMemoryRequirements(device->device, pipeline->uniform_buffer_pool[pool_idx], &mem_requirements);
+
+                    VkMemoryAllocateInfo alloc_info = {
+                        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                        .allocationSize = mem_requirements.size,
+                        .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+                    };
+
+                    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->uniform_memory_pool[pool_idx]));
+                    VK_CHECK(vkBindBufferMemory(device->device, pipeline->uniform_buffer_pool[pool_idx],
+                                               pipeline->uniform_memory_pool[pool_idx], 0));
+                    VK_CHECK(vkMapMemory(device->device, pipeline->uniform_memory_pool[pool_idx], 0,
+                                        desc->uniform_buffers[buf_idx].size, 0, &pipeline->uniform_mapped_pool[pool_idx]));
+                }
+            }
+            printf("[Vulkan] Pre-allocated %u uniform buffers\n", total_uniform_buffers);
+        }
+
+        if (desc->num_storage_buffers > 0) {
+            uint32_t total_storage_buffers = MAX_DESCRIPTOR_SETS * desc->num_storage_buffers;
+            pipeline->storage_buffer_pool = ALLOC_ARRAY(device->permanent_allocator, VkBuffer, total_storage_buffers);
+            pipeline->storage_memory_pool = ALLOC_ARRAY(device->permanent_allocator, VkDeviceMemory, total_storage_buffers);
+            pipeline->storage_mapped_pool = ALLOC_ARRAY(device->permanent_allocator, void*, total_storage_buffers);
+
+            for (uint32_t set_idx = 0; set_idx < MAX_DESCRIPTOR_SETS; set_idx++) {
+                for (uint32_t buf_idx = 0; buf_idx < desc->num_storage_buffers; buf_idx++) {
+                    uint32_t pool_idx = set_idx * desc->num_storage_buffers + buf_idx;
+
+                    VkBufferCreateInfo buffer_info = {
+                        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                        .size = desc->storage_buffers[buf_idx].size,
+                        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+                    };
+
+                    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->storage_buffer_pool[pool_idx]));
+
+                    VkMemoryRequirements mem_requirements;
+                    vkGetBufferMemoryRequirements(device->device, pipeline->storage_buffer_pool[pool_idx], &mem_requirements);
+
+                    VkMemoryAllocateInfo alloc_info = {
+                        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                        .allocationSize = mem_requirements.size,
+                        .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+                    };
+
+                    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->storage_memory_pool[pool_idx]));
+                    VK_CHECK(vkBindBufferMemory(device->device, pipeline->storage_buffer_pool[pool_idx],
+                                               pipeline->storage_memory_pool[pool_idx], 0));
+                    VK_CHECK(vkMapMemory(device->device, pipeline->storage_memory_pool[pool_idx], 0,
+                                        desc->storage_buffers[buf_idx].size, 0, &pipeline->storage_mapped_pool[pool_idx]));
+                }
+            }
+            printf("[Vulkan] Pre-allocated %u storage buffers\n", total_storage_buffers);
+        }
+
+        pipeline->next_buffer_index = 0;
+
         // Allocate descriptor set
         VkDescriptorSetAllocateInfo alloc_info = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -1571,6 +1663,12 @@ gpu_descriptor_set_t* gpu_allocate_descriptor_set(gpu_pipeline_t* pipeline) {
         return NULL;
     }
 
+    // Check if we have available buffers in the pool
+    if (pipeline->next_buffer_index >= pipeline->max_descriptor_sets) {
+        printf("[Vulkan] WARNING: Descriptor set pool exhausted! Consider increasing pool size.\n");
+        return NULL;
+    }
+
     gpu_descriptor_set_t* desc_set = ALLOC(pipeline->device->temporary_allocator, gpu_descriptor_set_t);
     desc_set->pipeline = pipeline;
 
@@ -1584,69 +1682,42 @@ gpu_descriptor_set_t* gpu_allocate_descriptor_set(gpu_pipeline_t* pipeline) {
 
     VK_CHECK(vkAllocateDescriptorSets(pipeline->device->device, &alloc_info, &desc_set->descriptor_set));
 
-    // Allocate per-descriptor-set uniform buffers
+    // Use pre-allocated uniform buffers from the pool
     if (pipeline->num_uniform_buffers > 0) {
         desc_set->uniform_buffers = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkBuffer, pipeline->num_uniform_buffers);
         desc_set->uniform_memories = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkDeviceMemory, pipeline->num_uniform_buffers);
         desc_set->uniform_mapped = ALLOC_ARRAY(pipeline->device->temporary_allocator, void*, pipeline->num_uniform_buffers);
 
+        uint32_t buffer_base_idx = pipeline->next_buffer_index * pipeline->num_uniform_buffers;
         for (uint32_t i = 0; i < pipeline->num_uniform_buffers; i++) {
-            VkBufferCreateInfo buffer_info = {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .size = pipeline->uniform_sizes[i],
-                .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-            };
+            uint32_t pool_idx = buffer_base_idx + i;
 
-            VK_CHECK(vkCreateBuffer(pipeline->device->device, &buffer_info, NULL, &desc_set->uniform_buffers[i]));
-
-            VkMemoryRequirements mem_requirements;
-            vkGetBufferMemoryRequirements(pipeline->device->device, desc_set->uniform_buffers[i], &mem_requirements);
-
-            VkMemoryAllocateInfo alloc_info = {
-                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-                .allocationSize = mem_requirements.size,
-                .memoryTypeIndex = find_memory_type(pipeline->device->physical_device, mem_requirements.memoryTypeBits,
-                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
-            };
-
-            VK_CHECK(vkAllocateMemory(pipeline->device->device, &alloc_info, NULL, &desc_set->uniform_memories[i]));
-            VK_CHECK(vkBindBufferMemory(pipeline->device->device, desc_set->uniform_buffers[i], desc_set->uniform_memories[i], 0));
-            VK_CHECK(vkMapMemory(pipeline->device->device, desc_set->uniform_memories[i], 0, pipeline->uniform_sizes[i], 0, &desc_set->uniform_mapped[i]));
+            // Simply reference the pre-allocated buffers from the pool
+            desc_set->uniform_buffers[i] = pipeline->uniform_buffer_pool[pool_idx];
+            desc_set->uniform_memories[i] = pipeline->uniform_memory_pool[pool_idx];
+            desc_set->uniform_mapped[i] = pipeline->uniform_mapped_pool[pool_idx];
         }
     }
 
-    // Allocate per-descriptor-set storage buffers
+    // Use pre-allocated storage buffers from the pool
     if (pipeline->num_storage_buffers > 0) {
         desc_set->storage_buffers = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkBuffer, pipeline->num_storage_buffers);
         desc_set->storage_memories = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkDeviceMemory, pipeline->num_storage_buffers);
         desc_set->storage_mapped = ALLOC_ARRAY(pipeline->device->temporary_allocator, void*, pipeline->num_storage_buffers);
 
+        uint32_t buffer_base_idx = pipeline->next_buffer_index * pipeline->num_storage_buffers;
         for (uint32_t i = 0; i < pipeline->num_storage_buffers; i++) {
-            VkBufferCreateInfo buffer_info = {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .size = pipeline->storage_sizes[i],
-                .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-            };
+            uint32_t pool_idx = buffer_base_idx + i;
 
-            VK_CHECK(vkCreateBuffer(pipeline->device->device, &buffer_info, NULL, &desc_set->storage_buffers[i]));
-
-            VkMemoryRequirements mem_requirements;
-            vkGetBufferMemoryRequirements(pipeline->device->device, desc_set->storage_buffers[i], &mem_requirements);
-
-            VkMemoryAllocateInfo alloc_info = {
-                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-                .allocationSize = mem_requirements.size,
-                .memoryTypeIndex = find_memory_type(pipeline->device->physical_device, mem_requirements.memoryTypeBits,
-                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
-            };
-
-            VK_CHECK(vkAllocateMemory(pipeline->device->device, &alloc_info, NULL, &desc_set->storage_memories[i]));
-            VK_CHECK(vkBindBufferMemory(pipeline->device->device, desc_set->storage_buffers[i], desc_set->storage_memories[i], 0));
-            VK_CHECK(vkMapMemory(pipeline->device->device, desc_set->storage_memories[i], 0, pipeline->storage_sizes[i], 0, &desc_set->storage_mapped[i]));
+            // Simply reference the pre-allocated buffers from the pool
+            desc_set->storage_buffers[i] = pipeline->storage_buffer_pool[pool_idx];
+            desc_set->storage_memories[i] = pipeline->storage_memory_pool[pool_idx];
+            desc_set->storage_mapped[i] = pipeline->storage_mapped_pool[pool_idx];
         }
     }
+
+    // Increment the buffer index for next allocation
+    pipeline->next_buffer_index++;
 
     // Write descriptor set with buffers and textures
     uint32_t total_bindings = pipeline->num_uniform_buffers + pipeline->num_storage_buffers + pipeline->num_texture_bindings;
@@ -1835,8 +1906,10 @@ void gpu_reset_pipeline_descriptor_pool(gpu_pipeline_t* pipeline) {
     }
 
     // Reset descriptor pool to free all allocated descriptor sets
-    // Note: This also frees the uniform/storage buffers allocated with descriptor sets
     VK_CHECK(vkResetDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, 0));
+
+    // Reset the buffer pool index so buffers can be reused
+    pipeline->next_buffer_index = 0;
 }
 
 gpu_buffer_t* gpu_create_buffer(gpu_device_t* device, const void* data, size_t size) {
