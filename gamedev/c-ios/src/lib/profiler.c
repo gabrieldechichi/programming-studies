@@ -45,11 +45,11 @@ void profiler_begin_block(ProfileBlock *block, const char *label,
   block->old_tsc_elapsed_inclusive = anchor->tsc_elapsed_inclusive;
 
   g_profiler_parent = anchor_index;
-  block->start_tsc = os_time_now();
+  block->start_tsc = platform_time_now();
 }
 
 void profiler_end_block(ProfileBlock *block) {
-  u64 elapsed = os_time_now() - block->start_tsc;
+  u64 elapsed = platform_time_now() - block->start_tsc;
   g_profiler_parent = block->parent_index;
 
   ProfileAnchor *parent = &g_profiler_anchors[block->parent_index];
@@ -65,7 +65,7 @@ void profiler_end_block(ProfileBlock *block) {
 }
 
 void profiler_begin_session(void) {
-  g_profiler.start_tsc = os_time_now();
+  g_profiler.start_tsc = platform_time_now();
 
   // Reset thread registration system
   atomic_store(&g_thread_count, 0);
@@ -89,8 +89,8 @@ void profiler_begin_session(void) {
 
 static void print_time_elapsed(StringBuilder *sb, u64 total_tsc_elapsed,
                                ProfileAnchor *anchor) {
-  f64 exclusive_us = os_ticks_to_ms(anchor->tsc_elapsed_exclusive);
-  f64 inclusive_us = os_ticks_to_ms(anchor->tsc_elapsed_inclusive);
+  f64 exclusive_us = platform_ticks_to_ms(anchor->tsc_elapsed_exclusive);
+  f64 inclusive_us = platform_ticks_to_ms(anchor->tsc_elapsed_inclusive);
   f64 avg_exclusive_us = exclusive_us / (f64)anchor->hit_count;
   f64 avg_inclusive_us = inclusive_us / (f64)anchor->hit_count;
   f64 percent_exclusive =
@@ -131,10 +131,10 @@ static void print_time_elapsed(StringBuilder *sb, u64 total_tsc_elapsed,
 }
 
 void profiler_end_and_print_session(Allocator *allocator) {
-  g_profiler.end_tsc = os_time_now();
+  g_profiler.end_tsc = platform_time_now();
 
   u64 total_tsc_elapsed = g_profiler.end_tsc - g_profiler.start_tsc;
-  f64 total_us = os_ticks_to_ms(total_tsc_elapsed);
+  f64 total_us = platform_ticks_to_ms(total_tsc_elapsed);
 
   typedef struct {
     ProfileAnchor *anchor;
@@ -200,7 +200,7 @@ void profiler_end_and_print_session(Allocator *allocator) {
   sb_append_f32(&sb, total_us, 4);
   sb_append(&sb, "ms\n");
   sb_append(&sb, "Total profiled time: ");
-  sb_append_f32(&sb, os_ticks_to_ms(total_profiled_tsc), 4);
+  sb_append_f32(&sb, platform_ticks_to_ms(total_profiled_tsc), 4);
   sb_append(&sb, "ms\n");
   sb_append(&sb, "--------------------------------------\n");
   sb_append(&sb, "(Sorted by average exclusive time)\n");
