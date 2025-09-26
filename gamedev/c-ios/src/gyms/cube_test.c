@@ -69,12 +69,12 @@ void gym_init(GameMemory *memory) {
   // Request the cube model
   // gym_state->model_asset_handle = asset_request(
   //     Model3DData, &gym_state->asset_system, ctx, "cube/cube.hasset");
+  gym_state->model_asset_handle =
+      asset_request(Model3DData, &gym_state->asset_system, ctx,
+                    "assets/generic_female/generic_female.hasset");
   // gym_state->model_asset_handle = asset_request(
   //     Model3DData, &gym_state->asset_system, ctx,
-  //     "assets/generic_female/generic_female.hasset");
-  gym_state->model_asset_handle = asset_request(
-      Model3DData, &gym_state->asset_system, ctx,
-      "assets/tolan/tolan.hasset");
+  //     "assets/tolan/tolan.hasset");
 
   // Initialize camera
   gym_state->camera = (Camera){
@@ -262,8 +262,9 @@ void gym_update_and_render(GameMemory *memory) {
   // Create rotation matrix
   mat4 rot_matrix;
   quaternion rot;
-  quat_from_euler(VEC3(glm_rad(-90), glm_rad(0), glm_rad(0)), rot);
-  mat_trs(VEC3(0, 0, 0), rot, VEC3(1,1,1), rot_matrix);
+  // quat_from_euler(VEC3(glm_rad(-90), glm_rad(0), glm_rad(0)), rot);
+  quat_from_euler(VEC3(glm_rad(0), glm_rad(0), glm_rad(0)), rot);
+  mat_trs(VEC3(0, 0, 0), rot, VEC3(1, 1, 1), rot_matrix);
 
   mat4 mat_2;
   mat_trs(VEC3(-0.5, 0, 0), rot, VEC3(0.1, .1, 0.1), mat_2);
@@ -271,51 +272,19 @@ void gym_update_and_render(GameMemory *memory) {
   // Draw the cube if loaded
   if (gym_state->cube.skinned_model.meshes.items) {
     SkinnedModel *skinned_model = &entity->skinned_model;
+    // Use existing joint transforms from the model
+    for (u32 i = 0; i < skinned_model->meshes.len; i++) {
+      SkinnedMesh *mesh = &skinned_model->meshes.items[i];
 
-    // If the model has joints, use them; otherwise create identity transforms
-    u32 num_joints = skinned_model->joint_matrices.len;
-    if (num_joints == 0) {
-      // No joints, create identity transforms
-      num_joints = 256; // Default size
-      mat4 *joint_transforms =
-          ALLOC_ARRAY(&ctx->temp_allocator, mat4, num_joints);
-      for (u32 i = 0; i < num_joints; i++) {
-        glm_mat4_identity(joint_transforms[i]);
-      }
+      for (u32 k = 0; k < mesh->submeshes.len; k++) {
+        SkinnedSubMesh *submesh = &mesh->submeshes.items[k];
+        Handle mesh_handle = submesh->mesh_handle;
+        Handle material_handle = submesh->material_handle;
 
-      // Draw all submeshes
-      for (u32 i = 0; i < skinned_model->meshes.len; i++) {
-        SkinnedMesh *mesh = &skinned_model->meshes.items[i];
-
-        for (u32 k = 0; k < mesh->submeshes.len; k++) {
-          SkinnedSubMesh *submesh = &mesh->submeshes.items[k];
-          Handle mesh_handle = submesh->mesh_handle;
-          Handle material_handle = submesh->material_handle;
-
-          if (handle_is_valid(mesh_handle) &&
-              handle_is_valid(material_handle)) {
-            renderer_draw_skinned_mesh(mesh_handle, material_handle,
-                                       rot_matrix,
-                                       joint_transforms, num_joints, NULL);
-          }
-        }
-      }
-    } else {
-      // Use existing joint transforms from the model
-      for (u32 i = 0; i < skinned_model->meshes.len; i++) {
-        SkinnedMesh *mesh = &skinned_model->meshes.items[i];
-
-        for (u32 k = 0; k < mesh->submeshes.len; k++) {
-          SkinnedSubMesh *submesh = &mesh->submeshes.items[k];
-          Handle mesh_handle = submesh->mesh_handle;
-          Handle material_handle = submesh->material_handle;
-
-          if (handle_is_valid(mesh_handle) &&
-              handle_is_valid(material_handle)) {
-            renderer_draw_skinned_mesh(mesh_handle, material_handle, rot_matrix,
-                                       skinned_model->joint_matrices.items,
-                                       skinned_model->joint_matrices.len, NULL);
-          }
+        if (handle_is_valid(mesh_handle) && handle_is_valid(material_handle)) {
+          renderer_draw_skinned_mesh(mesh_handle, material_handle, rot_matrix,
+                                     skinned_model->joint_matrices.items,
+                                     skinned_model->joint_matrices.len, NULL);
         }
       }
     }

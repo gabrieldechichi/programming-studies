@@ -142,14 +142,35 @@ void gpu_set_vertex_buffer(gpu_render_encoder_t *encoder, gpu_buffer_t *buffer,
 // Set index buffer
 void gpu_set_index_buffer(gpu_render_encoder_t *encoder, gpu_buffer_t *buffer);
 
-// Update uniform buffer at specific binding slot
+// Allocate a new descriptor set from the pipeline's pool
+typedef struct gpu_descriptor_set gpu_descriptor_set_t;
+gpu_descriptor_set_t *gpu_allocate_descriptor_set(gpu_pipeline_t *pipeline);
+
+// Update uniform buffer at specific binding slot in a descriptor set
 void gpu_update_uniforms(gpu_pipeline_t *pipeline,
                          uint32_t binding, // Slot index (0, 1, 2, etc.)
                          const void *data, size_t size);
 
+// Update uniform buffer in a specific descriptor set
+void gpu_update_descriptor_uniforms(gpu_descriptor_set_t *descriptor_set,
+                                    uint32_t binding,
+                                    const void *data, size_t size);
+
 // Update texture in pipeline's descriptor set (must be done before rendering)
 void gpu_update_pipeline_texture(gpu_pipeline_t *pipeline,
                                  gpu_texture_t *texture, uint32_t binding);
+
+// Update texture in a specific descriptor set
+void gpu_update_descriptor_texture(gpu_descriptor_set_t *descriptor_set,
+                                   gpu_texture_t *texture, uint32_t binding);
+
+// Bind a specific descriptor set for rendering
+void gpu_bind_descriptor_set(gpu_render_encoder_t *encoder,
+                             gpu_pipeline_t *pipeline,
+                             gpu_descriptor_set_t *descriptor_set);
+
+// Reset descriptor pool (call at frame start)
+void gpu_reset_pipeline_descriptor_pool(gpu_pipeline_t *pipeline);
 
 // Draw primitives
 void gpu_draw(gpu_render_encoder_t *encoder, int vertex_count);

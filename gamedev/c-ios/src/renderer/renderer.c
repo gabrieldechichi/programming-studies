@@ -231,6 +231,18 @@ void renderer_reset_commands(void) {
   }
   g_renderer->material_batches.len = 0;
 
+  // Reset descriptor pools for all shaders at frame start
+  // Note: We need to iterate through handles, not raw items, to skip empty slots
+  for (u32 i = 0; i < g_renderer->gpu_shaders.handles.len; i++) {
+    Handle handle = g_renderer->gpu_shaders.handles.items[i];
+    if (handle_is_valid(handle)) {
+      GPUShader* shader = ha_get(GPUShader, &g_renderer->gpu_shaders, handle);
+      if (shader && shader->pipeline) {
+        gpu_reset_pipeline_descriptor_pool(shader->pipeline);
+      }
+    }
+  }
+
   // Reset temporary allocator
   ALLOC_RESET(g_renderer->temp_allocator);
 }
@@ -898,13 +910,20 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       // Set index buffer (required for indexed drawing)
       gpu_set_index_buffer(encoder, mesh->index_buffer);
 
+      // Allocate a new descriptor set for this draw
+      gpu_descriptor_set_t* desc_set = gpu_allocate_descriptor_set(gpu_shader->pipeline);
+      if (!desc_set) {
+        printf("[Renderer] WARNING: Failed to allocate descriptor set for regular mesh\n");
+        continue;
+      }
+
       // Update uniforms using fast lookups from reflection system
       if (gpu_shader->pipeline->has_uniforms && gpu_shader->reflection) {
         // Update camera uniform
         i32 camera_binding =
             gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_CAMERA];
         if (camera_binding >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, camera_binding,
+          gpu_update_descriptor_uniforms(desc_set, camera_binding,
                               &g_renderer->current_camera,
                               sizeof(CameraUniformBlock));
         }
@@ -913,7 +932,7 @@ void renderer_execute_commands(gpu_texture_t *render_target,
         i32 model_binding =
             gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_MODEL];
         if (model_binding >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, model_binding,
+          gpu_update_descriptor_uniforms(desc_set, model_binding,
                               &cmd->data.draw_mesh.model_matrix,
                               sizeof(mat4));
         }
@@ -924,9 +943,25 @@ void renderer_execute_commands(gpu_texture_t *render_target,
           for (u32 i = 0; i < cache->binding_count; i++) {
             MaterialBinding *binding = &cache->bindings[i];
             if (binding->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
-              gpu_update_uniforms(gpu_shader->pipeline, binding->binding_index,
+              gpu_update_descriptor_uniforms(desc_set, binding->binding_index,
                                   binding->resource.uniform.data,
                                   binding->resource.uniform.size);
+            } else if (binding->type == SHADER_RESOURCE_TEXTURE) {
+              // Get texture from material properties
+              u32 prop_idx = binding->resource.texture.texture_handle_offset;
+              if (prop_idx < material->property_count &&
+                  material->properties[prop_idx].type == MAT_PROP_TEXTURE) {
+                Texture_Handle tex_handle =
+                    material->properties[prop_idx].value.texture;
+                Handle generic_handle = cast_handle(Handle, tex_handle);
+                GPUTexture *gpu_tex =
+                    ha_get(GPUTexture, &g_renderer->gpu_textures, generic_handle);
+
+                if (gpu_tex && gpu_tex->is_set && gpu_tex->texture) {
+                  gpu_update_descriptor_texture(desc_set, gpu_tex->texture,
+                                              binding->binding_index);
+                }
+              }
             }
           }
         }
@@ -935,11 +970,14 @@ void renderer_execute_commands(gpu_texture_t *render_target,
         i32 lights_binding =
             gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_LIGHTS];
         if (lights_binding >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, lights_binding,
+          gpu_update_descriptor_uniforms(desc_set, lights_binding,
                               &g_renderer->current_lights,
                               sizeof(DirectionalLightBlock));
         }
       }
+
+      // Bind the descriptor set
+      gpu_bind_descriptor_set(encoder, gpu_shader->pipeline, desc_set);
 
       // Draw the mesh
       gpu_draw(encoder, mesh->index_count);
@@ -1000,38 +1038,6 @@ void renderer_execute_commands(gpu_texture_t *render_target,
       // Apply pipeline once per material
       gpu_set_pipeline(encoder, gpu_shader->pipeline, clear_color.components);
 
-      // Setup camera, lights, and material uniforms once per material
-      if (gpu_shader->pipeline->has_uniforms && gpu_shader->reflection) {
-        // Camera uniform
-        i32 camera_binding =
-            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_CAMERA];
-        if (camera_binding >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, camera_binding,
-                              &g_renderer->current_camera,
-                              sizeof(CameraUniformBlock));
-        }
-
-        // Lights uniform
-        i32 lights_binding =
-            gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_LIGHTS];
-        if (lights_binding >= 0) {
-          gpu_update_uniforms(gpu_shader->pipeline, lights_binding,
-                              &g_renderer->current_lights,
-                              sizeof(DirectionalLightBlock));
-        }
-
-        // Material uniforms
-        MaterialBindingCache *cache = material->binding_cache;
-        for (u32 i = 0; i < cache->binding_count; i++) {
-          MaterialBinding *binding = &cache->bindings[i];
-          if (binding->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
-            gpu_update_uniforms(gpu_shader->pipeline, binding->binding_index,
-                                binding->resource.uniform.data,
-                                binding->resource.uniform.size);
-          }
-        }
-      }
-
       // Now render all instances with this material
       Handle current_mesh = INVALID_HANDLE;
       GPUSubMesh *current_submesh = NULL;
@@ -1052,13 +1058,65 @@ void renderer_execute_commands(gpu_texture_t *render_target,
           gpu_set_index_buffer(encoder, current_submesh->index_buffer);
         }
 
-        // Apply per-instance uniforms
+        // Allocate a new descriptor set for this draw
+        gpu_descriptor_set_t* desc_set = gpu_allocate_descriptor_set(gpu_shader->pipeline);
+        if (!desc_set) {
+          printf("[Renderer] WARNING: Failed to allocate descriptor set\n");
+          continue;
+        }
+
+        // Apply per-instance uniforms to the new descriptor set
         if (gpu_shader->pipeline->has_uniforms && gpu_shader->reflection) {
+          // Camera uniform
+          i32 camera_binding =
+              gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_CAMERA];
+          if (camera_binding >= 0) {
+            gpu_update_descriptor_uniforms(desc_set, camera_binding,
+                                &g_renderer->current_camera,
+                                sizeof(CameraUniformBlock));
+          }
+
+          // Lights uniform
+          i32 lights_binding =
+              gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_LIGHTS];
+          if (lights_binding >= 0) {
+            gpu_update_descriptor_uniforms(desc_set, lights_binding,
+                                &g_renderer->current_lights,
+                                sizeof(DirectionalLightBlock));
+          }
+
+          // Material uniforms
+          MaterialBindingCache *cache = material->binding_cache;
+          for (u32 i = 0; i < cache->binding_count; i++) {
+            MaterialBinding *binding = &cache->bindings[i];
+            if (binding->type == SHADER_RESOURCE_UNIFORM_BUFFER) {
+              gpu_update_descriptor_uniforms(desc_set, binding->binding_index,
+                                  binding->resource.uniform.data,
+                                  binding->resource.uniform.size);
+            } else if (binding->type == SHADER_RESOURCE_TEXTURE) {
+              // Get texture from material properties
+              u32 prop_idx = binding->resource.texture.texture_handle_offset;
+              if (prop_idx < material->property_count &&
+                  material->properties[prop_idx].type == MAT_PROP_TEXTURE) {
+                Texture_Handle tex_handle =
+                    material->properties[prop_idx].value.texture;
+                Handle generic_handle = cast_handle(Handle, tex_handle);
+                GPUTexture *gpu_tex =
+                    ha_get(GPUTexture, &g_renderer->gpu_textures, generic_handle);
+
+                if (gpu_tex && gpu_tex->is_set && gpu_tex->texture) {
+                  gpu_update_descriptor_texture(desc_set, gpu_tex->texture,
+                                              binding->binding_index);
+                }
+              }
+            }
+          }
+
           // Joint transforms
           i32 joints_binding =
               gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_JOINTS];
           if (joints_binding >= 0 && instance->joint_transforms) {
-            gpu_update_uniforms(gpu_shader->pipeline, joints_binding,
+            gpu_update_descriptor_uniforms(desc_set, joints_binding,
                                 instance->joint_transforms,
                                 sizeof(float) * 16 * instance->num_joints);
           }
@@ -1067,7 +1125,7 @@ void renderer_execute_commands(gpu_texture_t *render_target,
           i32 model_binding =
               gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_MODEL];
           if (model_binding >= 0) {
-            gpu_update_uniforms(gpu_shader->pipeline, model_binding,
+            gpu_update_descriptor_uniforms(desc_set, model_binding,
                                 &instance->model_matrix,
                                 sizeof(mat4));
           }
@@ -1076,11 +1134,14 @@ void renderer_execute_commands(gpu_texture_t *render_target,
           i32 blendshape_binding =
               gpu_shader->uniform_bindings[UNIFORM_SEMANTIC_BLENDSHAPES];
           if (blendshape_binding >= 0 && instance->blendshape_params) {
-            gpu_update_uniforms(gpu_shader->pipeline, blendshape_binding,
+            gpu_update_descriptor_uniforms(desc_set, blendshape_binding,
                                 instance->blendshape_params,
                                 sizeof(BlendshapeParams));
           }
         }
+
+        // Bind the per-instance descriptor set
+        gpu_bind_descriptor_set(encoder, gpu_shader->pipeline, desc_set);
 
         // Draw
         gpu_draw(encoder, current_submesh->index_count);

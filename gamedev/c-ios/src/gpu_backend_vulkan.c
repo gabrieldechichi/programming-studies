@@ -82,6 +82,20 @@ struct gpu_command_buffer {
     bool completed;
 };
 
+struct gpu_descriptor_set {
+    VkDescriptorSet descriptor_set;
+    gpu_pipeline_t* pipeline;  // Back reference to pipeline
+
+    // Per-descriptor-set uniform and storage buffers
+    VkBuffer* uniform_buffers;
+    VkDeviceMemory* uniform_memories;
+    void** uniform_mapped;
+
+    VkBuffer* storage_buffers;
+    VkDeviceMemory* storage_memories;
+    void** storage_mapped;
+};
+
 struct gpu_pipeline {
     VkPipeline pipeline;
     VkPipelineLayout pipeline_layout;
@@ -92,7 +106,8 @@ struct gpu_pipeline {
     // Uniform buffer support
     VkDescriptorSetLayout descriptor_set_layout;
     VkDescriptorPool descriptor_pool;
-    VkDescriptorSet descriptor_set;
+    VkDescriptorSet descriptor_set;  // Default descriptor set for backward compat
+    uint32_t max_descriptor_sets;    // Maximum number of descriptor sets in pool
     VkBuffer uniform_buffer;  // Backward compatibility - points to uniform_buffers[0]
     VkDeviceMemory uniform_buffer_memory;  // Points to uniform_memories[0]
     void* uniform_buffer_mapped;  // Points to uniform_mapped[0]
@@ -1329,14 +1344,25 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
             };
         }
 
+        // Create pool for multiple descriptor sets (up to 1000 draws per frame)
+        const uint32_t MAX_DESCRIPTOR_SETS = 1000;
+        pipeline->max_descriptor_sets = MAX_DESCRIPTOR_SETS;
+
+        // Scale pool sizes for multiple sets
+        for (uint32_t i = 0; i < pool_size_count; i++) {
+            pool_sizes[i].descriptorCount *= MAX_DESCRIPTOR_SETS;
+        }
+
         VkDescriptorPoolCreateInfo pool_info = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = 1,
+            .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,  // Allow pool reset
+            .maxSets = MAX_DESCRIPTOR_SETS,
             .poolSizeCount = pool_size_count,
             .pPoolSizes = pool_sizes
         };
 
         VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, NULL, &pipeline->descriptor_pool));
+        printf("[Vulkan] Created descriptor pool with %u max sets\n", MAX_DESCRIPTOR_SETS);
 
         // Allocate descriptor set
         VkDescriptorSetAllocateInfo alloc_info = {
@@ -1522,7 +1548,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
     return pipeline;
 }
 
-// New slot-based uniform update function
+// New slot-based uniform update function (backward compatibility)
 void gpu_update_uniforms(gpu_pipeline_t* pipeline, uint32_t binding, const void* data, size_t size) {
     if (!pipeline || !pipeline->has_uniforms) {
         return;
@@ -1537,6 +1563,253 @@ void gpu_update_uniforms(gpu_pipeline_t* pipeline, uint32_t binding, const void*
             return;
         }
     }
+}
+
+// Allocate a new descriptor set from the pipeline's pool
+gpu_descriptor_set_t* gpu_allocate_descriptor_set(gpu_pipeline_t* pipeline) {
+    if (!pipeline || !pipeline->descriptor_pool) {
+        return NULL;
+    }
+
+    gpu_descriptor_set_t* desc_set = ALLOC(pipeline->device->temporary_allocator, gpu_descriptor_set_t);
+    desc_set->pipeline = pipeline;
+
+    // Allocate descriptor set from pool
+    VkDescriptorSetAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = pipeline->descriptor_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &pipeline->descriptor_set_layout
+    };
+
+    VK_CHECK(vkAllocateDescriptorSets(pipeline->device->device, &alloc_info, &desc_set->descriptor_set));
+
+    // Allocate per-descriptor-set uniform buffers
+    if (pipeline->num_uniform_buffers > 0) {
+        desc_set->uniform_buffers = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkBuffer, pipeline->num_uniform_buffers);
+        desc_set->uniform_memories = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkDeviceMemory, pipeline->num_uniform_buffers);
+        desc_set->uniform_mapped = ALLOC_ARRAY(pipeline->device->temporary_allocator, void*, pipeline->num_uniform_buffers);
+
+        for (uint32_t i = 0; i < pipeline->num_uniform_buffers; i++) {
+            VkBufferCreateInfo buffer_info = {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = pipeline->uniform_sizes[i],
+                .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+            };
+
+            VK_CHECK(vkCreateBuffer(pipeline->device->device, &buffer_info, NULL, &desc_set->uniform_buffers[i]));
+
+            VkMemoryRequirements mem_requirements;
+            vkGetBufferMemoryRequirements(pipeline->device->device, desc_set->uniform_buffers[i], &mem_requirements);
+
+            VkMemoryAllocateInfo alloc_info = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                .allocationSize = mem_requirements.size,
+                .memoryTypeIndex = find_memory_type(pipeline->device->physical_device, mem_requirements.memoryTypeBits,
+                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+            };
+
+            VK_CHECK(vkAllocateMemory(pipeline->device->device, &alloc_info, NULL, &desc_set->uniform_memories[i]));
+            VK_CHECK(vkBindBufferMemory(pipeline->device->device, desc_set->uniform_buffers[i], desc_set->uniform_memories[i], 0));
+            VK_CHECK(vkMapMemory(pipeline->device->device, desc_set->uniform_memories[i], 0, pipeline->uniform_sizes[i], 0, &desc_set->uniform_mapped[i]));
+        }
+    }
+
+    // Allocate per-descriptor-set storage buffers
+    if (pipeline->num_storage_buffers > 0) {
+        desc_set->storage_buffers = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkBuffer, pipeline->num_storage_buffers);
+        desc_set->storage_memories = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkDeviceMemory, pipeline->num_storage_buffers);
+        desc_set->storage_mapped = ALLOC_ARRAY(pipeline->device->temporary_allocator, void*, pipeline->num_storage_buffers);
+
+        for (uint32_t i = 0; i < pipeline->num_storage_buffers; i++) {
+            VkBufferCreateInfo buffer_info = {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .size = pipeline->storage_sizes[i],
+                .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+            };
+
+            VK_CHECK(vkCreateBuffer(pipeline->device->device, &buffer_info, NULL, &desc_set->storage_buffers[i]));
+
+            VkMemoryRequirements mem_requirements;
+            vkGetBufferMemoryRequirements(pipeline->device->device, desc_set->storage_buffers[i], &mem_requirements);
+
+            VkMemoryAllocateInfo alloc_info = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                .allocationSize = mem_requirements.size,
+                .memoryTypeIndex = find_memory_type(pipeline->device->physical_device, mem_requirements.memoryTypeBits,
+                                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+            };
+
+            VK_CHECK(vkAllocateMemory(pipeline->device->device, &alloc_info, NULL, &desc_set->storage_memories[i]));
+            VK_CHECK(vkBindBufferMemory(pipeline->device->device, desc_set->storage_buffers[i], desc_set->storage_memories[i], 0));
+            VK_CHECK(vkMapMemory(pipeline->device->device, desc_set->storage_memories[i], 0, pipeline->storage_sizes[i], 0, &desc_set->storage_mapped[i]));
+        }
+    }
+
+    // Write descriptor set with buffers and textures
+    uint32_t total_bindings = pipeline->num_uniform_buffers + pipeline->num_storage_buffers + pipeline->num_texture_bindings;
+    if (total_bindings > 0) {
+        VkWriteDescriptorSet* writes = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkWriteDescriptorSet, total_bindings);
+        VkDescriptorBufferInfo* buffer_infos = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkDescriptorBufferInfo, total_bindings);
+        VkDescriptorImageInfo* image_infos = NULL;
+        uint32_t write_count = 0;
+
+        // Write uniform buffer descriptors
+        for (uint32_t i = 0; i < pipeline->num_uniform_buffers; i++) {
+            buffer_infos[write_count] = (VkDescriptorBufferInfo){
+                .buffer = desc_set->uniform_buffers[i],
+                .offset = 0,
+                .range = pipeline->uniform_sizes[i]
+            };
+
+            writes[write_count] = (VkWriteDescriptorSet){
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = desc_set->descriptor_set,
+                .dstBinding = pipeline->uniform_buffer_descs[i].binding,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .pBufferInfo = &buffer_infos[write_count]
+            };
+            write_count++;
+        }
+
+        // Write storage buffer descriptors
+        for (uint32_t i = 0; i < pipeline->num_storage_buffers; i++) {
+            buffer_infos[write_count] = (VkDescriptorBufferInfo){
+                .buffer = desc_set->storage_buffers[i],
+                .offset = 0,
+                .range = pipeline->storage_sizes[i]
+            };
+
+            writes[write_count] = (VkWriteDescriptorSet){
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = desc_set->descriptor_set,
+                .dstBinding = pipeline->storage_buffer_descs[i].binding,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &buffer_infos[write_count]
+            };
+            write_count++;
+        }
+
+        // Copy texture bindings from default descriptor set if any
+        if (pipeline->num_texture_bindings > 0) {
+            // Create default white texture if needed
+            static gpu_texture_t* default_white_texture = NULL;
+            if (!default_white_texture) {
+                uint32_t white_pixel = 0xFFFFFFFF;
+                default_white_texture = gpu_create_texture_with_data(pipeline->device, 1, 1, &white_pixel, sizeof(white_pixel));
+            }
+
+            image_infos = ALLOC_ARRAY(pipeline->device->temporary_allocator, VkDescriptorImageInfo, pipeline->num_texture_bindings);
+
+            for (uint32_t i = 0; i < pipeline->num_texture_bindings; i++) {
+                image_infos[i] = (VkDescriptorImageInfo){
+                    .sampler = pipeline->default_sampler,
+                    .imageView = default_white_texture->image_view,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                };
+
+                writes[write_count] = (VkWriteDescriptorSet){
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = desc_set->descriptor_set,
+                    .dstBinding = pipeline->texture_descs[i].binding,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &image_infos[i]
+                };
+                write_count++;
+            }
+        }
+
+        vkUpdateDescriptorSets(pipeline->device->device, write_count, writes, 0, NULL);
+    }
+
+    return desc_set;
+}
+
+// Update uniforms in a specific descriptor set
+void gpu_update_descriptor_uniforms(gpu_descriptor_set_t* descriptor_set, uint32_t binding, const void* data, size_t size) {
+    if (!descriptor_set || !descriptor_set->pipeline) {
+        return;
+    }
+
+    gpu_pipeline_t* pipeline = descriptor_set->pipeline;
+
+    // Find the uniform buffer with this binding
+    for (uint32_t i = 0; i < pipeline->num_uniform_buffers; i++) {
+        if (pipeline->uniform_buffer_descs[i].binding == binding) {
+            if (descriptor_set->uniform_mapped[i] && size <= pipeline->uniform_sizes[i]) {
+                memcpy(descriptor_set->uniform_mapped[i], data, size);
+            }
+            return;
+        }
+    }
+
+    // Check storage buffers too
+    for (uint32_t i = 0; i < pipeline->num_storage_buffers; i++) {
+        if (pipeline->storage_buffer_descs[i].binding == binding) {
+            if (descriptor_set->storage_mapped[i] && size <= pipeline->storage_sizes[i]) {
+                memcpy(descriptor_set->storage_mapped[i], data, size);
+            }
+            return;
+        }
+    }
+}
+
+// Update texture in a specific descriptor set
+void gpu_update_descriptor_texture(gpu_descriptor_set_t* descriptor_set, gpu_texture_t* texture, uint32_t binding) {
+    if (!descriptor_set || !texture || !descriptor_set->pipeline) {
+        return;
+    }
+
+    gpu_pipeline_t* pipeline = descriptor_set->pipeline;
+
+    // Find the texture binding
+    for (uint32_t i = 0; i < pipeline->num_texture_bindings; i++) {
+        if (pipeline->texture_descs[i].binding == binding) {
+            VkDescriptorImageInfo image_info = {
+                .sampler = pipeline->default_sampler,
+                .imageView = texture->image_view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            };
+
+            VkWriteDescriptorSet write = {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set->descriptor_set,
+                .dstBinding = binding,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &image_info
+            };
+
+            vkUpdateDescriptorSets(pipeline->device->device, 1, &write, 0, NULL);
+            return;
+        }
+    }
+}
+
+// Bind a specific descriptor set for rendering
+void gpu_bind_descriptor_set(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, gpu_descriptor_set_t* descriptor_set) {
+    if (!encoder || !pipeline || !descriptor_set) {
+        return;
+    }
+
+    vkCmdBindDescriptorSets(encoder->cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                           pipeline->pipeline_layout, 0, 1, &descriptor_set->descriptor_set, 0, NULL);
+}
+
+// Reset descriptor pool (call at frame start)
+void gpu_reset_pipeline_descriptor_pool(gpu_pipeline_t* pipeline) {
+    if (!pipeline || !pipeline->descriptor_pool) {
+        return;
+    }
+
+    // Reset descriptor pool to free all allocated descriptor sets
+    // Note: This also frees the uniform/storage buffers allocated with descriptor sets
+    VK_CHECK(vkResetDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, 0));
 }
 
 gpu_buffer_t* gpu_create_buffer(gpu_device_t* device, const void* data, size_t size) {
