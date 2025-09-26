@@ -1791,6 +1791,33 @@ void gpu_update_descriptor_texture(gpu_descriptor_set_t* descriptor_set, gpu_tex
     }
 }
 
+// Update storage buffer in a specific descriptor set
+void gpu_update_descriptor_storage_buffer(gpu_descriptor_set_t* descriptor_set, gpu_buffer_t* buffer, uint32_t binding) {
+    if (!descriptor_set || !buffer || !descriptor_set->pipeline) {
+        return;
+    }
+
+    gpu_pipeline_t* pipeline = descriptor_set->pipeline;
+
+    // Create descriptor buffer info
+    VkDescriptorBufferInfo buffer_info = {
+        .buffer = buffer->buffer,
+        .offset = 0,
+        .range = buffer->size
+    };
+
+    VkWriteDescriptorSet write = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = descriptor_set->descriptor_set,
+        .dstBinding = binding,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .pBufferInfo = &buffer_info
+    };
+
+    vkUpdateDescriptorSets(pipeline->device->device, 1, &write, 0, NULL);
+}
+
 // Bind a specific descriptor set for rendering
 void gpu_bind_descriptor_set(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, gpu_descriptor_set_t* descriptor_set) {
     if (!encoder || !pipeline || !descriptor_set) {
@@ -1822,6 +1849,46 @@ gpu_buffer_t* gpu_create_buffer(gpu_device_t* device, const void* data, size_t s
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = size,
         .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &buffer->buffer));
+
+    // Allocate memory
+    VkMemoryRequirements mem_requirements;
+    vkGetBufferMemoryRequirements(device->device, buffer->buffer, &mem_requirements);
+
+    VkMemoryAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_requirements.size,
+        .memoryTypeIndex = find_memory_type(device->physical_device, mem_requirements.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+    };
+
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &buffer->memory));
+    vkBindBufferMemory(device->device, buffer->buffer, buffer->memory, 0);
+
+    // Copy data
+    if (data) {
+        void* mapped_data;
+        vkMapMemory(device->device, buffer->memory, 0, size, 0, &mapped_data);
+        memcpy(mapped_data, data, size);
+        vkUnmapMemory(device->device, buffer->memory);
+    }
+
+    return buffer;
+}
+
+gpu_buffer_t* gpu_create_storage_buffer(gpu_device_t* device, const void* data, size_t size) {
+    gpu_buffer_t* buffer = ALLOC(device->permanent_allocator, gpu_buffer_t);
+    buffer->size = size;
+    buffer->device = device;
+
+    // Create buffer with storage buffer usage
+    VkBufferCreateInfo buffer_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = size,
+        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
 

@@ -124,6 +124,10 @@ gpu_pipeline_t *gpu_create_pipeline_desc(gpu_device_t *device,
 gpu_buffer_t *gpu_create_buffer(gpu_device_t *device, const void *data,
                                 size_t size);
 
+// Create a storage buffer
+gpu_buffer_t *gpu_create_storage_buffer(gpu_device_t *device, const void *data,
+                                        size_t size);
+
 // Create a new render command buffer
 gpu_command_buffer_t *gpu_begin_commands(gpu_device_t *device);
 
@@ -163,6 +167,10 @@ void gpu_update_pipeline_texture(gpu_pipeline_t *pipeline,
 // Update texture in a specific descriptor set
 void gpu_update_descriptor_texture(gpu_descriptor_set_t *descriptor_set,
                                    gpu_texture_t *texture, uint32_t binding);
+
+// Update storage buffer in a specific descriptor set
+void gpu_update_descriptor_storage_buffer(gpu_descriptor_set_t *descriptor_set,
+                                          gpu_buffer_t *buffer, uint32_t binding);
 
 // Bind a specific descriptor set for rendering
 void gpu_bind_descriptor_set(gpu_render_encoder_t *encoder,

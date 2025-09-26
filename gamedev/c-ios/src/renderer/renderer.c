@@ -66,6 +66,7 @@ HANDLE_ARRAY_DEFINE(GPUShader);
 typedef struct {
   gpu_buffer_t *vertex_buffer;
   gpu_buffer_t *index_buffer;
+  gpu_buffer_t *blendshape_buffer;  // Storage buffer for blendshape deltas
   u32 index_count;
   u32 num_blendshapes;
   b32 is_skinned;
@@ -130,6 +131,9 @@ typedef struct {
 
   // GPU device
   gpu_device_t *device;
+
+  // Default resources
+  gpu_buffer_t *default_blendshape_buffer;  // Default buffer for meshes without blendshapes
 
   // Resource handle arrays
   HandleArray_GPUTexture gpu_textures;
@@ -216,6 +220,25 @@ void renderer_init(gpu_device_t *device, Allocator *permanent_allocator,
   g_renderer->current_lights.lights[0].color[2] = 1.0f; // B
   g_renderer->current_lights.lights[0].intensity = 1.0f;
 
+  // Create default blendshape buffer for meshes without blendshapes
+  {
+    // Create a minimal buffer with one dummy BlendshapeDelta (2 vec4s)
+    struct {
+      vec4 position;
+      vec4 normal;
+    } dummy_delta = {
+        .position = {0.0f, 0.0f, 0.0f, 0.0f},
+        .normal = {0.0f, 0.0f, 0.0f, 0.0f},
+    };
+
+    g_renderer->default_blendshape_buffer =
+        gpu_create_storage_buffer(g_renderer->device, &dummy_delta, sizeof(dummy_delta));
+
+    if (!g_renderer->default_blendshape_buffer) {
+      printf("[Renderer] WARNING: Failed to create default blendshape buffer\n");
+    }
+  }
+
   g_renderer->initialized = true;
   printf("[Renderer] Initialized\n");
 }
@@ -278,15 +301,62 @@ Handle renderer_create_submesh(SubMeshData *mesh_data, b32 is_skinned) {
     return INVALID_HANDLE;
   }
 
+  // Create blendshape buffer if needed
+  gpu_buffer_t *blendshape_buffer = NULL;
+  if (mesh_data->len_blendshapes > 0 && mesh_data->blendshape_deltas) {
+    // Pack deltas as BlendshapeDelta structs (2 vec4s each)
+    // Layout: [vertex_id * blendshape_count + blendshape_id] for shader indexing
+    u32 num_deltas = mesh_data->len_vertices * mesh_data->len_blendshapes;
+    struct {
+      vec4 position;
+      vec4 normal;
+    } *packed_deltas =
+        ALLOC_ARRAY(g_renderer->temp_allocator, struct { vec4 position; vec4 normal; }, num_deltas);
+
+    f32 *src = mesh_data->blendshape_deltas;
+    // Reorganize data: for each vertex, store all its blendshapes contiguously
+    for (u32 vertex_idx = 0; vertex_idx < mesh_data->len_vertices;
+         vertex_idx++) {
+      for (u32 bs_idx = 0; bs_idx < mesh_data->len_blendshapes; bs_idx++) {
+        u32 dest_idx = vertex_idx * mesh_data->len_blendshapes + bs_idx;
+        // Source data is organized as: blendshape_idx * vertices * 6 + vertex_idx * 6
+        u32 src_idx = bs_idx * mesh_data->len_vertices * 6 + vertex_idx * 6;
+
+        // Copy position delta (3 floats) and pad to vec4
+        packed_deltas[dest_idx].position[0] = src[src_idx + 0];
+        packed_deltas[dest_idx].position[1] = src[src_idx + 1];
+        packed_deltas[dest_idx].position[2] = src[src_idx + 2];
+        packed_deltas[dest_idx].position[3] = 0.0f;
+
+        // Copy normal delta (3 floats) and pad to vec4
+        packed_deltas[dest_idx].normal[0] = src[src_idx + 3];
+        packed_deltas[dest_idx].normal[1] = src[src_idx + 4];
+        packed_deltas[dest_idx].normal[2] = src[src_idx + 5];
+        packed_deltas[dest_idx].normal[3] = 0.0f;
+      }
+    }
+
+    // Create GPU storage buffer for blendshape data
+    blendshape_buffer =
+        gpu_create_storage_buffer(g_renderer->device, packed_deltas,
+                                  num_deltas * sizeof(*packed_deltas));
+
+    if (!blendshape_buffer) {
+      printf("[Renderer] WARNING: Failed to create blendshape buffer\n");
+      // Don't fail the entire mesh creation, just proceed without blendshapes
+    }
+  }
+
   // Store submesh data
   GPUSubMesh new_submesh = {
       .vertex_buffer = vertex_buffer,
       .index_buffer = index_buffer,
+      .blendshape_buffer = blendshape_buffer,
       .index_count =
           mesh_data->len_indices, // Either index count or vertex count
       .num_blendshapes = mesh_data->len_blendshapes,
       .is_skinned = is_skinned,
-      .has_blendshapes = mesh_data->len_blendshapes > 0};
+      .has_blendshapes = (mesh_data->len_blendshapes > 0 && blendshape_buffer != NULL)};
 
   // Add to handle array and return the handle
   Handle handle = cast_handle(
@@ -1058,6 +1128,9 @@ void renderer_execute_commands(gpu_texture_t *render_target,
           gpu_set_index_buffer(encoder, current_submesh->index_buffer);
         }
 
+        if (!current_submesh)
+          continue;
+
         // Allocate a new descriptor set for this draw
         gpu_descriptor_set_t* desc_set = gpu_allocate_descriptor_set(gpu_shader->pipeline);
         if (!desc_set) {
@@ -1137,6 +1210,14 @@ void renderer_execute_commands(gpu_texture_t *render_target,
             gpu_update_descriptor_uniforms(desc_set, blendshape_binding,
                                 instance->blendshape_params,
                                 sizeof(BlendshapeParams));
+          }
+
+          // Bind blendshape storage buffer at binding 7 (matches shader)
+          if (current_submesh->has_blendshapes && current_submesh->blendshape_buffer) {
+            gpu_update_descriptor_storage_buffer(desc_set, current_submesh->blendshape_buffer, 7);
+          } else {
+            // Use default blendshape buffer to avoid shader issues
+            gpu_update_descriptor_storage_buffer(desc_set, g_renderer->default_blendshape_buffer, 7);
           }
         }
 

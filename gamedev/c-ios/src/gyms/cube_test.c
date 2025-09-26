@@ -69,12 +69,12 @@ void gym_init(GameMemory *memory) {
   // Request the cube model
   // gym_state->model_asset_handle = asset_request(
   //     Model3DData, &gym_state->asset_system, ctx, "cube/cube.hasset");
-  gym_state->model_asset_handle =
-      asset_request(Model3DData, &gym_state->asset_system, ctx,
-                    "assets/generic_female/generic_female.hasset");
-  // gym_state->model_asset_handle = asset_request(
-  //     Model3DData, &gym_state->asset_system, ctx,
-  //     "assets/tolan/tolan.hasset");
+  // gym_state->model_asset_handle =
+  //     asset_request(Model3DData, &gym_state->asset_system, ctx,
+  //                   "assets/generic_female/generic_female.hasset");
+  gym_state->model_asset_handle = asset_request(
+      Model3DData, &gym_state->asset_system, ctx,
+      "assets/tolan/tolan.hasset");
 
   // Initialize camera
   gym_state->camera = (Camera){
@@ -262,8 +262,8 @@ void gym_update_and_render(GameMemory *memory) {
   // Create rotation matrix
   mat4 rot_matrix;
   quaternion rot;
-  // quat_from_euler(VEC3(glm_rad(-90), glm_rad(0), glm_rad(0)), rot);
-  quat_from_euler(VEC3(glm_rad(0), glm_rad(0), glm_rad(0)), rot);
+  quat_from_euler(VEC3(glm_rad(-90), glm_rad(0), glm_rad(0)), rot);
+  // quat_from_euler(VEC3(glm_rad(0), glm_rad(0), glm_rad(0)), rot);
   mat_trs(VEC3(0, 0, 0), rot, VEC3(1, 1, 1), rot_matrix);
 
   mat4 mat_2;
@@ -275,6 +275,12 @@ void gym_update_and_render(GameMemory *memory) {
     // Use existing joint transforms from the model
     for (u32 i = 0; i < skinned_model->meshes.len; i++) {
       SkinnedMesh *mesh = &skinned_model->meshes.items[i];
+      BlendshapeParams *blendshape_parms =
+          ALLOC(&ctx->temp_allocator, BlendshapeParams);
+      blendshape_parms->count = mesh->blendshape_weights.len;
+
+      memcpy(blendshape_parms->weights, mesh->blendshape_weights.items,
+             sizeof(f32) * mesh->blendshape_weights.len);
 
       for (u32 k = 0; k < mesh->submeshes.len; k++) {
         SkinnedSubMesh *submesh = &mesh->submeshes.items[k];
@@ -284,7 +290,7 @@ void gym_update_and_render(GameMemory *memory) {
         if (handle_is_valid(mesh_handle) && handle_is_valid(material_handle)) {
           renderer_draw_skinned_mesh(mesh_handle, material_handle, rot_matrix,
                                      skinned_model->joint_matrices.items,
-                                     skinned_model->joint_matrices.len, NULL);
+                                     skinned_model->joint_matrices.len, blendshape_parms);
         }
       }
     }
