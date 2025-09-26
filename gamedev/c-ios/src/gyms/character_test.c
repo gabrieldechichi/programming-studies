@@ -1198,10 +1198,10 @@ void gym_update_and_render(GameMemory *memory) {
           Handle material_handle = submesh->material_handle;
 
           if (handle_is_valid(mesh_handle) && handle_is_valid(material_handle)) {
-            // renderer_draw_skinned_mesh(mesh_handle, material_handle, *model_matrix,
-            //                            gym_state->costume_skinned_models[costume_idx].joint_matrices.items,
-            //                            gym_state->costume_skinned_models[costume_idx].joint_matrices.len,
-            //                            blendshape_parms);
+            renderer_draw_skinned_mesh(mesh_handle, material_handle, *model_matrix,
+                                       gym_state->costume_skinned_models[costume_idx].joint_matrices.items,
+                                       gym_state->costume_skinned_models[costume_idx].joint_matrices.len,
+                                       blendshape_parms);
           }
         }
       }
