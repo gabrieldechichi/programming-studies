@@ -10,6 +10,7 @@
 #include "gameplay_lib.c"
 #include "lib/array.h"
 #include "lib/audio.h"
+#include "lib/lipsync.h"
 #include "lib/math.h"
 #include "lib/memory.h"
 #include "lib/profiler.h"
@@ -25,10 +26,17 @@ slice_define(AnimationPtr);
 #define ANIMATIONS_CAP 64
 #define MAX_COSTUMES 8
 
+// Phoneme to blendshape mapping for lipsync
+internal PhonemeBlendshapeDefinition phoneme_blendshape_definitions[] = {
+    {"A", "ah"}, {"I", "ih"}, {"U", "uh"}, {"E", "eh"}, {"O", "oh"},
+};
+
 typedef struct {
   mat4 model_matrix;
   SkinnedModel skinned_model;
   AnimatedEntity animated;
+  LipsyncBlendshapeController face_blendshapes;
+  LipSyncContext face_lipsync;
 } Character;
 
 typedef struct {
@@ -46,12 +54,17 @@ typedef struct {
   AnimationAsset_Handle_Slice anim_asset_handles;
   MaterialAsset_Handle *material_asset_handles;
   u32 material_count;
+  LipSyncProfile_Handle lipsync_profile_handle;
+  WavFile_Handle wav_file_handle;
   Model3DData *model_data;
   AnimationPtr_Slice animations;
   AnimationPtr_Slice lower_body_animations_loaded;
   AnimationPtr_Slice upper_body_animations_loaded;
   AnimationPtr_Slice face_animations_loaded;
   Material_Slice materials;
+  LipSyncProfile *lipsync_profile;
+  WavFile *wav_file;
+  b32 audio_started;
 
   u32 face_layer_index;
 
@@ -151,6 +164,7 @@ void gym_init(GameMemory *memory) {
   gym_state->input = input_init();
   gym_state->audio_system = audio_init(ctx);
   gym_state->asset_system = asset_system_init(&ctx->allocator, 512);
+  gym_state->audio_started = false;
 
   // Preload all textures
   u32 num_textures =
@@ -162,6 +176,14 @@ void gym_init(GameMemory *memory) {
 
   gym_state->model_asset_handle = asset_request(
       Model3DData, &gym_state->asset_system, ctx, "tolan/tolan.hasset");
+
+  // Request lipsync profile
+  gym_state->lipsync_profile_handle = asset_request(
+      LipSyncProfile, &gym_state->asset_system, ctx, "lipsync_profile.passet");
+
+  // Request a WAV file for lipsync testing (you may need to change this path)
+  gym_state->wav_file_handle = asset_request(
+      WavFile, &gym_state->asset_system, ctx, "univ0023.wav");
 
   // Initialize costume data
   gym_state->num_costumes = sizeof(costume_paths) / sizeof(costume_paths[0]);
@@ -272,6 +294,30 @@ void gym_init(GameMemory *memory) {
 
 void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
   GameContext *ctx = &gym_state->ctx;
+
+  // Load lipsync profile first since other assets depend on it
+  if (!gym_state->lipsync_profile &&
+      asset_is_ready(asset_system, gym_state->lipsync_profile_handle)) {
+    gym_state->lipsync_profile =
+        asset_get_data(LipSyncProfile, &gym_state->asset_system,
+                       gym_state->lipsync_profile_handle);
+    LOG_INFO("Lipsync profile loaded");
+  }
+
+  // Load WAV file for audio playback
+  if (!gym_state->wav_file &&
+      asset_is_ready(asset_system, gym_state->wav_file_handle)) {
+    gym_state->wav_file =
+        asset_get_data(WavFile, &gym_state->asset_system,
+                       gym_state->wav_file_handle);
+    if (gym_state->wav_file) {
+      LOG_INFO("WAV file loaded: %d Hz, %d channels, %d samples",
+               FMT_INT(gym_state->wav_file->format.sample_rate),
+               FMT_INT(gym_state->wav_file->format.channels),
+               FMT_INT(gym_state->wav_file->total_samples));
+    }
+  }
+
   // Load model data first
   //
   PROFILE_BEGIN("game: loading model");
@@ -443,7 +489,7 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
       }
     }
 
-    if (all_materials_ready) {
+    if (all_materials_ready && gym_state->lipsync_profile) {
       // First, deduplicate material assets
       typedef struct {
         MaterialAsset_Handle handle;
@@ -532,6 +578,29 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
       entity->skinned_model =
           skmodel_from_asset(ctx, gym_state->model_data, gym_state->materials);
       PROFILE_END();
+
+      // Initialize lipsync components
+      entity->face_lipsync = lipsync_init(
+          &ctx->allocator, gym_state->audio_system.output_sample_rate,
+          gym_state->lipsync_profile);
+
+      // Find the face mesh for blendshape control
+      const char *face_name = "head_geo";
+      i32 face_idx = arr_find_index_pred_raw(
+          gym_state->model_data->meshes, gym_state->model_data->num_meshes,
+          str_equal(_item.mesh_name.value, face_name));
+
+      if (face_idx >= 0) {
+        SkinnedMesh *face_mesh = &entity->skinned_model.meshes.items[face_idx];
+        entity->face_blendshapes = blendshape_controller_init(
+            &ctx->allocator, gym_state->lipsync_profile,
+            phoneme_blendshape_definitions,
+            sizeof(phoneme_blendshape_definitions) / sizeof(phoneme_blendshape_definitions[0]),
+            face_mesh);
+        LOG_INFO("Initialized lipsync for face mesh at index %", FMT_INT(face_idx));
+      } else {
+        LOG_WARN("Could not find face mesh '%' for lipsync", FMT_STR(face_name));
+      }
 
       LOG_INFO("SkinnedModel created with % materials",
                FMT_UINT(gym_state->materials.len));
@@ -930,6 +999,18 @@ void gym_update_and_render(GameMemory *memory) {
   PROFILE_END();
   // camera_update(&gym_state->camera, input, dt);
 
+  // Play audio once loaded
+  if (!gym_state->audio_started && gym_state->wav_file) {
+    AudioClip clip = {
+        .wav_file = gym_state->wav_file,
+        .loop = true,  // Loop for continuous testing
+        .volume = 1.0
+    };
+    audio_play_clip(&gym_state->audio_system, clip);
+    gym_state->audio_started = true;
+    LOG_INFO("Started audio playback for lipsync");
+  }
+
   PROFILE_BEGIN("game: audio update");
   audio_update(audio_system, ctx, dt);
   PROFILE_END();
@@ -1141,6 +1222,26 @@ void gym_update_and_render(GameMemory *memory) {
     animated_entity_apply_pose(animated, gym_state->model_data,
                                &entity->skinned_model);
     PROFILE_END();
+
+    // Process lipsync if audio is playing
+    if (gym_state->audio_started && gym_state->wav_file) {
+      // Feed audio to lipsync system
+      LipSyncContext *lipsync = &entity->face_lipsync;
+      lipsync_feed_audio(lipsync, ctx, audio_system->sample_buffer,
+                         audio_system->sample_buffer_len,
+                         audio_system->output_channels);
+
+      // Process and get results
+      if (lipsync_process(lipsync, ctx)) {
+        LipSyncResult result = lipsync_get_result(lipsync);
+
+        LipsyncBlendshapeController *blendshape_controller =
+            &entity->face_blendshapes;
+
+        blendshape_controller_update(blendshape_controller, result, dt);
+        blendshape_controller_apply(blendshape_controller);
+      }
+    }
   }
   PROFILE_END();
 

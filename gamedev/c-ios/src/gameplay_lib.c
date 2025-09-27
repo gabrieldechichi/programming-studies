@@ -85,7 +85,6 @@ blendshape_controller_init(Allocator *allocator, LipSyncProfile *profile,
 
     // Store runtime mapping (with validation)
     if (phoneme_index >= 0 && blendshape_index != UINT32_MAX) {
-      LOG_INFO("%", FMT_STR(def->phoneme_name));
       f32 max_weight = 1.0;
       if (str_equal(def->phoneme_name, "A") ||
           str_equal(def->phoneme_name, "O")) {

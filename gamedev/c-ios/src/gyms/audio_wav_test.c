@@ -53,7 +53,6 @@ void gym_update_and_render(GameMemory *memory) {
   input_update(input, &memory->input_events, time->now);
 
   local_persist b32 did_load = false;
-  // local_persist f32 next_play_time = 9999999999999.0;
 
   // check if file is loaded
   if (!did_load && asset_system_pending_count(&gym_state->assets) == 0) {
@@ -68,14 +67,12 @@ void gym_update_and_render(GameMemory *memory) {
                FMT_INT(wav_file->total_samples));
     }
     gym_state->wav_file = wav_file;
-    // next_play_time = time->now + 1;
   }
 
-  if (gym_state->wav_file && input->up.pressed_this_frame) {
+  if (gym_state->wav_file) {
     // create and play audio clip
     AudioClip clip = {.wav_file = gym_state->wav_file, .loop = false, .volume = 1.0};
     audio_play_clip(&gym_state->audio_state, clip);
-    // next_play_time = time->now + 1;
   }
   input_end_frame(input);
 
