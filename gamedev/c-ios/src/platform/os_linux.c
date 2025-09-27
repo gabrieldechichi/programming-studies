@@ -311,9 +311,9 @@ void platform_sleep_us(u32 microseconds) { usleep(microseconds); }
 void platform_audio_init(void) {}
 void platform_audio_shutdown(void) {}
 void platform_audio_update(void) {}
-void platform_audio_write_samples(f32 *samples, i32 sample_count) {
-  UNUSED(samples);
-  UNUSED(sample_count);
-}
-i32 platform_audio_get_sample_rate() { return 44100; }
+// void platform_audio_write_samples(f32 *samples, i32 sample_count) {
+//   UNUSED(samples);
+//   UNUSED(sample_count);
+// }
+// i32 platform_audio_get_sample_rate() { return 44100; }
 /*END - OS Audio*/

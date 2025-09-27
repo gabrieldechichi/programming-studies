@@ -71,7 +71,9 @@
 
 // Frame data structure for queue
 typedef struct {
-  uint8_t *data;
+  uint8_t *data;           // Video data (YUV)
+  float *audio_samples;    // Audio samples (interleaved stereo)
+  int audio_sample_count;  // Number of samples captured
   int frame_number;
   atomic_bool ready;
 } frame_data_t;
@@ -172,6 +174,9 @@ typedef struct {
 // Global application context
 static AppContext g_ctx;
 
+// Global to track which frame is currently rendering (for audio interception)
+static int g_current_render_frame = -1;
+
 // Timing utilities
 static double get_time_diff(struct timeval *start, struct timeval *end) {
   return (double)(end->tv_sec - start->tv_sec) +
@@ -260,12 +265,22 @@ static int allocate_frame_data_for_request(int num_frames) {
     return -1;
   }
 
-  printf("[Memory] Allocating frame data for request: %d frames x %d bytes = "
-         "%zu MB\n",
-         num_frames, YUV_TOTAL_SIZE_BYTES,
+  // Calculate audio buffer requirements
+  // At 48kHz, 24fps: 2000 samples per frame, stereo = 4000 floats
+  int samples_per_frame = 48000 / 24;  // 2000 samples per channel
+  int audio_floats_per_frame = samples_per_frame * 2;  // *2 for stereo
+  size_t audio_bytes_per_frame = audio_floats_per_frame * sizeof(float);
+
+  printf("[Memory] Allocating frame data for request: %d frames\n", num_frames);
+  printf("         Video: %d bytes per frame = %zu MB total\n",
+         YUV_TOTAL_SIZE_BYTES,
          ((size_t)num_frames * YUV_TOTAL_SIZE_BYTES) / MB(1));
+  printf("         Audio: %zu bytes per frame = %zu KB total\n",
+         audio_bytes_per_frame,
+         ((size_t)num_frames * audio_bytes_per_frame) / 1024);
 
   for (int i = 0; i < num_frames; i++) {
+    // Allocate video data
     g_ctx.frames[i].data =
         ALLOC_ARRAY(&g_ctx.temporary_allocator, uint8_t, YUV_TOTAL_SIZE_BYTES);
     if (!g_ctx.frames[i].data) {
@@ -277,12 +292,26 @@ static int allocate_frame_data_for_request(int num_frames) {
               ((size_t)num_frames * YUV_TOTAL_SIZE_BYTES) / MB(1));
       return -1;
     }
+
+    // Allocate audio data
+    g_ctx.frames[i].audio_samples =
+        ALLOC_ARRAY(&g_ctx.temporary_allocator, float, audio_floats_per_frame);
+    if (!g_ctx.frames[i].audio_samples) {
+      fprintf(stderr,
+              "Failed to allocate audio data for frame %d (need %zu bytes)\n", i,
+              audio_bytes_per_frame);
+      return -1;
+    }
+    g_ctx.frames[i].audio_sample_count = 0;  // Will be filled during render
+    g_ctx.frames[i].frame_number = i;
     atomic_store(&g_ctx.frames[i].ready, false);
   }
 
   // Clear data pointers for unused frames
   for (int i = num_frames; i < MAX_FRAMES; i++) {
     g_ctx.frames[i].data = NULL;
+    g_ctx.frames[i].audio_samples = NULL;
+    g_ctx.frames[i].audio_sample_count = 0;
   }
 
   printf("[Memory] Frame allocation complete for request. Temporary allocator "
@@ -697,6 +726,23 @@ static void *encoder_thread_func(void *arg) {
     // Encode frame directly in memory
     frame_data_t *frame = &g_ctx.frames[next_frame_to_encode];
 
+    // Debug print audio info periodically
+    if (next_frame_to_encode % 24 == 0) {  // Every second (24 fps)
+      printf("[Encoder] Frame %d has %d audio samples (%.2f ms)\n",
+             next_frame_to_encode,
+             frame->audio_sample_count / 2,  // Divide by 2 for sample count per channel
+             (float)(frame->audio_sample_count / 2) / 48000.0f * 1000.0f);
+
+      // Print first few audio samples for verification
+      if (frame->audio_sample_count > 0 && frame->audio_samples) {
+        printf("[Encoder] Audio samples [0-5]: ");
+        for (int i = 0; i < 6 && i < frame->audio_sample_count; i++) {
+          printf("%.3f ", frame->audio_samples[i]);
+        }
+        printf("\n");
+      }
+    }
+
     if (encode_frame(frame->data) < 0) {
       fprintf(stderr, "[Encoder] Failed to encode frame %d\n",
               next_frame_to_encode);
@@ -824,6 +870,8 @@ static int initialize_system(void) {
   // Initialize frame metadata only
   for (int i = 0; i < MAX_FRAMES; i++) {
     g_ctx.frames[i].data = NULL; // Will be allocated per request
+    g_ctx.frames[i].audio_samples = NULL; // Will be allocated per request
+    g_ctx.frames[i].audio_sample_count = 0;
     g_ctx.frames[i].frame_number = i;
     atomic_store(&g_ctx.frames[i].ready, false);
   }
@@ -857,6 +905,9 @@ static void render_all_frames(void) {
 
   // Process frames - render and submit readback asynchronously
   for (int i = 0; i < g_ctx.current_num_frames; i++) {
+    // Set global frame tracker for audio interception
+    g_current_render_frame = i;
+
     // Update game time for this frame
     g_ctx.game_memory.time.now = (float)i * dt;
     g_ctx.game_memory.time.dt = dt;
@@ -932,6 +983,9 @@ static void render_all_frames(void) {
     atomic_store(&state->submitted, true);
     atomic_fetch_add(&g_ctx.frames_rendered, 1);
   }
+
+  // Reset frame tracker after rendering
+  g_current_render_frame = -1;
 
   gettimeofday(&g_ctx.render_complete_time, NULL);
   printf("[Renderer] All %d frames submitted for async readback\n", g_ctx.current_num_frames);
@@ -1375,6 +1429,43 @@ int main(int argc, char *argv[]) {
   cleanup();
   return 0;
 #endif
+}
+
+// Platform audio interception for video rendering
+// Platform audio implementation - intercepts audio during rendering
+void platform_audio_write_samples(f32 *samples, i32 sample_count) {
+  // Verify we're getting audio
+  printf("[Audio] Frame %d: Received %d samples (%.2f ms of audio @ 48kHz)\n",
+         g_current_render_frame,
+         sample_count / 2,  // Divide by 2 for stereo
+         (float)(sample_count / 2) / 48000.0f * 1000.0f);
+
+  // Print first few samples to verify format
+  if (g_current_render_frame == 0) {  // Only on first frame
+    printf("[Audio] First 10 samples (L,R pairs): ");
+    for (int i = 0; i < 10 && i < sample_count; i++) {
+      printf("%.3f ", samples[i]);
+    }
+    printf("\n");
+  }
+
+  // Store audio with current frame
+  if (g_current_render_frame >= 0 &&
+      g_current_render_frame < g_ctx.current_num_frames) {
+    frame_data_t *frame = &g_ctx.frames[g_current_render_frame];
+
+    if (frame->audio_samples && sample_count > 0) {
+      // Copy audio samples
+      memcpy(frame->audio_samples, samples, sample_count * sizeof(float));
+      frame->audio_sample_count = sample_count;
+      // Note: sample_count is total floats (L+R interleaved)
+    }
+  }
+}
+
+// Return 48kHz for video encoding (better than 44.1kHz)
+i32 platform_audio_get_sample_rate() {
+  return 48000;
 }
 
 // Assert we haven't exceeded max profile points
