@@ -423,6 +423,7 @@ create_shader_pipeline_from_reflection(const ShaderReflection *reflection) {
     return NULL;
   }
 
+    PROFILE_BEGIN("create_shader_pipeline_from_reflection: build pipeline desc");
   // Build vertex layout from reflection
   gpu_vertex_attr_t *attributes =
       ALLOC_ARRAY(g_renderer->temp_allocator, gpu_vertex_attr_t,
@@ -529,11 +530,13 @@ create_shader_pipeline_from_reflection(const ShaderReflection *reflection) {
       .depth_write = reflection->depth_write,
       .cull_mode = reflection->cull_mode};
 
-  // Try without prefix first (when running from out/linux)
-  gpu_pipeline_t *pipeline =
-      gpu_create_pipeline_desc(g_renderer->device, &pipeline_desc);
+  PROFILE_END();
 
+  gpu_pipeline_t *pipeline = NULL;
+
+  //todo: fix this
   if (!pipeline) {
+    PROFILE_BEGIN("create_shader_pipeline_from_reflection: create pipeline desc 2");
     // Try with out/linux prefix (when running from project root)
     char vertex_path[256];
     char fragment_path[256];
@@ -545,6 +548,7 @@ create_shader_pipeline_from_reflection(const ShaderReflection *reflection) {
     pipeline_desc.vertex_shader_path = vertex_path;
     pipeline_desc.fragment_shader_path = fragment_path;
     pipeline = gpu_create_pipeline_desc(g_renderer->device, &pipeline_desc);
+    PROFILE_END();
   }
 
   return pipeline;
@@ -603,7 +607,9 @@ Handle load_shader(LoadShaderParams params) {
 
   // Create pipeline if it doesn't exist (lazy initialization)
   if (!entry->pipeline) {
+    PROFILE_BEGIN("load shader: create shader pipeline from reflection");
     entry->pipeline = create_shader_pipeline_from_reflection(entry->reflection);
+    PROFILE_END();
     if (!entry->pipeline) {
       printf("[Renderer] Failed to create pipeline for shader '%s'\n",
              params.shader_name);
@@ -618,7 +624,10 @@ Handle load_shader(LoadShaderParams params) {
                           .reflection = entry->reflection};
 
   // Build fast lookup tables
+  //
+  PROFILE_BEGIN("load shader: build shader lookup tables");
   build_shader_lookup_tables(&new_shader, entry->reflection);
+  PROFILE_END();
 
   Handle handle = cast_handle(
       Handle, ha_add(GPUShader, &g_renderer->gpu_shaders, new_shader));

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include "lib/profiler.h"
 
 #define MAX_FRAMES_IN_FLIGHT 2
 
@@ -1011,14 +1012,15 @@ void gpu_destroy_readback_buffer(gpu_readback_buffer_t* buffer) {
 // New flexible pipeline creation with descriptor
 gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipeline_desc_t* desc) {
     gpu_pipeline_t* pipeline = ALLOC_ARRAY(device->permanent_allocator, gpu_pipeline_t, 1);
-    memset(pipeline, 0, sizeof(gpu_pipeline_t));
     pipeline->device = device;
     pipeline->has_uniforms = (desc->num_uniform_buffers > 0);
     pipeline->num_texture_bindings = desc->num_texture_bindings;
 
     // Load shaders
+    PROFILE_BEGIN("gpu_pipeline: load shaders");
     VkShaderModule vert_shader = load_shader_module(device->device, desc->vertex_shader_path, device->temporary_allocator);
     VkShaderModule frag_shader = load_shader_module(device->device, desc->fragment_shader_path, device->temporary_allocator);
+    PROFILE_END();
 
     if (!vert_shader || !frag_shader) {
         printf("Failed to load shaders: %s, %s\n", desc->vertex_shader_path, desc->fragment_shader_path);
@@ -1027,6 +1029,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
 
     // Create default sampler for textures
     if (desc->num_texture_bindings > 0) {
+        PROFILE_BEGIN("gpu_pipeline: create sampler");
         VkSamplerCreateInfo sampler_info = {
             .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
             .magFilter = VK_FILTER_LINEAR,
@@ -1050,6 +1053,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         // Store texture descriptors
         pipeline->texture_descs = ALLOC_ARRAY(device->permanent_allocator, gpu_texture_desc_t, desc->num_texture_bindings);
         memcpy(pipeline->texture_descs, desc->texture_bindings, sizeof(gpu_texture_desc_t) * desc->num_texture_bindings);
+        PROFILE_END();
     }
 
     // Shader stages
@@ -1069,6 +1073,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
     };
 
     // Vertex input
+    PROFILE_BEGIN("gpu_pipeline: setup vertex input");
     VkVertexInputBindingDescription binding_description = {
         .binding = 0,
         .stride = desc->vertex_layout->stride,
@@ -1101,6 +1106,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         .vertexAttributeDescriptionCount = desc->vertex_layout->num_attributes,
         .pVertexAttributeDescriptions = attribute_descriptions
     };
+    PROFILE_END();
 
     // Input assembly
     VkPipelineInputAssemblyStateCreateInfo input_assembly = {
@@ -1174,6 +1180,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
 
     // Create uniform buffers if needed
     if (desc->num_uniform_buffers > 0) {
+        PROFILE_BEGIN("gpu_pipeline: create uniform buffers");
         pipeline->num_uniform_buffers = desc->num_uniform_buffers;
         pipeline->uniform_buffers = ALLOC_ARRAY(device->permanent_allocator, VkBuffer, desc->num_uniform_buffers);
         pipeline->uniform_memories = ALLOC_ARRAY(device->permanent_allocator, VkDeviceMemory, desc->num_uniform_buffers);
@@ -1211,10 +1218,12 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         pipeline->uniform_buffer = pipeline->uniform_buffers[0];
         pipeline->uniform_buffer_memory = pipeline->uniform_memories[0];
         pipeline->uniform_buffer_mapped = pipeline->uniform_mapped[0];
+        PROFILE_END();
     }
 
     // Create storage buffers if needed
     if (desc->num_storage_buffers > 0) {
+        PROFILE_BEGIN("gpu_pipeline: create storage buffers");
         pipeline->num_storage_buffers = desc->num_storage_buffers;
         pipeline->storage_buffers = ALLOC_ARRAY(device->permanent_allocator, VkBuffer, desc->num_storage_buffers);
         pipeline->storage_memories = ALLOC_ARRAY(device->permanent_allocator, VkDeviceMemory, desc->num_storage_buffers);
@@ -1254,6 +1263,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
             pipeline->storage_buffer_memory = pipeline->storage_memories[0];
             pipeline->storage_buffer_mapped = pipeline->storage_mapped[0];
         }
+        PROFILE_END();
     }
 
     // Create descriptor set layout
@@ -1261,6 +1271,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
     uint32_t total_bindings = desc->num_uniform_buffers + desc->num_storage_buffers + desc->num_texture_bindings;
 
     if (total_bindings > 0) {
+        PROFILE_BEGIN("gpu_pipeline: create descriptor layout");
         layout_bindings = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorSetLayoutBinding, total_bindings);
         uint32_t binding_index = 0;
 
@@ -1325,8 +1336,10 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         };
 
         VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, NULL, &pipeline->descriptor_set_layout));
+        PROFILE_END();
 
         // Create descriptor pool
+        PROFILE_BEGIN("gpu_pipeline: create descriptor pool");
         VkDescriptorPoolSize* pool_sizes = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorPoolSize, 4);  // Increased to 4 for samplers
         uint32_t pool_size_count = 0;
 
@@ -1356,7 +1369,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         }
 
         // Create pool for multiple descriptor sets (up to 1000 draws per frame)
-        const uint32_t MAX_DESCRIPTOR_SETS = 1000;
+        const uint32_t MAX_DESCRIPTOR_SETS = 16;
         pipeline->max_descriptor_sets = MAX_DESCRIPTOR_SETS;
 
         // Scale pool sizes for multiple sets
@@ -1374,9 +1387,11 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
 
         VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, NULL, &pipeline->descriptor_pool));
         printf("[Vulkan] Created descriptor pool with %u max sets\n", MAX_DESCRIPTOR_SETS);
+        PROFILE_END();
 
         // Pre-allocate buffer pools for all descriptor sets
         if (desc->num_uniform_buffers > 0) {
+            PROFILE_BEGIN("gpu_pipeline: preallocate uniform pool");
             uint32_t total_uniform_buffers = MAX_DESCRIPTOR_SETS * desc->num_uniform_buffers;
             pipeline->uniform_buffer_pool = ALLOC_ARRAY(device->permanent_allocator, VkBuffer, total_uniform_buffers);
             pipeline->uniform_memory_pool = ALLOC_ARRAY(device->permanent_allocator, VkDeviceMemory, total_uniform_buffers);
@@ -1413,9 +1428,11 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                 }
             }
             printf("[Vulkan] Pre-allocated %u uniform buffers\n", total_uniform_buffers);
+            PROFILE_END();
         }
 
         if (desc->num_storage_buffers > 0) {
+            PROFILE_BEGIN("gpu_pipeline: preallocate storage pool");
             uint32_t total_storage_buffers = MAX_DESCRIPTOR_SETS * desc->num_storage_buffers;
             pipeline->storage_buffer_pool = ALLOC_ARRAY(device->permanent_allocator, VkBuffer, total_storage_buffers);
             pipeline->storage_memory_pool = ALLOC_ARRAY(device->permanent_allocator, VkDeviceMemory, total_storage_buffers);
@@ -1452,11 +1469,13 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                 }
             }
             printf("[Vulkan] Pre-allocated %u storage buffers\n", total_storage_buffers);
+            PROFILE_END();
         }
 
         pipeline->next_buffer_index = 0;
 
         // Allocate descriptor set
+        PROFILE_BEGIN("gpu_pipeline: allocate descriptor sets");
         VkDescriptorSetAllocateInfo alloc_info = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = pipeline->descriptor_pool,
@@ -1465,8 +1484,10 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         };
 
         VK_CHECK(vkAllocateDescriptorSets(device->device, &alloc_info, &pipeline->descriptor_set));
+        PROFILE_END();
 
         // Write descriptor sets
+        PROFILE_BEGIN("gpu_pipeline: write descriptor sets");
         VkWriteDescriptorSet* writes = ALLOC_ARRAY(device->temporary_allocator, VkWriteDescriptorSet, total_bindings);
         VkDescriptorBufferInfo* buffer_infos = ALLOC_ARRAY(device->temporary_allocator, VkDescriptorBufferInfo, total_bindings);
         uint32_t write_count = 0;
@@ -1540,9 +1561,11 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         }
 
         vkUpdateDescriptorSets(device->device, write_count, writes, 0, NULL);
+        PROFILE_END();
     }
 
     // Create render pass with color and depth attachments
+    PROFILE_BEGIN("gpu_pipeline: create render pass");
     VkAttachmentDescription attachments[2] = {
         // Color attachment
         {
@@ -1594,8 +1617,10 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
     };
 
     VK_CHECK(vkCreateRenderPass(device->device, &render_pass_info, NULL, &pipeline->render_pass));
+    PROFILE_END();
 
     // Pipeline layout
+    PROFILE_BEGIN("gpu_pipeline: create pipeline layout");
     VkPipelineLayoutCreateInfo pipeline_layout_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = total_bindings > 0 ? 1 : 0,
@@ -1604,8 +1629,10 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
     };
 
     VK_CHECK(vkCreatePipelineLayout(device->device, &pipeline_layout_info, NULL, &pipeline->pipeline_layout));
+    PROFILE_END();
 
     // Create graphics pipeline
+    PROFILE_BEGIN("gpu_pipeline: create graphics pipeline");
     VkGraphicsPipelineCreateInfo pipeline_info = {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .stageCount = 2,
@@ -1624,9 +1651,12 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
     };
 
     VK_CHECK(vkCreateGraphicsPipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline->pipeline));
+    PROFILE_END();
 
+    PROFILE_BEGIN("gpu_pipeline: cleanup");
     vkDestroyShaderModule(device->device, vert_shader, NULL);
     vkDestroyShaderModule(device->device, frag_shader, NULL);
+    PROFILE_END();
 
     // Store uniform buffer info for flexible updates
     pipeline->uniform_buffer_descs = ALLOC_ARRAY(device->permanent_allocator, gpu_uniform_buffer_desc_t, desc->num_uniform_buffers);

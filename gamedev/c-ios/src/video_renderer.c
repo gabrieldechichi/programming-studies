@@ -765,8 +765,8 @@ static void render_all_frames(void) {
     // Reset renderer commands for this frame
     renderer_reset_commands();
 
-    PROFILE_BEGIN("game update and render");
     // Call game update and render for this frame
+    PROFILE_BEGIN("game_update_and_render");
     game_update_and_render(&g_ctx.game_memory);
     PROFILE_END();
 
@@ -838,7 +838,6 @@ static int start_ffmpeg_encoder(const char *filename) {
   // Open FFmpeg encoder for this request
   if (open_ffmpeg_encoder(filename) < 0) {
     fprintf(stderr, "Failed to open FFmpeg encoder\n");
-    PROFILE_END();
     return -1;
   }
 

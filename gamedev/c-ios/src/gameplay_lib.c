@@ -7,9 +7,10 @@
  * leave comment explaining thoughts
  * */
 
-#include "lib/lipsync.h"
-#include "lib/string.h"
 #include "lib/audio.h"
+#include "lib/lipsync.h"
+#include "lib/profiler.h"
+#include "lib/string.h"
 #include "renderer/renderer.h"
 
 typedef struct {
@@ -240,6 +241,8 @@ Material *material_from_asset(MaterialAsset *asset, AssetSystem *asset_system,
   b32 has_detail_tex = false;
   b32 has_tex = false;
   // Convert MaterialAssetProperty to MaterialProperty (load actual textures)
+
+  PROFILE_BEGIN("material from asset: build material properties");
   arr_foreach_ptr(asset->properties, asset_prop) {
     MaterialProperty prop = {.name = asset_prop->name,
                              .type = asset_prop->type};
@@ -270,7 +273,9 @@ Material *material_from_asset(MaterialAsset *asset, AssetSystem *asset_system,
 
     slice_append(material->properties, prop);
   }
+  PROFILE_END();
 
+  PROFILE_BEGIN("material from asset: tex hacks");
   if (!has_tex) {
     MaterialProperty prop = {
         .name =
@@ -301,8 +306,8 @@ Material *material_from_asset(MaterialAsset *asset, AssetSystem *asset_system,
         .type = MAT_PROP_TEXTURE,
     };
 
-    Texture_Handle tex_handle = asset_request(Texture, asset_system, ctx,
-                                              "textures/transparent_pixel.webp");
+    Texture_Handle tex_handle = asset_request(
+        Texture, asset_system, ctx, "textures/transparent_pixel.webp");
     Texture *tex = asset_get_data_unsafe(Texture, asset_system, tex_handle);
     assert(tex);
     assert(handle_is_valid(tex->gpu_tex_handle));
@@ -310,6 +315,7 @@ Material *material_from_asset(MaterialAsset *asset, AssetSystem *asset_system,
 
     slice_append(material->properties, prop);
   }
+  PROFILE_END();
 
   // char *vert_shader_path =
   //     str_equal(asset->shader_path.value, "materials/background_img.frag")
@@ -323,11 +329,15 @@ Material *material_from_asset(MaterialAsset *asset, AssetSystem *asset_system,
       // .defines = asset->shader_defines.items,
       // .define_count = asset->shader_defines.len,
   };
+  PROFILE_BEGIN("material from asset: load shader");
   Handle shader_handle = load_shader(shader_params);
+  PROFILE_END();
 
+  PROFILE_BEGIN("material from asset: load material");
   material->gpu_material =
       load_material(shader_handle, material->properties.items,
                     material->properties.len, material->asset->transparent);
+  PROFILE_END();
 
   return material;
 }

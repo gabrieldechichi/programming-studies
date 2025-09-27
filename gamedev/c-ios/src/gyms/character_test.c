@@ -2,6 +2,9 @@
 #include "animation_system.h"
 #include "assets.h"
 #include "camera.h"
+#include "cglm/affine.h"
+#include "cglm/util.h"
+#include "cglm/vec3.h"
 #include "context.h"
 #include "game.h"
 #include "gameplay_lib.c"
@@ -9,12 +12,10 @@
 #include "lib/audio.h"
 #include "lib/math.h"
 #include "lib/memory.h"
+#include "lib/profiler.h"
 #include "lib/typedefs.h"
 #include "platform/platform.h"
 #include "renderer/renderer.h"
-#include "cglm/vec3.h"
-#include "cglm/util.h"
-#include "cglm/affine.h"
 #include "stb/stb_image.h"
 
 slice_define(AnimationAsset_Handle);
@@ -123,6 +124,8 @@ global GameContext *g_game_ctx;
 extern GameContext *get_global_ctx() { return g_game_ctx; }
 
 void gym_init(GameMemory *memory) {
+
+  PROFILE_BEGIN("game: gym init");
   GymState *gym_state = cast(GymState *) memory->permanent_memory;
   g_game_ctx = &gym_state->ctx;
   GameContext *ctx = &gym_state->ctx;
@@ -150,9 +153,11 @@ void gym_init(GameMemory *memory) {
   gym_state->asset_system = asset_system_init(&ctx->allocator, 512);
 
   // Preload all textures
-  u32 num_textures = sizeof(texture_preload_paths) / sizeof(texture_preload_paths[0]);
+  u32 num_textures =
+      sizeof(texture_preload_paths) / sizeof(texture_preload_paths[0]);
   for (u32 i = 0; i < num_textures; i++) {
-    asset_request(Texture, &gym_state->asset_system, ctx, texture_preload_paths[i]);
+    asset_request(Texture, &gym_state->asset_system, ctx,
+                  texture_preload_paths[i]);
   }
 
   gym_state->model_asset_handle = asset_request(
@@ -222,9 +227,7 @@ void gym_init(GameMemory *memory) {
   gym_state->quad_ready = false;
 
   // Load simple_quad shader
-  LoadShaderParams shader_params = {
-      .shader_name = "simple_quad"
-  };
+  LoadShaderParams shader_params = {.shader_name = "simple_quad"};
   gym_state->quad_shader_handle = load_shader(shader_params);
 
   // Create quad mesh
@@ -232,29 +235,29 @@ void gym_init(GameMemory *memory) {
     // Quad vertices: position (3 floats) + uv (2 floats)
     float quad_vertices[] = {
         // Position        UV
-        -1.0f, -1.0f, 0.0f,  0.0f, 1.0f,  // Bottom-left
-         1.0f, -1.0f, 0.0f,  1.0f, 1.0f,  // Bottom-right
-         1.0f,  1.0f, 0.0f,  1.0f, 0.0f,  // Top-right
-        -1.0f,  1.0f, 0.0f,  0.0f, 0.0f   // Top-left
+        -1.0f, -1.0f, 0.0f, 0.0f, 1.0f, // Bottom-left
+        1.0f,  -1.0f, 0.0f, 1.0f, 1.0f, // Bottom-right
+        1.0f,  1.0f,  0.0f, 1.0f, 0.0f, // Top-right
+        -1.0f, 1.0f,  0.0f, 0.0f, 0.0f  // Top-left
     };
 
     // Indices for 2 triangles (CCW winding)
     u32 quad_indices[] = {
-        0, 2, 1,  // First triangle (reversed for CCW)
-        0, 3, 2   // Second triangle (reversed for CCW)
+        0, 2, 1, // First triangle (reversed for CCW)
+        0, 3, 2  // Second triangle (reversed for CCW)
     };
 
-    SubMeshData quad_mesh_data = {
-        .vertex_buffer = (u8*)quad_vertices,
-        .len_vertex_buffer = sizeof(quad_vertices) / sizeof(float),
-        .indices = quad_indices,
-        .len_indices = 6,
-        .len_vertices = 4,
-        .len_blendshapes = 0,
-        .blendshape_deltas = NULL
-    };
+    SubMeshData quad_mesh_data = {.vertex_buffer = (u8 *)quad_vertices,
+                                  .len_vertex_buffer =
+                                      sizeof(quad_vertices) / sizeof(float),
+                                  .indices = quad_indices,
+                                  .len_indices = 6,
+                                  .len_vertices = 4,
+                                  .len_blendshapes = 0,
+                                  .blendshape_deltas = NULL};
 
-    gym_state->quad_mesh_handle = renderer_create_submesh(&quad_mesh_data, false);
+    gym_state->quad_mesh_handle =
+        renderer_create_submesh(&quad_mesh_data, false);
   }
 
   gym_state->camera = (Camera){
@@ -263,11 +266,15 @@ void gym_init(GameMemory *memory) {
       .fov = 14.0f,
   };
   quat_identity(gym_state->camera.rot);
+
+  PROFILE_END();
 }
 
 void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
   GameContext *ctx = &gym_state->ctx;
   // Load model data first
+  //
+  PROFILE_BEGIN("game: loading model");
   if (!gym_state->model_data &&
       asset_is_ready(asset_system, gym_state->model_asset_handle)) {
     gym_state->model_data = asset_get_data(
@@ -418,7 +425,9 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
              FMT_UINT(gym_state->model_data->num_meshes),
              FMT_UINT(total_submeshes));
   }
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: create skinned mesh");
   // Wait for all materials to load, then create SkinnedModel
   if (gym_state->model_data &&
       !gym_state->character.skinned_model.meshes.items) {
@@ -441,20 +450,24 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
         Material *material;
       } UniqueMaterial;
 
-      UniqueMaterial *unique_materials = ALLOC_ARRAY(&ctx->temp_allocator, UniqueMaterial, gym_state->material_count);
+      UniqueMaterial *unique_materials = ALLOC_ARRAY(
+          &ctx->temp_allocator, UniqueMaterial, gym_state->material_count);
       u32 unique_count = 0;
 
       // Create materials array that maps submesh index to material
       gym_state->materials =
           slice_new_ALLOC(&ctx->allocator, Material, gym_state->material_count);
 
+      PROFILE_BEGIN("game: create materials");
       for (u32 i = 0; i < gym_state->material_count; i++) {
         if (gym_state->material_asset_handles[i].idx != 0) {
           // Check if we already created this material
           Material *existing_material = NULL;
           for (u32 j = 0; j < unique_count; j++) {
-            if (handle_equals(cast_handle(Handle, unique_materials[j].handle),
-                              cast_handle(Handle, gym_state->material_asset_handles[i]))) {
+            if (handle_equals(
+                    cast_handle(Handle, unique_materials[j].handle),
+                    cast_handle(Handle,
+                                gym_state->material_asset_handles[i]))) {
               existing_material = unique_materials[j].material;
               break;
             }
@@ -465,24 +478,31 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
             slice_append(gym_state->materials, *existing_material);
             LOG_INFO("Reusing material for submesh %", FMT_UINT(i));
           } else {
+
+            PROFILE_BEGIN("game: create single material");
             // Create new material
             MaterialAsset *material_asset =
                 asset_get_data(MaterialAsset, &gym_state->asset_system,
                                gym_state->material_asset_handles[i]);
             assert(material_asset);
+            PROFILE_BEGIN("game: material from asset");
             Material *material = material_from_asset(
                 material_asset, &gym_state->asset_system, ctx);
+            PROFILE_END();
             slice_append(gym_state->materials, *material);
 
             // Add to unique materials list
-            unique_materials[unique_count].handle = gym_state->material_asset_handles[i];
-            unique_materials[unique_count].material = &gym_state->materials.items[gym_state->materials.len - 1];
+            unique_materials[unique_count].handle =
+                gym_state->material_asset_handles[i];
+            unique_materials[unique_count].material =
+                &gym_state->materials.items[gym_state->materials.len - 1];
             unique_count++;
 
             LOG_INFO("Created unique material % (handle idx=%) for submesh %",
                      FMT_STR(material_asset->name.value),
                      FMT_UINT(gym_state->material_asset_handles[i].idx),
                      FMT_UINT(i));
+            PROFILE_END();
           }
         } else {
           // Use default white material for submeshes without materials
@@ -494,9 +514,11 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
           slice_append(gym_state->materials, default_material);
         }
       }
+      PROFILE_END();
 
-      LOG_INFO("Material deduplication: % unique materials from % total submeshes",
-               FMT_UINT(unique_count), FMT_UINT(gym_state->material_count));
+      LOG_INFO(
+          "Material deduplication: % unique materials from % total submeshes",
+          FMT_UINT(unique_count), FMT_UINT(gym_state->material_count));
 
       // Create SkinnedModel with loaded materials
       Character *entity = &gym_state->character;
@@ -506,15 +528,19 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
       mat_trs((vec3){0, 0, 0}, temp_rot, (vec3){0.01, 0.01, 0.01},
               entity->model_matrix);
 
+      PROFILE_BEGIN("game: skmodel from asset");
       entity->skinned_model =
           skmodel_from_asset(ctx, gym_state->model_data, gym_state->materials);
+      PROFILE_END();
 
       LOG_INFO("SkinnedModel created with % materials",
                FMT_UINT(gym_state->materials.len));
     }
   }
+  PROFILE_END();
 
   // Load animations as they become ready
+  PROFILE_BEGIN("game: load animations");
   if (gym_state->model_data && gym_state->materials.len > 0 &&
       gym_state->animations.len < gym_state->anim_asset_handles.len) {
 
@@ -605,7 +631,9 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
       LOG_WARN("r_eye_geo mesh not found in model");
     }
   }
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: load quad material");
   // Setup quad material when texture and shader are ready
   if (!gym_state->quad_ready &&
       asset_is_ready(asset_system, gym_state->skybox_texture_handle) &&
@@ -613,20 +641,16 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
 
     // Create material properties using the texture handle directly
     MaterialProperty properties[] = {
-        {
-            .name = STR_FROM_CSTR("uTexture"),
-            .type = MAT_PROP_TEXTURE,
-            .value.texture = gym_state->skybox_texture_handle
-        }
-    };
+        {.name = STR_FROM_CSTR("uTexture"),
+         .type = MAT_PROP_TEXTURE,
+         .value.texture = gym_state->skybox_texture_handle}};
 
     // Load the material
-    gym_state->quad_material_handle = load_material(
-        gym_state->quad_shader_handle,
-        properties,
-        1,  // property count
-        false  // not transparent
-    );
+    gym_state->quad_material_handle =
+        load_material(gym_state->quad_shader_handle, properties,
+                      1,    // property count
+                      false // not transparent
+        );
 
     LOG_INFO("Created quad material with shader handle idx=%, gen=%",
              FMT_UINT(gym_state->quad_material_handle.idx),
@@ -635,7 +659,9 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
     gym_state->quad_ready = true;
     LOG_INFO("Skybox material set successfully");
   }
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: load costumes");
   // Load costume model data for all costumes
   for (u32 costume_idx = 0; costume_idx < gym_state->num_costumes;
        costume_idx++) {
@@ -697,7 +723,9 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
           FMT_UINT(total_costume_submeshes));
     }
   }
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: create costumes");
   // Create costume SkinnedModels when materials are ready
   for (u32 costume_idx = 0; costume_idx < gym_state->num_costumes;
        costume_idx++) {
@@ -725,8 +753,9 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
           Material *material;
         } UniqueMaterial;
 
-        UniqueMaterial *unique_materials = ALLOC_ARRAY(&ctx->temp_allocator, UniqueMaterial,
-                                                       gym_state->costume_material_counts[costume_idx]);
+        UniqueMaterial *unique_materials =
+            ALLOC_ARRAY(&ctx->temp_allocator, UniqueMaterial,
+                        gym_state->costume_material_counts[costume_idx]);
         u32 unique_count = 0;
 
         // Create materials array for this costume
@@ -741,8 +770,12 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
             // Check if we already created this material
             Material *existing_material = NULL;
             for (u32 j = 0; j < unique_count; j++) {
-              if (handle_equals(cast_handle(Handle, unique_materials[j].handle),
-                               cast_handle(Handle, gym_state->costume_material_handles_array[costume_idx][i]))) {
+              if (handle_equals(
+                      cast_handle(Handle, unique_materials[j].handle),
+                      cast_handle(
+                          Handle,
+                          gym_state->costume_material_handles_array[costume_idx]
+                                                                   [i]))) {
                 existing_material = unique_materials[j].material;
                 break;
               }
@@ -751,7 +784,7 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
             if (existing_material) {
               // Reuse existing material
               slice_append(gym_state->costume_materials_array[costume_idx],
-                          *existing_material);
+                           *existing_material);
               LOG_INFO("Costume % - Reusing material for submesh %",
                        FMT_UINT(costume_idx), FMT_UINT(i));
             } else {
@@ -769,14 +802,19 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
               unique_materials[unique_count].handle =
                   gym_state->costume_material_handles_array[costume_idx][i];
               unique_materials[unique_count].material =
-                  &gym_state->costume_materials_array[costume_idx].items[
-                      gym_state->costume_materials_array[costume_idx].len - 1];
+                  &gym_state->costume_materials_array[costume_idx].items
+                       [gym_state->costume_materials_array[costume_idx].len -
+                        1];
               unique_count++;
 
-              LOG_INFO("Costume % - Created unique material % (handle idx=%) for submesh %",
-                       FMT_UINT(costume_idx), FMT_STR(material_asset->name.value),
-                       FMT_UINT(gym_state->costume_material_handles_array[costume_idx][i].idx),
-                       FMT_UINT(i));
+              LOG_INFO(
+                  "Costume % - Created unique material % (handle idx=%) for "
+                  "submesh %",
+                  FMT_UINT(costume_idx), FMT_STR(material_asset->name.value),
+                  FMT_UINT(
+                      gym_state->costume_material_handles_array[costume_idx][i]
+                          .idx),
+                  FMT_UINT(i));
             }
           } else {
             LOG_WARN("No material for costume % submesh %, using default",
@@ -787,7 +825,8 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
           }
         }
 
-        LOG_INFO("Costume % material deduplication: % unique materials from % total submeshes",
+        LOG_INFO("Costume % material deduplication: % unique materials from % "
+                 "total submeshes",
                  FMT_UINT(costume_idx), FMT_UINT(unique_count),
                  FMT_UINT(gym_state->costume_material_counts[costume_idx]));
 
@@ -864,6 +903,7 @@ void handle_loading(GymState *gym_state, AssetSystem *asset_system) {
       }
     }
   }
+  PROFILE_END();
 }
 
 void gym_update_and_render(GameMemory *memory) {
@@ -877,21 +917,32 @@ void gym_update_and_render(GameMemory *memory) {
   AssetSystem *asset_system = &gym_state->asset_system;
   GameInput *input = &gym_state->input;
 
+  PROFILE_BEGIN("game: handle loading");
   handle_loading(gym_state, asset_system);
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: asset update");
   asset_system_update(asset_system, ctx);
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: input update");
   input_update(input, &memory->input_events, memory->time.now);
+  PROFILE_END();
   // camera_update(&gym_state->camera, input, dt);
 
+  PROFILE_BEGIN("game: audio update");
   audio_update(audio_system, ctx, dt);
+  PROFILE_END();
 
   Character *entity = &gym_state->character;
 
+  PROFILE_BEGIN("game: update camera");
   camera_update_uniforms(&gym_state->camera, memory->canvas.width,
                          memory->canvas.height);
   renderer_update_camera(&gym_state->camera.uniforms);
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: light update");
   local_persist vec3 light_dir = {0.490610, 0.141831, 0.859758};
   // if (input->right.is_pressed) {
   //   light_dir[0] += 2 * dt;
@@ -927,7 +978,9 @@ void gym_update_and_render(GameMemory *memory) {
       .intensity = 1.0};
 
   renderer_set_lights(&gym_state->directional_lights);
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: layered animations");
   // Handle layered animations
   if ((gym_state->lower_body_animations_loaded.len > 0 ||
        gym_state->upper_body_animations_loaded.len > 0 ||
@@ -1038,9 +1091,14 @@ void gym_update_and_render(GameMemory *memory) {
       }
     }
 
+    PROFILE_BEGIN("game: animate entity update");
     animated_entity_update(animated, dt);
+    PROFILE_END();
+    PROFILE_BEGIN("game: evaluate pose");
     animated_entity_evaluate_pose(animated, gym_state->model_data);
+    PROFILE_END();
 
+    PROFILE_BEGIN("game: tolan stuff");
     // tolan stuff
     {
       if (gym_state->left_eye_mesh_idx >= 0 &&
@@ -1077,15 +1135,20 @@ void gym_update_and_render(GameMemory *memory) {
         joint->translation[1] = 5.5;
       }
     }
+    PROFILE_END();
 
+    PROFILE_BEGIN("game: animation apply pose");
     animated_entity_apply_pose(animated, gym_state->model_data,
                                &entity->skinned_model);
+    PROFILE_END();
   }
+  PROFILE_END();
 
   // Color clear_color = color_from_hex(0xebebeb);
   Color clear_color = color_from_hex(0x000000);
   renderer_clear(clear_color);
 
+  PROFILE_BEGIN("game: draw bg");
   // Draw background quad if ready
   if (gym_state->quad_ready) {
     // Create model matrix for the quad (position it behind the character)
@@ -1094,13 +1157,12 @@ void gym_update_and_render(GameMemory *memory) {
     glm_mat4_identity(quad_model);
 
     // Render the quad using the non-skinned mesh path
-    renderer_draw_mesh(
-        gym_state->quad_mesh_handle,
-        gym_state->quad_material_handle,
-        quad_model
-    );
+    renderer_draw_mesh(gym_state->quad_mesh_handle,
+                       gym_state->quad_material_handle, quad_model);
   }
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: draw skinned meshes");
   // todo: draw skinned mesh function
   SkinnedModel *skinned_model = &entity->skinned_model;
   mat4 *model_matrix = &entity->model_matrix;
@@ -1127,7 +1189,9 @@ void gym_update_and_render(GameMemory *memory) {
       }
     }
   }
+  PROFILE_END();
 
+  PROFILE_BEGIN("game: costumes");
   // Render all costumes that are loaded
   for (u32 costume_idx = 0; costume_idx < gym_state->num_costumes;
        costume_idx++) {
@@ -1136,6 +1200,7 @@ void gym_update_and_render(GameMemory *memory) {
         gym_state->costume_map_created[costume_idx]) {
 
       // Copy mapped joint matrices from Tolan to this costume
+      PROFILE_BEGIN("game: costume copy joints");
       for (u32 joint_idx = 0;
            joint_idx < gym_state->costume_joint_counts[costume_idx];
            joint_idx++) {
@@ -1162,8 +1227,8 @@ void gym_update_and_render(GameMemory *memory) {
               sign = -1.0;
             }
             quaternion q;
-            quat_from_euler((vec3){glm_rad(90), glm_rad(-15 * sign), glm_rad(0)},
-                            q);
+            quat_from_euler(
+                (vec3){glm_rad(90), glm_rad(-15 * sign), glm_rad(0)}, q);
             mat4 t;
             mat_tr((vec3){0.115 * sign, -0.000, 0.0}, q, t);
             mat4_mul(entity->skinned_model.joint_matrices.items[tolan_idx], t,
@@ -1181,10 +1246,14 @@ void gym_update_and_render(GameMemory *memory) {
                                 .joint_matrices.items[joint_idx]);
         }
       }
+      PROFILE_END();
 
+      PROFILE_BEGIN("game: draw costumes");
       // Render this costume with same transform as Tolan
-      for (u32 i = 0; i < gym_state->costume_skinned_models[costume_idx].meshes.len; i++) {
-        SkinnedMesh *mesh = &gym_state->costume_skinned_models[costume_idx].meshes.items[i];
+      for (u32 i = 0;
+           i < gym_state->costume_skinned_models[costume_idx].meshes.len; i++) {
+        SkinnedMesh *mesh =
+            &gym_state->costume_skinned_models[costume_idx].meshes.items[i];
         BlendshapeParams *blendshape_parms =
             ALLOC(&ctx->temp_allocator, BlendshapeParams);
         blendshape_parms->count = mesh->blendshape_weights.len;
@@ -1197,16 +1266,22 @@ void gym_update_and_render(GameMemory *memory) {
           Handle mesh_handle = submesh->mesh_handle;
           Handle material_handle = submesh->material_handle;
 
-          if (handle_is_valid(mesh_handle) && handle_is_valid(material_handle)) {
-            renderer_draw_skinned_mesh(mesh_handle, material_handle, *model_matrix,
-                                       gym_state->costume_skinned_models[costume_idx].joint_matrices.items,
-                                       gym_state->costume_skinned_models[costume_idx].joint_matrices.len,
-                                       blendshape_parms);
+          if (handle_is_valid(mesh_handle) &&
+              handle_is_valid(material_handle)) {
+            renderer_draw_skinned_mesh(
+                mesh_handle, material_handle, *model_matrix,
+                gym_state->costume_skinned_models[costume_idx]
+                    .joint_matrices.items,
+                gym_state->costume_skinned_models[costume_idx]
+                    .joint_matrices.len,
+                blendshape_parms);
           }
         }
       }
+      PROFILE_END();
     }
   }
+  PROFILE_END();
 
   input_end_frame(input);
 }
