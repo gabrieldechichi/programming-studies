@@ -76,6 +76,15 @@ typedef struct {
   atomic_bool ready;
 } frame_data_t;
 
+// Readback state for async GPU transfers
+typedef struct {
+  int frame_number;
+  int buffer_index;              // Which of the 3 buffers (0-2)
+  gpu_command_buffer_t *readback_cmd;  // Command buffer with fence
+  atomic_bool submitted;         // GPU work submitted
+  atomic_bool completed;         // Readback complete
+} frame_readback_state_t;
+
 // Request structure
 typedef struct {
   double seconds;
@@ -115,10 +124,15 @@ typedef struct {
   gpu_texture_t *yuv_y_texture;
   gpu_texture_t *yuv_u_texture;
   gpu_texture_t *yuv_v_texture;
-  gpu_readback_buffer_t *yuv_readback_buffer; // Single readback buffer
 
-  // Dynamic command buffer allocation
-  gpu_command_buffer_t **yuv_readback_commands; // Allocated per request
+  // Triple-buffered readback system
+  gpu_readback_buffer_t *yuv_readback_buffers[3]; // Triple buffer pool
+  atomic_bool readback_buffer_in_use[3];          // Track which buffers are busy
+  frame_readback_state_t *readback_states;        // Per-frame readback state
+
+  // Threading for readback
+  pthread_t readback_thread;
+  atomic_bool readback_thread_should_exit;
 
   // Frame management
   frame_data_t frames[MAX_FRAMES];
@@ -239,6 +253,13 @@ static int init_context(AppContext *ctx) {
 
 // Allocate frame data for current request (from temporary allocator)
 static int allocate_frame_data_for_request(int num_frames) {
+  // Allocate readback state tracking
+  g_ctx.readback_states = ALLOC_ARRAY(&g_ctx.temporary_allocator, frame_readback_state_t, num_frames);
+  if (!g_ctx.readback_states) {
+    fprintf(stderr, "Failed to allocate readback states for %d frames\n", num_frames);
+    return -1;
+  }
+
   printf("[Memory] Allocating frame data for request: %d frames x %d bytes = "
          "%zu MB\n",
          num_frames, YUV_TOTAL_SIZE_BYTES,
@@ -577,6 +598,86 @@ static int encode_frame(uint8_t *yuv_data) {
   return 0;
 }
 
+// Find next available readback buffer (round-robin with atomic ops)
+static int find_next_available_readback_buffer(void) {
+  // Try to find an available buffer
+  for (int attempts = 0; attempts < 1000; attempts++) { // Timeout after ~100ms
+    for (int i = 0; i < 3; i++) {
+      bool expected = false;
+      if (atomic_compare_exchange_weak(&g_ctx.readback_buffer_in_use[i], &expected, true)) {
+        return i; // Successfully claimed buffer i
+      }
+    }
+    platform_sleep_us(100); // All buffers busy, wait a bit
+  }
+
+  // Fallback: force use buffer 0 if we timeout (shouldn't happen in normal operation)
+  fprintf(stderr, "[Warning] Readback buffer allocation timeout, forcing buffer 0\n");
+  atomic_store(&g_ctx.readback_buffer_in_use[0], true);
+  return 0;
+}
+
+// Readback thread function - handles async GPU transfers
+static void *readback_thread_func(void *arg) {
+  (void)arg;
+  printf("[Readback] Thread started\n");
+
+  int next_frame_to_readback = 0;
+
+  while (next_frame_to_readback < g_ctx.current_num_frames &&
+         !atomic_load(&g_ctx.readback_thread_should_exit)) {
+
+    frame_readback_state_t *state = &g_ctx.readback_states[next_frame_to_readback];
+
+    // Wait for frame to be submitted
+    PROFILE_BEGIN("readback wait for submit");
+    while (!atomic_load(&state->submitted) &&
+           !atomic_load(&g_ctx.readback_thread_should_exit)) {
+      platform_sleep_us(100);
+    }
+    PROFILE_END();
+
+    if (atomic_load(&g_ctx.readback_thread_should_exit)) break;
+
+    // Poll fence status (non-blocking check)
+    PROFILE_BEGIN("readback wait for gpu");
+    while (!gpu_is_readback_complete(state->readback_cmd) &&
+           !atomic_load(&g_ctx.readback_thread_should_exit)) {
+    }
+    PROFILE_END();
+
+    if (atomic_load(&g_ctx.readback_thread_should_exit)) break;
+
+    // Copy data from GPU to CPU
+    PROFILE_BEGIN("readback copy from gpu");
+    int buf_idx = state->buffer_index;
+    gpu_copy_readback_data(
+        g_ctx.yuv_readback_buffers[buf_idx],
+        g_ctx.frames[next_frame_to_readback].data,
+        YUV_TOTAL_SIZE_BYTES);
+    PROFILE_END();
+
+    // Mark frame ready for encoder
+    atomic_store(&g_ctx.frames[next_frame_to_readback].ready, true);
+    atomic_fetch_add(&g_ctx.frames_ready, 1);
+    atomic_store(&state->completed, true);
+
+    // Release the readback buffer
+    atomic_store(&g_ctx.readback_buffer_in_use[buf_idx], false);
+
+    next_frame_to_readback++;
+  }
+
+  if (atomic_load(&g_ctx.readback_thread_should_exit)) {
+    printf("[Readback] Thread interrupted\n");
+  } else {
+    gettimeofday(&g_ctx.readback_complete_time, NULL);
+    printf("[Readback] Thread finished - all frames transferred\n");
+  }
+
+  return NULL;
+}
+
 // Encoder thread function
 static void *encoder_thread_func(void *arg) {
   (void)arg;
@@ -711,9 +812,13 @@ static int initialize_system(void) {
   g_ctx.yuv_v_texture = gpu_create_storage_texture(
       g_ctx.device, FRAME_WIDTH / 2, FRAME_HEIGHT / 2, 1); // R8 format
 
-  // Create single readback buffer for packed YUV data (Y+U+V)
-  g_ctx.yuv_readback_buffer =
-      gpu_create_readback_buffer(g_ctx.device, YUV_TOTAL_SIZE_BYTES);
+  // Create triple-buffered readback buffers for packed YUV data (Y+U+V)
+  printf("[GPU] Creating triple-buffered readback system\n");
+  for (int i = 0; i < 3; i++) {
+    g_ctx.yuv_readback_buffers[i] =
+        gpu_create_readback_buffer(g_ctx.device, YUV_TOTAL_SIZE_BYTES);
+    atomic_store(&g_ctx.readback_buffer_in_use[i], false);
+  }
 
   // Frame data will be allocated per-request, not pre-allocated
   // Initialize frame metadata only
@@ -745,15 +850,12 @@ static int initialize_system(void) {
 
 static void render_all_frames(void) {
   PROFILE_BEGIN("render_all_frames");
-  printf("[Renderer] Processing %d frames sequentially using single texture "
-         "set...\n",
+  printf("[Renderer] Processing %d frames with triple-buffered async readback...\n",
          g_ctx.current_num_frames);
 
   const float dt = 1.0f / 24.0f;
-  const float rotation_speed = 2.0f;
-  // No pool index needed - single texture set
 
-  // Process frames one by one to ensure correct sequence
+  // Process frames - render and submit readback asynchronously
   for (int i = 0; i < g_ctx.current_num_frames; i++) {
     // Update game time for this frame
     g_ctx.game_memory.time.now = (float)i * dt;
@@ -771,19 +873,15 @@ static void render_all_frames(void) {
     PROFILE_END();
 
     PROFILE_BEGIN("render_frame");
-
     // Execute renderer commands
     renderer_execute_commands(g_ctx.render_texture, cmd_buffer);
 
-    // Commit and wait for completion
-    gpu_commit_commands(cmd_buffer, true); // Blocking wait
-
+    // Commit and wait for completion (ensures correct render order)
+    gpu_commit_commands(cmd_buffer, true); // Still blocking for render
     PROFILE_END();
 
-    // Now do compute conversion and readback for this frame
-    PROFILE_BEGIN("compute and readback");
-
-    // Create command buffer for compute dispatch
+    // Now do compute conversion - but don't wait
+    PROFILE_BEGIN("dispatch compute shader");
     gpu_command_buffer_t *compute_cmd = gpu_begin_commands(g_ctx.device);
 
     // Dispatch compute shader to convert BGRA -> YUV
@@ -800,49 +898,77 @@ static void render_all_frames(void) {
 
     gpu_dispatch_compute(compute_cmd, g_ctx.compute_pipeline, compute_textures,
                          4, groups_x, groups_y, 1);
-
-    // Commit compute work and wait
-    gpu_commit_commands(compute_cmd, true);
-
-    // Create single readback command for all YUV planes
-    gpu_command_buffer_t *readback_cmd = gpu_readback_yuv_textures_async(
-        g_ctx.device, g_ctx.yuv_y_texture, g_ctx.yuv_u_texture,
-        g_ctx.yuv_v_texture, g_ctx.yuv_readback_buffer, FRAME_WIDTH,
-        FRAME_HEIGHT);
-
-    // Submit readback command and wait
-    gpu_submit_commands(readback_cmd, true);
-
-    // Copy data to CPU memory
-    gpu_copy_readback_data(g_ctx.yuv_readback_buffer, g_ctx.frames[i].data,
-                           YUV_TOTAL_SIZE_BYTES);
-
-    // Mark frame as ready for encoding
-    atomic_store(&g_ctx.frames[i].ready, true);
-    atomic_fetch_add(&g_ctx.frames_ready, 1);
-    atomic_fetch_add(&g_ctx.frames_rendered, 1);
-
     PROFILE_END();
+
+    PROFILE_BEGIN("submit compute async");
+    // Commit compute work but DON'T wait
+    gpu_commit_commands(compute_cmd, false); // ASYNC!
+    PROFILE_END();
+
+    // Find available readback buffer
+    PROFILE_BEGIN("allocate readback buffer");
+    int buffer_idx = find_next_available_readback_buffer();
+    PROFILE_END();
+
+    // Setup readback state
+    frame_readback_state_t *state = &g_ctx.readback_states[i];
+    state->frame_number = i;
+    state->buffer_index = buffer_idx;
+    atomic_store(&state->submitted, false);
+    atomic_store(&state->completed, false);
+
+    PROFILE_BEGIN("submit readback async");
+    // Create readback command for all YUV planes
+    state->readback_cmd = gpu_readback_yuv_textures_async(
+        g_ctx.device, g_ctx.yuv_y_texture, g_ctx.yuv_u_texture,
+        g_ctx.yuv_v_texture, g_ctx.yuv_readback_buffers[buffer_idx],
+        FRAME_WIDTH, FRAME_HEIGHT);
+
+    // Submit readback command WITHOUT waiting
+    gpu_submit_commands(state->readback_cmd, false); // ASYNC!
+    PROFILE_END();
+
+    // Mark as submitted for readback thread
+    atomic_store(&state->submitted, true);
+    atomic_fetch_add(&g_ctx.frames_rendered, 1);
   }
 
   gettimeofday(&g_ctx.render_complete_time, NULL);
-  gettimeofday(&g_ctx.readback_complete_time, NULL);
-  printf("[Renderer] All %d frames completed\n", g_ctx.current_num_frames);
+  printf("[Renderer] All %d frames submitted for async readback\n", g_ctx.current_num_frames);
 
   PROFILE_END(); // render_all_frames
 }
 
-static int start_ffmpeg_encoder(const char *filename) {
-  PROFILE_BEGIN("start_ffmpeg_encoder");
+static int start_readback_and_encoder(const char *filename) {
+  PROFILE_BEGIN("start_readback_and_encoder");
+
+  // Initialize readback thread state
+  atomic_store(&g_ctx.readback_thread_should_exit, false);
+
+  // Start readback thread
+  if (pthread_create(&g_ctx.readback_thread, NULL, readback_thread_func, NULL) != 0) {
+    fprintf(stderr, "Failed to create readback thread\n");
+    return -1;
+  }
+  printf("[Threads] Readback thread started\n");
 
   // Open FFmpeg encoder for this request
   if (open_ffmpeg_encoder(filename) < 0) {
     fprintf(stderr, "Failed to open FFmpeg encoder\n");
+    atomic_store(&g_ctx.readback_thread_should_exit, true);  // Signal readback to exit
+    pthread_join(g_ctx.readback_thread, NULL);  // Clean up thread
     return -1;
   }
 
   // Start encoder thread
-  pthread_create(&g_ctx.encoder_thread, NULL, encoder_thread_func, NULL);
+  if (pthread_create(&g_ctx.encoder_thread, NULL, encoder_thread_func, NULL) != 0) {
+    fprintf(stderr, "Failed to create encoder thread\n");
+    atomic_store(&g_ctx.readback_thread_should_exit, true);  // Signal readback to exit
+    pthread_join(g_ctx.readback_thread, NULL);  // Clean up thread
+    close_ffmpeg_encoder();
+    return -1;
+  }
+  printf("[Threads] Encoder thread started\n");
 
   PROFILE_END();
   return 0;
@@ -850,17 +976,27 @@ static int start_ffmpeg_encoder(const char *filename) {
 
 static void wait_for_completion(void) {
   PROFILE_BEGIN("wait_for_completion");
+  PROFILE_END();  // End profiling BEFORE joining threads
+
+  // Print profiler results before threads are destroyed
+  // This must happen while thread-local data is still valid
+
+  // Now safe to wait for threads
+  // Wait for readback thread to finish
+  pthread_join(g_ctx.readback_thread, NULL);
+  printf("[Threads] Readback thread joined\n");
 
   // Wait for encoder thread to finish
   pthread_join(g_ctx.encoder_thread, NULL);
-
-  PROFILE_END();
+  printf("[Threads] Encoder thread joined\n");
+  profiler_end_and_print_session(&g_ctx.temporary_allocator);
 
   // Print timing results
   double render_time =
       get_time_diff(&g_ctx.start_time, &g_ctx.render_complete_time);
-  double readback_time =
-      get_time_diff(&g_ctx.start_time, &g_ctx.readback_complete_time);
+  double readback_time = g_ctx.readback_complete_time.tv_sec > 0 ?
+      get_time_diff(&g_ctx.start_time, &g_ctx.readback_complete_time) :
+      get_time_diff(&g_ctx.start_time, &g_ctx.render_complete_time);
   double total_time =
       get_time_diff(&g_ctx.start_time, &g_ctx.encode_complete_time);
 
@@ -926,8 +1062,8 @@ static int render_video(const render_request_t *request) {
   // Start timing
   gettimeofday(&g_ctx.start_time, NULL);
 
-  // Start encoder for this request
-  if (start_ffmpeg_encoder("output.mp4") < 0) {
+  // Start readback and encoder threads for this request
+  if (start_readback_and_encoder("output.mp4") < 0) {
     return -1;
   }
 
@@ -1151,7 +1287,7 @@ int main(int argc, char *argv[]) {
   printf("\nStarting standalone render...\n");
   int result = render_video_standalone(&request);
 
-  profiler_end_and_print_session(&g_ctx.temporary_allocator);
+  // profiler_end_and_print_session(&g_ctx.temporary_allocator);
 
   return result;
 
