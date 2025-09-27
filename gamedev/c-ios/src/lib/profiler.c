@@ -138,7 +138,8 @@ void profiler_end_and_print_session(Allocator *allocator) {
 
   typedef struct {
     ProfileAnchor *anchor;
-    f64 avg_exclusive_us;
+    f64 sort_time_us;  // Time to sort by (inclusive if has children, exclusive otherwise)
+    b32 has_children;
   } SortedAnchor;
 
   SortedAnchor sorted_anchors[PROFILER_MAX_ANCHORS];
@@ -170,18 +171,32 @@ void profiler_end_and_print_session(Allocator *allocator) {
           anchor->tsc_elapsed_inclusive > total_profiled_tsc) {
         total_profiled_tsc = anchor->tsc_elapsed_inclusive;
       }
-      u64 exclusive_us = anchor->tsc_elapsed_exclusive;
+
+      // Determine if this anchor has children
+      b32 has_children = (anchor->tsc_elapsed_inclusive > anchor->tsc_elapsed_exclusive);
+
+      // Choose sort metric based on whether it has children
+      f64 sort_time;
+      if (has_children) {
+        // Sort by inclusive time (total time including children)
+        sort_time = (f64)anchor->tsc_elapsed_inclusive / (f64)anchor->hit_count;
+      } else {
+        // Sort by exclusive time (just this function)
+        sort_time = (f64)anchor->tsc_elapsed_exclusive / (f64)anchor->hit_count;
+      }
+
       sorted_anchors[active_count].anchor = anchor;
-      sorted_anchors[active_count].avg_exclusive_us =
-          (f64) exclusive_us / (f64)anchor->hit_count;
+      sorted_anchors[active_count].sort_time_us = sort_time;
+      sorted_anchors[active_count].has_children = has_children;
       active_count++;
     }
   }
 
+  // Bubble sort by the hybrid metric
   for (u32 i = 0; i < active_count - 1; i++) {
     for (u32 j = 0; j < active_count - i - 1; j++) {
-      if (sorted_anchors[j].avg_exclusive_us <
-          sorted_anchors[j + 1].avg_exclusive_us) {
+      if (sorted_anchors[j].sort_time_us <
+          sorted_anchors[j + 1].sort_time_us) {
         SortedAnchor temp = sorted_anchors[j];
         sorted_anchors[j] = sorted_anchors[j + 1];
         sorted_anchors[j + 1] = temp;
@@ -203,7 +218,8 @@ void profiler_end_and_print_session(Allocator *allocator) {
   sb_append_f32(&sb, platform_ticks_to_ms(total_profiled_tsc), 4);
   sb_append(&sb, "ms\n");
   sb_append(&sb, "--------------------------------------\n");
-  sb_append(&sb, "(Sorted by average exclusive time)\n");
+  sb_append(&sb, "(Sorted by inclusive time if has children,\n");
+  sb_append(&sb, " otherwise by exclusive time)\n");
   sb_append(&sb, "--------------------------------------\n");
 
   for (u32 i = 0; i < active_count; i++) {

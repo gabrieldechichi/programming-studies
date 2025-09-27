@@ -93,6 +93,14 @@ typedef struct {
   int num_frames;
 } render_request_t;
 
+// Audio ring buffer for AAC frame management
+typedef struct {
+  float *data;
+  int write_pos;
+  int read_pos;
+  int capacity;  // In floats (not bytes)
+} AudioRingBuffer;
+
 // Uniform buffer structure matching Metal shader
 typedef struct {
   float model[16];
@@ -159,10 +167,19 @@ typedef struct {
   AVStream *video_stream;
   int64_t pts_counter;
 
+  // Audio encoding components (per-request)
+  AVStream *audio_stream;
+  AVCodecContext *audio_codec_ctx;
+  int64_t audio_pts_counter;
+
   // FFmpeg cached objects (initialized once)
   const AVCodec *cached_codec;
   AVFrame *cached_frame;
   AVPacket *cached_packet;
+
+  // Audio cached objects (initialized once)
+  const AVCodec *cached_audio_codec;
+  AVFrame *cached_audio_frame;
 
   // Timing
   struct timeval start_time;
@@ -372,7 +389,32 @@ static int init_ffmpeg_cache(void) {
 
   g_ctx.cached_packet = av_packet_alloc();
 
-  printf("[FFmpeg] Cached objects initialized (using %s)\n", codec->name);
+  // Initialize audio codec and frame
+  printf("[FFmpeg] Initializing audio encoder...\n");
+
+  // Find AAC encoder
+  g_ctx.cached_audio_codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+  if (!g_ctx.cached_audio_codec) {
+    fprintf(stderr, "AAC encoder not found\n");
+    return -1;
+  }
+  printf("[FFmpeg] Using AAC audio encoder\n");
+
+  // Allocate audio frame (reused across requests)
+  g_ctx.cached_audio_frame = av_frame_alloc();
+  g_ctx.cached_audio_frame->format = AV_SAMPLE_FMT_FLTP;  // AAC needs planar float
+  g_ctx.cached_audio_frame->channel_layout = AV_CH_LAYOUT_STEREO;
+  g_ctx.cached_audio_frame->sample_rate = 48000;
+  g_ctx.cached_audio_frame->nb_samples = 1024;  // AAC frame size
+
+  // Allocate buffer for audio frame
+  ret = av_frame_get_buffer(g_ctx.cached_audio_frame, 0);
+  if (ret < 0) {
+    fprintf(stderr, "Failed to allocate audio frame buffer\n");
+    return -1;
+  }
+
+  printf("[FFmpeg] Cached objects initialized (video: %s, audio: AAC)\n", codec->name);
   return 0;
 }
 
@@ -497,6 +539,50 @@ static int open_ffmpeg_encoder(const char *filename) {
 
   g_ctx.video_stream->time_base = g_ctx.codec_ctx->time_base;
 
+  // Create and setup audio stream (must be before writing header)
+  g_ctx.audio_stream = avformat_new_stream(g_ctx.format_ctx, NULL);
+  if (!g_ctx.audio_stream) {
+    fprintf(stderr, "Failed to create audio stream\n");
+    return -1;
+  }
+
+  // Allocate audio codec context using cached codec
+  g_ctx.audio_codec_ctx = avcodec_alloc_context3(g_ctx.cached_audio_codec);
+  if (!g_ctx.audio_codec_ctx) {
+    fprintf(stderr, "Failed to allocate audio codec context\n");
+    return -1;
+  }
+
+  // Set audio codec parameters
+  g_ctx.audio_codec_ctx->sample_rate = 48000;
+  g_ctx.audio_codec_ctx->channel_layout = AV_CH_LAYOUT_STEREO;
+  g_ctx.audio_codec_ctx->channels = 2;
+  g_ctx.audio_codec_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;  // AAC uses planar float
+  g_ctx.audio_codec_ctx->bit_rate = 128000;  // 128 kbps
+  g_ctx.audio_codec_ctx->time_base = (AVRational){1, 48000};
+
+  // Allow experimental AAC encoder if needed
+  g_ctx.audio_codec_ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+
+  // Open audio codec
+  ret = avcodec_open2(g_ctx.audio_codec_ctx, g_ctx.cached_audio_codec, NULL);
+  if (ret < 0) {
+    char errbuf[256];
+    av_strerror(ret, errbuf, sizeof(errbuf));
+    fprintf(stderr, "Failed to open audio codec: %s\n", errbuf);
+    return -1;
+  }
+
+  // Copy audio codec parameters to stream
+  ret = avcodec_parameters_from_context(g_ctx.audio_stream->codecpar,
+                                        g_ctx.audio_codec_ctx);
+  if (ret < 0) {
+    fprintf(stderr, "Failed to copy audio codec parameters\n");
+    return -1;
+  }
+
+  g_ctx.audio_stream->time_base = g_ctx.audio_codec_ctx->time_base;
+
   // Open output file
   if (!(g_ctx.format_ctx->oformat->flags & AVFMT_NOFILE)) {
     ret = avio_open(&g_ctx.format_ctx->pb, filename, AVIO_FLAG_WRITE);
@@ -506,17 +592,18 @@ static int open_ffmpeg_encoder(const char *filename) {
     }
   }
 
-  // Write file header
+  // Write file header (with both video and audio streams)
   ret = avformat_write_header(g_ctx.format_ctx, NULL);
   if (ret < 0) {
     fprintf(stderr, "Failed to write header\n");
     return -1;
   }
 
-  // Reset PTS counter for this request
+  // Reset PTS counters for this request
   g_ctx.pts_counter = 0;
+  g_ctx.audio_pts_counter = 0;
 
-  printf("[FFmpeg] Encoder opened for file: %s\n", filename);
+  printf("[FFmpeg] Encoder opened for file: %s (video + audio)\n", filename);
   return 0;
 }
 
@@ -532,6 +619,10 @@ static void close_ffmpeg_encoder(void) {
     avcodec_free_context(&g_ctx.codec_ctx);
     g_ctx.codec_ctx = NULL;
   }
+  if (g_ctx.audio_codec_ctx) {
+    avcodec_free_context(&g_ctx.audio_codec_ctx);
+    g_ctx.audio_codec_ctx = NULL;
+  }
   if (g_ctx.format_ctx) {
     if (!(g_ctx.format_ctx->oformat->flags & AVFMT_NOFILE)) {
       avio_closep(&g_ctx.format_ctx->pb);
@@ -540,6 +631,7 @@ static void close_ffmpeg_encoder(void) {
     g_ctx.format_ctx = NULL;
   }
   g_ctx.video_stream = NULL; // Part of format_ctx, so just NULL it
+  g_ctx.audio_stream = NULL; // Part of format_ctx, so just NULL it
 
   printf("[FFmpeg] Encoder closed for current request\n");
 }
@@ -707,12 +799,160 @@ static void *readback_thread_func(void *arg) {
   return NULL;
 }
 
+// Ring buffer helper functions
+static int ring_buffer_available(AudioRingBuffer *rb) {
+  int avail = rb->write_pos - rb->read_pos;
+  if (avail < 0) avail += rb->capacity;
+  return avail;
+}
+
+static void ring_buffer_write(AudioRingBuffer *rb, float *data, int count) {
+  for (int i = 0; i < count; i++) {
+    rb->data[rb->write_pos] = data[i];
+    rb->write_pos = (rb->write_pos + 1) % rb->capacity;
+  }
+}
+
+static void ring_buffer_read(AudioRingBuffer *rb, float *data, int count) {
+  for (int i = 0; i < count; i++) {
+    data[i] = rb->data[rb->read_pos];
+    rb->read_pos = (rb->read_pos + 1) % rb->capacity;
+  }
+}
+
+// Convert interleaved stereo to planar format for AAC
+static void convert_interleaved_to_planar(float *interleaved, float **planar,
+                                          int samples) {
+  float *left = planar[0];
+  float *right = planar[1];
+
+  for (int i = 0; i < samples; i++) {
+    left[i] = interleaved[i * 2];
+    right[i] = interleaved[i * 2 + 1];
+  }
+}
+
+// Encode audio frame (exactly 1024 samples)
+static int encode_audio_frame(AudioRingBuffer *rb) {
+  // Extract 1024 stereo samples (2048 floats) from ring buffer
+  float interleaved[1024 * 2];
+  ring_buffer_read(rb, interleaved, 1024 * 2);
+
+  // Make frame writable
+  int ret = av_frame_make_writable(g_ctx.cached_audio_frame);
+  if (ret < 0) {
+    fprintf(stderr, "Error making audio frame writable\n");
+    return ret;
+  }
+
+  // Convert to planar format
+  float *planar[2] = {
+    (float*)g_ctx.cached_audio_frame->data[0],
+    (float*)g_ctx.cached_audio_frame->data[1]
+  };
+  convert_interleaved_to_planar(interleaved, planar, 1024);
+
+  // Set PTS
+  g_ctx.cached_audio_frame->pts = g_ctx.audio_pts_counter;
+  g_ctx.audio_pts_counter += 1024;
+
+  // Send frame to encoder
+  ret = avcodec_send_frame(g_ctx.audio_codec_ctx, g_ctx.cached_audio_frame);
+  if (ret < 0) {
+    fprintf(stderr, "Error sending audio frame to encoder\n");
+    return ret;
+  }
+
+  // Receive encoded packets
+  AVPacket pkt = {0};
+  while (ret >= 0) {
+    ret = avcodec_receive_packet(g_ctx.audio_codec_ctx, &pkt);
+    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+      break;
+    } else if (ret < 0) {
+      fprintf(stderr, "Error receiving audio packet from encoder\n");
+      return ret;
+    }
+
+    // Set stream index
+    pkt.stream_index = g_ctx.audio_stream->index;
+
+    // Write packet (FFmpeg handles interleaving)
+    ret = av_interleaved_write_frame(g_ctx.format_ctx, &pkt);
+    av_packet_unref(&pkt);
+    if (ret < 0) {
+      fprintf(stderr, "Error writing audio packet\n");
+      return ret;
+    }
+  }
+
+  return 0;
+}
+
+// Encode final audio frame with padding if needed
+static int encode_audio_frame_padded(AudioRingBuffer *rb, int samples_available) {
+  // Extract available samples and pad with silence
+  float interleaved[1024 * 2] = {0};  // Initialize with silence
+  int floats_available = samples_available * 2;  // Convert to stereo float count
+  ring_buffer_read(rb, interleaved, floats_available);
+
+  // Make frame writable
+  int ret = av_frame_make_writable(g_ctx.cached_audio_frame);
+  if (ret < 0) {
+    return ret;
+  }
+
+  // Convert to planar format
+  float *planar[2] = {
+    (float*)g_ctx.cached_audio_frame->data[0],
+    (float*)g_ctx.cached_audio_frame->data[1]
+  };
+  convert_interleaved_to_planar(interleaved, planar, 1024);
+
+  // Set PTS
+  g_ctx.cached_audio_frame->pts = g_ctx.audio_pts_counter;
+
+  // Send frame to encoder
+  ret = avcodec_send_frame(g_ctx.audio_codec_ctx, g_ctx.cached_audio_frame);
+  if (ret < 0) {
+    return ret;
+  }
+
+  // Receive encoded packets
+  AVPacket pkt = {0};
+  while (ret >= 0) {
+    ret = avcodec_receive_packet(g_ctx.audio_codec_ctx, &pkt);
+    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+      break;
+    } else if (ret < 0) {
+      return ret;
+    }
+
+    pkt.stream_index = g_ctx.audio_stream->index;
+    ret = av_interleaved_write_frame(g_ctx.format_ctx, &pkt);
+    av_packet_unref(&pkt);
+    if (ret < 0) {
+      return ret;
+    }
+  }
+
+  return 0;
+}
+
 // Encoder thread function
 static void *encoder_thread_func(void *arg) {
   (void)arg;
-  printf("[Encoder] Thread started\n");
+  printf("[Encoder] Thread started (with audio encoding)\n");
+
+  // Initialize audio ring buffer
+  AudioRingBuffer audio_buffer = {0};
+  audio_buffer.capacity = 8192;  // Enough for ~2 video frames of audio
+  audio_buffer.data = ALLOC_ARRAY(&g_ctx.temporary_allocator, float, audio_buffer.capacity);
+  audio_buffer.write_pos = 0;
+  audio_buffer.read_pos = 0;
 
   int next_frame_to_encode = 0;
+  int total_audio_frames_encoded = 0;
 
   while (next_frame_to_encode < g_ctx.current_num_frames) {
     PROFILE_BEGIN("ffmpeg wait for frame");
@@ -722,29 +962,37 @@ static void *encoder_thread_func(void *arg) {
     }
     PROFILE_END();
 
-    PROFILE_BEGIN("ffmpeg encode frame");
-    // Encode frame directly in memory
     frame_data_t *frame = &g_ctx.frames[next_frame_to_encode];
 
-    // Debug print audio info periodically
-    if (next_frame_to_encode % 24 == 0) {  // Every second (24 fps)
-      printf("[Encoder] Frame %d has %d audio samples (%.2f ms)\n",
-             next_frame_to_encode,
-             frame->audio_sample_count / 2,  // Divide by 2 for sample count per channel
-             (float)(frame->audio_sample_count / 2) / 48000.0f * 1000.0f);
+    // Process audio first (for better sync)
+    if (frame->audio_sample_count > 0 && frame->audio_samples) {
+      PROFILE_BEGIN("ffmpeg encode audio");
 
-      // Print first few audio samples for verification
-      if (frame->audio_sample_count > 0 && frame->audio_samples) {
-        printf("[Encoder] Audio samples [0-5]: ");
-        for (int i = 0; i < 6 && i < frame->audio_sample_count; i++) {
-          printf("%.3f ", frame->audio_samples[i]);
+      // Add this frame's audio to ring buffer
+      ring_buffer_write(&audio_buffer, frame->audio_samples, frame->audio_sample_count);
+
+      // Encode all complete AAC frames (1024 samples each)
+      while (ring_buffer_available(&audio_buffer) >= 1024 * 2) {  // *2 for stereo
+        if (encode_audio_frame(&audio_buffer) < 0) {
+          fprintf(stderr, "[Encoder] Failed to encode audio frame\n");
+        } else {
+          total_audio_frames_encoded++;
         }
-        printf("\n");
       }
+
+      PROFILE_END();
     }
 
+    // Debug print periodically
+    if (next_frame_to_encode % 24 == 0) {  // Every second
+      printf("[Encoder] Progress: Video frame %d, Audio frames encoded: %d\n",
+             next_frame_to_encode, total_audio_frames_encoded);
+    }
+
+    // Encode video frame
+    PROFILE_BEGIN("ffmpeg encode video");
     if (encode_frame(frame->data) < 0) {
-      fprintf(stderr, "[Encoder] Failed to encode frame %d\n",
+      fprintf(stderr, "[Encoder] Failed to encode video frame %d\n",
               next_frame_to_encode);
     }
     PROFILE_END();
@@ -753,7 +1001,30 @@ static void *encoder_thread_func(void *arg) {
     next_frame_to_encode++;
   }
 
-  // Flush encoder
+  // Encode remaining audio samples (pad last frame if needed)
+  int remaining_audio = ring_buffer_available(&audio_buffer) / 2;  // Sample count per channel
+  if (remaining_audio > 0) {
+    printf("[Encoder] Encoding final audio frame with %d samples (padded to 1024)\n",
+           remaining_audio);
+    if (encode_audio_frame_padded(&audio_buffer, remaining_audio) < 0) {
+      fprintf(stderr, "[Encoder] Failed to encode final audio frame\n");
+    } else {
+      total_audio_frames_encoded++;
+    }
+  }
+
+  // Flush audio encoder
+  printf("[Encoder] Flushing audio encoder...\n");
+  avcodec_send_frame(g_ctx.audio_codec_ctx, NULL);
+  AVPacket audio_pkt = {0};
+  while (avcodec_receive_packet(g_ctx.audio_codec_ctx, &audio_pkt) == 0) {
+    audio_pkt.stream_index = g_ctx.audio_stream->index;
+    av_interleaved_write_frame(g_ctx.format_ctx, &audio_pkt);
+    av_packet_unref(&audio_pkt);
+  }
+
+  // Flush video encoder
+  printf("[Encoder] Flushing video encoder...\n");
   avcodec_send_frame(g_ctx.codec_ctx, NULL);
   AVPacket *flush_pkt = av_packet_alloc();
   while (avcodec_receive_packet(g_ctx.codec_ctx, flush_pkt) == 0) {
@@ -767,7 +1038,8 @@ static void *encoder_thread_func(void *arg) {
 
   gettimeofday(&g_ctx.encode_complete_time, NULL);
 
-  printf("[Encoder] Thread finished - all frames encoded\n");
+  printf("[Encoder] Thread finished - %d video frames, %d audio frames encoded\n",
+         g_ctx.current_num_frames, total_audio_frames_encoded);
   return NULL;
 }
 

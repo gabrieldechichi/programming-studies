@@ -67,7 +67,7 @@ AudioState audio_init(GameContext *ctx) {
 }
 
 void audio_update(AudioState *state, GameContext *ctx, f32 dt) {
-  i32 samples_needed = (i32)((state->output_sample_rate * dt) + 8);
+  i32 samples_needed = (i32)((state->output_sample_rate * dt));
 
   if (samples_needed > (i32)state->max_samples_per_frame) {
     samples_needed = state->max_samples_per_frame;
