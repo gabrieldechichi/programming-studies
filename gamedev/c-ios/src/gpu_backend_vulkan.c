@@ -26,6 +26,27 @@
         } \
     } while(0)
 
+// Vulkan memory allocation callbacks
+static void* VKAPI_PTR vulkan_alloc_func(void* pUserData, size_t size, size_t alignment,
+                                         VkSystemAllocationScope allocationScope) {
+    Allocator* allocator = (Allocator*)pUserData;
+    return allocator->alloc_alloc(allocator->ctx, size, alignment);
+}
+
+static void* VKAPI_PTR vulkan_realloc_func(void* pUserData, void* pOriginal, size_t size,
+                                           size_t alignment, VkSystemAllocationScope allocationScope) {
+    Allocator* allocator = (Allocator*)pUserData;
+    // Note: realloc doesn't support alignment in the current interface,
+    // but that's OK as the arena will maintain alignment from the original allocation
+    return allocator->alloc_realloc(allocator->ctx, pOriginal, size);
+}
+
+static void VKAPI_PTR vulkan_free_func(void* pUserData, void* pMemory) {
+    if (!pMemory) return;
+    Allocator* allocator = (Allocator*)pUserData;
+    allocator->alloc_free(allocator->ctx, pMemory);
+}
+
 // Internal structures
 struct gpu_device {
     VkInstance instance;
@@ -45,6 +66,9 @@ struct gpu_device {
     // Memory allocators
     Allocator* permanent_allocator;
     Allocator* temporary_allocator;
+
+    // Vulkan allocation callbacks
+    VkAllocationCallbacks vk_alloc_callbacks;
 
     // Fence tracking for cleanup
     VkFence* tracked_fences;
@@ -203,7 +227,7 @@ static uint32_t find_memory_type(VkPhysicalDevice physical_device, uint32_t type
 }
 
 // Load SPIR-V shader from file
-static VkShaderModule load_shader_module(VkDevice device, const char* filename, Allocator* temp_allocator) {
+static VkShaderModule load_shader_module(VkDevice device, const char* filename, Allocator* temp_allocator, VkAllocationCallbacks* alloc_callbacks) {
     FILE* file = fopen(filename, "rb");
     if (!file) {
         fprintf(stderr, "Failed to open shader file: %s\n", filename);
@@ -231,14 +255,14 @@ static VkShaderModule load_shader_module(VkDevice device, const char* filename, 
     };
 
     VkShaderModule shader_module;
-    VK_CHECK(vkCreateShaderModule(device, &create_info, NULL, &shader_module));
+    VK_CHECK(vkCreateShaderModule(device, &create_info, alloc_callbacks, &shader_module));
 
     // No need to free - temporary allocator will handle cleanup
     return shader_module;
 }
 
 // Initialize Vulkan instance
-static VkInstance create_instance(Allocator* temp_allocator) {
+static VkInstance create_instance(Allocator* temp_allocator, VkAllocationCallbacks* alloc_callbacks) {
     VkApplicationInfo app_info = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = "Video Renderer",
@@ -280,7 +304,7 @@ static VkInstance create_instance(Allocator* temp_allocator) {
     };
 
     VkInstance instance;
-    VK_CHECK(vkCreateInstance(&create_info, NULL, &instance));
+    VK_CHECK(vkCreateInstance(&create_info, alloc_callbacks, &instance));
 
     if (validation_found) {
         printf("[Vulkan] Validation layers enabled\n");
@@ -408,13 +432,23 @@ gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allo
     device->temporary_allocator = temporary_allocator;
     device->temporary_allocator = permanent_allocator;
 
+    // Initialize Vulkan allocation callbacks
+    device->vk_alloc_callbacks = (VkAllocationCallbacks){
+        .pUserData = permanent_allocator,
+        .pfnAllocation = vulkan_alloc_func,
+        .pfnReallocation = vulkan_realloc_func,
+        .pfnFree = vulkan_free_func,
+        .pfnInternalAllocation = NULL,  // Optional, not needed
+        .pfnInternalFree = NULL         // Optional, not needed
+    };
+
     // Initialize fence tracking (allocate space for up to 1000 fences)
     device->fence_capacity = 1000;
     device->tracked_fences = ALLOC_ARRAY(permanent_allocator, VkFence, device->fence_capacity);
     device->fence_count = 0;
 
     // Create Vulkan instance
-    device->instance = create_instance(device->temporary_allocator);
+    device->instance = create_instance(device->temporary_allocator, &device->vk_alloc_callbacks);
 
     // Select physical device
     device->physical_device = select_physical_device(device->instance, device->temporary_allocator);
@@ -442,7 +476,7 @@ gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allo
         .ppEnabledExtensionNames = NULL
     };
 
-    VK_CHECK(vkCreateDevice(device->physical_device, &device_create_info, NULL, &device->device));
+    VK_CHECK(vkCreateDevice(device->physical_device, &device_create_info, &device->vk_alloc_callbacks, &device->device));
 
     // Get device queues
     vkGetDeviceQueue(device->device, device->graphics_queue_family, 0, &device->graphics_queue);
@@ -455,7 +489,7 @@ gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allo
         .queueFamilyIndex = device->graphics_queue_family
     };
 
-    VK_CHECK(vkCreateCommandPool(device->device, &pool_info, NULL, &device->command_pool));
+    VK_CHECK(vkCreateCommandPool(device->device, &pool_info, &device->vk_alloc_callbacks, &device->command_pool));
 
     // Create separate command pool for transfer operations (allows concurrent command buffer allocation)
     VkCommandPoolCreateInfo transfer_pool_info = {
@@ -464,7 +498,7 @@ gpu_device_t* gpu_init(Allocator* permanent_allocator, Allocator* temporary_allo
         .queueFamilyIndex = device->graphics_queue_family
     };
 
-    VK_CHECK(vkCreateCommandPool(device->device, &transfer_pool_info, NULL, &device->transfer_command_pool));
+    VK_CHECK(vkCreateCommandPool(device->device, &transfer_pool_info, &device->vk_alloc_callbacks, &device->transfer_command_pool));
 
     // Removed loading of unused triangle shaders and test loading
     // Shaders are now loaded on demand when pipelines are created
@@ -502,7 +536,7 @@ gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
     };
 
-    VK_CHECK(vkCreateImage(device->device, &image_info, NULL, &texture->image));
+    VK_CHECK(vkCreateImage(device->device, &image_info, &device->vk_alloc_callbacks, &texture->image));
 
     // Allocate memory for image
     VkMemoryRequirements mem_requirements;
@@ -515,7 +549,7 @@ gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
     };
 
-    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &texture->memory));
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &texture->memory));
     vkBindImageMemory(device->device, texture->image, texture->memory, 0);
 
     // Create image view
@@ -539,7 +573,7 @@ gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
         }
     };
 
-    VK_CHECK(vkCreateImageView(device->device, &view_info, NULL, &texture->image_view));
+    VK_CHECK(vkCreateImageView(device->device, &view_info, &device->vk_alloc_callbacks, &texture->image_view));
 
     // Only create depth buffer for render targets (textures with COLOR_ATTACHMENT usage)
     // Check if this is a render target by checking the usage flags
@@ -565,7 +599,7 @@ gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
     };
 
-    VK_CHECK(vkCreateImage(device->device, &depth_image_info, NULL, &texture->depth_image));
+    VK_CHECK(vkCreateImage(device->device, &depth_image_info, &device->vk_alloc_callbacks, &texture->depth_image));
 
     // Allocate memory for depth image
     VkMemoryRequirements depth_mem_requirements;
@@ -578,7 +612,7 @@ gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
     };
 
-    VK_CHECK(vkAllocateMemory(device->device, &depth_alloc_info, NULL, &texture->depth_memory));
+    VK_CHECK(vkAllocateMemory(device->device, &depth_alloc_info, &device->vk_alloc_callbacks, &texture->depth_memory));
     vkBindImageMemory(device->device, texture->depth_image, texture->depth_memory, 0);
 
     // Create depth image view
@@ -602,7 +636,7 @@ gpu_texture_t* gpu_create_texture(gpu_device_t* device, int width, int height) {
         }
     };
 
-    VK_CHECK(vkCreateImageView(device->device, &depth_view_info, NULL, &texture->depth_image_view));
+    VK_CHECK(vkCreateImageView(device->device, &depth_view_info, &device->vk_alloc_callbacks, &texture->depth_image_view));
     } // End of depth buffer creation (only for render targets)
 
     return texture;
@@ -672,7 +706,7 @@ gpu_texture_t* gpu_create_texture_with_data(gpu_device_t* device, int width, int
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
     };
 
-    VK_CHECK(vkCreateImage(device->device, &image_info, NULL, &texture->image));
+    VK_CHECK(vkCreateImage(device->device, &image_info, &device->vk_alloc_callbacks, &texture->image));
 
     // Allocate memory for image
     VkMemoryRequirements mem_requirements;
@@ -685,7 +719,7 @@ gpu_texture_t* gpu_create_texture_with_data(gpu_device_t* device, int width, int
                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
     };
 
-    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &texture->memory));
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &texture->memory));
     vkBindImageMemory(device->device, texture->image, texture->memory, 0);
 
     // Create staging buffer for uploading data
@@ -699,7 +733,7 @@ gpu_texture_t* gpu_create_texture_with_data(gpu_device_t* device, int width, int
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
 
-    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &staging_buffer));
+    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, &device->vk_alloc_callbacks, &staging_buffer));
 
     VkMemoryRequirements buffer_mem_requirements;
     vkGetBufferMemoryRequirements(device->device, staging_buffer, &buffer_mem_requirements);
@@ -711,7 +745,7 @@ gpu_texture_t* gpu_create_texture_with_data(gpu_device_t* device, int width, int
                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
     };
 
-    VK_CHECK(vkAllocateMemory(device->device, &buffer_alloc_info, NULL, &staging_memory));
+    VK_CHECK(vkAllocateMemory(device->device, &buffer_alloc_info, &device->vk_alloc_callbacks, &staging_memory));
     vkBindBufferMemory(device->device, staging_buffer, staging_memory, 0);
 
     // Copy data to staging buffer
@@ -775,8 +809,8 @@ gpu_texture_t* gpu_create_texture_with_data(gpu_device_t* device, int width, int
     gpu_end_immediate_commands(device, cmd_buffer);
 
     // Clean up staging resources
-    vkDestroyBuffer(device->device, staging_buffer, NULL);
-    vkFreeMemory(device->device, staging_memory, NULL);
+    vkDestroyBuffer(device->device, staging_buffer, &device->vk_alloc_callbacks);
+    vkFreeMemory(device->device, staging_memory, &device->vk_alloc_callbacks);
 
     // Create image view
     VkImageViewCreateInfo view_info = {
@@ -799,7 +833,7 @@ gpu_texture_t* gpu_create_texture_with_data(gpu_device_t* device, int width, int
         }
     };
 
-    VK_CHECK(vkCreateImageView(device->device, &view_info, NULL, &texture->image_view));
+    VK_CHECK(vkCreateImageView(device->device, &view_info, &device->vk_alloc_callbacks, &texture->image_view));
 
     return texture;
 }
@@ -817,7 +851,7 @@ gpu_readback_buffer_t* gpu_create_readback_buffer(gpu_device_t* device, size_t s
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
 
-    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &buffer->buffer));
+    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, &device->vk_alloc_callbacks, &buffer->buffer));
 
     // Allocate memory
     VkMemoryRequirements mem_requirements;
@@ -842,7 +876,7 @@ gpu_readback_buffer_t* gpu_create_readback_buffer(gpu_device_t* device, size_t s
         .memoryTypeIndex = memory_type
     };
 
-    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &buffer->memory));
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &buffer->memory));
     vkBindBufferMemory(device->device, buffer->buffer, buffer->memory, 0);
 
     // Map memory for later access
@@ -972,7 +1006,7 @@ void gpu_copy_readback_data(gpu_readback_buffer_t* buffer, void* dst, size_t siz
 void gpu_destroy_command_buffer(gpu_command_buffer_t* cmd_buffer) {
     if (cmd_buffer) {
         if (cmd_buffer->fence) {
-            vkDestroyFence(cmd_buffer->device->device, cmd_buffer->fence, NULL);
+            vkDestroyFence(cmd_buffer->device->device, cmd_buffer->fence, &cmd_buffer->device->vk_alloc_callbacks);
         }
         if (cmd_buffer->cmd_buffer) {
             vkFreeCommandBuffers(cmd_buffer->device->device, cmd_buffer->device->command_pool, 1, &cmd_buffer->cmd_buffer);
@@ -984,14 +1018,14 @@ void gpu_destroy_command_buffer(gpu_command_buffer_t* cmd_buffer) {
 void gpu_destroy_texture(gpu_texture_t* texture) {
     if (texture) {
         // Destroy color resources
-        if (texture->image_view) vkDestroyImageView(texture->device->device, texture->image_view, NULL);
-        if (texture->image) vkDestroyImage(texture->device->device, texture->image, NULL);
-        if (texture->memory) vkFreeMemory(texture->device->device, texture->memory, NULL);
+        if (texture->image_view) vkDestroyImageView(texture->device->device, texture->image_view, &texture->device->vk_alloc_callbacks);
+        if (texture->image) vkDestroyImage(texture->device->device, texture->image, &texture->device->vk_alloc_callbacks);
+        if (texture->memory) vkFreeMemory(texture->device->device, texture->memory, &texture->device->vk_alloc_callbacks);
 
         // Destroy depth resources
-        if (texture->depth_image_view) vkDestroyImageView(texture->device->device, texture->depth_image_view, NULL);
-        if (texture->depth_image) vkDestroyImage(texture->device->device, texture->depth_image, NULL);
-        if (texture->depth_memory) vkFreeMemory(texture->device->device, texture->depth_memory, NULL);
+        if (texture->depth_image_view) vkDestroyImageView(texture->device->device, texture->depth_image_view, &texture->device->vk_alloc_callbacks);
+        if (texture->depth_image) vkDestroyImage(texture->device->device, texture->depth_image, &texture->device->vk_alloc_callbacks);
+        if (texture->depth_memory) vkFreeMemory(texture->device->device, texture->depth_memory, &texture->device->vk_alloc_callbacks);
         // No need to free - allocated from arena allocator
     }
 }
@@ -1001,8 +1035,8 @@ void gpu_destroy_readback_buffer(gpu_readback_buffer_t* buffer) {
         if (buffer->mapped_data) {
             vkUnmapMemory(buffer->device->device, buffer->memory);
         }
-        vkDestroyBuffer(buffer->device->device, buffer->buffer, NULL);
-        vkFreeMemory(buffer->device->device, buffer->memory, NULL);
+        vkDestroyBuffer(buffer->device->device, buffer->buffer, &buffer->device->vk_alloc_callbacks);
+        vkFreeMemory(buffer->device->device, buffer->memory, &buffer->device->vk_alloc_callbacks);
         // No need to free - allocated from arena allocator
     }
 }
@@ -1018,8 +1052,8 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
 
     // Load shaders
     PROFILE_BEGIN("gpu_pipeline: load shaders");
-    VkShaderModule vert_shader = load_shader_module(device->device, desc->vertex_shader_path, device->temporary_allocator);
-    VkShaderModule frag_shader = load_shader_module(device->device, desc->fragment_shader_path, device->temporary_allocator);
+    VkShaderModule vert_shader = load_shader_module(device->device, desc->vertex_shader_path, device->temporary_allocator, &device->vk_alloc_callbacks);
+    VkShaderModule frag_shader = load_shader_module(device->device, desc->fragment_shader_path, device->temporary_allocator, &device->vk_alloc_callbacks);
     PROFILE_END();
 
     if (!vert_shader || !frag_shader) {
@@ -1048,7 +1082,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
             .minLod = 0.0f,
             .maxLod = 0.0f
         };
-        VK_CHECK(vkCreateSampler(device->device, &sampler_info, NULL, &pipeline->default_sampler));
+        VK_CHECK(vkCreateSampler(device->device, &sampler_info, &device->vk_alloc_callbacks, &pipeline->default_sampler));
 
         // Store texture descriptors
         pipeline->texture_descs = ALLOC_ARRAY(device->permanent_allocator, gpu_texture_desc_t, desc->num_texture_bindings);
@@ -1197,7 +1231,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE
             };
 
-            VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->uniform_buffers[i]));
+            VK_CHECK(vkCreateBuffer(device->device, &buffer_info, &device->vk_alloc_callbacks, &pipeline->uniform_buffers[i]));
 
             VkMemoryRequirements mem_requirements;
             vkGetBufferMemoryRequirements(device->device, pipeline->uniform_buffers[i], &mem_requirements);
@@ -1209,7 +1243,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
             };
 
-            VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->uniform_memories[i]));
+            VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &pipeline->uniform_memories[i]));
             VK_CHECK(vkBindBufferMemory(device->device, pipeline->uniform_buffers[i], pipeline->uniform_memories[i], 0));
             VK_CHECK(vkMapMemory(device->device, pipeline->uniform_memories[i], 0, desc->uniform_buffers[i].size, 0, &pipeline->uniform_mapped[i]));
         }
@@ -1240,7 +1274,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE
             };
 
-            VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->storage_buffers[i]));
+            VK_CHECK(vkCreateBuffer(device->device, &buffer_info, &device->vk_alloc_callbacks, &pipeline->storage_buffers[i]));
 
             VkMemoryRequirements mem_requirements;
             vkGetBufferMemoryRequirements(device->device, pipeline->storage_buffers[i], &mem_requirements);
@@ -1252,7 +1286,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
             };
 
-            VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->storage_memories[i]));
+            VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &pipeline->storage_memories[i]));
             VK_CHECK(vkBindBufferMemory(device->device, pipeline->storage_buffers[i], pipeline->storage_memories[i], 0));
             VK_CHECK(vkMapMemory(device->device, pipeline->storage_memories[i], 0, desc->storage_buffers[i].size, 0, &pipeline->storage_mapped[i]));
         }
@@ -1335,7 +1369,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
             .pBindings = layout_bindings
         };
 
-        VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, NULL, &pipeline->descriptor_set_layout));
+        VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, &device->vk_alloc_callbacks, &pipeline->descriptor_set_layout));
         PROFILE_END();
 
         // Create descriptor pool
@@ -1385,7 +1419,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
             .pPoolSizes = pool_sizes
         };
 
-        VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, NULL, &pipeline->descriptor_pool));
+        VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, &device->vk_alloc_callbacks, &pipeline->descriptor_pool));
         printf("[Vulkan] Created descriptor pool with %u max sets\n", MAX_DESCRIPTOR_SETS);
         PROFILE_END();
 
@@ -1408,7 +1442,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
                     };
 
-                    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->uniform_buffer_pool[pool_idx]));
+                    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, &device->vk_alloc_callbacks, &pipeline->uniform_buffer_pool[pool_idx]));
 
                     VkMemoryRequirements mem_requirements;
                     vkGetBufferMemoryRequirements(device->device, pipeline->uniform_buffer_pool[pool_idx], &mem_requirements);
@@ -1420,7 +1454,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
                     };
 
-                    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->uniform_memory_pool[pool_idx]));
+                    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &pipeline->uniform_memory_pool[pool_idx]));
                     VK_CHECK(vkBindBufferMemory(device->device, pipeline->uniform_buffer_pool[pool_idx],
                                                pipeline->uniform_memory_pool[pool_idx], 0));
                     VK_CHECK(vkMapMemory(device->device, pipeline->uniform_memory_pool[pool_idx], 0,
@@ -1449,7 +1483,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
                     };
 
-                    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &pipeline->storage_buffer_pool[pool_idx]));
+                    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, &device->vk_alloc_callbacks, &pipeline->storage_buffer_pool[pool_idx]));
 
                     VkMemoryRequirements mem_requirements;
                     vkGetBufferMemoryRequirements(device->device, pipeline->storage_buffer_pool[pool_idx], &mem_requirements);
@@ -1461,7 +1495,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
                                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
                     };
 
-                    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &pipeline->storage_memory_pool[pool_idx]));
+                    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &pipeline->storage_memory_pool[pool_idx]));
                     VK_CHECK(vkBindBufferMemory(device->device, pipeline->storage_buffer_pool[pool_idx],
                                                pipeline->storage_memory_pool[pool_idx], 0));
                     VK_CHECK(vkMapMemory(device->device, pipeline->storage_memory_pool[pool_idx], 0,
@@ -1616,7 +1650,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         .pSubpasses = &subpass
     };
 
-    VK_CHECK(vkCreateRenderPass(device->device, &render_pass_info, NULL, &pipeline->render_pass));
+    VK_CHECK(vkCreateRenderPass(device->device, &render_pass_info, &device->vk_alloc_callbacks, &pipeline->render_pass));
     PROFILE_END();
 
     // Pipeline layout
@@ -1628,7 +1662,7 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         .pushConstantRangeCount = 0
     };
 
-    VK_CHECK(vkCreatePipelineLayout(device->device, &pipeline_layout_info, NULL, &pipeline->pipeline_layout));
+    VK_CHECK(vkCreatePipelineLayout(device->device, &pipeline_layout_info, &device->vk_alloc_callbacks, &pipeline->pipeline_layout));
     PROFILE_END();
 
     // Create graphics pipeline
@@ -1650,12 +1684,12 @@ gpu_pipeline_t* gpu_create_pipeline_desc(gpu_device_t* device, const gpu_pipelin
         .subpass = 0
     };
 
-    VK_CHECK(vkCreateGraphicsPipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline->pipeline));
+    VK_CHECK(vkCreateGraphicsPipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, &device->vk_alloc_callbacks, &pipeline->pipeline));
     PROFILE_END();
 
     PROFILE_BEGIN("gpu_pipeline: cleanup");
-    vkDestroyShaderModule(device->device, vert_shader, NULL);
-    vkDestroyShaderModule(device->device, frag_shader, NULL);
+    vkDestroyShaderModule(device->device, vert_shader, &device->vk_alloc_callbacks);
+    vkDestroyShaderModule(device->device, frag_shader, &device->vk_alloc_callbacks);
     PROFILE_END();
 
     // Store uniform buffer info for flexible updates
@@ -1955,7 +1989,7 @@ gpu_buffer_t* gpu_create_buffer(gpu_device_t* device, const void* data, size_t s
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
 
-    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &buffer->buffer));
+    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, &device->vk_alloc_callbacks, &buffer->buffer));
 
     // Allocate memory
     VkMemoryRequirements mem_requirements;
@@ -1968,7 +2002,7 @@ gpu_buffer_t* gpu_create_buffer(gpu_device_t* device, const void* data, size_t s
                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
     };
 
-    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &buffer->memory));
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &buffer->memory));
     vkBindBufferMemory(device->device, buffer->buffer, buffer->memory, 0);
 
     // Copy data
@@ -1995,7 +2029,7 @@ gpu_buffer_t* gpu_create_storage_buffer(gpu_device_t* device, const void* data, 
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
 
-    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, NULL, &buffer->buffer));
+    VK_CHECK(vkCreateBuffer(device->device, &buffer_info, &device->vk_alloc_callbacks, &buffer->buffer));
 
     // Allocate memory
     VkMemoryRequirements mem_requirements;
@@ -2008,7 +2042,7 @@ gpu_buffer_t* gpu_create_storage_buffer(gpu_device_t* device, const void* data, 
                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
     };
 
-    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &buffer->memory));
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &buffer->memory));
     vkBindBufferMemory(device->device, buffer->buffer, buffer->memory, 0);
 
     // Copy data
@@ -2041,7 +2075,7 @@ gpu_command_buffer_t* gpu_begin_commands(gpu_device_t* device) {
         .flags = 0
     };
 
-    VK_CHECK(vkCreateFence(device->device, &fence_info, NULL, &cmd->fence));
+    VK_CHECK(vkCreateFence(device->device, &fence_info, &device->vk_alloc_callbacks, &cmd->fence));
 
     // Track the fence for later cleanup
     if (device->fence_count < device->fence_capacity) {
@@ -2099,7 +2133,7 @@ void gpu_set_pipeline(gpu_render_encoder_t* encoder, gpu_pipeline_t* pipeline, f
             .layers = 1
         };
 
-        VK_CHECK(vkCreateFramebuffer(encoder->device->device, &framebuffer_info, NULL, &encoder->framebuffer));
+        VK_CHECK(vkCreateFramebuffer(encoder->device->device, &framebuffer_info, &encoder->device->vk_alloc_callbacks, &encoder->framebuffer));
 
         // Create clear values for both color and depth
         VkClearValue clear_values[2];
@@ -2176,7 +2210,7 @@ void gpu_end_render_pass(gpu_render_encoder_t* encoder) {
 
     // Clean up framebuffer (should be cached in production)
     if (encoder->framebuffer != VK_NULL_HANDLE) {
-        vkDestroyFramebuffer(encoder->device->device, encoder->framebuffer, NULL);
+        vkDestroyFramebuffer(encoder->device->device, encoder->framebuffer, &encoder->device->vk_alloc_callbacks);
     }
 
     // No need to free - allocated from arena allocator
@@ -2201,19 +2235,19 @@ void gpu_commit_commands(gpu_command_buffer_t* cmd_buffer, bool wait) {
 
 void gpu_destroy_pipeline(gpu_pipeline_t* pipeline) {
     if (pipeline) {
-        vkDestroyPipeline(pipeline->device->device, pipeline->pipeline, NULL);
-        vkDestroyPipelineLayout(pipeline->device->device, pipeline->pipeline_layout, NULL);
-        vkDestroyRenderPass(pipeline->device->device, pipeline->render_pass, NULL);
+        vkDestroyPipeline(pipeline->device->device, pipeline->pipeline, &pipeline->device->vk_alloc_callbacks);
+        vkDestroyPipelineLayout(pipeline->device->device, pipeline->pipeline_layout, &pipeline->device->vk_alloc_callbacks);
+        vkDestroyRenderPass(pipeline->device->device, pipeline->render_pass, &pipeline->device->vk_alloc_callbacks);
 
         // Clean up uniform buffer resources if present
         if (pipeline->has_uniforms) {
-            vkDestroyDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, NULL);
-            vkDestroyDescriptorSetLayout(pipeline->device->device, pipeline->descriptor_set_layout, NULL);
+            vkDestroyDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, &pipeline->device->vk_alloc_callbacks);
+            vkDestroyDescriptorSetLayout(pipeline->device->device, pipeline->descriptor_set_layout, &pipeline->device->vk_alloc_callbacks);
             if (pipeline->uniform_buffer_mapped) {
                 vkUnmapMemory(pipeline->device->device, pipeline->uniform_buffer_memory);
             }
-            vkDestroyBuffer(pipeline->device->device, pipeline->uniform_buffer, NULL);
-            vkFreeMemory(pipeline->device->device, pipeline->uniform_buffer_memory, NULL);
+            vkDestroyBuffer(pipeline->device->device, pipeline->uniform_buffer, &pipeline->device->vk_alloc_callbacks);
+            vkFreeMemory(pipeline->device->device, pipeline->uniform_buffer_memory, &pipeline->device->vk_alloc_callbacks);
         }
         // No need to free - allocated from arena allocator
     }
@@ -2221,8 +2255,8 @@ void gpu_destroy_pipeline(gpu_pipeline_t* pipeline) {
 
 void gpu_destroy_buffer(gpu_buffer_t* buffer) {
     if (buffer) {
-        vkDestroyBuffer(buffer->device->device, buffer->buffer, NULL);
-        vkFreeMemory(buffer->device->device, buffer->memory, NULL);
+        vkDestroyBuffer(buffer->device->device, buffer->buffer, &buffer->device->vk_alloc_callbacks);
+        vkFreeMemory(buffer->device->device, buffer->memory, &buffer->device->vk_alloc_callbacks);
         // No need to free - allocated from arena allocator
     }
 }
@@ -2234,7 +2268,7 @@ gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const 
     compute_pipeline->device = device;
 
     // Load compute shader
-    compute_pipeline->compute_shader = load_shader_module(device->device, compute_shader_path, device->temporary_allocator);
+    compute_pipeline->compute_shader = load_shader_module(device->device, compute_shader_path, device->temporary_allocator, &device->vk_alloc_callbacks);
     if (!compute_pipeline->compute_shader) {
         fprintf(stderr, "Failed to load compute shader: %s\n", compute_shader_path);
         return NULL;
@@ -2278,7 +2312,7 @@ gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const 
         .pBindings = bindings
     };
 
-    VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, NULL, &compute_pipeline->descriptor_set_layout));
+    VK_CHECK(vkCreateDescriptorSetLayout(device->device, &layout_info, &device->vk_alloc_callbacks, &compute_pipeline->descriptor_set_layout));
 
     // Create pipeline layout
     VkPipelineLayoutCreateInfo pipeline_layout_info = {
@@ -2287,7 +2321,7 @@ gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const 
         .pSetLayouts = &compute_pipeline->descriptor_set_layout
     };
 
-    VK_CHECK(vkCreatePipelineLayout(device->device, &pipeline_layout_info, NULL, &compute_pipeline->pipeline_layout));
+    VK_CHECK(vkCreatePipelineLayout(device->device, &pipeline_layout_info, &device->vk_alloc_callbacks, &compute_pipeline->pipeline_layout));
 
     // Create compute pipeline
     VkComputePipelineCreateInfo pipeline_info = {
@@ -2301,7 +2335,7 @@ gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const 
         .layout = compute_pipeline->pipeline_layout
     };
 
-    VK_CHECK(vkCreateComputePipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &compute_pipeline->pipeline));
+    VK_CHECK(vkCreateComputePipelines(device->device, VK_NULL_HANDLE, 1, &pipeline_info, &device->vk_alloc_callbacks, &compute_pipeline->pipeline));
 
     // Create descriptor pool (big enough for max_frames * 4 textures each)
     VkDescriptorPoolSize pool_size = {
@@ -2317,7 +2351,7 @@ gpu_compute_pipeline_t* gpu_create_compute_pipeline(gpu_device_t* device, const 
         .pPoolSizes = &pool_size
     };
 
-    VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, NULL, &compute_pipeline->descriptor_pool));
+    VK_CHECK(vkCreateDescriptorPool(device->device, &pool_info, &device->vk_alloc_callbacks, &compute_pipeline->descriptor_pool));
 
     printf("[Vulkan] Compute pipeline created (descriptor pool: %d sets, %d images)\n", max_frames, max_frames * 4);
     return compute_pipeline;
@@ -2355,7 +2389,7 @@ gpu_texture_t* gpu_create_storage_texture(gpu_device_t* device, int width, int h
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
     };
 
-    VK_CHECK(vkCreateImage(device->device, &image_info, NULL, &texture->image));
+    VK_CHECK(vkCreateImage(device->device, &image_info, &device->vk_alloc_callbacks, &texture->image));
 
     // Allocate memory for image
     VkMemoryRequirements mem_requirements;
@@ -2368,7 +2402,7 @@ gpu_texture_t* gpu_create_storage_texture(gpu_device_t* device, int width, int h
                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
     };
 
-    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, NULL, &texture->memory));
+    VK_CHECK(vkAllocateMemory(device->device, &alloc_info, &device->vk_alloc_callbacks, &texture->memory));
     vkBindImageMemory(device->device, texture->image, texture->memory, 0);
 
     // Create image view
@@ -2392,7 +2426,7 @@ gpu_texture_t* gpu_create_storage_texture(gpu_device_t* device, int width, int h
         }
     };
 
-    VK_CHECK(vkCreateImageView(device->device, &view_info, NULL, &texture->image_view));
+    VK_CHECK(vkCreateImageView(device->device, &view_info, &device->vk_alloc_callbacks, &texture->image_view));
 
     return texture;
 }
@@ -2485,11 +2519,11 @@ void gpu_dispatch_compute(
 
 void gpu_destroy_compute_pipeline(gpu_compute_pipeline_t* pipeline) {
     if (pipeline) {
-        vkDestroyPipeline(pipeline->device->device, pipeline->pipeline, NULL);
-        vkDestroyPipelineLayout(pipeline->device->device, pipeline->pipeline_layout, NULL);
-        vkDestroyDescriptorSetLayout(pipeline->device->device, pipeline->descriptor_set_layout, NULL);
-        vkDestroyDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, NULL);
-        vkDestroyShaderModule(pipeline->device->device, pipeline->compute_shader, NULL);
+        vkDestroyPipeline(pipeline->device->device, pipeline->pipeline, &pipeline->device->vk_alloc_callbacks);
+        vkDestroyPipelineLayout(pipeline->device->device, pipeline->pipeline_layout, &pipeline->device->vk_alloc_callbacks);
+        vkDestroyDescriptorSetLayout(pipeline->device->device, pipeline->descriptor_set_layout, &pipeline->device->vk_alloc_callbacks);
+        vkDestroyDescriptorPool(pipeline->device->device, pipeline->descriptor_pool, &pipeline->device->vk_alloc_callbacks);
+        vkDestroyShaderModule(pipeline->device->device, pipeline->compute_shader, &pipeline->device->vk_alloc_callbacks);
         // No need to free - allocated from arena allocator
     }
 }
@@ -2500,7 +2534,7 @@ void gpu_reset_command_pools(gpu_device_t* device) {
         uint32_t fences_destroyed = device->fence_count;
         for (uint32_t i = 0; i < device->fence_count; i++) {
             if (device->tracked_fences[i] != VK_NULL_HANDLE) {
-                vkDestroyFence(device->device, device->tracked_fences[i], NULL);
+                vkDestroyFence(device->device, device->tracked_fences[i], &device->vk_alloc_callbacks);
             }
         }
         device->fence_count = 0;
@@ -2568,16 +2602,16 @@ void gpu_destroy(gpu_device_t* device) {
     if (device) {
         // Shaders now destroyed with their pipelines
         if (device->command_pool) {
-            vkDestroyCommandPool(device->device, device->command_pool, NULL);
+            vkDestroyCommandPool(device->device, device->command_pool, &device->vk_alloc_callbacks);
         }
         if (device->transfer_command_pool) {
-            vkDestroyCommandPool(device->device, device->transfer_command_pool, NULL);
+            vkDestroyCommandPool(device->device, device->transfer_command_pool, &device->vk_alloc_callbacks);
         }
         if (device->device) {
-            vkDestroyDevice(device->device, NULL);
+            vkDestroyDevice(device->device, &device->vk_alloc_callbacks);
         }
         if (device->instance) {
-            vkDestroyInstance(device->instance, NULL);
+            vkDestroyInstance(device->instance, &device->vk_alloc_callbacks);
         }
         free(device);
     }

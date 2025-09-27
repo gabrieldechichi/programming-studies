@@ -5,6 +5,7 @@
 #include "common.h"
 #include "fmt.h"
 #include "typedefs.h"
+#include <stdlib.h>
 #include <string.h>
 
 #ifndef DEFAULT_ALIGNMENT
@@ -79,7 +80,7 @@ void *arena_alloc_align(ArenaAllocator *a, size_t size, size_t align) {
 
     // todo: this impact performance
 #if DEBUG
-     memset(ptr, 0xCD, size);
+    memset(ptr, 0xCD, size);
 #endif
     return ptr;
   }
@@ -137,6 +138,7 @@ typedef struct {
   void *(*alloc_realloc)(void *ctx, void *ptr, size_t size);
   void (*alloc_reset)(void *ctx);
   void (*alloc_destroy)(void *ctx);
+  void (*alloc_free)(void *ctx, void *ptr);
   size_t (*alloc_capacity)(void *ctx);
   size_t (*alloc_commited_size)(void *ctx);
   size_t (*alloc_free_size)(void *ctx);
@@ -152,6 +154,11 @@ void *arena_realloc_impl(void *ctx, void *ptr, size_t size) {
 }
 
 void arena_reset_impl(void *ctx) { arena_reset((ArenaAllocator *)ctx); }
+
+void arena_free_impl(void *ctx, void *ptr) {
+  // no free impl for arena
+}
+
 size_t arena_capacity_impl(void *ctx) {
   return ((ArenaAllocator *)ctx)->capacity;
 }
@@ -168,6 +175,7 @@ Allocator make_arena_allocator(ArenaAllocator *arena) {
   return (Allocator){.alloc_alloc = arena_alloc_impl,
                      .alloc_realloc = arena_realloc_impl,
                      .alloc_reset = arena_reset_impl,
+                     .alloc_free = arena_free_impl,
                      .alloc_capacity = arena_capacity_impl,
                      .alloc_commited_size = arena_commited_size_impl,
                      .alloc_free_size = arena_free_size_impl,
@@ -202,5 +210,8 @@ Allocator make_arena_allocator(ArenaAllocator *arena) {
 #define ALLOC_FREE_SIZE(allocator)                                             \
   ((allocator)->alloc_free_size((allocator)->ctx))
 #define ALLOC_DESTROY(allocator) (allocator)->alloc_destroy((allocator)->ctx)
+
+#define ALLOC_ALIGNED(allocator, size, align)                                  \
+  ((allocator)->alloc_alloc((allocator)->ctx, (size), (align)))
 
 #endif
