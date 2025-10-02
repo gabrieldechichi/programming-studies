@@ -754,7 +754,6 @@ static void *readback_thread_func(void *arg) {
     PROFILE_BEGIN("readback wait for submit");
     while (!atomic_load(&state->submitted) &&
            !atomic_load(&g_ctx.readback_thread_should_exit)) {
-      platform_sleep_us(100);
     }
     PROFILE_END();
 

@@ -80,8 +80,9 @@ void *arena_alloc_align(ArenaAllocator *a, size_t size, size_t align) {
 
     // todo: this impact performance
 #if DEBUG
-    memset(ptr, 0xCD, size);
+    // memset(ptr, 0xCD, size);
 #endif
+    memset(ptr, 0, size);
     return ptr;
   }
 
