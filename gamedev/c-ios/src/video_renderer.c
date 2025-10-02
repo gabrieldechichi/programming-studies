@@ -38,7 +38,7 @@
 #include "lib/typedefs.h"
 
 // Mode selection - set to 1 for standalone mode, 0 for daemon mode
-#define STANDALONE_MODE 1
+#define STANDALONE_MODE 0
 
 // Application constants
 #define MAX_FRAMES                                                             \
@@ -1598,6 +1598,9 @@ int main(int argc, char *argv[]) {
   // Pool slot synchronization removed - not needed
 
   profiler_end_and_print_session(&g_ctx.temporary_allocator);
+  size_t buffer_size = KB(1);
+  char *buffer = ALLOC_ARRAY(&g_ctx.temporary_allocator, char, buffer_size);
+  printf("%ld", (uintptr_t) buffer);
 
 #if STANDALONE_MODE
   // Standalone mode - render once and exit
@@ -1622,7 +1625,6 @@ int main(int argc, char *argv[]) {
   int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (server_fd < 0) {
     fprintf(stderr, "Failed to create socket: %s\n", strerror(errno));
-    cleanup();
     return 1;
   }
 
@@ -1638,7 +1640,6 @@ int main(int argc, char *argv[]) {
   if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
     fprintf(stderr, "Failed to bind socket: %s\n", strerror(errno));
     close(server_fd);
-    cleanup();
     return 1;
   }
 
@@ -1646,7 +1647,6 @@ int main(int argc, char *argv[]) {
   if (listen(server_fd, 1) < 0) {
     fprintf(stderr, "Failed to listen on socket: %s\n", strerror(errno));
     close(server_fd);
-    cleanup();
     return 1;
   }
 
@@ -1697,7 +1697,6 @@ int main(int argc, char *argv[]) {
   // Cleanup (unreachable in normal operation)
   close(server_fd);
   unlink(SOCKET_PATH);
-  cleanup();
   return 0;
 #endif
 }
