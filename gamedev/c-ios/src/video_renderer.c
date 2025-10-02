@@ -63,7 +63,7 @@
 #define PERMANENT_MEMORY_SIZE                                                  \
   MB(200) // 200MB for permanent allocations (GPU objects, no frames)
 #define TEMPORARY_MEMORY_SIZE                                                  \
-  GB(5) // 5GB for temporary allocations (frames + profiler + other temp data)
+  GB(1) // 5GB for temporary allocations (frames + profiler + other temp data)
 #define GAME_PERMANENT_MEMORY_SIZE                                             \
   MB(100) // 100MB for game permanent allocations
 #define GAME_TEMPORARY_MEMORY_SIZE                                             \
@@ -1608,8 +1608,8 @@ int main(int argc, char *argv[]) {
 
   // Create a hardcoded request for testing
   render_request_t request = {
-      .seconds = 1,        // 2 second video
-      .num_frames = 1 * 24 // 2 * 24fps
+      .seconds = 11.4,        // 2 second video
+      .num_frames = 11.4 * 24 // 2 * 24fps
   };
 
   printf("\nStarting standalone render...\n");

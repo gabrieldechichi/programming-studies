@@ -184,7 +184,7 @@ void gym_init(GameMemory *memory) {
 
   // Request a WAV file for lipsync testing (you may need to change this path)
   gym_state->wav_file_handle = asset_request(
-      WavFile, &gym_state->asset_system, ctx, "univ0023.wav");
+      WavFile, &gym_state->asset_system, ctx, "hannahdogaudio.wav");
 
   // Initialize costume data
   gym_state->num_costumes = sizeof(costume_paths) / sizeof(costume_paths[0]);
@@ -1386,4 +1386,5 @@ void gym_update_and_render(GameMemory *memory) {
   PROFILE_END();
 
   input_end_frame(input);
+  ALLOC_RESET(&gym_state->ctx.temp_allocator);
 }
