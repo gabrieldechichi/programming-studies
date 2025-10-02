@@ -20,7 +20,7 @@ def test_socket_connection():
         print("Connected successfully!")
 
         # Prepare request
-        request = {"seconds": 0.5}  # Short test video
+        request = {"seconds": 3.5}  # Short test video
         request_json = json.dumps(request) + '\n'
 
         print(f"Sending request: {request}")
@@ -28,7 +28,7 @@ def test_socket_connection():
 
         # Receive response
         print("Waiting for response...")
-        response = client.recv(1024 * 1024)  # 1MB buffer
+        response = client.recv(1024 * 1024 * 1024)  # 1MB buffer
 
         if response:
             response_str = response.decode('utf-8')

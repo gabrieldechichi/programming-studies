@@ -38,7 +38,7 @@
 #include "lib/typedefs.h"
 
 // Mode selection - set to 1 for standalone mode, 0 for daemon mode
-#define STANDALONE_MODE 1
+#define STANDALONE_MODE 0
 
 // Application constants
 #define MAX_FRAMES                                                             \
@@ -63,7 +63,7 @@
 #define PERMANENT_MEMORY_SIZE                                                  \
   MB(200) // 200MB for permanent allocations (GPU objects, no frames)
 #define TEMPORARY_MEMORY_SIZE                                                  \
-  GB(1) // 5GB for temporary allocations (frames + profiler + other temp data)
+  GB(20) // 5GB for temporary allocations (frames + profiler + other temp data)
 #define GAME_PERMANENT_MEMORY_SIZE                                             \
   MB(100) // 100MB for game permanent allocations
 #define GAME_TEMPORARY_MEMORY_SIZE                                             \
@@ -71,9 +71,9 @@
 
 // Frame data structure for queue
 typedef struct {
-  uint8_t *data;           // Video data (YUV)
-  float *audio_samples;    // Audio samples (interleaved stereo)
-  int audio_sample_count;  // Number of samples captured
+  uint8_t *data;          // Video data (YUV)
+  float *audio_samples;   // Audio samples (interleaved stereo)
+  int audio_sample_count; // Number of samples captured
   int frame_number;
   atomic_bool ready;
 } frame_data_t;
@@ -81,10 +81,10 @@ typedef struct {
 // Readback state for async GPU transfers
 typedef struct {
   int frame_number;
-  int buffer_index;              // Which of the 3 buffers (0-2)
-  gpu_command_buffer_t *readback_cmd;  // Command buffer with fence
-  atomic_bool submitted;         // GPU work submitted
-  atomic_bool completed;         // Readback complete
+  int buffer_index;                   // Which of the 3 buffers (0-2)
+  gpu_command_buffer_t *readback_cmd; // Command buffer with fence
+  atomic_bool submitted;              // GPU work submitted
+  atomic_bool completed;              // Readback complete
 } frame_readback_state_t;
 
 // Request structure
@@ -98,7 +98,7 @@ typedef struct {
   float *data;
   int write_pos;
   int read_pos;
-  int capacity;  // In floats (not bytes)
+  int capacity; // In floats (not bytes)
 } AudioRingBuffer;
 
 // Uniform buffer structure matching Metal shader
@@ -137,8 +137,8 @@ typedef struct {
 
   // Triple-buffered readback system
   gpu_readback_buffer_t *yuv_readback_buffers[3]; // Triple buffer pool
-  atomic_bool readback_buffer_in_use[3];          // Track which buffers are busy
-  frame_readback_state_t *readback_states;        // Per-frame readback state
+  atomic_bool readback_buffer_in_use[3];   // Track which buffers are busy
+  frame_readback_state_t *readback_states; // Per-frame readback state
 
   // Threading for readback
   pthread_t readback_thread;
@@ -276,16 +276,18 @@ static int init_context(AppContext *ctx) {
 // Allocate frame data for current request (from temporary allocator)
 static int allocate_frame_data_for_request(int num_frames) {
   // Allocate readback state tracking
-  g_ctx.readback_states = ALLOC_ARRAY(&g_ctx.temporary_allocator, frame_readback_state_t, num_frames);
+  g_ctx.readback_states = ALLOC_ARRAY(&g_ctx.temporary_allocator,
+                                      frame_readback_state_t, num_frames);
   if (!g_ctx.readback_states) {
-    fprintf(stderr, "Failed to allocate readback states for %d frames\n", num_frames);
+    fprintf(stderr, "Failed to allocate readback states for %d frames\n",
+            num_frames);
     return -1;
   }
 
   // Calculate audio buffer requirements
   // At 48kHz, 24fps: 2000 samples per frame, stereo = 4000 floats
-  int samples_per_frame = 48000 / 24;  // 2000 samples per channel
-  int audio_floats_per_frame = samples_per_frame * 2;  // *2 for stereo
+  int samples_per_frame = 48000 / 24; // 2000 samples per channel
+  int audio_floats_per_frame = samples_per_frame * 2; // *2 for stereo
   size_t audio_bytes_per_frame = audio_floats_per_frame * sizeof(float);
 
   printf("[Memory] Allocating frame data for request: %d frames\n", num_frames);
@@ -315,11 +317,11 @@ static int allocate_frame_data_for_request(int num_frames) {
         ALLOC_ARRAY(&g_ctx.temporary_allocator, float, audio_floats_per_frame);
     if (!g_ctx.frames[i].audio_samples) {
       fprintf(stderr,
-              "Failed to allocate audio data for frame %d (need %zu bytes)\n", i,
-              audio_bytes_per_frame);
+              "Failed to allocate audio data for frame %d (need %zu bytes)\n",
+              i, audio_bytes_per_frame);
       return -1;
     }
-    g_ctx.frames[i].audio_sample_count = 0;  // Will be filled during render
+    g_ctx.frames[i].audio_sample_count = 0; // Will be filled during render
     g_ctx.frames[i].frame_number = i;
     atomic_store(&g_ctx.frames[i].ready, false);
   }
@@ -402,10 +404,11 @@ static int init_ffmpeg_cache(void) {
 
   // Allocate audio frame (reused across requests)
   g_ctx.cached_audio_frame = av_frame_alloc();
-  g_ctx.cached_audio_frame->format = AV_SAMPLE_FMT_FLTP;  // AAC needs planar float
+  g_ctx.cached_audio_frame->format =
+      AV_SAMPLE_FMT_FLTP; // AAC needs planar float
   g_ctx.cached_audio_frame->channel_layout = AV_CH_LAYOUT_STEREO;
   g_ctx.cached_audio_frame->sample_rate = 48000;
-  g_ctx.cached_audio_frame->nb_samples = 1024;  // AAC frame size
+  g_ctx.cached_audio_frame->nb_samples = 1024; // AAC frame size
 
   // Allocate buffer for audio frame
   ret = av_frame_get_buffer(g_ctx.cached_audio_frame, 0);
@@ -414,7 +417,8 @@ static int init_ffmpeg_cache(void) {
     return -1;
   }
 
-  printf("[FFmpeg] Cached objects initialized (video: %s, audio: AAC)\n", codec->name);
+  printf("[FFmpeg] Cached objects initialized (video: %s, audio: AAC)\n",
+         codec->name);
   return 0;
 }
 
@@ -557,8 +561,9 @@ static int open_ffmpeg_encoder(const char *filename) {
   g_ctx.audio_codec_ctx->sample_rate = 48000;
   g_ctx.audio_codec_ctx->channel_layout = AV_CH_LAYOUT_STEREO;
   g_ctx.audio_codec_ctx->channels = 2;
-  g_ctx.audio_codec_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;  // AAC uses planar float
-  g_ctx.audio_codec_ctx->bit_rate = 128000;  // 128 kbps
+  g_ctx.audio_codec_ctx->sample_fmt =
+      AV_SAMPLE_FMT_FLTP;                   // AAC uses planar float
+  g_ctx.audio_codec_ctx->bit_rate = 128000; // 128 kbps
   g_ctx.audio_codec_ctx->time_base = (AVRational){1, 48000};
 
   // Allow experimental AAC encoder if needed
@@ -725,15 +730,18 @@ static int find_next_available_readback_buffer(void) {
   for (int attempts = 0; attempts < 1000; attempts++) { // Timeout after ~100ms
     for (int i = 0; i < 3; i++) {
       bool expected = false;
-      if (atomic_compare_exchange_weak(&g_ctx.readback_buffer_in_use[i], &expected, true)) {
+      if (atomic_compare_exchange_weak(&g_ctx.readback_buffer_in_use[i],
+                                       &expected, true)) {
         return i; // Successfully claimed buffer i
       }
     }
     platform_sleep_us(100); // All buffers busy, wait a bit
   }
 
-  // Fallback: force use buffer 0 if we timeout (shouldn't happen in normal operation)
-  fprintf(stderr, "[Warning] Readback buffer allocation timeout, forcing buffer 0\n");
+  // Fallback: force use buffer 0 if we timeout (shouldn't happen in normal
+  // operation)
+  fprintf(stderr,
+          "[Warning] Readback buffer allocation timeout, forcing buffer 0\n");
   atomic_store(&g_ctx.readback_buffer_in_use[0], true);
   return 0;
 }
@@ -748,7 +756,8 @@ static void *readback_thread_func(void *arg) {
   while (next_frame_to_readback < g_ctx.current_num_frames &&
          !atomic_load(&g_ctx.readback_thread_should_exit)) {
 
-    frame_readback_state_t *state = &g_ctx.readback_states[next_frame_to_readback];
+    frame_readback_state_t *state =
+        &g_ctx.readback_states[next_frame_to_readback];
 
     // Wait for frame to be submitted
     PROFILE_BEGIN("readback wait for submit");
@@ -757,7 +766,8 @@ static void *readback_thread_func(void *arg) {
     }
     PROFILE_END();
 
-    if (atomic_load(&g_ctx.readback_thread_should_exit)) break;
+    if (atomic_load(&g_ctx.readback_thread_should_exit))
+      break;
 
     // Poll fence status (non-blocking check)
     PROFILE_BEGIN("readback wait for gpu");
@@ -766,15 +776,15 @@ static void *readback_thread_func(void *arg) {
     }
     PROFILE_END();
 
-    if (atomic_load(&g_ctx.readback_thread_should_exit)) break;
+    if (atomic_load(&g_ctx.readback_thread_should_exit))
+      break;
 
     // Copy data from GPU to CPU
     PROFILE_BEGIN("readback copy from gpu");
     int buf_idx = state->buffer_index;
-    gpu_copy_readback_data(
-        g_ctx.yuv_readback_buffers[buf_idx],
-        g_ctx.frames[next_frame_to_readback].data,
-        YUV_TOTAL_SIZE_BYTES);
+    gpu_copy_readback_data(g_ctx.yuv_readback_buffers[buf_idx],
+                           g_ctx.frames[next_frame_to_readback].data,
+                           YUV_TOTAL_SIZE_BYTES);
     PROFILE_END();
 
     // Mark frame ready for encoder
@@ -801,7 +811,8 @@ static void *readback_thread_func(void *arg) {
 // Ring buffer helper functions
 static int ring_buffer_available(AudioRingBuffer *rb) {
   int avail = rb->write_pos - rb->read_pos;
-  if (avail < 0) avail += rb->capacity;
+  if (avail < 0)
+    avail += rb->capacity;
   return avail;
 }
 
@@ -845,10 +856,8 @@ static int encode_audio_frame(AudioRingBuffer *rb) {
   }
 
   // Convert to planar format
-  float *planar[2] = {
-    (float*)g_ctx.cached_audio_frame->data[0],
-    (float*)g_ctx.cached_audio_frame->data[1]
-  };
+  float *planar[2] = {(float *)g_ctx.cached_audio_frame->data[0],
+                      (float *)g_ctx.cached_audio_frame->data[1]};
   convert_interleaved_to_planar(interleaved, planar, 1024);
 
   // Set PTS
@@ -889,10 +898,11 @@ static int encode_audio_frame(AudioRingBuffer *rb) {
 }
 
 // Encode final audio frame with padding if needed
-static int encode_audio_frame_padded(AudioRingBuffer *rb, int samples_available) {
+static int encode_audio_frame_padded(AudioRingBuffer *rb,
+                                     int samples_available) {
   // Extract available samples and pad with silence
-  float interleaved[1024 * 2] = {0};  // Initialize with silence
-  int floats_available = samples_available * 2;  // Convert to stereo float count
+  float interleaved[1024 * 2] = {0};            // Initialize with silence
+  int floats_available = samples_available * 2; // Convert to stereo float count
   ring_buffer_read(rb, interleaved, floats_available);
 
   // Make frame writable
@@ -902,10 +912,8 @@ static int encode_audio_frame_padded(AudioRingBuffer *rb, int samples_available)
   }
 
   // Convert to planar format
-  float *planar[2] = {
-    (float*)g_ctx.cached_audio_frame->data[0],
-    (float*)g_ctx.cached_audio_frame->data[1]
-  };
+  float *planar[2] = {(float *)g_ctx.cached_audio_frame->data[0],
+                      (float *)g_ctx.cached_audio_frame->data[1]};
   convert_interleaved_to_planar(interleaved, planar, 1024);
 
   // Set PTS
@@ -945,8 +953,9 @@ static void *encoder_thread_func(void *arg) {
 
   // Initialize audio ring buffer
   AudioRingBuffer audio_buffer = {0};
-  audio_buffer.capacity = 8192;  // Enough for ~2 video frames of audio
-  audio_buffer.data = ALLOC_ARRAY(&g_ctx.temporary_allocator, float, audio_buffer.capacity);
+  audio_buffer.capacity = 8192; // Enough for ~2 video frames of audio
+  audio_buffer.data =
+      ALLOC_ARRAY(&g_ctx.temporary_allocator, float, audio_buffer.capacity);
   audio_buffer.write_pos = 0;
   audio_buffer.read_pos = 0;
 
@@ -968,10 +977,12 @@ static void *encoder_thread_func(void *arg) {
       PROFILE_BEGIN("ffmpeg encode audio");
 
       // Add this frame's audio to ring buffer
-      ring_buffer_write(&audio_buffer, frame->audio_samples, frame->audio_sample_count);
+      ring_buffer_write(&audio_buffer, frame->audio_samples,
+                        frame->audio_sample_count);
 
       // Encode all complete AAC frames (1024 samples each)
-      while (ring_buffer_available(&audio_buffer) >= 1024 * 2) {  // *2 for stereo
+      while (ring_buffer_available(&audio_buffer) >=
+             1024 * 2) { // *2 for stereo
         if (encode_audio_frame(&audio_buffer) < 0) {
           fprintf(stderr, "[Encoder] Failed to encode audio frame\n");
         } else {
@@ -983,7 +994,7 @@ static void *encoder_thread_func(void *arg) {
     }
 
     // Debug print periodically
-    if (next_frame_to_encode % 24 == 0) {  // Every second
+    if (next_frame_to_encode % 24 == 0) { // Every second
       printf("[Encoder] Progress: Video frame %d, Audio frames encoded: %d\n",
              next_frame_to_encode, total_audio_frames_encoded);
     }
@@ -1001,9 +1012,11 @@ static void *encoder_thread_func(void *arg) {
   }
 
   // Encode remaining audio samples (pad last frame if needed)
-  int remaining_audio = ring_buffer_available(&audio_buffer) / 2;  // Sample count per channel
+  int remaining_audio =
+      ring_buffer_available(&audio_buffer) / 2; // Sample count per channel
   if (remaining_audio > 0) {
-    printf("[Encoder] Encoding final audio frame with %d samples (padded to 1024)\n",
+    printf("[Encoder] Encoding final audio frame with %d samples (padded to "
+           "1024)\n",
            remaining_audio);
     if (encode_audio_frame_padded(&audio_buffer, remaining_audio) < 0) {
       fprintf(stderr, "[Encoder] Failed to encode final audio frame\n");
@@ -1037,8 +1050,9 @@ static void *encoder_thread_func(void *arg) {
 
   gettimeofday(&g_ctx.encode_complete_time, NULL);
 
-  printf("[Encoder] Thread finished - %d video frames, %d audio frames encoded\n",
-         g_ctx.current_num_frames, total_audio_frames_encoded);
+  printf(
+      "[Encoder] Thread finished - %d video frames, %d audio frames encoded\n",
+      g_ctx.current_num_frames, total_audio_frames_encoded);
   return NULL;
 }
 
@@ -1140,7 +1154,7 @@ static int initialize_system(void) {
   // Frame data will be allocated per-request, not pre-allocated
   // Initialize frame metadata only
   for (int i = 0; i < MAX_FRAMES; i++) {
-    g_ctx.frames[i].data = NULL; // Will be allocated per request
+    g_ctx.frames[i].data = NULL;          // Will be allocated per request
     g_ctx.frames[i].audio_samples = NULL; // Will be allocated per request
     g_ctx.frames[i].audio_sample_count = 0;
     g_ctx.frames[i].frame_number = i;
@@ -1169,7 +1183,8 @@ static int initialize_system(void) {
 
 static void render_all_frames(void) {
   PROFILE_BEGIN("render_all_frames");
-  printf("[Renderer] Processing %d frames with triple-buffered async readback...\n",
+  printf("[Renderer] Processing %d frames with triple-buffered async "
+         "readback...\n",
          g_ctx.current_num_frames);
 
   const float dt = 1.0f / 24.0f;
@@ -1259,7 +1274,8 @@ static void render_all_frames(void) {
   g_current_render_frame = -1;
 
   gettimeofday(&g_ctx.render_complete_time, NULL);
-  printf("[Renderer] All %d frames submitted for async readback\n", g_ctx.current_num_frames);
+  printf("[Renderer] All %d frames submitted for async readback\n",
+         g_ctx.current_num_frames);
 
   PROFILE_END(); // render_all_frames
 }
@@ -1271,7 +1287,8 @@ static int start_readback_and_encoder(const char *filename) {
   atomic_store(&g_ctx.readback_thread_should_exit, false);
 
   // Start readback thread
-  if (pthread_create(&g_ctx.readback_thread, NULL, readback_thread_func, NULL) != 0) {
+  if (pthread_create(&g_ctx.readback_thread, NULL, readback_thread_func,
+                     NULL) != 0) {
     fprintf(stderr, "Failed to create readback thread\n");
     return -1;
   }
@@ -1280,16 +1297,19 @@ static int start_readback_and_encoder(const char *filename) {
   // Open FFmpeg encoder for this request
   if (open_ffmpeg_encoder(filename) < 0) {
     fprintf(stderr, "Failed to open FFmpeg encoder\n");
-    atomic_store(&g_ctx.readback_thread_should_exit, true);  // Signal readback to exit
-    pthread_join(g_ctx.readback_thread, NULL);  // Clean up thread
+    atomic_store(&g_ctx.readback_thread_should_exit,
+                 true);                        // Signal readback to exit
+    pthread_join(g_ctx.readback_thread, NULL); // Clean up thread
     return -1;
   }
 
   // Start encoder thread
-  if (pthread_create(&g_ctx.encoder_thread, NULL, encoder_thread_func, NULL) != 0) {
+  if (pthread_create(&g_ctx.encoder_thread, NULL, encoder_thread_func, NULL) !=
+      0) {
     fprintf(stderr, "Failed to create encoder thread\n");
-    atomic_store(&g_ctx.readback_thread_should_exit, true);  // Signal readback to exit
-    pthread_join(g_ctx.readback_thread, NULL);  // Clean up thread
+    atomic_store(&g_ctx.readback_thread_should_exit,
+                 true);                        // Signal readback to exit
+    pthread_join(g_ctx.readback_thread, NULL); // Clean up thread
     close_ffmpeg_encoder();
     return -1;
   }
@@ -1301,7 +1321,7 @@ static int start_readback_and_encoder(const char *filename) {
 
 static void wait_for_completion(void) {
   PROFILE_BEGIN("wait_for_completion");
-  PROFILE_END();  // End profiling BEFORE joining threads
+  PROFILE_END(); // End profiling BEFORE joining threads
 
   // Print profiler results before threads are destroyed
   // This must happen while thread-local data is still valid
@@ -1319,9 +1339,10 @@ static void wait_for_completion(void) {
   // Print timing results
   double render_time =
       get_time_diff(&g_ctx.start_time, &g_ctx.render_complete_time);
-  double readback_time = g_ctx.readback_complete_time.tv_sec > 0 ?
-      get_time_diff(&g_ctx.start_time, &g_ctx.readback_complete_time) :
-      get_time_diff(&g_ctx.start_time, &g_ctx.render_complete_time);
+  double readback_time =
+      g_ctx.readback_complete_time.tv_sec > 0
+          ? get_time_diff(&g_ctx.start_time, &g_ctx.readback_complete_time)
+          : get_time_diff(&g_ctx.start_time, &g_ctx.render_complete_time);
   double total_time =
       get_time_diff(&g_ctx.start_time, &g_ctx.encode_complete_time);
 
@@ -1598,9 +1619,11 @@ int main(int argc, char *argv[]) {
   // Pool slot synchronization removed - not needed
 
   profiler_end_and_print_session(&g_ctx.temporary_allocator);
-  size_t buffer_size = KB(1);
-  char *buffer = ALLOC_ARRAY(&g_ctx.temporary_allocator, char, buffer_size);
-  printf("%ld", (uintptr_t) buffer);
+  {
+    size_t buffer_size = KB(1);
+    char *buffer = ALLOC_ARRAY(&g_ctx.temporary_allocator, char, buffer_size);
+    printf("%ld", (uintptr_t)buffer);
+  }
 
 #if STANDALONE_MODE
   // Standalone mode - render once and exit
@@ -1681,11 +1704,16 @@ int main(int argc, char *argv[]) {
       printf("Received request: %s\n", input_buffer);
       fflush(stdout);
 
+  {
+    size_t buffer_size = KB(1);
+    char *buffer = ALLOC_ARRAY(&g_ctx.temporary_allocator, char, buffer_size);
+    printf("%ld", (uintptr_t)buffer);
+  }
       // Process the request
       process_request(client_fd, input_buffer);
 
       // Reset temporary allocator after each request
-      ALLOC_RESET(&g_ctx.temporary_allocator);
+      // ALLOC_RESET(&g_ctx.temporary_allocator);
     }
 
     // Close client connection
@@ -1707,11 +1735,11 @@ void platform_audio_write_samples(f32 *samples, i32 sample_count) {
   // Verify we're getting audio
   printf("[Audio] Frame %d: Received %d samples (%.2f ms of audio @ 48kHz)\n",
          g_current_render_frame,
-         sample_count / 2,  // Divide by 2 for stereo
+         sample_count / 2, // Divide by 2 for stereo
          (float)(sample_count / 2) / 48000.0f * 1000.0f);
 
   // Print first few samples to verify format
-  if (g_current_render_frame == 0) {  // Only on first frame
+  if (g_current_render_frame == 0) { // Only on first frame
     printf("[Audio] First 10 samples (L,R pairs): ");
     for (int i = 0; i < 10 && i < sample_count; i++) {
       printf("%.3f ", samples[i]);
@@ -1734,9 +1762,7 @@ void platform_audio_write_samples(f32 *samples, i32 sample_count) {
 }
 
 // Return 48kHz for video encoding (better than 44.1kHz)
-i32 platform_audio_get_sample_rate() {
-  return 48000;
-}
+i32 platform_audio_get_sample_rate() { return 48000; }
 
 // Assert we haven't exceeded max profile points
 PROFILE_ASSERT_END_OF_COMPILATION_UNIT;
