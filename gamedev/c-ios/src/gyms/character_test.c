@@ -126,6 +126,7 @@ global char *texture_preload_paths[] = {
     "tolan/Tolan_tex.png",
     "textures/transparent_pixel.png",
     "backgrounds/tolan_bg_2.png",
+    "dogphoto.png",
     "tolanCostumes/Clothes_01.png",
     "tolanCostumes/tolan_cosmeticPalette_GreyRed.png",
     "textures/white_pixel.png",
@@ -245,7 +246,7 @@ void gym_init(GameMemory *memory) {
 
   // Request background texture
   gym_state->skybox_texture_handle = asset_request(
-      Texture, &gym_state->asset_system, ctx, "backgrounds/tolan_bg_2.png");
+      Texture, &gym_state->asset_system, ctx, "dogphoto.png");
   gym_state->quad_ready = false;
 
   // Load simple_quad shader

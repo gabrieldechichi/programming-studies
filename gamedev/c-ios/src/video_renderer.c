@@ -38,7 +38,7 @@
 #include "lib/typedefs.h"
 
 // Mode selection - set to 1 for standalone mode, 0 for daemon mode
-#define STANDALONE_MODE 0
+#define STANDALONE_MODE 1
 
 // Application constants
 #define MAX_FRAMES                                                             \
@@ -1608,8 +1608,8 @@ int main(int argc, char *argv[]) {
 
   // Create a hardcoded request for testing
   render_request_t request = {
-      .seconds = 8,        // 2 second video
-      .num_frames = 8 * 24 // 2 * 24fps
+      .seconds = 1,        // 2 second video
+      .num_frames = 1 * 24 // 2 * 24fps
   };
 
   printf("\nStarting standalone render...\n");
