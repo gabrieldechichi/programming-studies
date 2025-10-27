@@ -7,6 +7,7 @@
 #define thread_static __thread
 #define atomic_add(ptr, value) __sync_fetch_and_add((u64 *)(ptr), (value))
 #define atomic_inc_eval(ptr) __sync_add_and_fetch((ptr), 1)
+#define atomic_set(ptr, value) __sync_lock_test_and_set((ptr), (value))
 
 typedef struct ThreadContext {
   u8 thread_idx;

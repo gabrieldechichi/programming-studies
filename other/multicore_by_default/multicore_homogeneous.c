@@ -8,8 +8,8 @@
 #include "typedefs.h"
 #include "thread_context.h"
 
-// #define ARRAY_SIZE 1000000000
-#define ARRAY_SIZE 1000000
+#define ARRAY_SIZE 1000000000
+// #define ARRAY_SIZE 1000000
 
 void entrypoint() {
   u64 array_size = 0;
