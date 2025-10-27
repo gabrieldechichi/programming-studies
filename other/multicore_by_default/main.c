@@ -17,6 +17,8 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
+typedef u32 b32;
+
 typedef struct ThreadContext {
   u8 thread_idx;
   u8 thread_count;
@@ -26,14 +28,24 @@ typedef struct ThreadContext {
 typedef struct AppContext {
   u64 array_size;
   i64 *array;
+  u8 thread_count;
+  u64 *thread_sums;
 } AppContext;
 
 static AppContext *app_ctx = NULL;
 
+#define RANGE_DEFINE(type)                                                     \
+  typedef struct Range_##type {                                                \
+    type min;                                                                  \
+    type max;                                                                  \
+  } Range_##type;
+
+RANGE_DEFINE(u64);
+
 void entrypoint(ThreadContext *ctx) {
 
   if (ctx->thread_idx == 0) {
-    app_ctx->array_size = 100000000;
+    app_ctx->array_size = 1000000000;
     app_ctx->array = malloc(app_ctx->array_size * sizeof(i64));
     for (u64 i = 0; i < app_ctx->array_size; i++) {
       app_ctx->array[i] = i + 1; // 1, 2, 3, ...
@@ -41,17 +53,46 @@ void entrypoint(ThreadContext *ctx) {
   }
   pthread_barrier_wait(ctx->barrier);
 
+  u64 values_count = app_ctx->array_size;
+  u32 thread_count = ctx->thread_count;
+  u32 thread_idx = ctx->thread_idx;
+
+  u64 values_per_thread = values_count / thread_count;
+  u64 leftover_values_count = values_count % thread_count;
+  b32 thread_has_leftover = thread_idx < leftover_values_count;
+  u64 leftover_count_before_this_thread =
+      thread_has_leftover ? thread_idx : leftover_values_count;
+
+  u64 thread_first_value_idx =
+      (values_per_thread * thread_idx + leftover_count_before_this_thread);
+  u64 thread_opl_value_idx =
+      thread_first_value_idx + values_per_thread + !!thread_has_leftover;
+
+  Range_u64 range = {
+      .min = thread_first_value_idx,
+      .max = thread_opl_value_idx,
+  };
+
+  printf("Thread %d start %lld end %lld leftovers %d\n", ctx->thread_idx,
+         range.min, range.max, thread_has_leftover);
+
   // Compute sum
-  i64 sum = 0;
-  for (u64 i = 0; i < app_ctx->array_size; i++) {
-    sum += app_ctx->array[i];
+  {
+    i64 sum = 0;
+    for (u64 i = range.min; i < range.max; i++) {
+      sum += app_ctx->array[i];
+    }
+    app_ctx->thread_sums[ctx->thread_idx] = sum;
   }
 
-  printf("Sum: %lld\n", (u64)sum);
-
   pthread_barrier_wait(ctx->barrier);
+
   if (ctx->thread_idx == 0) {
-    free(app_ctx->array);
+    i64 sum = 0;
+    for (u64 i = 0; i < app_ctx->thread_count; i++) {
+      sum += app_ctx->thread_sums[i];
+    }
+    printf("Sum: %lld\n", (u64)sum);
   }
 }
 
@@ -76,6 +117,8 @@ int main(void) {
   pthread_barrier_init(&barrier, NULL, thread_count);
 
   app_ctx = calloc(1, sizeof(AppContext));
+  app_ctx->thread_count = thread_count;
+  app_ctx->thread_sums = calloc(1, sizeof(u64) * thread_count);
 
   for (u8 i = 0; i < thread_count; i++) {
     ctx_arr[i] = (ThreadContext){
