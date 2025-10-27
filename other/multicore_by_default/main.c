@@ -3,12 +3,13 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <string.h>
 #include "pthread_barrier.h"
 #include "unistd.h"
 #include "pthread_barrier.c"
 
-// #define ARRAY_SIZE 1000000000
-#define ARRAY_SIZE 1000000
+#define ARRAY_SIZE 1000000000
+// #define ARRAY_SIZE 1000000
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -33,17 +34,24 @@ typedef u32 b32;
 typedef struct ThreadContext {
   u8 thread_idx;
   u8 thread_count;
+  u64 *broadcast_memory;
   pthread_barrier_t *barrier;
 } ThreadContext;
 
-typedef struct AppContext {
-  u64 array_size;
-  i64 *array;
-  u8 thread_count;
-  u64 *thread_sums;
-} AppContext;
+void lane_sync_u64(ThreadContext *ctx, u32 broadcast_thread_idx,
+                   u64 *value_ptr) {
+  // broadcast from source thread -> other threads
+  if (value_ptr && ctx->thread_idx == broadcast_thread_idx) {
+    memcpy(ctx->broadcast_memory, value_ptr, sizeof(u64));
+  }
+  pthread_barrier_wait(ctx->barrier);
 
-static AppContext *app_ctx = NULL;
+  // receive value <- from broadcast thread
+  if (value_ptr && ctx->thread_idx != broadcast_thread_idx) {
+    memcpy(value_ptr, ctx->broadcast_memory, sizeof(u64));
+  }
+  pthread_barrier_wait(ctx->barrier);
+}
 
 #define RANGE_DEFINE(type)                                                     \
   typedef struct Range_##type {                                                \
@@ -60,17 +68,21 @@ void tctx_set_current(ThreadContext *ctx) { tctx_thread_local = ctx; }
 
 void entrypoint() {
   ThreadContext *ctx = tctx_current();
+  u64 array_size = 0;
+  i64 *array = NULL;
 
   if (ctx->thread_idx == 0) {
-    app_ctx->array_size = ARRAY_SIZE;
-    app_ctx->array = malloc(app_ctx->array_size * sizeof(i64));
-    for (u64 i = 0; i < app_ctx->array_size; i++) {
-      app_ctx->array[i] = i + 1; // 1, 2, 3, ...
+    array_size = ARRAY_SIZE;
+    array = malloc(array_size * sizeof(i64));
+    for (u64 i = 0; i < array_size; i++) {
+      array[i] = i + 1; // 1, 2, 3, ...
     }
   }
-  pthread_barrier_wait(ctx->barrier);
 
-  u64 values_count = app_ctx->array_size;
+  lane_sync_u64(ctx, 0, &array_size);
+  lane_sync_u64(ctx, 0, (u64 *)&array);
+
+  u64 values_count = array_size;
   u32 thread_count = ctx->thread_count;
   u32 thread_idx = ctx->thread_idx;
 
@@ -94,28 +106,28 @@ void entrypoint() {
          range.min, range.max, thread_has_leftover);
 
   // Compute sum
-  {
-    i64 sum = 0;
-    for (u64 i = range.min; i < range.max; i++) {
-      sum += app_ctx->array[i];
-    }
-    app_ctx->thread_sums[ctx->thread_idx] = sum;
+  i64 sum = 0;
+  u64 *sum_ptr = (u64 *)&sum;
+  lane_sync_u64(ctx, 0, sum_ptr);
+
+  i64 lane_sum = 0;
+  for (u64 i = range.min; i < range.max; i++) {
+    lane_sum += array[i];
   }
 
-  pthread_barrier_wait(ctx->barrier);
+  __sync_fetch_and_add(sum_ptr, lane_sum);
+
+  lane_sync_u64(ctx, 0, sum_ptr);
 
   if (ctx->thread_idx == 0) {
-    i64 sum = 0;
-    for (u64 i = 0; i < app_ctx->thread_count; i++) {
-      sum += app_ctx->thread_sums[i];
-    }
-    printf("Sum: %lld\n", (u64)sum);
+    printf("Sum: %lld\n", sum);
   }
 }
 
 void *entrypoint_internal(void *arg) {
   ThreadContext *ctx = (ThreadContext *)arg;
   tctx_set_current(ctx);
+
   entrypoint();
   return NULL;
 }
@@ -134,15 +146,13 @@ int main(void) {
   pthread_barrier_t barrier;
   pthread_barrier_init(&barrier, NULL, thread_count);
 
-  app_ctx = calloc(1, sizeof(AppContext));
-  app_ctx->thread_count = thread_count;
-  app_ctx->thread_sums = calloc(1, sizeof(u64) * thread_count);
-
+  u64 broadcast_memory = 0;
   for (u8 i = 0; i < thread_count; i++) {
     ctx_arr[i] = (ThreadContext){
         .thread_idx = i,
         .thread_count = thread_count,
         .barrier = &barrier,
+        .broadcast_memory = &broadcast_memory,
     };
     pthread_create(&threads[i], NULL, entrypoint_internal, &ctx_arr[i]);
   }
