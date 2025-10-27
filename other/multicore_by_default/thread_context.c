@@ -1,4 +1,6 @@
-#include "thread.h"
+#include "thread_context.h"
+#include <string.h>
+#include <unistd.h>
 
 thread_static ThreadContext *tctx_thread_local;
 
