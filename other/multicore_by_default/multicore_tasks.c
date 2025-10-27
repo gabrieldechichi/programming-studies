@@ -3,7 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define ARRAY_SIZE 1000000
+#define ARRAY_SIZE 1000000000
+// #define ARRAY_SIZE 1000000
 
 typedef void (*TaskFunc)(void *);
 
@@ -20,7 +21,7 @@ typedef struct {
 typedef struct {
   i64 *array;
   Range_u64 range;
-  i64 sum;
+  i64 lane_sum;
 } TaskWideSumData;
 
 void task_sum_init(void *_data) {
@@ -39,49 +40,89 @@ void task_sum_exec(void *_data) {
   for (u64 i = data->range.min; i < data->range.max; i++) {
     sum += data->array[i];
   }
-  data->sum = sum;
+  data->lane_sum = sum;
 }
 
+typedef struct {
+  Task tasks_ptr[128];
+  u8 task_counter;
+  u8 tasks_count;
+} TaskQueue;
+
 void entrypoint() {
-  Task *tasks_ptr = NULL;
-  u8 tasks_count = 0;
-  u64 *task_counter_ptr = NULL;
+  static TaskQueue task_queue = {0};
   TaskWideSumInitData *init_data = NULL;
 
+  // todo: maybe go wide here (main thread only allocs the pointer)
   if (is_main_thread()) {
-    tasks_ptr = calloc(128, sizeof(Task));
-    task_counter_ptr = calloc(1, sizeof(u64));
-    *task_counter_ptr = 0;
-
     init_data = calloc(1, sizeof(TaskWideSumInitData));
 
-    tasks_ptr[tasks_count++] = (Task){
+    task_queue.tasks_ptr[task_queue.tasks_count++] = (Task){
         .task_func = task_sum_init,
         .user_data = init_data,
     };
   }
 
   // Broadcast pointers
-  lane_sync_u64(0, &tasks_ptr);
-  lane_sync_u64(0, &tasks_count);
-  lane_sync_u64(0, &task_counter_ptr);
+  lane_sync_u64(0, &task_queue);
   lane_sync_u64(0, &init_data);
 
   // Now all threads can access the same tasks array
   for (;;) {
-    u64 task_idx = atomic_add(task_counter_ptr, 1);
-    if (task_idx >= tasks_count) {
+    u64 task_idx = atomic_inc_eval(&task_queue.task_counter) - 1;
+    if (task_idx >= task_queue.tasks_count) {
       break;
     }
-    printf("Thread %d executing task %lld\n", tctx_current()->thread_idx, task_idx);
+    printf("Thread %d executing task %lld\n", tctx_current()->thread_idx,
+           task_idx);
 
-    Task task = tasks_ptr[task_idx];
+    Task task = task_queue.tasks_ptr[task_idx];
     task.task_func(task.user_data);
   }
   lane_sync();
 
-  printf("Thread %d %lld %lld\n", tctx_current()->thread_idx,
-         init_data->array_size, init_data->array[0]);
+  static TaskWideSumData *sum_lane_data = NULL;
+  if (is_main_thread()) {
+    sum_lane_data =
+        calloc(1, tctx_current()->thread_count * sizeof(TaskWideSumData));
+  }
+  lane_sync();
+
+  sum_lane_data[tctx_current()->thread_idx] = (TaskWideSumData){
+      .array = init_data->array,
+      .range = lane_range(init_data->array_size),
+      .lane_sum = 0,
+  };
+
+  u8 next_task_id = atomic_inc_eval(&task_queue.tasks_count) - 1;
+  task_queue.tasks_ptr[next_task_id] = (Task){
+      .task_func = task_sum_exec,
+      .user_data = &sum_lane_data[tctx_current()->thread_idx],
+  };
+
+  task_queue.task_counter = 0;
+  lane_sync();
+
+  for (;;) {
+    u64 task_idx = atomic_inc_eval(&task_queue.task_counter) - 1;
+    if (task_idx >= task_queue.tasks_count) {
+      break;
+    }
+    printf("Thread %d executing task %lld\n", tctx_current()->thread_idx,
+           task_idx);
+
+    Task task = task_queue.tasks_ptr[task_idx];
+    task.task_func(task.user_data);
+  }
+  lane_sync();
+
+  if (is_main_thread()) {
+      u64 sum = 0;
+      for (u8 i = 0; i < tctx_current()->thread_count; i++){
+          sum += sum_lane_data[i].lane_sum;
+      }
+      printf("sum %lld", sum);
+  }
 }
 
 void *entrypoint_internal(void *arg) {
