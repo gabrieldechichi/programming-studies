@@ -13,8 +13,19 @@ typedef int32_t i32;
 typedef int64_t i64;
 
 typedef u32 b32;
+typedef uintptr_t uintptr;
 
+#define UNUSED(x)(void)(x)
+
+#define true 1
+#define false 0
+
+#define force_inline static inline __attribute__((always_inline))
 #define local_shared static
+
+#define KB(x) (((u32)(x)) * (u32)1024)
+#define MB(x) (KB(x) * (u32)1024)
+#define GB(x) ((size_t)(MB(x)) * (size_t)1024)
 
 #define RANGE_DEFINE(type)                                                     \
   typedef struct Range_##type {                                                \

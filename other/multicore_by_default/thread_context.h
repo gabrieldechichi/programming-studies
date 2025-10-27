@@ -1,6 +1,7 @@
 #ifndef H_THREAD
 #define H_THREAD
 
+#include "memory.h"
 #include "pthread_barrier.h"
 #include "typedefs.h"
 
@@ -14,6 +15,7 @@ typedef struct ThreadContext {
   u8 thread_count;
   u64 *broadcast_memory;
   pthread_barrier_t *barrier;
+  ArenaAllocator temp_arena;
 } ThreadContext;
 
 i8 os_core_count();

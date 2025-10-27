@@ -24,15 +24,13 @@ typedef struct {
   i64 lane_sum;
 } TaskWideSumData;
 
-void task_sum_init(void *_data) {
-  TaskWideSumInitData *data = (TaskWideSumInitData *)_data;
+void task_sum_init(TaskWideSumInitData *data) {
   for (u64 i = data->range.min; i < data->range.max; i++) {
     data->array[i] = i + 1;
   }
 }
 
-void task_sum_exec(void *_data) {
-  TaskWideSumData *data = (TaskWideSumData *)_data;
+void task_sum_exec(TaskWideSumData *data) {
   i64 sum = 0;
 
   for (u64 i = data->range.min; i < data->range.max; i++) {
@@ -57,10 +55,16 @@ static inline void cpu_pause() {
 #endif
 }
 
-void task_queue_append(TaskQueue *queue, Task task) {
+void _task_queue_append(TaskQueue *queue, Task task) {
   u8 next_task_id = atomic_inc_eval(&queue->tasks_count) - 1;
   queue->tasks_ptr[next_task_id] = task;
 }
+
+#define create_task(fn, data)                                                  \
+  ((Task){.task_func = (TaskFunc)(fn), .user_data = (void *)data})
+
+#define task_queue_append(queue, fn, data)                                     \
+  _task_queue_append((queue), create_task(fn, data))
 
 void task_queue_process(TaskQueue *queue) {
   queue->task_counter = 0;
@@ -84,35 +88,27 @@ void task_queue_process(TaskQueue *queue) {
 
 void entrypoint() {
   local_shared TaskQueue task_queue = {0};
-  local_shared TaskWideSumInitData *init_data = NULL;
   local_shared u64 array_size = ARRAY_SIZE;
   local_shared i64 *array = NULL;
+  local_shared TaskWideSumData *sum_lane_data = NULL;
 
   ThreadContext *tctx = tctx_current();
 
   if (is_main_thread()) {
-    init_data = calloc(1, tctx->thread_count * sizeof(TaskWideSumInitData));
     array = malloc(ARRAY_SIZE * sizeof(i64));
-  }
-  lane_sync();
-
-  // todo: use arena here for shared memory
-  init_data[tctx->thread_idx] = (TaskWideSumInitData){
-      .range = lane_range(array_size),
-      .array = array,
-  };
-  task_queue_append(&task_queue, (Task){
-                                     .task_func = task_sum_init,
-                                     .user_data = &init_data[tctx->thread_idx],
-                                 });
-
-  task_queue_process(&task_queue);
-
-  local_shared TaskWideSumData *sum_lane_data = NULL;
-  if (is_main_thread()) {
     sum_lane_data = calloc(1, tctx->thread_count * sizeof(TaskWideSumData));
   }
   lane_sync();
+
+  TaskWideSumInitData *init_data =
+      arena_alloc(&tctx->temp_arena, sizeof(TaskWideSumInitData));
+  *init_data = (TaskWideSumInitData){
+      .range = lane_range(array_size),
+      .array = array,
+  };
+  task_queue_append(&task_queue, task_sum_init, init_data);
+
+  task_queue_process(&task_queue);
 
   sum_lane_data[tctx->thread_idx] = (TaskWideSumData){
       .array = array,
@@ -120,11 +116,8 @@ void entrypoint() {
       .lane_sum = 0,
   };
 
-  task_queue_append(&task_queue,
-                    (Task){
-                        .task_func = task_sum_exec,
-                        .user_data = &sum_lane_data[tctx->thread_idx],
-                    });
+  task_queue_append(&task_queue, task_sum_exec,
+                    &sum_lane_data[tctx->thread_idx]);
 
   task_queue_process(&task_queue);
 
@@ -164,6 +157,7 @@ int main(void) {
         .thread_count = thread_count,
         .barrier = &barrier,
         .broadcast_memory = &broadcast_memory,
+        .temp_arena = arena_from_buffer(calloc(1, MB(8)), MB(8)),
     };
     pthread_create(&threads[i], NULL, entrypoint_internal, &thread_ctx_arr[i]);
   }
