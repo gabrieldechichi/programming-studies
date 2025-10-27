@@ -8,13 +8,13 @@ SRC = main.c
 
 all: $(TARGET)
 
-$(TARGET): $(SRC)
+build:
 	$(CC) $(CFLAGS) $(CFLAGS_DEBUG) $(LINK_FLAGS) -o $(TARGET) $(SRC)
 
 clean:
 	rm -f $(TARGET)
 
-run: $(TARGET)
+run: build
 	time ./$(TARGET)
 
 .PHONY: all clean run
