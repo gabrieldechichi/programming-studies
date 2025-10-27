@@ -1,0 +1,19 @@
+[
+  {
+    "arguments": [
+      "/opt/homebrew/opt/llvm/bin/clang",
+      "-c",
+      "-Wall",
+      "-Wextra",
+      "-std=c99",
+      "-DCOMPILER_CLANG",
+      "-O0",
+      "-o",
+      "multicore",
+      "main.c"
+    ],
+    "directory": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default",
+    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default/main.c",
+    "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default/multicore"
+  }
+]

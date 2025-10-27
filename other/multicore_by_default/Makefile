@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS = -Wall -Wextra -std=c99
+CFLAGS = -Wall -Wextra -std=c99 -DCOMPILER_CLANG
 CFLAGS_DEBUG = -O0
 LINK_FLAGS = -lpthread -lm
 

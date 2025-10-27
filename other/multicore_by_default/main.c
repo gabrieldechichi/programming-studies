@@ -7,6 +7,9 @@
 #include "unistd.h"
 #include "pthread_barrier.c"
 
+// #define ARRAY_SIZE 1000000000
+#define ARRAY_SIZE 1000000
+
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -18,6 +21,14 @@ typedef int32_t i32;
 typedef int64_t i64;
 
 typedef u32 b32;
+
+#if COMPILER_MSVC
+#define thread_static __declspec(thread)
+#elif COMPILER_CLANG || COMPILER_GCC
+#define thread_static __thread
+#else
+#error thread_static not defined for this compiler.
+#endif
 
 typedef struct ThreadContext {
   u8 thread_idx;
@@ -42,10 +53,16 @@ static AppContext *app_ctx = NULL;
 
 RANGE_DEFINE(u64);
 
-void entrypoint(ThreadContext *ctx) {
+thread_static ThreadContext *tctx_thread_local;
+
+ThreadContext *tctx_current() { return tctx_thread_local; }
+void tctx_set_current(ThreadContext *ctx) { tctx_thread_local = ctx; }
+
+void entrypoint() {
+  ThreadContext *ctx = tctx_current();
 
   if (ctx->thread_idx == 0) {
-    app_ctx->array_size = 1000000000;
+    app_ctx->array_size = ARRAY_SIZE;
     app_ctx->array = malloc(app_ctx->array_size * sizeof(i64));
     for (u64 i = 0; i < app_ctx->array_size; i++) {
       app_ctx->array[i] = i + 1; // 1, 2, 3, ...
@@ -98,7 +115,8 @@ void entrypoint(ThreadContext *ctx) {
 
 void *entrypoint_internal(void *arg) {
   ThreadContext *ctx = (ThreadContext *)arg;
-  entrypoint(ctx);
+  tctx_set_current(ctx);
+  entrypoint();
   return NULL;
 }
 
