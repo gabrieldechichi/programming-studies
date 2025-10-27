@@ -14,6 +14,8 @@ typedef int64_t i64;
 
 typedef u32 b32;
 
+#define local_shared static
+
 #define RANGE_DEFINE(type)                                                     \
   typedef struct Range_##type {                                                \
     type min;                                                                  \

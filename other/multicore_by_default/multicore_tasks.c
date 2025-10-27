@@ -47,92 +47,90 @@ typedef struct {
   u8 tasks_count;
 } TaskQueue;
 
-void entrypoint() {
-  static TaskQueue task_queue = {0};
-  static TaskWideSumInitData *init_data = NULL;
-  u64 array_size = ARRAY_SIZE;
-  static i64 *array = NULL;
+static inline void cpu_pause() {
+#if defined(__x86_64__) || defined(__i386__)
+  __asm__ __volatile__("pause" ::: "memory");
+#elif defined(__aarch64__) || defined(__arm64__)
+  __asm__ __volatile__("yield" ::: "memory"); // ARM equivalent
+#else
+  __asm__ __volatile__("" ::: "memory"); // Fallback: just a barrier
+#endif
+}
 
-  if (is_main_thread()) {
-    init_data =
-        calloc(1, tctx_current()->thread_count * sizeof(TaskWideSumInitData));
-    array = malloc(ARRAY_SIZE * sizeof(i64));
-  }
-  lane_sync_u64(0, &init_data);
-  lane_sync_u64(0, &array);
+void task_queue_append(TaskQueue *queue, Task task) {
+  u8 next_task_id = atomic_inc_eval(&queue->tasks_count) - 1;
+  queue->tasks_ptr[next_task_id] = task;
+}
 
-  {
-    init_data[tctx_current()->thread_idx] = (TaskWideSumInitData){
-        .range = lane_range(array_size),
-        .array = array,
-    };
-    u8 next_task_id = atomic_inc_eval(&task_queue.tasks_count) - 1;
-    task_queue.tasks_ptr[next_task_id] = (Task){
-        .task_func = task_sum_init,
-        .user_data = &init_data[tctx_current()->thread_idx],
-    };
-  }
-
-  task_queue.task_counter = 0;
+void task_queue_process(TaskQueue *queue) {
+  queue->task_counter = 0;
   lane_sync();
+  ThreadContext *tctx = tctx_current();
+
   for (;;) {
-    u64 task_idx = atomic_inc_eval(&task_queue.task_counter) - 1;
-    if (task_idx >= task_queue.tasks_count) {
+    u64 task_idx = atomic_inc_eval(&queue->task_counter) - 1;
+    if (task_idx >= queue->tasks_count) {
       break;
     }
-    printf("Init: Thread %d executing task %lld\n", tctx_current()->thread_idx,
-           task_idx);
+    printf("exec: Thread %d executing task %lld\n", tctx->thread_idx, task_idx);
 
-    Task task = task_queue.tasks_ptr[task_idx];
+    Task task = queue->tasks_ptr[task_idx];
     task.task_func(task.user_data);
   }
-
-  task_queue.task_counter = 0;
-  task_queue.tasks_count = 0;
+  queue->task_counter = 0;
+  queue->tasks_count = 0;
   lane_sync();
+}
 
-  static TaskWideSumData *sum_lane_data = NULL;
+void entrypoint() {
+  local_shared TaskQueue task_queue = {0};
+  local_shared TaskWideSumInitData *init_data = NULL;
+  local_shared u64 array_size = ARRAY_SIZE;
+  local_shared i64 *array = NULL;
+
+  ThreadContext *tctx = tctx_current();
+
   if (is_main_thread()) {
-    sum_lane_data =
-        calloc(1, tctx_current()->thread_count * sizeof(TaskWideSumData));
+    init_data = calloc(1, tctx->thread_count * sizeof(TaskWideSumInitData));
+    array = malloc(ARRAY_SIZE * sizeof(i64));
   }
   lane_sync();
 
-  sum_lane_data[tctx_current()->thread_idx] = (TaskWideSumData){
+  // todo: use arena here for shared memory
+  init_data[tctx->thread_idx] = (TaskWideSumInitData){
+      .range = lane_range(array_size),
+      .array = array,
+  };
+  task_queue_append(&task_queue, (Task){
+                                     .task_func = task_sum_init,
+                                     .user_data = &init_data[tctx->thread_idx],
+                                 });
+
+  task_queue_process(&task_queue);
+
+  local_shared TaskWideSumData *sum_lane_data = NULL;
+  if (is_main_thread()) {
+    sum_lane_data = calloc(1, tctx->thread_count * sizeof(TaskWideSumData));
+  }
+  lane_sync();
+
+  sum_lane_data[tctx->thread_idx] = (TaskWideSumData){
       .array = array,
       .range = lane_range(array_size),
       .lane_sum = 0,
   };
 
-  {
-    u8 next_task_id = atomic_inc_eval(&task_queue.tasks_count) - 1;
-    task_queue.tasks_ptr[next_task_id] = (Task){
-        .task_func = task_sum_exec,
-        .user_data = &sum_lane_data[tctx_current()->thread_idx],
-    };
-  }
+  task_queue_append(&task_queue,
+                    (Task){
+                        .task_func = task_sum_exec,
+                        .user_data = &sum_lane_data[tctx->thread_idx],
+                    });
 
-  task_queue.task_counter = 0;
-  lane_sync();
-
-  for (;;) {
-    u64 task_idx = atomic_inc_eval(&task_queue.task_counter) - 1;
-    if (task_idx >= task_queue.tasks_count) {
-      break;
-    }
-    printf("exec: Thread %d executing task %lld\n", tctx_current()->thread_idx,
-           task_idx);
-
-    Task task = task_queue.tasks_ptr[task_idx];
-    task.task_func(task.user_data);
-  }
-  task_queue.task_counter = 0;
-  task_queue.tasks_count = 0;
-  lane_sync();
+  task_queue_process(&task_queue);
 
   if (is_main_thread()) {
     u64 sum = 0;
-    for (u8 i = 0; i < tctx_current()->thread_count; i++) {
+    for (u8 i = 0; i < tctx->thread_count; i++) {
       sum += sum_lane_data[i].lane_sum;
     }
     printf("sum %lld", sum);
