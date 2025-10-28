@@ -2,16 +2,48 @@
 #include "typedefs.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define ARRAY_SIZE 1000000000
 // #define ARRAY_SIZE 1000000
 
+static inline void cpu_pause() {
+#if defined(__x86_64__) || defined(__i386__)
+  __asm__ __volatile__("pause" ::: "memory");
+#elif defined(__aarch64__) || defined(__arm64__)
+  __asm__ __volatile__("yield" ::: "memory"); // ARM equivalent
+#else
+  __asm__ __volatile__("" ::: "memory"); // Fallback: just a barrier
+#endif
+}
+
 typedef void (*TaskFunc)(void *);
+
+typedef struct {
+  u8 h[1];
+} TaskHandle;
 
 typedef struct {
   TaskFunc task_func;
   void *user_data;
+
+  // Dependencies: how many dependencies I'm waiting on
+  i8 dependency_count_remaining;
+
+  // Dependents: who's waiting for me
+  TaskHandle dependent_task_ids[32];
+  u8 dependents_count;
+
 } Task;
+
+typedef struct {
+  Task tasks_ptr[128];
+  u8 tasks_count;
+
+  TaskHandle ready_queue[128];
+  u8 ready_count;
+  u8 ready_counter;
+} TaskQueue;
 
 typedef struct {
   i64 *array;
@@ -28,6 +60,13 @@ void task_sum_init(TaskWideSumInitData *data) {
   for (u64 i = data->range.min; i < data->range.max; i++) {
     data->array[i] = i + 1;
   }
+
+  // note: just to test race conditions
+  // if (tctx_current()->thread_idx == 2 || tctx_current()->thread_idx == 3) {
+  //   for (u64 i = 0; i < 1000000000; i++) {
+  //     cpu_pause();
+  //   }
+  // }
 }
 
 void task_sum_exec(TaskWideSumData *data) {
@@ -39,49 +78,92 @@ void task_sum_exec(TaskWideSumData *data) {
   data->lane_sum = sum;
 }
 
-typedef struct {
-  Task tasks_ptr[128];
-  u8 task_counter;
-  u8 tasks_count;
-} TaskQueue;
-
-static inline void cpu_pause() {
-#if defined(__x86_64__) || defined(__i386__)
-  __asm__ __volatile__("pause" ::: "memory");
-#elif defined(__aarch64__) || defined(__arm64__)
-  __asm__ __volatile__("yield" ::: "memory"); // ARM equivalent
-#else
-  __asm__ __volatile__("" ::: "memory"); // Fallback: just a barrier
-#endif
-}
-
-void _task_queue_append(TaskQueue *queue, Task task) {
+TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
+                              TaskHandle *deps, u8 dep_count) {
+  UNUSED(deps);
+  UNUSED(dep_count);
   u8 next_task_id = atomic_inc_eval(&queue->tasks_count) - 1;
+
+  Task task = (Task){.task_func = (TaskFunc)(fn), .user_data = data};
+  task.dependency_count_remaining = dep_count;
   queue->tasks_ptr[next_task_id] = task;
+
+  TaskHandle this_task_handle = {
+      next_task_id,
+  };
+  // if we have dependencies, find dependent tasks and add this task to it's
+  // dependencies
+  if (dep_count > 0) {
+    for (u8 i = 0; i < dep_count; i++) {
+      TaskHandle dependency_task_handle = deps[i];
+      Task *dependency_task = &queue->tasks_ptr[dependency_task_handle.h[0]];
+      u8 next_dependent_id =
+          atomic_inc_eval(&dependency_task->dependents_count) - 1;
+      dependency_task->dependent_task_ids[next_dependent_id] = this_task_handle;
+    }
+  } else {
+    // if we don't have dependencies add ourselves to the ready queue directly
+    u8 next_ready_id = atomic_inc_eval(&queue->ready_count) - 1;
+    queue->ready_queue[next_ready_id] = this_task_handle;
+  }
+  return this_task_handle;
 }
 
-#define create_task(fn, data)                                                  \
-  ((Task){.task_func = (TaskFunc)(fn), .user_data = (void *)data})
+#define task_queue_append_deps(queue, fn, data, deps, deps_count)              \
+  _task_queue_append((queue), (TaskFunc)(fn), (void *)(data), (deps),          \
+                     (deps_count))
 
 #define task_queue_append(queue, fn, data)                                     \
-  _task_queue_append((queue), create_task(fn, data))
+  _task_queue_append((queue), (TaskFunc)(fn), (void *)(data), NULL, 0)
 
 void task_queue_process(TaskQueue *queue) {
-  queue->task_counter = 0;
-  lane_sync();
   ThreadContext *tctx = tctx_current();
+  queue->ready_counter = 0;
+  lane_sync();
+  printf("thread %d: start processing queue\n", tctx->thread_idx);
 
   for (;;) {
-    u64 task_idx = atomic_inc_eval(&queue->task_counter) - 1;
-    if (task_idx >= queue->tasks_count) {
-      break;
-    }
-    printf("exec: Thread %d executing task %lld\n", tctx->thread_idx, task_idx);
+    u8 ready_idx = atomic_inc_eval(&queue->ready_counter) - 1;
+    // we have ready tasks
+    if (ready_idx < atomic_load(&queue->ready_count)) {
+      TaskHandle ready_task_handle = queue->ready_queue[ready_idx];
+      printf("thread %d: executing task handle %d (%d)\n", tctx->thread_idx,
+             ready_idx, ready_task_handle.h[0]);
+      // note: should we assume valid task here?
+      Task task = queue->tasks_ptr[ready_task_handle.h[0]];
+      task.task_func(task.user_data);
 
-    Task task = queue->tasks_ptr[task_idx];
-    task.task_func(task.user_data);
+      for (u8 i = 0; i < task.dependents_count; i++) {
+        TaskHandle dependent_handle = task.dependent_task_ids[i];
+        Task *dependent = &queue->tasks_ptr[dependent_handle.h[0]];
+        // todo: what if this wraps to max u8?
+        i8 dependency_count_remaining =
+            atomic_dec_eval(&dependent->dependency_count_remaining);
+        // add to the ready queue
+        if (dependency_count_remaining <= 0) {
+          printf("thread %d: adding task %d to ready queue\n", tctx->thread_idx,
+                 dependent_handle.h[0]);
+          // todo: fix repeated code (thread safe array?)
+          u8 next_ready_id = atomic_inc_eval(&queue->ready_count) - 1;
+          queue->ready_queue[next_ready_id] = dependent_handle;
+        }
+      }
+      printf("thread %d: done executing task %d\n", tctx->thread_idx,
+             ready_task_handle.h[0]);
+    } else if (queue->ready_counter >= queue->tasks_count) {
+      // done
+      break;
+    } else {
+      // no ready tasks, put the id back and try again
+      atomic_dec_eval(&queue->ready_counter);
+      cpu_pause();
+    }
   }
-  queue->task_counter = 0;
+
+  printf("thread %d: done processing queue\n", tctx->thread_idx);
+
+  queue->ready_counter = 0;
+  queue->ready_count = 0;
   queue->tasks_count = 0;
   lane_sync();
 }
@@ -106,9 +188,8 @@ void entrypoint() {
       .range = lane_range(array_size),
       .array = array,
   };
-  task_queue_append(&task_queue, task_sum_init, init_data);
-
-  task_queue_process(&task_queue);
+  TaskHandle init_task_handle =
+      task_queue_append(&task_queue, task_sum_init, init_data);
 
   sum_lane_data[tctx->thread_idx] = (TaskWideSumData){
       .array = array,
@@ -116,8 +197,9 @@ void entrypoint() {
       .lane_sum = 0,
   };
 
-  task_queue_append(&task_queue, task_sum_exec,
-                    &sum_lane_data[tctx->thread_idx]);
+  task_queue_append_deps(&task_queue, task_sum_exec,
+                         &sum_lane_data[tctx->thread_idx], &init_task_handle,
+                         1);
 
   task_queue_process(&task_queue);
 

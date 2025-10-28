@@ -1,0 +1,3 @@
+- [ ] high performance clock (measure both examples)
+- [ ] test ideal cache line work
+    - [ ] note: in a real scenario might be better to always multi-thread
