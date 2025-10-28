@@ -15,13 +15,15 @@ typedef int64_t i64;
 typedef u32 b32;
 typedef uintptr_t uintptr;
 
-#define UNUSED(x)(void)(x)
+#define UNUSED(x) (void)(x)
 
 #define true 1
 #define false 0
 
 #define force_inline static inline __attribute__((always_inline))
 #define local_shared static
+
+#define ARRAY_LEN(arr) (sizeof((arr)) / sizeof((arr)[0]))
 
 #define KB(x) (((u32)(x)) * (u32)1024)
 #define MB(x) (KB(x) * (u32)1024)

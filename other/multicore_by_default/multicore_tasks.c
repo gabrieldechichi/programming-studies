@@ -109,9 +109,10 @@ TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
   return this_task_handle;
 }
 
-#define task_queue_append_deps(queue, fn, data, deps, deps_count)              \
-  _task_queue_append((queue), (TaskFunc)(fn), (void *)(data), (deps),          \
-                     (deps_count))
+#define task_queue_append_deps(queue, fn, data, ...)                           \
+  _task_queue_append((queue), (TaskFunc)(fn), (void *)(data),                  \
+                     (TaskHandle[]){__VA_ARGS__},                              \
+                     sizeof((TaskHandle[]){__VA_ARGS__}) / sizeof(TaskHandle))
 
 #define task_queue_append(queue, fn, data)                                     \
   _task_queue_append((queue), (TaskFunc)(fn), (void *)(data), NULL, 0)
@@ -125,7 +126,7 @@ void task_queue_process(TaskQueue *queue) {
   for (;;) {
     u8 ready_idx = atomic_inc_eval(&queue->ready_counter) - 1;
     // we have ready tasks
-    if (ready_idx < atomic_load(&queue->ready_count)) {
+    if (ready_idx < queue->ready_count) {
       TaskHandle ready_task_handle = queue->ready_queue[ready_idx];
       printf("thread %d: executing task handle %d (%d)\n", tctx->thread_idx,
              ready_idx, ready_task_handle.h[0]);
@@ -198,8 +199,7 @@ void entrypoint() {
   };
 
   task_queue_append_deps(&task_queue, task_sum_exec,
-                         &sum_lane_data[tctx->thread_idx], &init_task_handle,
-                         1);
+                         &sum_lane_data[tctx->thread_idx], init_task_handle);
 
   task_queue_process(&task_queue);
 
