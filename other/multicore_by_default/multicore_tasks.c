@@ -1,7 +1,9 @@
 #include "thread_context.h"
 #include "typedefs.h"
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #define ARRAY_SIZE 1000000000
@@ -16,6 +18,36 @@ static inline void cpu_pause() {
   __asm__ __volatile__("" ::: "memory"); // Fallback: just a barrier
 #endif
 }
+
+typedef enum {
+  TASK_RESOURCE_TYPE_READ,
+  TASK_RESOURCE_TYPE_WRITE,
+} TaskResourceAccessType;
+
+typedef struct {
+  TaskResourceAccessType access_mode;
+  void *ptr;
+  u64 size;
+} TaskResourceAccess;
+
+TaskResourceAccess
+task_resource_access_from_array_range(TaskResourceAccessType type, void *arr,
+                                      u64 min, u64 max) {
+  TaskResourceAccess resource_access = {
+      .access_mode = type,
+      .ptr = arr != NULL ? (void *)((uintptr)(arr) + (uintptr)(min)) : NULL,
+      // todo: math max
+      .size = arr ? max - min : 0};
+  return resource_access;
+}
+
+#define TASK_READ_ARRAY(arr, min_idx, max_idx)                                 \
+  task_resource_access_from_array_range(TASK_RESOURCE_TYPE_READ, arr, min_idx, \
+                                        max_idx)
+
+#define TASK_WRITE_ARRAY(arr, min_idx, max_idx)                                \
+  task_resource_access_from_array_range(TASK_RESOURCE_TYPE_WRITE, arr,         \
+                                        min_idx, max_idx)
 
 typedef void (*TaskFunc)(void *);
 
@@ -34,6 +66,10 @@ typedef struct {
   TaskHandle dependent_task_ids[32];
   u8 dependents_count;
 
+#if DEBUG
+  TaskResourceAccess resources[16];
+  u8 resources_count;
+#endif
 } Task;
 
 typedef struct {
@@ -79,13 +115,13 @@ void task_sum_exec(TaskWideSumData *data) {
 }
 
 TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
+                              TaskResourceAccess *resources, u8 resources_count,
                               TaskHandle *deps, u8 dep_count) {
-  UNUSED(deps);
-  UNUSED(dep_count);
   u8 next_task_id = atomic_inc_eval(&queue->tasks_count) - 1;
 
   Task task = (Task){.task_func = (TaskFunc)(fn), .user_data = data};
   task.dependency_count_remaining = dep_count;
+
   queue->tasks_ptr[next_task_id] = task;
 
   TaskHandle this_task_handle = {
@@ -106,16 +142,89 @@ TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
     u8 next_ready_id = atomic_inc_eval(&queue->ready_count) - 1;
     queue->ready_queue[next_ready_id] = this_task_handle;
   }
+
+#if DEBUG
+  if (resources == NULL) {
+    resources_count = 0;
+  }
+
+  // store resources for race detection
+  task.resources_count = resources_count;
+  memcpy(task.resources, resources,
+         sizeof(TaskResourceAccess) * resources_count);
+
+  // re-assign task
+  queue->tasks_ptr[next_task_id] = task;
+
+  // Check for data race conditions against all existing tasks
+  for (u8 other_task_idx = 0; other_task_idx < next_task_id; other_task_idx++) {
+    Task *other_task = &queue->tasks_ptr[other_task_idx];
+
+    // Check each resource in this task against each resource in other task
+    for (u8 i = 0; i < resources_count; i++) {
+      TaskResourceAccess *my_resource = &task.resources[i];
+
+      for (u8 j = 0; j < other_task->resources_count; j++) {
+        TaskResourceAccess *other_resource = &other_task->resources[j];
+
+        // Check if memory regions overlap
+        u64 my_start = (u64)my_resource->ptr;
+        u64 my_end = my_start + my_resource->size;
+        u64 other_start = (u64)other_resource->ptr;
+        u64 other_end = other_start + other_resource->size;
+
+        b32 overlaps = (my_start < other_end) && (other_start < my_end);
+
+        if (overlaps) {
+          // Check if there's a conflict (at least one WRITE)
+          b32 has_conflict =
+              (my_resource->access_mode == TASK_RESOURCE_TYPE_WRITE) ||
+              (other_resource->access_mode == TASK_RESOURCE_TYPE_WRITE);
+
+          if (has_conflict) {
+            // Verify the other task is in our dependency chain
+            b32 is_dependency = 0;
+            for (u8 d = 0; d < dep_count; d++) {
+              if (deps[d].h[0] == other_task_idx) {
+                is_dependency = 1;
+                break;
+              }
+            }
+
+            if (!is_dependency) {
+              printf("RACE CONDITION DETECTED:\n"
+                     "  Task %d conflicts with Task %d\n"
+                     "  Memory region: [%p - %p] overlaps [%p - %p]\n"
+                     "  Access modes: Task %d = %s, Task %d = %s\n"
+                     "  Task %d should depend on Task %d\n",
+                     next_task_id, other_task_idx,
+                     (void *)my_start, (void *)my_end, (void *)other_start,
+                     (void *)other_end,
+                     next_task_id,
+                     my_resource->access_mode == TASK_RESOURCE_TYPE_WRITE ? "WRITE"
+                                                                          : "READ",
+                     other_task_idx,
+                     other_resource->access_mode == TASK_RESOURCE_TYPE_WRITE
+                         ? "WRITE"
+                         : "READ",
+                     next_task_id, other_task_idx);
+              exit(1);
+              // Note: not aborting here, just warning
+            }
+          }
+        }
+      }
+    }
+  }
+#endif
+
   return this_task_handle;
 }
 
-#define task_queue_append_deps(queue, fn, data, ...)                           \
-  _task_queue_append((queue), (TaskFunc)(fn), (void *)(data),                  \
-                     (TaskHandle[]){__VA_ARGS__},                              \
-                     sizeof((TaskHandle[]){__VA_ARGS__}) / sizeof(TaskHandle))
-
-#define task_queue_append(queue, fn, data)                                     \
-  _task_queue_append((queue), (TaskFunc)(fn), (void *)(data), NULL, 0)
+#define task_queue_append(queue, fn, data, resources, resources_count, deps,   \
+                          deps_count)                                          \
+  _task_queue_append((queue), (TaskFunc)(fn), (void *)(data), resources,       \
+                     resources_count, deps, deps_count)
 
 void task_queue_process(TaskQueue *queue) {
   ThreadContext *tctx = tctx_current();
@@ -189,8 +298,10 @@ void entrypoint() {
       .range = lane_range(array_size),
       .array = array,
   };
-  TaskHandle init_task_handle =
-      task_queue_append(&task_queue, task_sum_init, init_data);
+  TaskResourceAccess init_resource_access = TASK_WRITE_ARRAY(
+      init_data->array, init_data->range.min, init_data->range.max);
+  TaskHandle init_task_handle = task_queue_append(
+      &task_queue, task_sum_init, init_data, &init_resource_access, 1, NULL, 0);
 
   sum_lane_data[tctx->thread_idx] = (TaskWideSumData){
       .array = array,
@@ -198,8 +309,14 @@ void entrypoint() {
       .lane_sum = 0,
   };
 
-  task_queue_append_deps(&task_queue, task_sum_exec,
-                         &sum_lane_data[tctx->thread_idx], init_task_handle);
+  TaskResourceAccess sum_resource_access =
+      TASK_READ_ARRAY(sum_lane_data[tctx->thread_idx].array,
+                      sum_lane_data[tctx->thread_idx].range.min,
+                      sum_lane_data[tctx->thread_idx].range.max);
+
+  task_queue_append(&task_queue, task_sum_exec,
+                    &sum_lane_data[tctx->thread_idx], &sum_resource_access, 1,
+                    NULL, 0);
 
   task_queue_process(&task_queue);
 

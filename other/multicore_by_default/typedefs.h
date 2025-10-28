@@ -30,7 +30,7 @@ typedef uintptr_t uintptr;
 #define GB(x) ((size_t)(MB(x)) * (size_t)1024)
 
 #define RANGE_DEFINE(type)                                                     \
-  typedef struct Range_##type {                                                \
+  typedef struct Range_##type {                                               \
     type min;                                                                  \
     type max;                                                                  \
   } Range_##type;
