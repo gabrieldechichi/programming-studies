@@ -2,7 +2,7 @@ CC = clang
 CFLAGS = -Wall -Wextra -std=c99 -DCOMPILER_CLANG -DMACOS
 CFLAGS_DEBUG = -O0 -g -DDEBUG
 CFLAGS_RELEASE = -O2
-INCLUDE_FLAGS = -Isrc -os -I./
+INCLUDE_FLAGS = -Isrc -Ios -Imeta -I./
 LINK_FLAGS = -lpthread -lm
 
 TARGET = multicore
@@ -16,10 +16,17 @@ build:
 build-release:
 	$(CC) $(CFLAGS) $(CFLAGS_RELEASE) $(LINK_FLAGS) -o $(TARGET) $(SRC)
 
+meta:
+	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) $(LINK_FLAGS) -o ./out/meta/meta meta/meta.c
+
+test:
+	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) -DTESTS $(LINK_FLAGS) -o ./out/test/test tests/test_main.c
+	time ./out/test/test
+
 clean:
 	rm -f $(TARGET)
 
 run: build
 	time ./$(TARGET)
 
-.PHONY: all clean run
+.PHONY: all clean run meta test
