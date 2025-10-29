@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "lib/typedefs.h"
+#include "meta/code_builder.h"
 
 #include "lib/string.c"
 #include "lib/memory.c"
@@ -16,106 +17,7 @@
 #include "os/os.c"
 #include "meta/tokenizer.c"
 #include "meta/parser.c"
-
-void print_reflected_struct(ReflectedStruct *s) {
-  printf("SUCCESS\n");
-
-  if (s->struct_name.len > 0) {
-    printf("Struct name: %.*s\n", s->struct_name.len, s->struct_name.value);
-  } else {
-    printf("Struct name: <anonymous>\n");
-  }
-
-  if (s->typedef_name.len > 0) {
-    printf("Typedef name: %.*s\n", s->typedef_name.len, s->typedef_name.value);
-  }
-
-  printf("Type ID: %u\n", s->type_id);
-
-  if (s->attributes.len > 0) {
-    printf("Struct attributes:\n");
-    for (u32 i = 0; i < s->attributes.len; i++) {
-      StructAttribute *attr = &s->attributes.items[i];
-      printf("  %.*s()\n", attr->name.len, attr->name.value);
-    }
-  }
-
-  printf("Fields:\n");
-  for (u32 i = 0; i < s->fields.len; i++) {
-    StructField *field = &s->fields.items[i];
-
-    if (field->attributes.len > 0) {
-      printf("  Field attributes:\n");
-      for (u32 j = 0; j < field->attributes.len; j++) {
-        FieldAttribute *attr = &field->attributes.items[j];
-        printf("    %.*s()\n", attr->name.len, attr->name.value);
-      }
-    }
-
-    printf("  %.*s", field->type_name.len, field->type_name.value);
-    for (u32 j = 0; j < field->pointer_depth; j++) {
-      printf("*");
-    }
-    printf(" %.*s", field->field_name.len, field->field_name.value);
-    if (field->is_array) {
-      printf("[%u]", field->array_size);
-    }
-    printf(";\n");
-  }
-  printf("\n");
-}
-
-typedef struct {
-  char *file_name;
-  StringBuilder sb;
-  u8 indent_level;
-} CodeStringBuilder;
-
-void csb_add_indent(CodeStringBuilder *csb) { csb->indent_level++; }
-void csb_remove_indent(CodeStringBuilder *csb) {
-  if (csb->indent_level > 0) {
-    csb->indent_level--;
-  }
-}
-
-void csb_append_indentation(CodeStringBuilder *csb) {
-  for (u8 i = 0; i < csb->indent_level; i++) {
-    sb_append(&csb->sb, "    ");
-  }
-}
-
-void csb_append_line(CodeStringBuilder *csb, const char *str) {
-  csb_append_indentation(csb);
-  sb_append_line(&csb->sb, str);
-}
-
-char *csb_finish(CodeStringBuilder *csb) {
-  csb_append_line(csb, "#endif");
-  csb_append_line(csb, "// ==== GENERATED FILE DO NOT EDIT ====\n");
-
-  return sb_get(&csb->sb);
-}
-
-#define csb_append_line_format(csb, fmt, ...)                                  \
-  do {                                                                         \
-    csb_append_indentation((csb));                                             \
-    sb_append_line_format(&(csb)->sb, fmt, __VA_ARGS__);                       \
-  } while (0);
-
-CodeStringBuilder csb_create(char *file_name, Allocator *allocator, u32 cap) {
-  CodeStringBuilder csb = {0};
-  csb.file_name = file_name;
-  sb_init(&csb.sb, ALLOC_ARRAY(allocator, char, cap), cap);
-
-  csb_append_line(&csb, "// ==== GENERATED FILE DO NOT EDIT ====\n");
-  csb_append_line_format(&csb, "#ifndef H_%_GEN", FMT_STR(csb.file_name));
-  csb_append_line_format(&csb, "#define H_%_GEN", FMT_STR(csb.file_name));
-  csb_append_line(&csb, "#include \"lib/task.h\"");
-  csb_append_line_format(&csb, "#include \"%.h\"", FMT_STR(csb.file_name));
-  csb_append_line(&csb, "");
-
-  return csb;
-}
+#include "meta/code_builder.c"
 
 int main() {
   ArenaAllocator temp_arena = arena_from_buffer(malloc(MB(64)), MB(64));
