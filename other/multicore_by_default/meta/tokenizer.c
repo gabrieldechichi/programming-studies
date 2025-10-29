@@ -10,10 +10,6 @@ typedef struct {
 global KeywordEntry keywords[] = {
     {"struct", TOKEN_STRUCT},
     {"typedef", TOKEN_TYPEDEF},
-    {"HM_REFLECT", TOKEN_HM_REFLECT},
-    {"HZ_TASK", TOKEN_HZ_TASK},
-    {"HZ_READ", TOKEN_HZ_READ},
-    {"HZ_WRITE", TOKEN_HZ_WRITE},
 };
 
 #define KEYWORD_COUNT ARRAY_SIZE(keywords)

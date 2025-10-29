@@ -161,6 +161,73 @@ Parser parser_create(const char *filename, const char *source,
   return parser;
 }
 
+b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
+  // Assume current token is TOKEN_STRUCT
+  if (!parser_expect_token_and_advance(parser, TOKEN_STRUCT)) {
+    parser_error(parser, "Expected 'struct' keyword");
+    return false;
+  }
+
+  // Parse optional struct name
+  String struct_name = {0};
+  if (parser_current_token_is(parser, TOKEN_IDENTIFIER)) {
+    struct_name = token_to_string(parser->current_token, parser->allocator);
+    parser_advance_token(parser);
+  }
+
+  // Expect opening brace
+  if (!parser_expect_token_and_advance(parser, TOKEN_LBRACE)) {
+    parser_error(parser, "Expected '{' after struct keyword");
+    return false;
+  }
+
+  // Initialize fields array
+  StructField_DynArray fields = dyn_arr_new_alloc(parser->allocator, StructField, 16);
+
+  // Parse fields until closing brace
+  while (!parser_current_token_is(parser, TOKEN_RBRACE) &&
+         !parser_current_token_is(parser, TOKEN_EOF)) {
+    // Parse type name
+    if (!parser_current_token_is(parser, TOKEN_IDENTIFIER)) {
+      parser_error(parser, "Expected type name for struct field");
+      return false;
+    }
+    String type_name = token_to_string(parser->current_token, parser->allocator);
+    parser_advance_token(parser);
+
+    // Parse field name
+    if (!parser_current_token_is(parser, TOKEN_IDENTIFIER)) {
+      parser_error(parser, "Expected field name after type");
+      return false;
+    }
+    String field_name = token_to_string(parser->current_token, parser->allocator);
+    parser_advance_token(parser);
+
+    // Expect semicolon
+    if (!parser_expect_token_and_advance(parser, TOKEN_SEMICOLON)) {
+      parser_error(parser, "Expected ';' after struct field");
+      return false;
+    }
+
+    // Add field to array
+    StructField field = {.type_name = type_name, .field_name = field_name};
+    arr_append(fields, field);
+  }
+
+  // Expect closing brace
+  if (!parser_expect_token_and_advance(parser, TOKEN_RBRACE)) {
+    parser_error(parser, "Expected '}' at end of struct");
+    return false;
+  }
+
+  // Populate output struct
+  out_struct->struct_name = struct_name;
+  out_struct->type_id = next_type_id++;
+  out_struct->fields = fields;
+
+  return true;
+}
+
 void parser_destroy(Parser *parser) {
   tokenizer_destroy(&parser->tokenizer);
   parser->has_error = false;

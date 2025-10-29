@@ -13,11 +13,10 @@ typedef struct {
 } StructField;
 arr_define(StructField);
 
-
 typedef struct {
   String struct_name;
   u32 type_id;
-  StructField_Array fields;
+  StructField_DynArray fields;
 } ReflectedStruct;
 arr_define(ReflectedStruct);
 
@@ -33,6 +32,7 @@ typedef struct {
 Parser parser_create(const char *filename, const char *source, u32 source_length,
                      Allocator *allocator);
 b32 parse_file(Parser *parser, ReflectedStruct_DynArray *out_structs);
+b32 parse_struct(Parser *parser, ReflectedStruct *out_struct);
 void parser_destroy(Parser *parser);
 void parser_reset_type_id();
 
