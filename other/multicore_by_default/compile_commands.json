@@ -6,15 +6,18 @@
       "-Wall",
       "-Wextra",
       "-std=c99",
+      "-Isrc/",
+      "-Ilib/",
       "-DCOMPILER_CLANG",
       "-O0",
+      "-g",
       "-DDEBUG",
       "-o",
       "multicore",
-      "main.c"
+      "src/main.c"
     ],
     "directory": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default",
-    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default/main.c",
+    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default/src/main.c",
     "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default/multicore"
   }
 ]
