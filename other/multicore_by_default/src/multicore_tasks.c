@@ -258,7 +258,6 @@ void task_queue_process(TaskQueue *queue) {
 
 HZ_TASK()
 typedef struct {
-  HZ_READ()
   u64 values_start;
 
   HZ_WRITE()

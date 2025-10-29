@@ -75,21 +75,30 @@ CodeStringBuilder csb_create(Allocator *allocator, u32 cap) {
   return csb;
 }
 
-void csb_add_indent(CodeStringBuilder *csb) {
+void csb_add_indent(CodeStringBuilder *csb) { csb->indent_level++; }
+void csb_remove_indent(CodeStringBuilder *csb) {
+  if (csb->indent_level > 0) {
+    csb->indent_level--;
+  }
+}
+
+void csb_append_indentation(CodeStringBuilder *csb) {
   for (u8 i = 0; i < csb->indent_level; i++) {
     sb_append(&csb->sb, "    ");
   }
 }
 
 void csb_append_line(CodeStringBuilder *csb, const char *str) {
-  csb_add_indent(csb);
+  csb_append_indentation(csb);
   sb_append_line(&csb->sb, str);
 }
 
+char *csb_get(CodeStringBuilder *csb) { return sb_get(&csb->sb); }
+
 #define csb_append_line_format(csb, fmt, ...)                                  \
   do {                                                                         \
-    csb_add_indent((csb));                                                     \
-    sb_append_line_format(&(csb)->sb, fmt, __VA_ARGS__);                            \
+    csb_append_indentation((csb));                                             \
+    sb_append_line_format(&(csb)->sb, fmt, __VA_ARGS__);                       \
   } while (0);
 
 int main() {
@@ -117,19 +126,44 @@ int main() {
         String struct_name =
             s.typedef_name.len ? s.typedef_name : s.struct_name;
 
+        // todo: validate all attributes are provided
+        u32 attr_write_count = 0;
+        u32 attr_read_count = 0;
+        arr_foreach_ptr(s.fields, StructField, field) {
+          if (field->attributes.len > 0) {
+            arr_foreach_ptr(field->attributes, MetaAttribute, attr) {
+              if (str_equal(attr->name.value, "HZ_WRITE")) {
+                // todo:
+                //  attr
+              }
+            }
+          }
+        }
+
         CodeStringBuilder csb = csb_create(&temp_allocator, MB(1));
+
+        // Exec wrapper (for safe casting)
         csb_append_line_format(&csb, "void _%_Exec(void* _data) {",
                                FMT_STR(struct_name.value));
-        csb.indent_level++;
+        csb_add_indent(&csb);
         csb_append_line_format(&csb, "%* data = (%*)_data;",
                                FMT_STR(struct_name.value),
                                FMT_STR(struct_name.value));
         csb_append_line_format(&csb, "%_Exec(data);",
                                FMT_STR(struct_name.value));
-        csb.indent_level--;
+        csb_remove_indent(&csb);
         csb_append_line_format(&csb, "}\n");
 
-        char *generated = sb_get(&csb.sb);
+        // Schedule function
+        csb_append_line_format(&csb,
+                               "TaskHandle _%_Schedule(TaskQueue* queue, %* "
+                               "data, TaskHandle* deps, u8 deps_count) {",
+                               FMT_STR(struct_name.value),
+                               FMT_STR(struct_name.value));
+        csb_add_indent(&csb);
+        csb_append_line_format(&csb, "TaskResourceAccess resource_access[32];");
+
+        char *generated = csb_get(&csb);
         printf("%s\n", generated);
 
       } else {
