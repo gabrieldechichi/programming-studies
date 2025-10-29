@@ -71,16 +71,6 @@ int main() {
     return 1;
   }
 
-  const char *source = "\
-HZ_TASK()\n\
-typedef struct {\n\
-  HZ_READ()\n\
-  u64 values_start;\n\
-\n\
-  HZ_WRITE()\n\
-  i64 numbers;\n\
-} TaskWideSumInit;\n";
-
   Parser parser = parser_create(file_name, (char *)file.buffer, file.buffer_len,
                                 &allocator);
 

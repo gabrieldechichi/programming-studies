@@ -148,28 +148,6 @@ void parser_skip_to_next_token_type(Parser *parser, TokenType token_type) {
   }
 }
 
-void parser_skip_to_next_attribute(Parser *parser) {
-  while (!parser_current_token_is(parser, TOKEN_EOF)) {
-    // try parse attribute in the format {attr_name}()
-    if (parser_current_token_is(parser, TOKEN_IDENTIFIER)) {
-      Parser saved_parser = *parser;
-      parser_advance_token(parser);
-      if (parser_expect_token_and_advance(parser, TOKEN_LPAREN)) {
-        if (parser_expect_token_and_advance(parser, TOKEN_RPAREN)) {
-          // we consider an attribute if a struct or identifier comes after;
-          Token cur_tok = parser->current_token;
-          if (cur_tok.type == TOKEN_TYPEDEF || cur_tok.type == TOKEN_STRUCT ||
-              cur_tok.type == TOKEN_IDENTIFIER) {
-            *parser = saved_parser;
-            return;
-          }
-        }
-      }
-    }
-    parser_advance_token(parser);
-  }
-}
-
 Parser parser_create(const char *filename, const char *source,
                      u32 source_length, Allocator *allocator) {
   Parser parser = {
@@ -194,6 +172,38 @@ internal u32 parse_number_from_token(Token token) {
   return result;
 }
 
+b32 try_parse_attribute(Parser *parser, MetaAttribute *attr) {
+
+  if (parser->current_token.type != TOKEN_IDENTIFIER) {
+    return false;
+  }
+
+  // Save the identifier and tokenizer state
+  Token identifier_token = parser->current_token;
+  Tokenizer saved_tokenizer = parser->tokenizer;
+
+  parser_advance_token(parser);
+
+  if (parser->current_token.type != TOKEN_LPAREN) {
+    // Not an attribute pattern - restore everything
+    parser->tokenizer = saved_tokenizer;
+    parser->current_token = identifier_token;
+    return false;
+  }
+
+  parser_advance_token(parser);
+
+  if (parser->current_token.type != TOKEN_RPAREN) {
+    parser_error(parser, "Expected ')' after '(' in attribute");
+    return false;
+  }
+
+  // Successfully parsed IDENTIFIER()
+  *attr = (MetaAttribute){
+      .name = token_to_string(identifier_token, parser->allocator)};
+  return true;
+}
+
 internal void collect_field_attributes(Parser *parser,
                                        MetaAttribute_DynArray *out_attributes) {
   // Collect attributes by looking forward from current token
@@ -203,35 +213,39 @@ internal void collect_field_attributes(Parser *parser,
     if (parser->current_token.type != TOKEN_IDENTIFIER) {
       break;
     }
-
-    // Save the identifier and tokenizer state
-    Token identifier_token = parser->current_token;
-    Tokenizer saved_tokenizer = parser->tokenizer;
-
-    parser_advance_token(parser);
-
-    if (parser->current_token.type != TOKEN_LPAREN) {
-      // Not an attribute pattern - restore everything
-      parser->tokenizer = saved_tokenizer;
-      parser->current_token = identifier_token;
+    MetaAttribute attr = {0};
+    if (!try_parse_attribute(parser, &attr)) {
       break;
     }
 
-    parser_advance_token(parser);
-
-    if (parser->current_token.type != TOKEN_RPAREN) {
-      parser_error(parser, "Expected ')' after '(' in attribute");
-      return;
-    }
-
-    // Successfully parsed IDENTIFIER()
-    MetaAttribute attr = {
-        .name = token_to_string(identifier_token, parser->allocator)};
     arr_append(*out_attributes, attr);
 
     parser_advance_token(parser); // Move past ')'
   }
 }
+
+void parser_skip_to_next_attribute(Parser *parser) {
+  while (!parser_current_token_is(parser, TOKEN_EOF)) {
+    // try parse attribute in the format {attr_name}()
+    if (parser_current_token_is(parser, TOKEN_IDENTIFIER)) {
+      Parser saved_parser = *parser;
+      parser_advance_token(parser);
+      if (parser_expect_token_and_advance(parser, TOKEN_LPAREN)) {
+        if (parser_expect_token_and_advance(parser, TOKEN_RPAREN)) {
+          // we consider an attribute if a struct or identifier comes after;
+          Token cur_tok = parser->current_token;
+          if (cur_tok.type == TOKEN_TYPEDEF || cur_tok.type == TOKEN_STRUCT ||
+              cur_tok.type == TOKEN_IDENTIFIER) {
+            *parser = saved_parser;
+            return;
+          }
+        }
+      }
+    }
+    parser_advance_token(parser);
+  }
+}
+
 
 b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
   // Collect struct-level attributes (forward scan until we hit 'typedef' or
