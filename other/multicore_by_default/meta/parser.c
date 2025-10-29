@@ -7,13 +7,6 @@ global u32 next_type_id = 1;
 void parser_reset_type_id() { next_type_id = 1; }
 
 void parser_advance_token(Parser *parser) {
-  // Save current token to history before advancing
-  parser->token_history[parser->history_write_idx] = parser->current_token;
-  parser->history_write_idx = (parser->history_write_idx + 1) % PARSER_TOKEN_HISTORY_SIZE;
-  if (parser->history_count < PARSER_TOKEN_HISTORY_SIZE) {
-    parser->history_count++;
-  }
-
   parser->current_token = tokenizer_next_token(&parser->tokenizer);
 }
 
@@ -161,13 +154,22 @@ Parser parser_create(const char *filename, const char *source,
       .tokenizer = tokenizer_create(filename, source, source_length, allocator),
       .has_error = false,
       .error_message = {0},
-      .history_count = 0,
-      .history_write_idx = 0,
       .allocator = allocator};
 
   parser_advance_token(&parser);
 
   return parser;
+}
+
+internal u32 parse_number_from_token(Token token) {
+  u32 result = 0;
+  for (u32 i = 0; i < token.length; i++) {
+    char c = token.lexeme[i];
+    if (char_is_digit(c)) {
+      result = result * 10 + (u32)(c - '0');
+    }
+  }
+  return result;
 }
 
 internal void collect_field_attributes(Parser *parser, MetaAttribute_DynArray *out_attributes) {
@@ -189,16 +191,6 @@ internal void collect_field_attributes(Parser *parser, MetaAttribute_DynArray *o
       // Not an attribute pattern - restore everything
       parser->tokenizer = saved_tokenizer;
       parser->current_token = identifier_token;
-
-      // Fix history
-      if (parser->history_count > 0) {
-        parser->history_count--;
-        if (parser->history_write_idx == 0) {
-          parser->history_write_idx = PARSER_TOKEN_HISTORY_SIZE - 1;
-        } else {
-          parser->history_write_idx--;
-        }
-      }
       break;
     }
 
@@ -281,6 +273,28 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
     String field_name = token_to_string(parser->current_token, parser->allocator);
     parser_advance_token(parser);
 
+    // Check for array syntax
+    b32 is_array = false;
+    u32 array_size = 0;
+    if (parser_current_token_is(parser, TOKEN_LBRACKET)) {
+      is_array = true;
+      parser_advance_token(parser);
+
+      // Parse array size (must be present)
+      if (!parser_current_token_is(parser, TOKEN_NUMBER)) {
+        parser_error(parser, "Expected number in array size");
+        return false;
+      }
+      array_size = parse_number_from_token(parser->current_token);
+      parser_advance_token(parser);
+
+      // Expect closing bracket
+      if (!parser_expect_token_and_advance(parser, TOKEN_RBRACKET)) {
+        parser_error(parser, "Expected ']' in array declaration");
+        return false;
+      }
+    }
+
     // Expect semicolon
     if (!parser_expect_token_and_advance(parser, TOKEN_SEMICOLON)) {
       parser_error(parser, "Expected ';' after struct field");
@@ -292,6 +306,8 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
       .type_name = type_name,
       .field_name = field_name,
       .pointer_depth = pointer_depth,
+      .is_array = is_array,
+      .array_size = array_size,
       .attributes = field_attributes
     };
     arr_append(fields, field);

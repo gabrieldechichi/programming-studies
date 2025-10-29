@@ -13,8 +13,11 @@
   TOKEN_TYPE(TOKEN_RBRACE, "}")                                                \
   TOKEN_TYPE(TOKEN_LPAREN, "(")                                                \
   TOKEN_TYPE(TOKEN_RPAREN, ")")                                                \
+  TOKEN_TYPE(TOKEN_LBRACKET, "[")                                              \
+  TOKEN_TYPE(TOKEN_RBRACKET, "]")                                              \
   TOKEN_TYPE(TOKEN_SEMICOLON, ";")                                             \
   TOKEN_TYPE(TOKEN_ASTERISK, "*")                                              \
+  TOKEN_TYPE(TOKEN_NUMBER, "number")                                           \
   TOKEN_TYPE(TOKEN_EOF, "EOF")                                                 \
   TOKEN_TYPE(TOKEN_INVALID, "INVALID")
 

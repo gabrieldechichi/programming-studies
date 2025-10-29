@@ -16,6 +16,8 @@ typedef struct {
   String type_name;
   String field_name;
   u32 pointer_depth;
+  b32 is_array;
+  u32 array_size;
   MetaAttribute_DynArray attributes;
 } StructField;
 arr_define(StructField);
@@ -35,9 +37,6 @@ arr_define(ReflectedStruct);
 typedef struct {
   Tokenizer tokenizer;
   Token current_token;
-  Token token_history[PARSER_TOKEN_HISTORY_SIZE];
-  u32 history_count;
-  u32 history_write_idx;
   b32 has_error;
   String error_message;
   Allocator *allocator;

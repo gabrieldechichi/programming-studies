@@ -52,7 +52,11 @@ void print_reflected_struct(ReflectedStruct *s) {
     for (u32 j = 0; j < field->pointer_depth; j++) {
       printf("*");
     }
-    printf(" %.*s;\n", field->field_name.len, field->field_name.value);
+    printf(" %.*s", field->field_name.len, field->field_name.value);
+    if (field->is_array) {
+      printf("[%u]", field->array_size);
+    }
+    printf(";\n");
   }
   printf("\n");
 }

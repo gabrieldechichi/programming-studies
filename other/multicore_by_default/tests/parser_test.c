@@ -405,6 +405,114 @@ void test_parse_struct_mixed_pointers(TestContext* ctx) {
 }
 
 // ============================================================================
+// Array Tests
+// ============================================================================
+
+void test_parse_struct_with_fixed_array(TestContext* ctx) {
+  parser_reset_type_id();
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "typedef struct { u8 h[1]; } TaskHandle;";
+  Parser parser = parser_create("test.h", source, str_len(source), allocator);
+
+  ReflectedStruct s = {0};
+  b32 success = parse_struct(&parser, &s);
+
+  assert_true(success);
+  assert_str_eq(s.typedef_name.value, "TaskHandle");
+  assert_eq(s.fields.len, 1);
+
+  StructField h_field = s.fields.items[0];
+  assert_str_eq(h_field.type_name.value, "u8");
+  assert_str_eq(h_field.field_name.value, "h");
+  assert_true(h_field.is_array);
+  assert_eq(h_field.array_size, 1);
+  assert_eq(h_field.pointer_depth, 0);
+
+  parser_destroy(&parser);
+}
+
+void test_parse_struct_with_larger_array(TestContext* ctx) {
+  parser_reset_type_id();
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "struct Data { int values[256]; }";
+  Parser parser = parser_create("test.h", source, str_len(source), allocator);
+
+  ReflectedStruct s = {0};
+  b32 success = parse_struct(&parser, &s);
+
+  assert_true(success);
+  assert_eq(s.fields.len, 1);
+
+  StructField field = s.fields.items[0];
+  assert_str_eq(field.field_name.value, "values");
+  assert_true(field.is_array);
+  assert_eq(field.array_size, 256);
+
+  parser_destroy(&parser);
+}
+
+void test_parse_struct_with_multiple_arrays(TestContext* ctx) {
+  parser_reset_type_id();
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "struct Buffers { u8 a[10]; u32 b[20]; char c[5]; }";
+  Parser parser = parser_create("test.h", source, str_len(source), allocator);
+
+  ReflectedStruct s = {0};
+  b32 success = parse_struct(&parser, &s);
+
+  assert_true(success);
+  assert_eq(s.fields.len, 3);
+
+  assert_true(s.fields.items[0].is_array);
+  assert_eq(s.fields.items[0].array_size, 10);
+
+  assert_true(s.fields.items[1].is_array);
+  assert_eq(s.fields.items[1].array_size, 20);
+
+  assert_true(s.fields.items[2].is_array);
+  assert_eq(s.fields.items[2].array_size, 5);
+
+  parser_destroy(&parser);
+}
+
+void test_parse_struct_error_missing_array_size(TestContext* ctx) {
+  parser_reset_type_id();
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "struct Bad { u8 h[]; }";
+  Parser parser = parser_create("test.h", source, str_len(source), allocator);
+
+  ReflectedStruct s = {0};
+  b32 success = parse_struct(&parser, &s);
+
+  assert_false(success);
+  assert_true(parser.has_error);
+  assert_true(str_contains(parser.error_message.value, "Expected number"));
+
+  parser_destroy(&parser);
+}
+
+void test_parse_struct_error_missing_closing_bracket(TestContext* ctx) {
+  parser_reset_type_id();
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "struct Bad { u8 h[1; }";
+  Parser parser = parser_create("test.h", source, str_len(source), allocator);
+
+  ReflectedStruct s = {0};
+  b32 success = parse_struct(&parser, &s);
+
+  assert_false(success);
+  assert_true(parser.has_error);
+  assert_true(str_contains(parser.error_message.value, "Expected ']'"));
+
+  parser_destroy(&parser);
+}
+
+// ============================================================================
 // Complex Integration Tests
 // ============================================================================
 

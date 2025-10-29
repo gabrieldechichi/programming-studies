@@ -59,6 +59,13 @@ int main() {
   RUN_TEST(test_parse_struct_with_triple_pointer, &ctx);
   RUN_TEST(test_parse_struct_mixed_pointers, &ctx);
 
+  // Parser array tests
+  RUN_TEST(test_parse_struct_with_fixed_array, &ctx);
+  RUN_TEST(test_parse_struct_with_larger_array, &ctx);
+  RUN_TEST(test_parse_struct_with_multiple_arrays, &ctx);
+  RUN_TEST(test_parse_struct_error_missing_array_size, &ctx);
+  RUN_TEST(test_parse_struct_error_missing_closing_bracket, &ctx);
+
   // Parser comprehensive test
   RUN_TEST(test_parse_struct_comprehensive, &ctx);
 

@@ -135,6 +135,19 @@ internal Token scan_identifier(Tokenizer *tokenizer) {
   return make_token(type, start, length, start_line, start_column);
 }
 
+internal Token scan_number(Tokenizer *tokenizer) {
+  const char *start = tokenizer->current;
+  u32 start_line = tokenizer->line;
+  u32 start_column = tokenizer->column;
+
+  while (char_is_digit(tokenizer->current_char)) {
+    advance_char(tokenizer);
+  }
+
+  u32 length = (u32)(tokenizer->current - start);
+  return make_token(TOKEN_NUMBER, start, length, start_line, start_column);
+}
+
 Tokenizer tokenizer_create(const char *filename, const char *source,
                            u32 source_length, Allocator *allocator) {
   Tokenizer tokenizer = {
@@ -185,6 +198,10 @@ Token tokenizer_next_token(Tokenizer *tokenizer) {
     return scan_identifier(tokenizer);
   }
 
+  if (char_is_digit(c)) {
+    return scan_number(tokenizer);
+  }
+
   advance_char(tokenizer);
 
   switch (c) {
@@ -199,6 +216,12 @@ Token tokenizer_next_token(Tokenizer *tokenizer) {
                       start_column);
   case ')':
     return make_token(TOKEN_RPAREN, tokenizer->current - 1, 1, start_line,
+                      start_column);
+  case '[':
+    return make_token(TOKEN_LBRACKET, tokenizer->current - 1, 1, start_line,
+                      start_column);
+  case ']':
+    return make_token(TOKEN_RBRACKET, tokenizer->current - 1, 1, start_line,
                       start_column);
   case ';':
     return make_token(TOKEN_SEMICOLON, tokenizer->current - 1, 1, start_line,
