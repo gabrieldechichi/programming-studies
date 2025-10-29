@@ -18,6 +18,7 @@ build-release:
 
 meta:
 	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) $(LINK_FLAGS) -o ./out/meta/meta meta/meta.c
+	./out/meta/meta
 
 test:
 	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) -DTESTS $(LINK_FLAGS) -o ./out/test/test tests/test_main.c

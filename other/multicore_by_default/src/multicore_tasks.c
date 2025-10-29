@@ -251,7 +251,10 @@ void task_queue_process(TaskQueue *queue) {
   lane_sync();
 }
 
+#define HZ_TASK()
 // BEGIN USER CODE
+
+HZ_TASK()
 typedef struct {
   u64 values_start;
   i64_Array numbers;

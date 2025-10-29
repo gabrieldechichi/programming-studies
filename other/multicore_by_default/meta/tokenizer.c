@@ -1,5 +1,4 @@
 #include "tokenizer.h"
-#include "lib/assert.h"
 #include "lib/memory.h"
 #include "lib/string.h"
 
@@ -12,6 +11,7 @@ global KeywordEntry keywords[] = {
     {"struct", TOKEN_STRUCT},
     {"typedef", TOKEN_TYPEDEF},
     {"HM_REFLECT", TOKEN_HM_REFLECT},
+    {"HZ_TASK", TOKEN_HZ_TASK},
 };
 
 #define KEYWORD_COUNT ARRAY_SIZE(keywords)
@@ -38,9 +38,11 @@ internal TokenType lookup_keyword(const char *str, u32 len) {
 internal void track_line_start(Tokenizer *tokenizer) {
   if (tokenizer->line_count >= tokenizer->line_capacity) {
     u32 new_capacity = tokenizer->line_capacity * 2;
-    if (new_capacity == 0) new_capacity = 64;
-    
-    const char **new_line_starts = ALLOC_ARRAY(tokenizer->allocator, const char*, new_capacity);
+    if (new_capacity == 0)
+      new_capacity = 64;
+
+    const char **new_line_starts =
+        ALLOC_ARRAY(tokenizer->allocator, const char *, new_capacity);
     if (tokenizer->line_starts && tokenizer->line_count > 0) {
       for (u32 i = 0; i < tokenizer->line_count; i++) {
         new_line_starts[i] = tokenizer->line_starts[i];
@@ -49,7 +51,7 @@ internal void track_line_start(Tokenizer *tokenizer) {
     tokenizer->line_starts = new_line_starts;
     tokenizer->line_capacity = new_capacity;
   }
-  
+
   if (tokenizer->line_count == 0 || tokenizer->line_count <= tokenizer->line) {
     tokenizer->line_starts[tokenizer->line_count++] = tokenizer->current;
   }
@@ -135,7 +137,8 @@ internal Token scan_identifier(Tokenizer *tokenizer) {
   return make_token(type, start, length, start_line, start_column);
 }
 
-Tokenizer tokenizer_create(const char *filename, const char *source, u32 source_length, Allocator *allocator) {
+Tokenizer tokenizer_create(const char *filename, const char *source,
+                           u32 source_length, Allocator *allocator) {
   Tokenizer tokenizer = {
       .filename = filename,
       .source = source,
@@ -213,19 +216,22 @@ b32 tokenizer_match(Tokenizer *tokenizer, TokenType expected_type) {
   return token.type == expected_type;
 }
 
-const char *tokenizer_get_line_text(Tokenizer *tokenizer, u32 line_num, u32 *line_length) {
+const char *tokenizer_get_line_text(Tokenizer *tokenizer, u32 line_num,
+                                    u32 *line_length) {
   if (line_num == 0 || line_num > tokenizer->line_count) {
-    if (line_length) *line_length = 0;
+    if (line_length)
+      *line_length = 0;
     return NULL;
   }
-  
+
   u32 line_index = line_num - 1;
   const char *line_start = tokenizer->line_starts[line_index];
   const char *line_end = tokenizer->source_end;
-  
+
   // Find the end of this line
   if (line_index + 1 < tokenizer->line_count) {
-    line_end = tokenizer->line_starts[line_index + 1] - 1; // -1 to exclude newline
+    line_end =
+        tokenizer->line_starts[line_index + 1] - 1; // -1 to exclude newline
   } else {
     // Last line - scan to end or newline
     const char *scan = line_start;
@@ -234,11 +240,11 @@ const char *tokenizer_get_line_text(Tokenizer *tokenizer, u32 line_num, u32 *lin
     }
     line_end = scan;
   }
-  
+
   if (line_length) {
     *line_length = (u32)(line_end - line_start);
   }
-  
+
   return line_start;
 }
 
@@ -269,6 +275,8 @@ const char *token_type_to_string(TokenType type) {
     return "TOKEN_SEMICOLON";
   case TOKEN_HM_REFLECT:
     return "TOKEN_HM_REFLECT";
+  case TOKEN_HZ_TASK:
+    return "TOKEN_HZ_TASK";
   case TOKEN_EOF:
     return "TOKEN_EOF";
   case TOKEN_INVALID:

@@ -14,6 +14,7 @@ typedef enum {
   TOKEN_RPAREN,     // )
   TOKEN_SEMICOLON,  // ;
   TOKEN_HM_REFLECT, // HM_REFLECT() macro
+  TOKEN_HZ_TASK,
   TOKEN_EOF,
   TOKEN_INVALID,
 } TokenType;
