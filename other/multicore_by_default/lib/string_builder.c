@@ -1,5 +1,6 @@
 #include "string_builder.h"
 #include "lib/string.h"
+#include "lib/fmt.h"
 
 void sb_init(StringBuilder *sb, char *buffer, size_t size) {
   sb->buffer = buffer;
@@ -40,7 +41,21 @@ i32 sb_append(StringBuilder *sb, const char *str) {
   return 0;
 }
 
-i32 sb_append_space(StringBuilder *sb) { return sb_append(sb, " "); }
+i32 sb_append_char(StringBuilder *sb, char c) {
+  if (!c)
+    return 0;
+
+  sb->buffer[sb->len] = c;
+  sb->len += 1;
+  sb->buffer[sb->len] = '\0';
+  return 0;
+};
+
+i32 sb_append_space(StringBuilder *sb) { return sb_append_char(sb, ' '); }
+i32 sb_append_line(StringBuilder *sb, const char *str) {
+  sb_append(sb, str);
+  return sb_append_char(sb, '\n');
+}
 
 char *sb_get(StringBuilder *sb) { return sb->buffer; }
 
@@ -50,7 +65,7 @@ size_t sb_remaining(StringBuilder *sb) {
   return sb->size - sb->len - 1; // -1 for null terminator
 }
 
-//todo: use conversion function here from common.h or something
+// todo: use conversion function here from common.h or something
 void sb_append_f32(StringBuilder *sb, f64 value, u32 decimal_places) {
   i32 int_part = (i32)value;
   f64 frac_part = value - int_part;
@@ -106,4 +121,10 @@ void sb_append_u32(StringBuilder *sb, u32 value) {
     // todo: handle error
     sb_append(sb, digit);
   }
+}
+
+i32 _sb_append_format(StringBuilder *sb, const char *fmt, const FmtArgs *args) {
+  char temp_buffer[512];
+  fmt_string(temp_buffer, sizeof(temp_buffer), fmt, args);
+  return sb_append(sb, temp_buffer);
 }
