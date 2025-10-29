@@ -1,8 +1,8 @@
 CC = clang
-CFLAGS = -Wall -Wextra -std=c99 -DCOMPILER_CLANG
+CFLAGS = -Wall -Wextra -std=c99 -DCOMPILER_CLANG -DMACOS
 CFLAGS_DEBUG = -O0 -g -DDEBUG
 CFLAGS_RELEASE = -O2
-INCLUDE_FLAGS = -Isrc -Ilib
+INCLUDE_FLAGS = -Isrc -os -I./
 LINK_FLAGS = -lpthread -lm
 
 TARGET = multicore

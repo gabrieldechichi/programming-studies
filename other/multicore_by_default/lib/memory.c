@@ -1,11 +1,14 @@
 #include "memory.h"
+#include "common.h"
+#include "fmt.h"
 
 size_t arena_free_size(ArenaAllocator *arena) {
   return arena->capacity - arena->offset;
 }
 
-ArenaAllocator arena_from_buffer(u8 *buffer, size_t capacity) {
-  return (ArenaAllocator){.buffer = buffer, .capacity = capacity, .offset = 0};
+ArenaAllocator arena_from_buffer(uint8 *buffer, size_t capacity) {
+  return cast(ArenaAllocator){
+      .buffer = buffer, .capacity = capacity, .offset = 0};
 }
 
 b32 sub_arena_from_arena(ArenaAllocator *a, size_t capacity,
@@ -18,6 +21,10 @@ b32 sub_arena_from_arena(ArenaAllocator *a, size_t capacity,
   offset -= (uintptr)a->buffer;
 
   if (offset + capacity > a->capacity) {
+    debug_assert_msg(false,
+                     "Failed to allocate memory. Request % kb, Remaining % kb",
+                     FMT_UINT(BYTES_TO_KB(capacity)),
+                     FMT_UINT(BYTES_TO_KB(arena_free_size(a))));
     return false;
   }
 
@@ -29,7 +36,9 @@ b32 sub_arena_from_arena(ArenaAllocator *a, size_t capacity,
   return true;
 }
 
-size_t arena_committed_size(ArenaAllocator *arena) { return arena->offset; }
+size_t arena_committed_size(ArenaAllocator *arena) {
+  return arena->offset;
+}
 
 void *arena_alloc_align(ArenaAllocator *a, size_t size, size_t align) {
   assert(a->buffer);
@@ -43,14 +52,16 @@ void *arena_alloc_align(ArenaAllocator *a, size_t size, size_t align) {
     a->offset = offset + size;
 
 #ifdef DEBUG
-    // todo: option to write memory as 0xCD instead (also more memory debugging
-    // features like overrun/underrun, etc)
+    //todo: option to write memory as 0xCD instead (also more memory debugging features like overrun/underrun, etc)
     memset(ptr, 0x0, size);
 #endif
     return ptr;
   }
 
   // couldn't allocate memory
+  debug_assert_msg(
+      false, "Failed to allocate memory. Request % kb, Remaining % kb",
+      FMT_UINT(BYTES_TO_KB(size)), FMT_UINT(BYTES_TO_KB(arena_free_size(a))));
   return NULL;
 }
 
@@ -63,6 +74,11 @@ void *arena_realloc(ArenaAllocator *a, void *ptr, size_t size) {
     return arena_alloc(a, size);
   }
   uintptr ptr_offset = (uintptr)ptr - (uintptr)a->buffer;
+  debug_assert_msg(
+      ptr_offset < a->offset,
+      "invalid pointer (%), outside the bounds of the arena (%, %)",
+      FMT_UINT((uintptr)ptr), FMT_UINT((uintptr)a->buffer),
+      FMT_INT((int)a->offset));
   if (ptr_offset >= a->offset) {
     return NULL;
   }
@@ -100,8 +116,8 @@ void *arena_realloc_impl(void *ctx, void *ptr, size_t size) {
 void arena_reset_impl(void *ctx) { arena_reset((ArenaAllocator *)ctx); }
 
 void arena_free_impl(void *ctx, void *ptr) {
-  UNUSED(ctx);
-  UNUSED(ptr);
+    UNUSED(ctx);
+    UNUSED(ptr);
   // no free impl for arena
 }
 
@@ -116,3 +132,17 @@ size_t arena_free_size_impl(void *ctx) {
 }
 
 void arena_destroy_impl(void *ctx) { arena_destroy((ArenaAllocator *)ctx); }
+
+Allocator make_arena_allocator(ArenaAllocator *arena) {
+  return (Allocator){.alloc_alloc = arena_alloc_impl,
+                     .alloc_realloc = arena_realloc_impl,
+                     .alloc_reset = arena_reset_impl,
+                     .alloc_free = arena_free_impl,
+                     .alloc_capacity = arena_capacity_impl,
+                     .alloc_commited_size = arena_commited_size_impl,
+                     .alloc_free_size = arena_free_size_impl,
+                     .alloc_destroy = arena_destroy_impl,
+                     .ctx = arena};
+}
+
+#include "allocator_pool.c"

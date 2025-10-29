@@ -23,7 +23,7 @@
     u32 cap;                                                                   \
     u32 len;                                                                   \
     type *items;                                                               \
-  } type##_DynArray;
+  } type##_DynArray
 
 /* append element to array (asserts if over capacity) */
 #define arr_append(xs, x)                                                      \

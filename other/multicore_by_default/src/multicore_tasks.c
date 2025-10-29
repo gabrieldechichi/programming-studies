@@ -1,14 +1,14 @@
-#include "array.h"
-#include "thread_context.h"
-#include "typedefs.h"
-#include <assert.h>
+#include "lib/array.h"
+#include "lib/thread_context.h"
+#include "lib/typedefs.h"
+#include "lib/assert.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#define ARRAY_SIZE 1000000000
-// #define ARRAY_SIZE 1000000
+#define NUMBERS_COUNT 1000000000
+// #define NUMBERS_COUNT 1000000
 
 static inline void cpu_pause() {
 #if defined(__x86_64__) || defined(__i386__)
@@ -333,14 +333,14 @@ TaskHandle _TaskWideSumExec_schedule(TaskQueue *queue, TaskWideSumExec *data,
 
 void entrypoint() {
   local_shared TaskQueue task_queue = {0};
-  local_shared u64 array_size = ARRAY_SIZE;
+  local_shared u64 array_size = NUMBERS_COUNT;
   local_shared i64 *array = NULL;
   local_shared TaskWideSumExec *sum_lane_data = NULL;
 
   ThreadContext *tctx = tctx_current();
 
   if (is_main_thread()) {
-    array = malloc(ARRAY_SIZE * sizeof(i64));
+    array = malloc(NUMBERS_COUNT * sizeof(i64));
     sum_lane_data = calloc(1, tctx->thread_count * sizeof(TaskWideSumExec));
   }
   lane_sync();
