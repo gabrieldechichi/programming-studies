@@ -118,6 +118,14 @@ int main() {
   Parser parser = parser_create(file_name, (char *)file.buffer, file.buffer_len,
                                 &allocator);
 
+  CodeStringBuilder csb = csb_create(&temp_allocator, MB(1));
+
+  csb_append_line_format(&csb, "#ifndef H_%_GEN", FMT_STR("multicore_tasks"));
+  csb_append_line_format(&csb, "#define H_%_GEN", FMT_STR("multicore_tasks"));
+  csb_append_line(&csb, "#include \"lib/task.h\"");
+  csb_append_line(&csb, "#include \"multicore_tasks.h\"");
+  csb_append_line(&csb, "");
+
   while (!parser_current_token_is(&parser, TOKEN_EOF) && !parser.has_error) {
     parser_skip_to_next_attribute(&parser);
     if (parser_current_token_is(&parser, TOKEN_IDENTIFIER)) {
@@ -144,16 +152,6 @@ int main() {
         // todo: validate all attributes are provided
 
         // start code gen
-        CodeStringBuilder csb = csb_create(&temp_allocator, MB(1));
-
-        csb_append_line_format(&csb, "#ifndef H_%_GEN",
-                               FMT_STR(struct_name.value));
-        csb_append_line_format(&csb, "#define H_%_GEN",
-                               FMT_STR(struct_name.value));
-        csb_append_line(&csb, "#include \"lib/task.h\"");
-        csb_append_line(&csb, "#include \"multicore_tasks.h\"");
-        csb_append_line(&csb, "");
-
         // Exec wrapper (for safe casting)
         csb_append_line_format(&csb, "void _%_Exec(void* _data) {",
                                FMT_STR(struct_name.value));
@@ -188,11 +186,11 @@ int main() {
                                  FMT_STR(attr.parent_field->field_name.value),
                                  FMT_STR(attr.parent_field->field_name.value));
         }
-        csb_append_line_format(&csb,
-                               "return _task_queue_append(queue, _%_Exec, data, "
-                               "resource_access, %, deps, deps_count);",
-                               FMT_STR(struct_name.value),
-                               FMT_UINT(field_attributes.len));
+        csb_append_line_format(
+            &csb,
+            "return _task_queue_append(queue, _%_Exec, data, "
+            "resource_access, %, deps, deps_count);",
+            FMT_STR(struct_name.value), FMT_UINT(field_attributes.len));
         csb_remove_indent(&csb);
         csb_append_line(&csb, "}\n");
 
@@ -203,23 +201,21 @@ int main() {
             "_%_Schedule(queue,data,ARGS_ARRAY(TaskHandle, __VA_ARGS__), "
             "ARGS_COUNT(TaskHandle, __VA_ARGS__))",
             FMT_STR(struct_name.value), FMT_STR(struct_name.value));
-
-        csb_append_line(&csb, "#endif");
-
-        char *generated = csb_get(&csb);
-
-        os_create_dir("./generated");
-        char temp_buffer[512];
-        FMT_TO_STR(temp_buffer, sizeof(temp_buffer),
-                   "./generated/%_generated.h", FMT_STR("multicore_tasks"));
-        os_write_file(temp_buffer, (u8 *)generated, csb.sb.len);
-
+        csb_append_line(&csb, "");
       } else {
         printf("ERROR: %s\n", parser.error_message.value);
       }
     }
-    parser_advance_token(&parser);
   }
+
+  csb_append_line(&csb, "#endif");
+  char *generated = csb_get(&csb);
+
+  os_create_dir("./generated");
+  char temp_buffer[512];
+  FMT_TO_STR(temp_buffer, sizeof(temp_buffer), "./generated/%_generated.h",
+             FMT_STR("multicore_tasks"));
+  os_write_file(temp_buffer, (u8 *)generated, csb.sb.len);
   parser_destroy(&parser);
 
   return 0;

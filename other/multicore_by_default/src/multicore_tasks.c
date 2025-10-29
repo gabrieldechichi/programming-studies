@@ -24,41 +24,12 @@ void TaskWideSumInit_Exec(TaskWideSumInit *data) {
   // }
 }
 
-typedef struct {
-  i64_Array numbers;
-  i64 lane_sum;
-} TaskWideSumExec;
-
-void task_sum_exec(TaskWideSumExec *data) {
+void TaskWideSumExec_Exec(TaskWideSumExec *data) {
   i64 sum = 0;
 
   arr_foreach(data->numbers, i64, value) { sum += value; }
   data->lane_sum = sum;
 }
-
-static void _task_sum_exec(void *_data) {
-  TaskWideSumExec *data = (TaskWideSumExec *)_data;
-  task_sum_exec(data);
-}
-
-TaskHandle _TaskWideSumExec_schedule(TaskQueue *queue, TaskWideSumExec *data,
-                                     TaskHandle *deps, u8 deps_count) {
-  assert(data);
-  // build resource access
-  // todo: generate
-  TaskResourceAccess resource_access[32];
-  u8 resource_count = 0;
-  resource_access[resource_count++] =
-      TASK_ACCESS_READ(data->numbers.items, data->numbers.len);
-  // todo: add write to thing
-
-  return _task_queue_append(queue, _task_sum_exec, data, resource_access,
-                            resource_count, deps, deps_count);
-}
-
-#define TaskWideSumExec_schedule(queue, data, ...)                             \
-  _TaskWideSumExec_schedule(queue, data, ARGS_ARRAY(TaskHandle, __VA_ARGS__),  \
-                            ARGS_COUNT(TaskHandle, __VA_ARGS__))
 
 void entrypoint() {
   local_shared TaskQueue task_queue = {0};
@@ -93,7 +64,7 @@ void entrypoint() {
       .lane_sum = 0,
   };
 
-  TaskWideSumExec_schedule(&task_queue, &sum_lane_data[tctx->thread_idx],
+  TaskWideSumExec_Schedule(&task_queue, &sum_lane_data[tctx->thread_idx],
                            init_task_handle);
 
   task_queue_process(&task_queue);

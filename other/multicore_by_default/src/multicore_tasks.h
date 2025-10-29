@@ -19,5 +19,14 @@ typedef struct {
   i64_Array numbers;
 } TaskWideSumInit;
 
+HZ_TASK()
+typedef struct {
+  i64 lane_sum;
+
+  HZ_WRITE()
+  i64_Array numbers;
+} TaskWideSumExec;
+
 void TaskWideSumInit_Exec(TaskWideSumInit *data);
+void TaskWideSumExec_Exec(TaskWideSumExec *data);
 #endif
