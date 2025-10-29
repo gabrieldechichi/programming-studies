@@ -1,3 +1,4 @@
+#include "array.h"
 #include "thread_context.h"
 #include "typedefs.h"
 #include <assert.h>
@@ -19,6 +20,14 @@ static inline void cpu_pause() {
 #endif
 }
 
+arr_define(i64);
+
+#define arr_create_from_range(type, _items, min, max)                          \
+  ((type##_Array){                                                             \
+      .items = (_items) + (min),                                               \
+      .len = (max) - (min),                                                    \
+  })
+
 typedef enum {
   TASK_RESOURCE_TYPE_READ,
   TASK_RESOURCE_TYPE_WRITE,
@@ -30,24 +39,18 @@ typedef struct {
   u64 size;
 } TaskResourceAccess;
 
-TaskResourceAccess
-task_resource_access_from_array_range(TaskResourceAccessType type, void *arr,
-                                      u64 min, u64 max) {
+TaskResourceAccess task_resource_access_create(TaskResourceAccessType type,
+                                               void *ptr, u64 size) {
   TaskResourceAccess resource_access = {
-      .access_mode = type,
-      .ptr = arr != NULL ? (void *)((uintptr)(arr) + (uintptr)(min)) : NULL,
-      // todo: math max
-      .size = arr ? max - min : 0};
+      .access_mode = type, .ptr = ptr, .size = size};
   return resource_access;
 }
 
-#define TASK_READ_ARRAY(arr, min_idx, max_idx)                                 \
-  task_resource_access_from_array_range(TASK_RESOURCE_TYPE_READ, arr, min_idx, \
-                                        max_idx)
+#define TASK_ACCESS_READ(ptr, size)                                            \
+  task_resource_access_create(TASK_RESOURCE_TYPE_READ, (void *)(ptr), (size))
 
-#define TASK_WRITE_ARRAY(arr, min_idx, max_idx)                                \
-  task_resource_access_from_array_range(TASK_RESOURCE_TYPE_WRITE, arr,         \
-                                        min_idx, max_idx)
+#define TASK_ACCESS_WRITE(ptr, size)                                           \
+  task_resource_access_create(TASK_RESOURCE_TYPE_WRITE, (void *)(ptr), (size))
 
 typedef void (*TaskFunc)(void *);
 
@@ -82,19 +85,18 @@ typedef struct {
 } TaskQueue;
 
 typedef struct {
-  i64 *array;
-  Range_u64 range;
+  u64 values_start;
+  i64_Array numbers;
 } TaskWideSumInitData;
 
 typedef struct {
-  i64 *array;
-  Range_u64 range;
+  i64_Array numbers;
   i64 lane_sum;
 } TaskWideSumData;
 
 void task_sum_init(TaskWideSumInitData *data) {
-  for (u64 i = data->range.min; i < data->range.max; i++) {
-    data->array[i] = i + 1;
+  for (u64 i = 0; i < data->numbers.len; i++) {
+    data->numbers.items[i] = data->values_start + i;
   }
 
   // note: just to test race conditions
@@ -108,9 +110,7 @@ void task_sum_init(TaskWideSumInitData *data) {
 void task_sum_exec(TaskWideSumData *data) {
   i64 sum = 0;
 
-  for (u64 i = data->range.min; i < data->range.max; i++) {
-    sum += data->array[i];
-  }
+  arr_foreach(data->numbers, i64, value) { sum += value; }
   data->lane_sum = sum;
 }
 
@@ -197,12 +197,12 @@ TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
                      "  Memory region: [%p - %p] overlaps [%p - %p]\n"
                      "  Access modes: Task %d = %s, Task %d = %s\n"
                      "  Task %d should depend on Task %d\n",
-                     next_task_id, other_task_idx,
-                     (void *)my_start, (void *)my_end, (void *)other_start,
-                     (void *)other_end,
+                     next_task_id, other_task_idx, (void *)my_start,
+                     (void *)my_end, (void *)other_start, (void *)other_end,
                      next_task_id,
-                     my_resource->access_mode == TASK_RESOURCE_TYPE_WRITE ? "WRITE"
-                                                                          : "READ",
+                     my_resource->access_mode == TASK_RESOURCE_TYPE_WRITE
+                         ? "WRITE"
+                         : "READ",
                      other_task_idx,
                      other_resource->access_mode == TASK_RESOURCE_TYPE_WRITE
                          ? "WRITE"
@@ -292,31 +292,31 @@ void entrypoint() {
   }
   lane_sync();
 
+  Range_u64 range = lane_range(array_size);
+  i64_Array numbers = arr_create_from_range(i64, array, range.min, range.max);
+
   TaskWideSumInitData *init_data =
       arena_alloc(&tctx->temp_arena, sizeof(TaskWideSumInitData));
   *init_data = (TaskWideSumInitData){
-      .range = lane_range(array_size),
-      .array = array,
+      .numbers = numbers,
+      .values_start = range.min + 1,
   };
-  TaskResourceAccess init_resource_access = TASK_WRITE_ARRAY(
-      init_data->array, init_data->range.min, init_data->range.max);
+  TaskResourceAccess init_resource_access =
+      TASK_ACCESS_WRITE(numbers.items, numbers.len);
   TaskHandle init_task_handle = task_queue_append(
       &task_queue, task_sum_init, init_data, &init_resource_access, 1, NULL, 0);
 
   sum_lane_data[tctx->thread_idx] = (TaskWideSumData){
-      .array = array,
-      .range = lane_range(array_size),
+      .numbers = numbers,
       .lane_sum = 0,
   };
 
   TaskResourceAccess sum_resource_access =
-      TASK_READ_ARRAY(sum_lane_data[tctx->thread_idx].array,
-                      sum_lane_data[tctx->thread_idx].range.min,
-                      sum_lane_data[tctx->thread_idx].range.max);
+      TASK_ACCESS_READ(numbers.items, numbers.len);
 
   task_queue_append(&task_queue, task_sum_exec,
                     &sum_lane_data[tctx->thread_idx], &sum_resource_access, 1,
-                    NULL, 0);
+                    &init_task_handle, 1);
 
   task_queue_process(&task_queue);
 
