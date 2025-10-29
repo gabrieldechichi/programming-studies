@@ -12,6 +12,8 @@ global KeywordEntry keywords[] = {
     {"typedef", TOKEN_TYPEDEF},
     {"HM_REFLECT", TOKEN_HM_REFLECT},
     {"HZ_TASK", TOKEN_HZ_TASK},
+    {"HZ_READ", TOKEN_HZ_READ},
+    {"HZ_WRITE", TOKEN_HZ_WRITE},
 };
 
 #define KEYWORD_COUNT ARRAY_SIZE(keywords)
@@ -257,30 +259,9 @@ void tokenizer_destroy(Tokenizer *tokenizer) {
 
 const char *token_type_to_string(TokenType type) {
   switch (type) {
-  case TOKEN_STRUCT:
-    return "TOKEN_STRUCT";
-  case TOKEN_TYPEDEF:
-    return "TOKEN_TYPEDEF";
-  case TOKEN_IDENTIFIER:
-    return "TOKEN_IDENTIFIER";
-  case TOKEN_LBRACE:
-    return "TOKEN_LBRACE";
-  case TOKEN_RBRACE:
-    return "TOKEN_RBRACE";
-  case TOKEN_LPAREN:
-    return "TOKEN_LPAREN";
-  case TOKEN_RPAREN:
-    return "TOKEN_RPAREN";
-  case TOKEN_SEMICOLON:
-    return "TOKEN_SEMICOLON";
-  case TOKEN_HM_REFLECT:
-    return "TOKEN_HM_REFLECT";
-  case TOKEN_HZ_TASK:
-    return "TOKEN_HZ_TASK";
-  case TOKEN_EOF:
-    return "TOKEN_EOF";
-  case TOKEN_INVALID:
-    return "TOKEN_INVALID";
+#define TOKEN_TYPE(name, str) case name: return str;
+  TOKEN_TYPES
+#undef TOKEN_TYPE
   default:
     return "UNKNOWN_TOKEN";
   }

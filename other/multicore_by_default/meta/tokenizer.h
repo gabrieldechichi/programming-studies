@@ -4,19 +4,26 @@
 #include "lib/memory.h"
 #include "lib/typedefs.h"
 
+#define TOKEN_TYPES                                                            \
+  TOKEN_TYPE(TOKEN_STRUCT, "struct")                                           \
+  TOKEN_TYPE(TOKEN_TYPEDEF, "typedef")                                         \
+  TOKEN_TYPE(TOKEN_IDENTIFIER, "identifier")                                   \
+  TOKEN_TYPE(TOKEN_LBRACE, "{")                                                \
+  TOKEN_TYPE(TOKEN_RBRACE, "}")                                                \
+  TOKEN_TYPE(TOKEN_LPAREN, "(")                                                \
+  TOKEN_TYPE(TOKEN_RPAREN, ")")                                                \
+  TOKEN_TYPE(TOKEN_SEMICOLON, ";")                                             \
+  TOKEN_TYPE(TOKEN_HM_REFLECT, "HM_REFLECT")                                   \
+  TOKEN_TYPE(TOKEN_HZ_TASK, "HZ_TASK")                                         \
+  TOKEN_TYPE(TOKEN_HZ_READ, "HZ_READ")                                         \
+  TOKEN_TYPE(TOKEN_HZ_WRITE, "HZ_WRITE")                                       \
+  TOKEN_TYPE(TOKEN_EOF, "EOF")                                                 \
+  TOKEN_TYPE(TOKEN_INVALID, "INVALID")
+
 typedef enum {
-  TOKEN_STRUCT,
-  TOKEN_TYPEDEF,
-  TOKEN_IDENTIFIER,
-  TOKEN_LBRACE,     // {
-  TOKEN_RBRACE,     // }
-  TOKEN_LPAREN,     // (
-  TOKEN_RPAREN,     // )
-  TOKEN_SEMICOLON,  // ;
-  TOKEN_HM_REFLECT, // HM_REFLECT() macro
-  TOKEN_HZ_TASK,
-  TOKEN_EOF,
-  TOKEN_INVALID,
+#define TOKEN_TYPE(name, str) name,
+  TOKEN_TYPES
+#undef TOKEN_TYPE
 } TokenType;
 
 typedef struct {
@@ -35,17 +42,20 @@ typedef struct {
   char current_char;
   u32 line;
   u32 column;
+  // todo: use dyn array here
   const char **line_starts;
   u32 line_count;
   u32 line_capacity;
   Allocator *allocator;
 } Tokenizer;
 
-Tokenizer tokenizer_create(const char *filename, const char *source, u32 source_length, Allocator *allocator);
+Tokenizer tokenizer_create(const char *filename, const char *source,
+                           u32 source_length, Allocator *allocator);
 Token tokenizer_next_token(Tokenizer *tokenizer);
 b32 tokenizer_match(Tokenizer *tokenizer, TokenType expected_type);
 const char *token_type_to_string(TokenType type);
-const char *tokenizer_get_line_text(Tokenizer *tokenizer, u32 line_num, u32 *line_length);
+const char *tokenizer_get_line_text(Tokenizer *tokenizer, u32 line_num,
+                                    u32 *line_length);
 void tokenizer_destroy(Tokenizer *tokenizer);
 
 #endif

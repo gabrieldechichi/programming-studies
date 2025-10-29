@@ -14,7 +14,9 @@
 int main() {
   const char *source = "HZ_TASK() \
     typedef struct { \
+        HZ_READ()\
         u64 values_start; \
+        HZ_WRITE()\
         i64_Array numbers; \
     } TaskWideSumInit;";
 

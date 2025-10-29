@@ -252,11 +252,16 @@ void task_queue_process(TaskQueue *queue) {
 }
 
 #define HZ_TASK()
+#define HZ_READ()
+#define HZ_WRITE()
 // BEGIN USER CODE
 
 HZ_TASK()
 typedef struct {
+  HZ_READ();
   u64 values_start;
+
+  HZ_WRITE();
   i64_Array numbers;
 } TaskWideSumInit;
 
@@ -278,9 +283,8 @@ static void _task_sum_init(void *_data) {
   task_sum_init(data);
 }
 
-TaskHandle _TaskWideSumInit_schedule(TaskQueue *queue,
-                                         TaskWideSumInit *data,
-                                         TaskHandle *deps, u8 deps_count) {
+TaskHandle _TaskWideSumInit_schedule(TaskQueue *queue, TaskWideSumInit *data,
+                                     TaskHandle *deps, u8 deps_count) {
   assert(data);
   // build resource access
   // todo: generate
@@ -293,10 +297,9 @@ TaskHandle _TaskWideSumInit_schedule(TaskQueue *queue,
                             resource_count, deps, deps_count);
 }
 
-#define TaskWideSumInit_schedule(queue, data, ...)                         \
-  _TaskWideSumInit_schedule(queue, data,                                   \
-                                ARGS_ARRAY(TaskHandle, __VA_ARGS__),           \
-                                ARGS_COUNT(TaskHandle, __VA_ARGS__))
+#define TaskWideSumInit_schedule(queue, data, ...)                             \
+  _TaskWideSumInit_schedule(queue, data, ARGS_ARRAY(TaskHandle, __VA_ARGS__),  \
+                            ARGS_COUNT(TaskHandle, __VA_ARGS__))
 
 typedef struct {
   i64_Array numbers;
