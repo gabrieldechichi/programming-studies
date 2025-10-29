@@ -13,35 +13,106 @@
 #include "meta/tokenizer.c"
 #include "meta/parser.c"
 
-int main() {
-  const char *source = "struct Point { \
-        int x; \
-        int y; \
-    }";
+void print_reflected_struct(ReflectedStruct *s) {
+  printf("SUCCESS\n");
 
-  ArenaAllocator arena = arena_from_buffer(malloc(MB(8)), MB(8));
-  Allocator allocator = make_arena_allocator(&arena);
-  Parser parser = parser_create("test", source, str_len(source), &allocator);
-
-  ReflectedStruct reflected_struct = {0};
-  b32 success = parse_struct(&parser, &reflected_struct);
-
-  if (success) {
-    printf("SUCCESS\n");
-    printf("Struct name: %.*s\n", reflected_struct.struct_name.len,
-           reflected_struct.struct_name.value);
-    printf("Type ID: %u\n", reflected_struct.type_id);
-    printf("Fields:\n");
-    for (u32 i = 0; i < reflected_struct.fields.len; i++) {
-      StructField *field = &reflected_struct.fields.items[i];
-      printf("  %.*s %.*s;\n", field->type_name.len, field->type_name.value,
-             field->field_name.len, field->field_name.value);
-    }
+  if (s->struct_name.len > 0) {
+    printf("Struct name: %.*s\n", s->struct_name.len, s->struct_name.value);
   } else {
-    printf("ERROR: %s\n", parser.error_message.value);
+    printf("Struct name: <anonymous>\n");
   }
 
-  parser_destroy(&parser);
+  if (s->typedef_name.len > 0) {
+    printf("Typedef name: %.*s\n", s->typedef_name.len, s->typedef_name.value);
+  }
+
+  printf("Type ID: %u\n", s->type_id);
+
+  if (s->attributes.len > 0) {
+    printf("Struct attributes:\n");
+    for (u32 i = 0; i < s->attributes.len; i++) {
+      MetaAttribute *attr = &s->attributes.items[i];
+      printf("  %.*s()\n", attr->name.len, attr->name.value);
+    }
+  }
+
+  printf("Fields:\n");
+  for (u32 i = 0; i < s->fields.len; i++) {
+    StructField *field = &s->fields.items[i];
+
+    if (field->attributes.len > 0) {
+      printf("  Field attributes:\n");
+      for (u32 j = 0; j < field->attributes.len; j++) {
+        MetaAttribute *attr = &field->attributes.items[j];
+        printf("    %.*s()\n", attr->name.len, attr->name.value);
+      }
+    }
+
+    printf("  %.*s %.*s;\n", field->type_name.len, field->type_name.value,
+           field->field_name.len, field->field_name.value);
+  }
+  printf("\n");
+}
+
+int main() {
+  ArenaAllocator arena = arena_from_buffer(malloc(MB(8)), MB(8));
+  Allocator allocator = make_arena_allocator(&arena);
+
+  // Test 1: typedef struct Name { ... } Name;
+  printf("=== Test 1: typedef struct Name { ... } Name; ===\n");
+  {
+    const char *source = "typedef struct TaskData { u64 input; } TaskData;";
+    Parser parser = parser_create("test1", source, str_len(source), &allocator);
+    ReflectedStruct s = {0};
+    if (parse_struct(&parser, &s)) {
+      print_reflected_struct(&s);
+    } else {
+      printf("ERROR: %s\n", parser.error_message.value);
+    }
+    parser_destroy(&parser);
+  }
+
+  // Test 2: typedef struct { ... } Name; (anonymous struct)
+  printf("=== Test 2: typedef struct { ... } Name; ===\n");
+  {
+    const char *source = "typedef struct { u64 x; u64 y; } Point;";
+    Parser parser = parser_create("test2", source, str_len(source), &allocator);
+    ReflectedStruct s = {0};
+    if (parse_struct(&parser, &s)) {
+      print_reflected_struct(&s);
+    } else {
+      printf("ERROR: %s\n", parser.error_message.value);
+    }
+    parser_destroy(&parser);
+  }
+
+  // Test 3: typedef struct Name { ... } DifferentName;
+  printf("=== Test 3: typedef struct Name { ... } DifferentName; ===\n");
+  {
+    const char *source = "typedef struct Point { int x; int y; } Point2D;";
+    Parser parser = parser_create("test3", source, str_len(source), &allocator);
+    ReflectedStruct s = {0};
+    if (parse_struct(&parser, &s)) {
+      print_reflected_struct(&s);
+    } else {
+      printf("ERROR: %s\n", parser.error_message.value);
+    }
+    parser_destroy(&parser);
+  }
+
+  // Test 4: With attributes
+  printf("=== Test 4: With attributes ===\n");
+  {
+    const char *source = "HM_REFLECT() HZ_TASK() typedef struct TaskData { HZ_READ() u64 input; } TaskData;";
+    Parser parser = parser_create("test4", source, str_len(source), &allocator);
+    ReflectedStruct s = {0};
+    if (parse_struct(&parser, &s)) {
+      print_reflected_struct(&s);
+    } else {
+      printf("ERROR: %s\n", parser.error_message.value);
+    }
+    parser_destroy(&parser);
+  }
 
   return 0;
 }

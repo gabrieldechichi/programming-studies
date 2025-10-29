@@ -16,26 +16,43 @@
 int main() {
   u8 buffer[4096];
   ArenaAllocator arena = arena_from_buffer(buffer, sizeof(buffer));
-  
+
   TestContext ctx = {0};
   ctx.allocator = make_arena_allocator(&arena);
-  
+
+  // Tokenizer tests
   RUN_TEST(test_basic_tokens, &ctx);
   RUN_TEST(test_skip_comments, &ctx);
-  RUN_TEST(test_hm_reflect_struct, &ctx);
+  RUN_TEST(test_typedef_keyword, &ctx);
+  RUN_TEST(test_identifier_with_parens, &ctx);
+  RUN_TEST(test_multiline_with_line_tracking, &ctx);
+  RUN_TEST(test_invalid_character, &ctx);
 
-  RUN_TEST(test_parse_single_struct, &ctx);
-  RUN_TEST(test_parse_multiple_structs, &ctx);
-  RUN_TEST(test_parse_empty_struct, &ctx);
-  RUN_TEST(test_parse_malformed_struct, &ctx);
-  RUN_TEST(test_parse_error_message_format, &ctx);
-  RUN_TEST(test_enhanced_error_reporting_showcase, &ctx);
+  // Parser basic tests
+  RUN_TEST(test_parse_struct_basic, &ctx);
+  RUN_TEST(test_parse_struct_empty, &ctx);
+  RUN_TEST(test_parse_struct_anonymous, &ctx);
 
-  RUN_TEST(test_parse_typedef_struct_simple, &ctx);
-  RUN_TEST(test_parse_typedef_struct_with_name, &ctx);
-  RUN_TEST(test_parse_mixed_struct_and_typedef, &ctx);
+  // Parser typedef tests
+  RUN_TEST(test_parse_typedef_named_same, &ctx);
+  RUN_TEST(test_parse_typedef_anonymous, &ctx);
+  RUN_TEST(test_parse_typedef_different_names, &ctx);
+
+  // Parser attribute tests
+  RUN_TEST(test_parse_struct_with_struct_attributes, &ctx);
+  RUN_TEST(test_parse_struct_with_field_attributes, &ctx);
+  RUN_TEST(test_parse_struct_with_multiple_attributes, &ctx);
+  RUN_TEST(test_parse_struct_no_attributes, &ctx);
+
+  // Parser error handling tests
+  RUN_TEST(test_parse_struct_error_missing_semicolon, &ctx);
+  RUN_TEST(test_parse_struct_error_missing_closing_brace, &ctx);
   RUN_TEST(test_parse_typedef_error_missing_name, &ctx);
-  RUN_TEST(test_typedef_struct_showcase, &ctx);
+  RUN_TEST(test_parse_struct_error_missing_field_name, &ctx);
+  RUN_TEST(test_parse_error_message_format, &ctx);
+
+  // Parser comprehensive test
+  RUN_TEST(test_parse_struct_comprehensive, &ctx);
 
   print_test_results();
   return 0;
