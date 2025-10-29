@@ -4,5 +4,6 @@
 #include "lib/memory.c"
 #include "lib/pthread_barrier.c"
 #include "lib/thread_context.c"
+#include "lib/task.c"
 // #include "multicore_homogeneous.c"
 #include "multicore_tasks.c"

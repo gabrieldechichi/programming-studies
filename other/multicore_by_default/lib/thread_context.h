@@ -10,7 +10,18 @@
 #define atomic_inc_eval(ptr) __sync_add_and_fetch((ptr), 1)
 #define atomic_dec_eval(ptr) __sync_add_and_fetch((ptr), -1)
 #define atomic_set(ptr, value) __sync_lock_test_and_set((ptr), (value))
-#define atomic_load(ptr) __atomic_load_n((ptr), __ATOMIC_SEQ_CST)
+// todo: fix weird macros in typedef.h
+//  #define atomic_load(ptr) __atomic_load_n((ptr), __ATOMIC_SEQ_CST)
+
+force_inline void cpu_pause() {
+#if defined(__x86_64__) || defined(__i386__)
+  __asm__ __volatile__("pause" ::: "memory");
+#elif defined(__aarch64__) || defined(__arm64__)
+  __asm__ __volatile__("yield" ::: "memory"); // ARM equivalent
+#else
+  __asm__ __volatile__("" ::: "memory"); // Fallback: just a barrier
+#endif
+}
 
 typedef struct ThreadContext {
   u8 thread_idx;

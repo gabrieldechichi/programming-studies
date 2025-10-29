@@ -7,6 +7,7 @@
       "-Ios",
       "-Imeta",
       "-I./",
+      "-Igenerated",
       "-Wall",
       "-Wextra",
       "-std=c99",
@@ -15,13 +16,12 @@
       "-O0",
       "-g",
       "-DDEBUG",
-      "-DTESTS",
       "-o",
-      "./out/test/test",
-      "tests/test_main.c"
+      "multicore",
+      "src/main.c"
     ],
     "directory": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default",
-    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default/tests/test_main.c",
-    "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default/out/test/test"
+    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default/src/main.c",
+    "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/other/multicore_by_default/multicore"
   }
 ]

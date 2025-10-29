@@ -112,4 +112,14 @@
 #define arr_foreach_ptr(arr, type, e) foreach_ptr(arr.items, arr.len, type, e)
 #define arr_foreach(arr, type, e) foreach (arr.items, arr.len, type, e)
 
+#define arr_view_from_min_max(type, _items, min, max)                          \
+  ((type##_Array){                                                             \
+      .items = (_items) + (min),                                               \
+      .len = (max) - (min),                                                    \
+  })
+
+#define arr_view_from_range(type, _items, range)                               \
+  arr_view_from_min_max(type, _items, (range).min, (range).max)
+
+
 #endif // !H_ARRAY

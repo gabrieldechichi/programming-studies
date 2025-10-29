@@ -109,7 +109,7 @@ int main() {
   ArenaAllocator arena = arena_from_buffer(malloc(MB(8)), MB(8));
   Allocator allocator = make_arena_allocator(&arena);
 
-  const char *file_name = "./src/multicore_tasks.c";
+  const char *file_name = "./src/multicore_tasks.h";
   PlatformFileData file = os_read_file(file_name, &allocator);
   if (!file.success) {
     return 1;
@@ -146,6 +146,14 @@ int main() {
         // start code gen
         CodeStringBuilder csb = csb_create(&temp_allocator, MB(1));
 
+        csb_append_line_format(&csb, "#ifndef H_%_GEN",
+                               FMT_STR(struct_name.value));
+        csb_append_line_format(&csb, "#define H_%_GEN",
+                               FMT_STR(struct_name.value));
+        csb_append_line(&csb, "#include \"lib/task.h\"");
+        csb_append_line(&csb, "#include \"multicore_tasks.h\"");
+        csb_append_line(&csb, "");
+
         // Exec wrapper (for safe casting)
         csb_append_line_format(&csb, "void _%_Exec(void* _data) {",
                                FMT_STR(struct_name.value));
@@ -181,7 +189,7 @@ int main() {
                                  FMT_STR(attr.parent_field->field_name.value));
         }
         csb_append_line_format(&csb,
-                               "_task_queue_append(queue, _%_Exec, data, "
+                               "return _task_queue_append(queue, _%_Exec, data, "
                                "resource_access, %, deps, deps_count);",
                                FMT_STR(struct_name.value),
                                FMT_UINT(field_attributes.len));
@@ -196,12 +204,14 @@ int main() {
             "ARGS_COUNT(TaskHandle, __VA_ARGS__))",
             FMT_STR(struct_name.value), FMT_STR(struct_name.value));
 
+        csb_append_line(&csb, "#endif");
+
         char *generated = csb_get(&csb);
 
         os_create_dir("./generated");
         char temp_buffer[512];
         FMT_TO_STR(temp_buffer, sizeof(temp_buffer),
-                   "./generated/%_generated.h", FMT_STR(struct_name.value));
+                   "./generated/%_generated.h", FMT_STR("multicore_tasks"));
         os_write_file(temp_buffer, (u8 *)generated, csb.sb.len);
 
       } else {

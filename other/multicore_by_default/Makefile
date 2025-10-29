@@ -2,7 +2,7 @@ CC = clang
 CFLAGS = -Wall -Wextra -std=c99 -DCOMPILER_CLANG -DMACOS
 CFLAGS_DEBUG = -O0 -g -DDEBUG
 CFLAGS_RELEASE = -O2
-INCLUDE_FLAGS = -Isrc -Ios -Imeta -I./
+INCLUDE_FLAGS = -Isrc -Ios -Imeta -I./ -Igenerated
 LINK_FLAGS = -lpthread -lm
 
 TARGET = multicore
