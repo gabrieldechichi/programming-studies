@@ -22,11 +22,14 @@ static inline void cpu_pause() {
 
 arr_define(i64);
 
-#define arr_create_from_range(type, _items, min, max)                          \
+#define arr_view_from_min_max(type, _items, min, max)                          \
   ((type##_Array){                                                             \
       .items = (_items) + (min),                                               \
       .len = (max) - (min),                                                    \
   })
+
+#define arr_view_from_range(type, _items, range)                               \
+  arr_view_from_min_max(type, _items, (range).min, (range).max)
 
 typedef enum {
   TASK_RESOURCE_TYPE_READ,
@@ -83,36 +86,6 @@ typedef struct {
   u8 ready_count;
   u8 ready_counter;
 } TaskQueue;
-
-typedef struct {
-  u64 values_start;
-  i64_Array numbers;
-} TaskWideSumInitData;
-
-typedef struct {
-  i64_Array numbers;
-  i64 lane_sum;
-} TaskWideSumData;
-
-void task_sum_init(TaskWideSumInitData *data) {
-  for (u64 i = 0; i < data->numbers.len; i++) {
-    data->numbers.items[i] = data->values_start + i;
-  }
-
-  // note: just to test race conditions
-  // if (tctx_current()->thread_idx == 2 || tctx_current()->thread_idx == 3) {
-  //   for (u64 i = 0; i < 1000000000; i++) {
-  //     cpu_pause();
-  //   }
-  // }
-}
-
-void task_sum_exec(TaskWideSumData *data) {
-  i64 sum = 0;
-
-  arr_foreach(data->numbers, i64, value) { sum += value; }
-  data->lane_sum = sum;
-}
 
 TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
                               TaskResourceAccess *resources, u8 resources_count,
@@ -278,45 +251,121 @@ void task_queue_process(TaskQueue *queue) {
   lane_sync();
 }
 
+// BEGIN USER CODE
+typedef struct {
+  u64 values_start;
+  i64_Array numbers;
+} TaskWideSumInit;
+
+void task_sum_init(TaskWideSumInit *data) {
+  for (u64 i = 0; i < data->numbers.len; i++) {
+    data->numbers.items[i] = data->values_start + i;
+  }
+
+  // note: just to test race conditions
+  // if (tctx_current()->thread_idx == 2 || tctx_current()->thread_idx == 3) {
+  //   for (u64 i = 0; i < 1000000000; i++) {
+  //     cpu_pause();
+  //   }
+  // }
+}
+
+static void _task_sum_init(void *_data) {
+  TaskWideSumInit *data = (TaskWideSumInit *)_data;
+  task_sum_init(data);
+}
+
+TaskHandle _TaskWideSumInit_schedule(TaskQueue *queue,
+                                         TaskWideSumInit *data,
+                                         TaskHandle *deps, u8 deps_count) {
+  assert(data);
+  // build resource access
+  // todo: generate
+  TaskResourceAccess resource_access[32];
+  u8 resource_count = 0;
+  resource_access[resource_count++] =
+      TASK_ACCESS_WRITE(data->numbers.items, data->numbers.len);
+
+  return _task_queue_append(queue, _task_sum_init, data, resource_access,
+                            resource_count, deps, deps_count);
+}
+
+#define TaskWideSumInit_schedule(queue, data, ...)                         \
+  _TaskWideSumInit_schedule(queue, data,                                   \
+                                ARGS_ARRAY(TaskHandle, __VA_ARGS__),           \
+                                ARGS_COUNT(TaskHandle, __VA_ARGS__))
+
+typedef struct {
+  i64_Array numbers;
+  i64 lane_sum;
+} TaskWideSumExec;
+
+void task_sum_exec(TaskWideSumExec *data) {
+  i64 sum = 0;
+
+  arr_foreach(data->numbers, i64, value) { sum += value; }
+  data->lane_sum = sum;
+}
+
+static void _task_sum_exec(void *_data) {
+  TaskWideSumExec *data = (TaskWideSumExec *)_data;
+  task_sum_exec(data);
+}
+
+TaskHandle _TaskWideSumExec_schedule(TaskQueue *queue, TaskWideSumExec *data,
+                                     TaskHandle *deps, u8 deps_count) {
+  assert(data);
+  // build resource access
+  // todo: generate
+  TaskResourceAccess resource_access[32];
+  u8 resource_count = 0;
+  resource_access[resource_count++] =
+      TASK_ACCESS_READ(data->numbers.items, data->numbers.len);
+  // todo: add write to thing
+
+  return _task_queue_append(queue, _task_sum_exec, data, resource_access,
+                            resource_count, deps, deps_count);
+}
+
+#define TaskWideSumExec_schedule(queue, data, ...)                             \
+  _TaskWideSumExec_schedule(queue, data, ARGS_ARRAY(TaskHandle, __VA_ARGS__),  \
+                            ARGS_COUNT(TaskHandle, __VA_ARGS__))
+
 void entrypoint() {
   local_shared TaskQueue task_queue = {0};
   local_shared u64 array_size = ARRAY_SIZE;
   local_shared i64 *array = NULL;
-  local_shared TaskWideSumData *sum_lane_data = NULL;
+  local_shared TaskWideSumExec *sum_lane_data = NULL;
 
   ThreadContext *tctx = tctx_current();
 
   if (is_main_thread()) {
     array = malloc(ARRAY_SIZE * sizeof(i64));
-    sum_lane_data = calloc(1, tctx->thread_count * sizeof(TaskWideSumData));
+    sum_lane_data = calloc(1, tctx->thread_count * sizeof(TaskWideSumExec));
   }
   lane_sync();
 
+  // create array views (shared)
   Range_u64 range = lane_range(array_size);
-  i64_Array numbers = arr_create_from_range(i64, array, range.min, range.max);
+  i64_Array numbers = arr_view_from_range(i64, array, range);
 
-  TaskWideSumInitData *init_data =
-      arena_alloc(&tctx->temp_arena, sizeof(TaskWideSumInitData));
-  *init_data = (TaskWideSumInitData){
+  TaskWideSumInit *init_data =
+      arena_alloc(&tctx->temp_arena, sizeof(TaskWideSumInit));
+  *init_data = (TaskWideSumInit){
       .numbers = numbers,
       .values_start = range.min + 1,
   };
-  TaskResourceAccess init_resource_access =
-      TASK_ACCESS_WRITE(numbers.items, numbers.len);
-  TaskHandle init_task_handle = task_queue_append(
-      &task_queue, task_sum_init, init_data, &init_resource_access, 1, NULL, 0);
 
-  sum_lane_data[tctx->thread_idx] = (TaskWideSumData){
+  TaskHandle init_task_handle =
+      TaskWideSumInit_schedule(&task_queue, init_data);
+
+  sum_lane_data[tctx->thread_idx] = (TaskWideSumExec){
       .numbers = numbers,
       .lane_sum = 0,
   };
 
-  TaskResourceAccess sum_resource_access =
-      TASK_ACCESS_READ(numbers.items, numbers.len);
-
-  task_queue_append(&task_queue, task_sum_exec,
-                    &sum_lane_data[tctx->thread_idx], &sum_resource_access, 1,
-                    &init_task_handle, 1);
+  TaskWideSumExec_schedule(&task_queue, &sum_lane_data[tctx->thread_idx],
+                           init_task_handle);
 
   task_queue_process(&task_queue);
 

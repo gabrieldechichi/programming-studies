@@ -24,13 +24,16 @@ typedef uintptr_t uintptr;
 #define local_shared static
 
 #define ARRAY_LEN(arr) (sizeof((arr)) / sizeof((arr)[0]))
+#define ARGS_ARRAY(type, ...) ((type[]){__VA_ARGS__})
+#define ARGS_COUNT(type, ...)                                                  \
+  (sizeof(ARGS_ARRAY(type, __VA_ARGS__)) / sizeof(type))
 
 #define KB(x) (((u32)(x)) * (u32)1024)
 #define MB(x) (KB(x) * (u32)1024)
 #define GB(x) ((size_t)(MB(x)) * (size_t)1024)
 
 #define RANGE_DEFINE(type)                                                     \
-  typedef struct Range_##type {                                               \
+  typedef struct Range_##type {                                                \
     type min;                                                                  \
     type max;                                                                  \
   } Range_##type;
