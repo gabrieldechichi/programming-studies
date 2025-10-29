@@ -49,6 +49,8 @@ void entrypoint() {
   Range_u64 range = lane_range(array_size);
   i64_Array numbers = arr_view_from_range(i64, array, range);
 
+  //todo: pass struct and move arena copy elsewhere (schedule?)
+  //for sharing data you should add an attribute
   TaskWideSumInit *init_data =
       arena_alloc(&tctx->temp_arena, sizeof(TaskWideSumInit));
   *init_data = (TaskWideSumInit){

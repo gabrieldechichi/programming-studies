@@ -66,15 +66,10 @@ void print_reflected_struct(ReflectedStruct *s) {
 }
 
 typedef struct {
+  char *file_name;
   StringBuilder sb;
   u8 indent_level;
 } CodeStringBuilder;
-
-CodeStringBuilder csb_create(Allocator *allocator, u32 cap) {
-  CodeStringBuilder csb = {0};
-  sb_init(&csb.sb, ALLOC_ARRAY(allocator, char, cap), cap);
-  return csb;
-}
 
 void csb_add_indent(CodeStringBuilder *csb) { csb->indent_level++; }
 void csb_remove_indent(CodeStringBuilder *csb) {
@@ -94,13 +89,33 @@ void csb_append_line(CodeStringBuilder *csb, const char *str) {
   sb_append_line(&csb->sb, str);
 }
 
-char *csb_get(CodeStringBuilder *csb) { return sb_get(&csb->sb); }
+char *csb_finish(CodeStringBuilder *csb) {
+  csb_append_line(csb, "#endif");
+  csb_append_line(csb, "// ==== GENERATED FILE DO NOT EDIT ====\n");
+
+  return sb_get(&csb->sb);
+}
 
 #define csb_append_line_format(csb, fmt, ...)                                  \
   do {                                                                         \
     csb_append_indentation((csb));                                             \
     sb_append_line_format(&(csb)->sb, fmt, __VA_ARGS__);                       \
   } while (0);
+
+CodeStringBuilder csb_create(char *file_name, Allocator *allocator, u32 cap) {
+  CodeStringBuilder csb = {0};
+  csb.file_name = file_name;
+  sb_init(&csb.sb, ALLOC_ARRAY(allocator, char, cap), cap);
+
+  csb_append_line(&csb, "// ==== GENERATED FILE DO NOT EDIT ====\n");
+  csb_append_line_format(&csb, "#ifndef H_%_GEN", FMT_STR(csb.file_name));
+  csb_append_line_format(&csb, "#define H_%_GEN", FMT_STR(csb.file_name));
+  csb_append_line(&csb, "#include \"lib/task.h\"");
+  csb_append_line_format(&csb, "#include \"%.h\"", FMT_STR(csb.file_name));
+  csb_append_line(&csb, "");
+
+  return csb;
+}
 
 int main() {
   ArenaAllocator temp_arena = arena_from_buffer(malloc(MB(64)), MB(64));
@@ -118,13 +133,7 @@ int main() {
   Parser parser = parser_create(file_name, (char *)file.buffer, file.buffer_len,
                                 &allocator);
 
-  CodeStringBuilder csb = csb_create(&temp_allocator, MB(1));
-
-  csb_append_line_format(&csb, "#ifndef H_%_GEN", FMT_STR("multicore_tasks"));
-  csb_append_line_format(&csb, "#define H_%_GEN", FMT_STR("multicore_tasks"));
-  csb_append_line(&csb, "#include \"lib/task.h\"");
-  csb_append_line(&csb, "#include \"multicore_tasks.h\"");
-  csb_append_line(&csb, "");
+  CodeStringBuilder csb = csb_create("multicore_tasks", &temp_allocator, MB(1));
 
   while (!parser_current_token_is(&parser, TOKEN_EOF) && !parser.has_error) {
     parser_skip_to_next_attribute(&parser);
@@ -208,13 +217,12 @@ int main() {
     }
   }
 
-  csb_append_line(&csb, "#endif");
-  char *generated = csb_get(&csb);
+  char *generated = csb_finish(&csb);
 
   os_create_dir("./generated");
   char temp_buffer[512];
   FMT_TO_STR(temp_buffer, sizeof(temp_buffer), "./generated/%_generated.h",
-             FMT_STR("multicore_tasks"));
+             FMT_STR(csb.file_name));
   os_write_file(temp_buffer, (u8 *)generated, csb.sb.len);
   parser_destroy(&parser);
 

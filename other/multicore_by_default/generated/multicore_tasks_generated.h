@@ -1,3 +1,5 @@
+// ==== GENERATED FILE DO NOT EDIT ====
+
 #ifndef H_multicore_tasks_GEN
 #define H_multicore_tasks_GEN
 #include "lib/task.h"
@@ -30,3 +32,5 @@ TaskHandle _TaskWideSumExec_Schedule(TaskQueue* queue, TaskWideSumExec* data, Ta
 #define TaskWideSumExec_Schedule(queue,data,...) _TaskWideSumExec_Schedule(queue,data,ARGS_ARRAY(TaskHandle, __VA_ARGS__), ARGS_COUNT(TaskHandle, __VA_ARGS__))
 
 #endif
+// ==== GENERATED FILE DO NOT EDIT ====
+
