@@ -7,28 +7,41 @@
 #include "lib/typedefs.h"
 #include "meta/tokenizer.h"
 
+// Forward declarations
+typedef struct StructField StructField;
+typedef struct ReflectedStruct ReflectedStruct;
+
+// Attribute types
 typedef struct {
   String name;
-} MetaAttribute;
-arr_define(MetaAttribute);
+  StructField *parent_field;
+} FieldAttribute;
+arr_define(FieldAttribute);
 
 typedef struct {
+  String name;
+  ReflectedStruct *parent_struct;
+} StructAttribute;
+arr_define(StructAttribute);
+
+// Main struct definitions
+struct StructField {
   String type_name;
   String field_name;
   u32 pointer_depth;
   b32 is_array;
   u32 array_size;
-  MetaAttribute_DynArray attributes;
-} StructField;
+  FieldAttribute_DynArray attributes;
+};
 arr_define(StructField);
 
-typedef struct {
+struct ReflectedStruct {
   String struct_name;
   String typedef_name;
   u32 type_id;
-  MetaAttribute_DynArray attributes;
+  StructAttribute_DynArray attributes;
   StructField_DynArray fields;
-} ReflectedStruct;
+};
 arr_define(ReflectedStruct);
 
 

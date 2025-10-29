@@ -172,40 +172,8 @@ internal u32 parse_number_from_token(Token token) {
   return result;
 }
 
-b32 try_parse_attribute(Parser *parser, MetaAttribute *attr) {
-
-  if (parser->current_token.type != TOKEN_IDENTIFIER) {
-    return false;
-  }
-
-  // Save the identifier and tokenizer state
-  Token identifier_token = parser->current_token;
-  Tokenizer saved_tokenizer = parser->tokenizer;
-
-  parser_advance_token(parser);
-
-  if (parser->current_token.type != TOKEN_LPAREN) {
-    // Not an attribute pattern - restore everything
-    parser->tokenizer = saved_tokenizer;
-    parser->current_token = identifier_token;
-    return false;
-  }
-
-  parser_advance_token(parser);
-
-  if (parser->current_token.type != TOKEN_RPAREN) {
-    parser_error(parser, "Expected ')' after '(' in attribute");
-    return false;
-  }
-
-  // Successfully parsed IDENTIFIER()
-  *attr = (MetaAttribute){
-      .name = token_to_string(identifier_token, parser->allocator)};
-  return true;
-}
-
-internal void collect_field_attributes(Parser *parser,
-                                       MetaAttribute_DynArray *out_attributes) {
+internal void collect_struct_attributes(Parser *parser,
+                                       StructAttribute_DynArray *out_attributes) {
   // Collect attributes by looking forward from current token
   // Consume all IDENTIFIER() patterns
 
@@ -213,11 +181,69 @@ internal void collect_field_attributes(Parser *parser,
     if (parser->current_token.type != TOKEN_IDENTIFIER) {
       break;
     }
-    MetaAttribute attr = {0};
-    if (!try_parse_attribute(parser, &attr)) {
+
+    // Save the identifier and tokenizer state
+    Token identifier_token = parser->current_token;
+    Tokenizer saved_tokenizer = parser->tokenizer;
+
+    parser_advance_token(parser);
+
+    if (parser->current_token.type != TOKEN_LPAREN) {
+      // Not an attribute pattern - restore everything
+      parser->tokenizer = saved_tokenizer;
+      parser->current_token = identifier_token;
       break;
     }
 
+    parser_advance_token(parser);
+
+    if (parser->current_token.type != TOKEN_RPAREN) {
+      parser_error(parser, "Expected ')' after '(' in attribute");
+      break;
+    }
+
+    // Successfully parsed IDENTIFIER()
+    String attr_name = token_to_string(identifier_token, parser->allocator);
+    StructAttribute attr = {.name = attr_name, .parent_struct = NULL};
+    arr_append(*out_attributes, attr);
+
+    parser_advance_token(parser); // Move past ')'
+  }
+}
+
+internal void collect_field_attributes(Parser *parser,
+                                       FieldAttribute_DynArray *out_attributes) {
+  // Collect attributes by looking forward from current token
+  // Consume all IDENTIFIER() patterns
+
+  while (parser->current_token.type != TOKEN_EOF) {
+    if (parser->current_token.type != TOKEN_IDENTIFIER) {
+      break;
+    }
+
+    // Save the identifier and tokenizer state
+    Token identifier_token = parser->current_token;
+    Tokenizer saved_tokenizer = parser->tokenizer;
+
+    parser_advance_token(parser);
+
+    if (parser->current_token.type != TOKEN_LPAREN) {
+      // Not an attribute pattern - restore everything
+      parser->tokenizer = saved_tokenizer;
+      parser->current_token = identifier_token;
+      break;
+    }
+
+    parser_advance_token(parser);
+
+    if (parser->current_token.type != TOKEN_RPAREN) {
+      parser_error(parser, "Expected ')' after '(' in attribute");
+      break;
+    }
+
+    // Successfully parsed IDENTIFIER()
+    String attr_name = token_to_string(identifier_token, parser->allocator);
+    FieldAttribute attr = {.name = attr_name, .parent_field = NULL};
     arr_append(*out_attributes, attr);
 
     parser_advance_token(parser); // Move past ')'
@@ -247,12 +273,27 @@ void parser_skip_to_next_attribute(Parser *parser) {
 }
 
 
+internal void set_parent_pointers(ReflectedStruct *out_struct) {
+  // Set parent pointers for struct attributes
+  for (u32 i = 0; i < out_struct->attributes.len; i++) {
+    out_struct->attributes.items[i].parent_struct = out_struct;
+  }
+
+  // Set parent pointers for field attributes
+  for (u32 i = 0; i < out_struct->fields.len; i++) {
+    StructField *field = &out_struct->fields.items[i];
+    for (u32 j = 0; j < field->attributes.len; j++) {
+      field->attributes.items[j].parent_field = field;
+    }
+  }
+}
+
 b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
   // Collect struct-level attributes (forward scan until we hit 'typedef' or
   // 'struct')
-  MetaAttribute_DynArray struct_attributes =
-      dyn_arr_new_alloc(parser->allocator, MetaAttribute, 8);
-  collect_field_attributes(parser, &struct_attributes);
+  StructAttribute_DynArray struct_attributes =
+      dyn_arr_new_alloc(parser->allocator, StructAttribute, 8);
+  collect_struct_attributes(parser, &struct_attributes);
 
   // Check if this is a typedef struct
   b32 has_typedef = false;
@@ -288,8 +329,8 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
   while (!parser_current_token_is(parser, TOKEN_RBRACE) &&
          !parser_current_token_is(parser, TOKEN_EOF)) {
     // Collect field-level attributes
-    MetaAttribute_DynArray field_attributes =
-        dyn_arr_new_alloc(parser->allocator, MetaAttribute, 8);
+    FieldAttribute_DynArray field_attributes =
+        dyn_arr_new_alloc(parser->allocator, FieldAttribute, 8);
     collect_field_attributes(parser, &field_attributes);
 
     // Parse type name
@@ -384,6 +425,9 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
   out_struct->type_id = next_type_id++;
   out_struct->attributes = struct_attributes;
   out_struct->fields = fields;
+
+  // Set parent pointers for all attributes
+  set_parent_pointers(out_struct);
 
   return true;
 }

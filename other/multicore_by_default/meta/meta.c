@@ -1,6 +1,7 @@
 #include "lib/memory.h"
 #include "lib/string.h"
 #include "lib/string_builder.h"
+#include "os.h"
 #include "parser.h"
 #include "tokenizer.h"
 #include <assert.h>
@@ -34,7 +35,7 @@ void print_reflected_struct(ReflectedStruct *s) {
   if (s->attributes.len > 0) {
     printf("Struct attributes:\n");
     for (u32 i = 0; i < s->attributes.len; i++) {
-      MetaAttribute *attr = &s->attributes.items[i];
+      StructAttribute *attr = &s->attributes.items[i];
       printf("  %.*s()\n", attr->name.len, attr->name.value);
     }
   }
@@ -46,7 +47,7 @@ void print_reflected_struct(ReflectedStruct *s) {
     if (field->attributes.len > 0) {
       printf("  Field attributes:\n");
       for (u32 j = 0; j < field->attributes.len; j++) {
-        MetaAttribute *attr = &field->attributes.items[j];
+        FieldAttribute *attr = &field->attributes.items[j];
         printf("    %.*s()\n", attr->name.len, attr->name.value);
       }
     }
@@ -126,20 +127,23 @@ int main() {
         String struct_name =
             s.typedef_name.len ? s.typedef_name : s.struct_name;
 
-        // todo: validate all attributes are provided
-        u32 attr_write_count = 0;
-        u32 attr_read_count = 0;
+        // collect attributes
+        FieldAttribute_DynArray field_attributes =
+            dyn_arr_new_alloc(&temp_allocator, FieldAttribute, s.fields.len);
+
         arr_foreach_ptr(s.fields, StructField, field) {
           if (field->attributes.len > 0) {
-            arr_foreach_ptr(field->attributes, MetaAttribute, attr) {
-              if (str_equal(attr->name.value, "HZ_WRITE")) {
-                // todo:
-                //  attr
+            arr_foreach_ptr(field->attributes, FieldAttribute, attr) {
+              if (str_equal(attr->name.value, "HZ_WRITE") ||
+                  str_equal(attr->name.value, "HZ_READ")) {
+                arr_append(field_attributes, *attr);
               }
             }
           }
         }
+        // todo: validate all attributes are provided
 
+        // start code gen
         CodeStringBuilder csb = csb_create(&temp_allocator, MB(1));
 
         // Exec wrapper (for safe casting)
@@ -161,10 +165,44 @@ int main() {
                                FMT_STR(struct_name.value),
                                FMT_STR(struct_name.value));
         csb_add_indent(&csb);
-        csb_append_line_format(&csb, "TaskResourceAccess resource_access[32];");
+        csb_append_line_format(&csb, "TaskResourceAccess resource_access[%];",
+                               FMT_UINT(field_attributes.len));
+
+        for (u32 i = 0; i < field_attributes.len; i++) {
+          FieldAttribute attr = field_attributes.items[i];
+          b32 is_write = str_equal(attr.name.value, "HZ_WRITE");
+          const char *task_access_macro =
+              is_write ? "TASK_ACCESS_WRITE" : "TASK_ACCESS_READ";
+          csb_append_line_format(&csb,
+                                 "resource_access[%] = %(data->%.items, "
+                                 "data->%.len);",
+                                 FMT_UINT(i), FMT_STR(task_access_macro),
+                                 FMT_STR(attr.parent_field->field_name.value),
+                                 FMT_STR(attr.parent_field->field_name.value));
+        }
+        csb_append_line_format(&csb,
+                               "_task_queue_append(queue, _%_Exec, data, "
+                               "resource_access, %, deps, deps_count);",
+                               FMT_STR(struct_name.value),
+                               FMT_UINT(field_attributes.len));
+        csb_remove_indent(&csb);
+        csb_append_line(&csb, "}\n");
+
+        // helper macro
+        csb_append_line_format(
+            &csb,
+            "#define %_Schedule(queue,data,...) "
+            "_%_Schedule(queue,data,ARGS_ARRAY(TaskHandle, __VA_ARGS__), "
+            "ARGS_COUNT(TaskHandle, __VA_ARGS__))",
+            FMT_STR(struct_name.value), FMT_STR(struct_name.value));
 
         char *generated = csb_get(&csb);
-        printf("%s\n", generated);
+
+        os_create_dir("./generated");
+        char temp_buffer[512];
+        FMT_TO_STR(temp_buffer, sizeof(temp_buffer),
+                   "./generated/%_generated.h", FMT_STR(struct_name.value));
+        os_write_file(temp_buffer, (u8 *)generated, csb.sb.len);
 
       } else {
         printf("ERROR: %s\n", parser.error_message.value);

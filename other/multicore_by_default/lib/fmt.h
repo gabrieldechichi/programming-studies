@@ -59,4 +59,11 @@ typedef struct {
 size_t fmt_string(char *buffer, size_t buffer_size, const char *fmt,
                   const FmtArgs *args);
 
+#define FMT_TO_STR(buffer, buffer_size, fmt, ...)                              \
+  do {                                                                         \
+    FmtArgs fmtArgs = {.args = (FmtArg[]){__VA_ARGS__},                        \
+                       .args_size =                                            \
+                           sizeof((FmtArg[]){__VA_ARGS__}) / sizeof(FmtArg)};  \
+    fmt_string(buffer, buffer_size, fmt, &fmtArgs);                            \
+  } while (0)
 #endif
