@@ -158,3 +158,46 @@ void test_invalid_character(TestContext* ctx) {
 
   tokenizer_destroy(&tokenizer);
 }
+
+void test_asterisk_token(TestContext* ctx) {
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "int* ptr;";
+  Tokenizer tokenizer = tokenizer_create("test.c", source, str_len(source), allocator);
+
+  Token token = tokenizer_next_token(&tokenizer);
+  assert_eq(token.type, TOKEN_IDENTIFIER);
+
+  token = tokenizer_next_token(&tokenizer);
+  assert_eq(token.type, TOKEN_ASTERISK);
+  assert_eq(token.length, 1);
+
+  token = tokenizer_next_token(&tokenizer);
+  assert_eq(token.type, TOKEN_IDENTIFIER);
+
+  token = tokenizer_next_token(&tokenizer);
+  assert_eq(token.type, TOKEN_SEMICOLON);
+
+  tokenizer_destroy(&tokenizer);
+}
+
+void test_multiple_asterisks(TestContext* ctx) {
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "char** strings;";
+  Tokenizer tokenizer = tokenizer_create("test.c", source, str_len(source), allocator);
+
+  Token token = tokenizer_next_token(&tokenizer);
+  assert_eq(token.type, TOKEN_IDENTIFIER);
+
+  token = tokenizer_next_token(&tokenizer);
+  assert_eq(token.type, TOKEN_ASTERISK);
+
+  token = tokenizer_next_token(&tokenizer);
+  assert_eq(token.type, TOKEN_ASTERISK);
+
+  token = tokenizer_next_token(&tokenizer);
+  assert_eq(token.type, TOKEN_IDENTIFIER);
+
+  tokenizer_destroy(&tokenizer);
+}

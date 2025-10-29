@@ -310,6 +310,101 @@ void test_parse_error_message_format(TestContext* ctx) {
 }
 
 // ============================================================================
+// Pointer Tests
+// ============================================================================
+
+void test_parse_struct_with_pointer(TestContext* ctx) {
+  parser_reset_type_id();
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "struct Data { int* ptr; u64 value; }";
+  Parser parser = parser_create("test.h", source, str_len(source), allocator);
+
+  ReflectedStruct s = {0};
+  b32 success = parse_struct(&parser, &s);
+
+  assert_true(success);
+  assert_eq(s.fields.len, 2);
+
+  StructField ptr_field = s.fields.items[0];
+  assert_str_eq(ptr_field.type_name.value, "int");
+  assert_str_eq(ptr_field.field_name.value, "ptr");
+  assert_eq(ptr_field.pointer_depth, 1);
+
+  StructField value_field = s.fields.items[1];
+  assert_str_eq(value_field.type_name.value, "u64");
+  assert_str_eq(value_field.field_name.value, "value");
+  assert_eq(value_field.pointer_depth, 0);
+
+  parser_destroy(&parser);
+}
+
+void test_parse_struct_with_double_pointer(TestContext* ctx) {
+  parser_reset_type_id();
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "struct Node { char** strings; int value; }";
+  Parser parser = parser_create("test.h", source, str_len(source), allocator);
+
+  ReflectedStruct s = {0};
+  b32 success = parse_struct(&parser, &s);
+
+  assert_true(success);
+  assert_eq(s.fields.len, 2);
+
+  StructField strings_field = s.fields.items[0];
+  assert_str_eq(strings_field.type_name.value, "char");
+  assert_str_eq(strings_field.field_name.value, "strings");
+  assert_eq(strings_field.pointer_depth, 2);
+
+  StructField value_field = s.fields.items[1];
+  assert_eq(value_field.pointer_depth, 0);
+
+  parser_destroy(&parser);
+}
+
+void test_parse_struct_with_triple_pointer(TestContext* ctx) {
+  parser_reset_type_id();
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "struct Complex { void*** ptr; }";
+  Parser parser = parser_create("test.h", source, str_len(source), allocator);
+
+  ReflectedStruct s = {0};
+  b32 success = parse_struct(&parser, &s);
+
+  assert_true(success);
+  assert_eq(s.fields.len, 1);
+
+  StructField ptr_field = s.fields.items[0];
+  assert_str_eq(ptr_field.type_name.value, "void");
+  assert_str_eq(ptr_field.field_name.value, "ptr");
+  assert_eq(ptr_field.pointer_depth, 3);
+
+  parser_destroy(&parser);
+}
+
+void test_parse_struct_mixed_pointers(TestContext* ctx) {
+  parser_reset_type_id();
+  Allocator* allocator = &ctx->allocator;
+
+  const char *source = "struct Mixed { int x; float* y; char** z; }";
+  Parser parser = parser_create("test.h", source, str_len(source), allocator);
+
+  ReflectedStruct s = {0};
+  b32 success = parse_struct(&parser, &s);
+
+  assert_true(success);
+  assert_eq(s.fields.len, 3);
+
+  assert_eq(s.fields.items[0].pointer_depth, 0);
+  assert_eq(s.fields.items[1].pointer_depth, 1);
+  assert_eq(s.fields.items[2].pointer_depth, 2);
+
+  parser_destroy(&parser);
+}
+
+// ============================================================================
 // Complex Integration Tests
 // ============================================================================
 

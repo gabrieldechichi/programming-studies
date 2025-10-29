@@ -45,7 +45,7 @@ HZ_ENGINE_API bool32 os_create_dir(const char *dir_path);
 typedef struct {
   uint32 buffer_len;
   uint8 *buffer;
-  bool32 success;
+  b32 success;
 } PlatformFileData;
 
 HZ_ENGINE_API PlatformFileData os_read_file(const char *file_path,

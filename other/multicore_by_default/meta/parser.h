@@ -15,6 +15,7 @@ arr_define(MetaAttribute);
 typedef struct {
   String type_name;
   String field_name;
+  u32 pointer_depth;
   MetaAttribute_DynArray attributes;
 } StructField;
 arr_define(StructField);

@@ -48,8 +48,11 @@ void print_reflected_struct(ReflectedStruct *s) {
       }
     }
 
-    printf("  %.*s %.*s;\n", field->type_name.len, field->type_name.value,
-           field->field_name.len, field->field_name.value);
+    printf("  %.*s", field->type_name.len, field->type_name.value);
+    for (u32 j = 0; j < field->pointer_depth; j++) {
+      printf("*");
+    }
+    printf(" %.*s;\n", field->field_name.len, field->field_name.value);
   }
   printf("\n");
 }
@@ -57,6 +60,12 @@ void print_reflected_struct(ReflectedStruct *s) {
 int main() {
   ArenaAllocator arena = arena_from_buffer(malloc(MB(8)), MB(8));
   Allocator allocator = make_arena_allocator(&arena);
+
+  const char *file_name = "./src/multicore_tasks.c";
+  PlatformFileData file = os_read_file(file_name, &allocator);
+  if (!file.success) {
+    return 1;
+  }
 
   const char *source = "\
 HZ_TASK()\n\
@@ -68,12 +77,19 @@ typedef struct {\n\
   i64 numbers;\n\
 } TaskWideSumInit;\n";
 
-  Parser parser = parser_create("test1", source, str_len(source), &allocator);
-  ReflectedStruct s = {0};
-  if (parse_struct(&parser, &s)) {
-    print_reflected_struct(&s);
-  } else {
-    printf("ERROR: %s\n", parser.error_message.value);
+  Parser parser = parser_create(file_name, (char *)file.buffer, file.buffer_len,
+                                &allocator);
+
+  while (!parser_current_token_is(&parser, TOKEN_EOF) && !parser.has_error) {
+    if (parser_current_token_is(&parser, TOKEN_STRUCT)) {
+      ReflectedStruct s = {0};
+      if (parse_struct(&parser, &s)) {
+        print_reflected_struct(&s);
+      } else {
+        printf("ERROR: %s\n", parser.error_message.value);
+      }
+    }
+    parser_advance_token(&parser);
   }
   parser_destroy(&parser);
 

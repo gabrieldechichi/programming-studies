@@ -139,7 +139,7 @@ void parser_error_with_context(Parser *parser, const char *message) {
   error_buffer[pos] = '\0';
 
   parser->error_message =
-      str_from_cstr_with_len_alloc(error_buffer, pos - 1, parser->allocator);
+      str_from_cstr_with_len_alloc(error_buffer, pos, parser->allocator);
 }
 
 void parser_error(Parser *parser, const char *message) {
@@ -266,6 +266,13 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
     String type_name = token_to_string(parser->current_token, parser->allocator);
     parser_advance_token(parser);
 
+    // Count pointer depth
+    u32 pointer_depth = 0;
+    while (parser_current_token_is(parser, TOKEN_ASTERISK)) {
+      pointer_depth++;
+      parser_advance_token(parser);
+    }
+
     // Parse field name
     if (!parser_current_token_is(parser, TOKEN_IDENTIFIER)) {
       parser_error(parser, "Expected field name after type");
@@ -284,6 +291,7 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
     StructField field = {
       .type_name = type_name,
       .field_name = field_name,
+      .pointer_depth = pointer_depth,
       .attributes = field_attributes
     };
     arr_append(fields, field);

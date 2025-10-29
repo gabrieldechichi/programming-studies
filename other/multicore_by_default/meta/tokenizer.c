@@ -203,6 +203,9 @@ Token tokenizer_next_token(Tokenizer *tokenizer) {
   case ';':
     return make_token(TOKEN_SEMICOLON, tokenizer->current - 1, 1, start_line,
                       start_column);
+  case '*':
+    return make_token(TOKEN_ASTERISK, tokenizer->current - 1, 1, start_line,
+                      start_column);
   default:
     return make_token(TOKEN_INVALID, tokenizer->current - 1, 1, start_line,
                       start_column);

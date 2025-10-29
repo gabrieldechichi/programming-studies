@@ -27,6 +27,8 @@ int main() {
   RUN_TEST(test_identifier_with_parens, &ctx);
   RUN_TEST(test_multiline_with_line_tracking, &ctx);
   RUN_TEST(test_invalid_character, &ctx);
+  RUN_TEST(test_asterisk_token, &ctx);
+  RUN_TEST(test_multiple_asterisks, &ctx);
 
   // Parser basic tests
   RUN_TEST(test_parse_struct_basic, &ctx);
@@ -50,6 +52,12 @@ int main() {
   RUN_TEST(test_parse_typedef_error_missing_name, &ctx);
   RUN_TEST(test_parse_struct_error_missing_field_name, &ctx);
   RUN_TEST(test_parse_error_message_format, &ctx);
+
+  // Parser pointer tests
+  RUN_TEST(test_parse_struct_with_pointer, &ctx);
+  RUN_TEST(test_parse_struct_with_double_pointer, &ctx);
+  RUN_TEST(test_parse_struct_with_triple_pointer, &ctx);
+  RUN_TEST(test_parse_struct_mixed_pointers, &ctx);
 
   // Parser comprehensive test
   RUN_TEST(test_parse_struct_comprehensive, &ctx);
