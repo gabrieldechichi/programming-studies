@@ -139,10 +139,32 @@ void parser_error(Parser *parser, const char *message) {
   parser_error_with_context(parser, message);
 }
 
-void skip_to_next_token_of_type(Parser *parser, TokenType token_type) {
+void parser_skip_to_next_token_type(Parser *parser, TokenType token_type) {
   while (!parser_current_token_is(parser, TOKEN_EOF)) {
     if (parser_current_token_is(parser, token_type)) {
       break;
+    }
+    parser_advance_token(parser);
+  }
+}
+
+void parser_skip_to_next_attribute(Parser *parser) {
+  while (!parser_current_token_is(parser, TOKEN_EOF)) {
+    // try parse attribute in the format {attr_name}()
+    if (parser_current_token_is(parser, TOKEN_IDENTIFIER)) {
+      Parser saved_parser = *parser;
+      parser_advance_token(parser);
+      if (parser_expect_token_and_advance(parser, TOKEN_LPAREN)) {
+        if (parser_expect_token_and_advance(parser, TOKEN_RPAREN)) {
+          // we consider an attribute if a struct or identifier comes after;
+          Token cur_tok = parser->current_token;
+          if (cur_tok.type == TOKEN_TYPEDEF || cur_tok.type == TOKEN_STRUCT ||
+              cur_tok.type == TOKEN_IDENTIFIER) {
+            *parser = saved_parser;
+            return;
+          }
+        }
+      }
     }
     parser_advance_token(parser);
   }
@@ -172,7 +194,8 @@ internal u32 parse_number_from_token(Token token) {
   return result;
 }
 
-internal void collect_field_attributes(Parser *parser, MetaAttribute_DynArray *out_attributes) {
+internal void collect_field_attributes(Parser *parser,
+                                       MetaAttribute_DynArray *out_attributes) {
   // Collect attributes by looking forward from current token
   // Consume all IDENTIFIER() patterns
 
@@ -202,7 +225,8 @@ internal void collect_field_attributes(Parser *parser, MetaAttribute_DynArray *o
     }
 
     // Successfully parsed IDENTIFIER()
-    MetaAttribute attr = {.name = token_to_string(identifier_token, parser->allocator)};
+    MetaAttribute attr = {
+        .name = token_to_string(identifier_token, parser->allocator)};
     arr_append(*out_attributes, attr);
 
     parser_advance_token(parser); // Move past ')'
@@ -210,8 +234,10 @@ internal void collect_field_attributes(Parser *parser, MetaAttribute_DynArray *o
 }
 
 b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
-  // Collect struct-level attributes (forward scan until we hit 'typedef' or 'struct')
-  MetaAttribute_DynArray struct_attributes = dyn_arr_new_alloc(parser->allocator, MetaAttribute, 8);
+  // Collect struct-level attributes (forward scan until we hit 'typedef' or
+  // 'struct')
+  MetaAttribute_DynArray struct_attributes =
+      dyn_arr_new_alloc(parser->allocator, MetaAttribute, 8);
   collect_field_attributes(parser, &struct_attributes);
 
   // Check if this is a typedef struct
@@ -241,13 +267,15 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
   }
 
   // Initialize fields array
-  StructField_DynArray fields = dyn_arr_new_alloc(parser->allocator, StructField, 16);
+  StructField_DynArray fields =
+      dyn_arr_new_alloc(parser->allocator, StructField, 16);
 
   // Parse fields until closing brace
   while (!parser_current_token_is(parser, TOKEN_RBRACE) &&
          !parser_current_token_is(parser, TOKEN_EOF)) {
     // Collect field-level attributes
-    MetaAttribute_DynArray field_attributes = dyn_arr_new_alloc(parser->allocator, MetaAttribute, 8);
+    MetaAttribute_DynArray field_attributes =
+        dyn_arr_new_alloc(parser->allocator, MetaAttribute, 8);
     collect_field_attributes(parser, &field_attributes);
 
     // Parse type name
@@ -255,7 +283,8 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
       parser_error(parser, "Expected type name for struct field");
       return false;
     }
-    String type_name = token_to_string(parser->current_token, parser->allocator);
+    String type_name =
+        token_to_string(parser->current_token, parser->allocator);
     parser_advance_token(parser);
 
     // Count pointer depth
@@ -270,7 +299,8 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
       parser_error(parser, "Expected field name after type");
       return false;
     }
-    String field_name = token_to_string(parser->current_token, parser->allocator);
+    String field_name =
+        token_to_string(parser->current_token, parser->allocator);
     parser_advance_token(parser);
 
     // Check for array syntax
@@ -302,14 +332,12 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct) {
     }
 
     // Add field to array
-    StructField field = {
-      .type_name = type_name,
-      .field_name = field_name,
-      .pointer_depth = pointer_depth,
-      .is_array = is_array,
-      .array_size = array_size,
-      .attributes = field_attributes
-    };
+    StructField field = {.type_name = type_name,
+                         .field_name = field_name,
+                         .pointer_depth = pointer_depth,
+                         .is_array = is_array,
+                         .array_size = array_size,
+                         .attributes = field_attributes};
     arr_append(fields, field);
   }
 

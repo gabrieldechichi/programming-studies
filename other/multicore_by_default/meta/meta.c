@@ -85,7 +85,8 @@ typedef struct {\n\
                                 &allocator);
 
   while (!parser_current_token_is(&parser, TOKEN_EOF) && !parser.has_error) {
-    if (parser_current_token_is(&parser, TOKEN_STRUCT)) {
+    parser_skip_to_next_attribute(&parser);
+    if (parser_current_token_is(&parser, TOKEN_IDENTIFIER)) {
       ReflectedStruct s = {0};
       if (parse_struct(&parser, &s)) {
         print_reflected_struct(&s);
