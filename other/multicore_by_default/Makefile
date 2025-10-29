@@ -16,8 +16,10 @@ build:
 build-release:
 	$(CC) $(CFLAGS) $(CFLAGS_RELEASE) $(LINK_FLAGS) -o $(TARGET) $(SRC)
 
-meta:
+build-meta:
 	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) $(LINK_FLAGS) -o ./out/meta/meta meta/meta.c
+
+meta: build-meta
 	./out/meta/meta
 
 test:

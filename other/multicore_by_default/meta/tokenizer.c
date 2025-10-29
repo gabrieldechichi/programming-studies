@@ -266,3 +266,7 @@ const char *token_type_to_string(TokenType type) {
     return "UNKNOWN_TOKEN";
   }
 }
+
+String token_to_string(Token token, Allocator *allocator) {
+  return str_from_cstr_with_len_alloc(token.lexeme, token.length, allocator);
+}

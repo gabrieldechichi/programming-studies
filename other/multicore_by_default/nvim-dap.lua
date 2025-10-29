@@ -1,7 +1,7 @@
 -- _G.build_native_debug_config("c", 'make test debug', '/out/tests/test_runner')
 -- _G.build_native_debug_config("c", 'make macosdll debug', '/out/macos/app')
 -- _G.build_native_debug_config("c", 'make windowsdll debug', './out/windows/app.exe')
-_G.build_native_debug_config("c", 'make build', '/multicore')
+_G.build_native_debug_config("c", 'make build-meta', '/out/meta/meta')
 
 vim.keymap.set('n', '<Leader>rr', function()
     -- Run the game debug build command and capture output

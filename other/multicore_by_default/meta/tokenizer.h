@@ -2,6 +2,7 @@
 #define H_TOKENIZER
 
 #include "lib/memory.h"
+#include "lib/string.h"
 #include "lib/typedefs.h"
 
 #define TOKEN_TYPES                                                            \
@@ -56,6 +57,7 @@ b32 tokenizer_match(Tokenizer *tokenizer, TokenType expected_type);
 const char *token_type_to_string(TokenType type);
 const char *tokenizer_get_line_text(Tokenizer *tokenizer, u32 line_num,
                                     u32 *line_length);
+String token_to_string(Token token, Allocator *allocator);
 void tokenizer_destroy(Tokenizer *tokenizer);
 
 #endif

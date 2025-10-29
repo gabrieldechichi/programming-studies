@@ -36,4 +36,10 @@ b32 parse_file(Parser *parser, ReflectedStruct_DynArray *out_structs);
 void parser_destroy(Parser *parser);
 void parser_reset_type_id();
 
+b32 parser_current_token_is(Parser *parser, TokenType type);
+void parser_advance_token(Parser *parser);
+b32 parser_expect_token_and_advance(Parser *parser, TokenType type);
+void parser_error(Parser *parser, const char *message);
+void skip_to_next_token_of_type(Parser *parser, TokenType token_type);
+
 #endif

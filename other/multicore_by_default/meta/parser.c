@@ -1,29 +1,28 @@
 #include "parser.h"
-#include "../lib/assert.h"
 #include "../lib/common.h"
-#include "../lib/hash.h"
+#include "tokenizer.h"
 
 global u32 next_type_id = 1;
 
 void parser_reset_type_id() { next_type_id = 1; }
 
-internal void advance_token(Parser *parser) {
+void parser_advance_token(Parser *parser) {
   parser->current_token = tokenizer_next_token(&parser->tokenizer);
 }
 
-internal b32 expect_token_and_advance(Parser *parser, TokenType type) {
+b32 parser_expect_token_and_advance(Parser *parser, TokenType type) {
   if (parser->current_token.type == type) {
-    advance_token(parser);
+    parser_advance_token(parser);
     return true;
   }
   return false;
 }
 
-internal b32 current_token_is(Parser *parser, TokenType type) {
+b32 parser_current_token_is(Parser *parser, TokenType type) {
   return parser->current_token.type == type;
 }
 
-internal void parser_error_with_context(Parser *parser, const char *message) {
+void parser_error_with_context(Parser *parser, const char *message) {
   parser->has_error = true;
 
   char error_buffer[1024];
@@ -136,171 +135,16 @@ internal void parser_error_with_context(Parser *parser, const char *message) {
       str_from_cstr_with_len_alloc(error_buffer, pos - 1, parser->allocator);
 }
 
-internal void parser_error(Parser *parser, const char *message) {
+void parser_error(Parser *parser, const char *message) {
   parser_error_with_context(parser, message);
 }
 
-internal String token_to_string(Token token, Allocator *allocator) {
-  return str_from_cstr_with_len_alloc(token.lexeme, token.length, allocator);
-}
-
-internal void skip_to_next_hm_reflect(Parser *parser) {
-  while (!current_token_is(parser, TOKEN_EOF)) {
-    if (current_token_is(parser, TOKEN_HM_REFLECT)) {
+void skip_to_next_token_of_type(Parser *parser, TokenType token_type) {
+  while (!parser_current_token_is(parser, TOKEN_EOF)) {
+    if (parser_current_token_is(parser, token_type)) {
       break;
     }
-    advance_token(parser);
-  }
-}
-
-internal b32 parse_struct_fields(Parser *parser, StructField_DynArray *fields) {
-  if (!expect_token_and_advance(parser, TOKEN_LBRACE)) {
-    parser_error(parser, "Expected '{' after struct name");
-    return false;
-  }
-
-  while (!current_token_is(parser, TOKEN_RBRACE) &&
-         !current_token_is(parser, TOKEN_EOF)) {
-    Token type_token = parser->current_token;
-    if (!expect_token_and_advance(parser, TOKEN_IDENTIFIER)) {
-      parser_error(parser, "Expected field type");
-      return false;
-    }
-
-    Token name_token = parser->current_token;
-    if (!expect_token_and_advance(parser, TOKEN_IDENTIFIER)) {
-      parser_error(parser, "Expected field name");
-      return false;
-    }
-
-    if (!expect_token_and_advance(parser, TOKEN_SEMICOLON)) {
-      parser_error(parser, "Expected ';' after field declaration");
-      return false;
-    }
-
-    if (fields->len < fields->cap) {
-      StructField field = {
-          .type_name = token_to_string(type_token, parser->allocator),
-          .field_name = token_to_string(name_token, parser->allocator)};
-      arr_append(*fields, field);
-    }
-  }
-
-  if (!expect_token_and_advance(parser, TOKEN_RBRACE)) {
-    parser_error(parser, "Expected '}' after struct fields");
-    return false;
-  }
-
-  return true;
-}
-
-internal b32 parse_typedef_struct(Parser *parser, ReflectedStruct *out_struct) {
-  // typedef struct [optional_name] { fields } struct_name;
-  if (!expect_token_and_advance(parser, TOKEN_TYPEDEF)) {
-    return false;
-  }
-
-  if (!expect_token_and_advance(parser, TOKEN_STRUCT)) {
-    parser_error(parser, "Expected 'struct' after typedef");
-    return false;
-  }
-
-  // Check if there's an optional struct name (e.g., typedef struct Point { ...
-  // } Point;)
-  b32 has_struct_name = current_token_is(parser, TOKEN_IDENTIFIER);
-  if (has_struct_name) {
-    advance_token(parser); // Skip the optional struct name
-  }
-
-  StructField_DynArray fields =
-      dyn_arr_new_alloc(parser->allocator, StructField, 32);
-
-  if (!parse_struct_fields(parser, &fields)) {
-    return false;
-  }
-
-  // The typedef name comes after the closing brace
-  Token typedef_name_token = parser->current_token;
-  if (!expect_token_and_advance(parser, TOKEN_IDENTIFIER)) {
-    parser_error(parser, "Expected typedef name after struct definition");
-    return false;
-  }
-
-  if (!expect_token_and_advance(parser, TOKEN_SEMICOLON)) {
-    parser_error(parser, "Expected ';' after typedef definition");
-    return false;
-  }
-
-  String struct_name = token_to_string(typedef_name_token, parser->allocator);
-  u32 type_id = next_type_id++;
-  StructField_Array final_fields = {.items = fields.items, .len = fields.len};
-
-  *out_struct = (ReflectedStruct){
-      .struct_name = struct_name, .type_id = type_id, .fields = final_fields};
-
-  return true;
-}
-
-internal b32 parse_regular_struct(Parser *parser, ReflectedStruct *out_struct) {
-  // struct struct_name { fields };
-  if (!expect_token_and_advance(parser, TOKEN_STRUCT)) {
-    parser_error(parser, "Expected 'struct'");
-    return false;
-  }
-
-  Token struct_name_token = parser->current_token;
-  if (!expect_token_and_advance(parser, TOKEN_IDENTIFIER)) {
-    parser_error(parser, "Expected struct name");
-    return false;
-  }
-
-  String struct_name = token_to_string(struct_name_token, parser->allocator);
-
-  StructField_DynArray fields =
-      dyn_arr_new_alloc(parser->allocator, StructField, 32);
-
-  if (!parse_struct_fields(parser, &fields)) {
-    return false;
-  }
-
-  if (!expect_token_and_advance(parser, TOKEN_SEMICOLON)) {
-    parser_error(parser, "Expected ';' after struct definition");
-    return false;
-  }
-
-  u32 type_id = next_type_id++;
-  StructField_Array final_fields = {.items = fields.items, .len = fields.len};
-
-  *out_struct = (ReflectedStruct){
-      .struct_name = struct_name, .type_id = type_id, .fields = final_fields};
-
-  return true;
-}
-
-internal b32 parse_hm_reflect_struct(Parser *parser,
-                                     ReflectedStruct *out_struct) {
-  if (!expect_token_and_advance(parser, TOKEN_HM_REFLECT)) {
-    return false;
-  }
-
-  if (!expect_token_and_advance(parser, TOKEN_LPAREN)) {
-    parser_error(parser, "Expected '(' after HM_REFLECT");
-    return false;
-  }
-
-  if (!expect_token_and_advance(parser, TOKEN_RPAREN)) {
-    parser_error(parser, "Expected ')' after HM_REFLECT(");
-    return false;
-  }
-
-  // Check what comes after HM_REFLECT(): typedef or struct
-  if (current_token_is(parser, TOKEN_TYPEDEF)) {
-    return parse_typedef_struct(parser, out_struct);
-  } else if (current_token_is(parser, TOKEN_STRUCT)) {
-    return parse_regular_struct(parser, out_struct);
-  } else {
-    parser_error(parser, "Expected 'typedef' or 'struct' after HM_REFLECT()");
-    return false;
+    parser_advance_token(parser);
   }
 }
 
@@ -312,26 +156,9 @@ Parser parser_create(const char *filename, const char *source,
       .error_message = {0},
       .allocator = allocator};
 
-  advance_token(&parser);
+  parser_advance_token(&parser);
 
   return parser;
-}
-
-b32 parse_file(Parser *parser, ReflectedStruct_DynArray *out_structs) {
-  while (!current_token_is(parser, TOKEN_EOF) && !parser->has_error) {
-    if (current_token_is(parser, TOKEN_HM_REFLECT)) {
-      ReflectedStruct reflected_struct = {0};
-      if (parse_hm_reflect_struct(parser, &reflected_struct)) {
-        arr_append(*out_structs, reflected_struct);
-      } else if (parser->has_error) {
-        return false;
-      }
-    } else {
-      skip_to_next_hm_reflect(parser);
-    }
-  }
-
-  return !parser->has_error;
 }
 
 void parser_destroy(Parser *parser) {
