@@ -1,3 +1,5 @@
+#include "vendor.c"
+
 #include <stdio.h>
 
 int main() {
