@@ -8,8 +8,12 @@
 extern void _os_log(const char *str, int len);
 extern int _os_canvas_width(void);
 extern int _os_canvas_height(void);
-extern void _ui_render(Clay_RenderCommandArray *render_commands);
 extern unsigned char __heap_base;
+
+// Renderer API - simple functions called from C to JS
+extern void _renderer_clear(float r, float g, float b, float a);
+extern void _renderer_draw_rect(float x, float y, float width, float height,
+                                  float r, float g, float b, float a);
 
 #define os_log(cstr) _os_log(cstr, CSTR_LEN(cstr));
 
@@ -23,28 +27,57 @@ WASM_EXPORT("os_get_heap_base") void *os_get_heap_base(void) {
   return &__heap_base;
 }
 
-WASM_EXPORT("get_render_command_size") int get_render_command_size(void) {
-  return sizeof(Clay_RenderCommand);
-}
-
 // Error handler for Clay
 void HandleClayError(Clay_ErrorData errorData) {
   os_log("Clay Error!");
   UNUSED(errorData);
 }
 
+// Render function - iterates through Clay commands and calls JS renderer
+void ui_render(Clay_RenderCommandArray *commands) {
+  // Clear screen
+  _renderer_clear(0.0f, 0.0f, 0.0f, 1.0f);
+
+  // Iterate through all render commands
+  for (int i = 0; i < commands->length; i++) {
+    Clay_RenderCommand *cmd = Clay_RenderCommandArray_Get(commands, i);
+
+    switch (cmd->commandType) {
+      case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
+        Clay_RectangleRenderData *rect = &cmd->renderData.rectangle;
+        _renderer_draw_rect(
+            cmd->boundingBox.x,
+            cmd->boundingBox.y,
+            cmd->boundingBox.width,
+            cmd->boundingBox.height,
+            rect->backgroundColor.r,
+            rect->backgroundColor.g,
+            rect->backgroundColor.b,
+            rect->backgroundColor.a
+        );
+        break;
+      }
+
+      case CLAY_RENDER_COMMAND_TYPE_NONE:
+        break;
+
+      // TODO: Add other command types (BORDER, TEXT, IMAGE, SCISSOR, etc.)
+
+      default:
+        break;
+    }
+  }
+}
+
 WASM_EXPORT("entrypoint") void entrypoint(void *memory) {
   UNUSED(memory);
   os_log("Entrypoint called!");
 
-  // Calculate required memory for Clay
   clay_memory_size = Clay_MinMemorySize();
   os_log("Clay memory size calculated");
 
-  // Allocate Clay memory from heap
-  clay_memory = (void *)(&__heap_base);
+  clay_memory = memory;
 
-  // Initialize Clay arena
   clay_arena =
       Clay_CreateArenaWithCapacityAndMemory(clay_memory_size, clay_memory);
   os_log("Clay arena created");
@@ -61,19 +94,15 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory) {
   os_log("Clay initialized!");
 }
 
-// Main update and render function called each frame
 WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
   UNUSED(memory);
 
-  // Get canvas dimensions from JavaScript
   int width = _os_canvas_width();
   int height = _os_canvas_height();
 
-  // Set layout dimensions (should match canvas size)
   Clay_SetLayoutDimensions(
       (Clay_Dimensions){.width = (float)width, .height = (float)height});
 
-  // Begin layout
   Clay_BeginLayout();
 
   // Create a simple UI with one red rectangle
@@ -92,9 +121,8 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
              .backgroundColor = {255, 100, 100, 255}}) {}
   }
 
-  // End layout and get render commands
   render_commands = Clay_EndLayout();
 
-  // Call JavaScript to render
-  _ui_render(&render_commands);
+  // Render using C-side function
+  ui_render(&render_commands);
 }

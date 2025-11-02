@@ -210,16 +210,6 @@ const gl = canvas.getContext("webgl2");
 const memory = new WebAssembly.Memory({ initial: 256, maximum: 256 });
 const memInterface = new WasmMemoryInterface(memory);
 
-// Render command constants
-const CLAY_RENDER_COMMAND_TYPE_NONE = 0;
-const CLAY_RENDER_COMMAND_TYPE_RECTANGLE = 1;
-const CLAY_RENDER_COMMAND_TYPE_BORDER = 2;
-const CLAY_RENDER_COMMAND_TYPE_TEXT = 3;
-const CLAY_RENDER_COMMAND_TYPE_IMAGE = 4;
-const CLAY_RENDER_COMMAND_TYPE_SCISSOR_START = 5;
-const CLAY_RENDER_COMMAND_TYPE_SCISSOR_END = 6;
-const CLAY_RENDER_COMMAND_TYPE_CUSTOM = 7;
-
 const importObject = {
   env: {
     memory: memory,
@@ -233,8 +223,18 @@ const importObject = {
     _os_canvas_height: () => {
       return canvas.height;
     },
-    _ui_render: (renderCommandArrayPtr) => {
-      renderClayCommands(renderCommandArrayPtr);
+    _renderer_clear: (r, g, b, a) => {
+      gl.clearColor(r, g, b, a);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    },
+    _renderer_draw_rect: (x, y, width, height, r, g, b, a) => {
+      gl.useProgram(rectangleProgram);
+      gl.uniform2f(u_resolution, canvas.width, canvas.height);
+      gl.uniform4f(u_rect, x, y, width, height);
+      gl.uniform4f(u_color, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
+      gl.bindVertexArray(quadVAO);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.bindVertexArray(null);
     },
   },
 };
@@ -292,7 +292,10 @@ function initWebGL2() {
   gl.compileShader(vertexShader);
 
   if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-    console.error("Vertex shader compile error:", gl.getShaderInfoLog(vertexShader));
+    console.error(
+      "Vertex shader compile error:",
+      gl.getShaderInfoLog(vertexShader),
+    );
     return;
   }
 
@@ -301,7 +304,10 @@ function initWebGL2() {
   gl.compileShader(fragmentShader);
 
   if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-    console.error("Fragment shader compile error:", gl.getShaderInfoLog(fragmentShader));
+    console.error(
+      "Fragment shader compile error:",
+      gl.getShaderInfoLog(fragmentShader),
+    );
     return;
   }
 
@@ -312,7 +318,10 @@ function initWebGL2() {
   gl.linkProgram(rectangleProgram);
 
   if (!gl.getProgramParameter(rectangleProgram, gl.LINK_STATUS)) {
-    console.error("Program link error:", gl.getProgramInfoLog(rectangleProgram));
+    console.error(
+      "Program link error:",
+      gl.getProgramInfoLog(rectangleProgram),
+    );
     return;
   }
 
@@ -323,12 +332,18 @@ function initWebGL2() {
 
   // Create quad geometry (normalized 0-1)
   const quadVertices = new Float32Array([
-    0, 0,  // bottom-left
-    1, 0,  // bottom-right
-    0, 1,  // top-left
-    1, 0,  // bottom-right
-    1, 1,  // top-right
-    0, 1,  // top-left
+    0,
+    0, // bottom-left
+    1,
+    0, // bottom-right
+    0,
+    1, // top-left
+    1,
+    0, // bottom-right
+    1,
+    1, // top-right
+    0,
+    1, // top-left
   ]);
 
   // Create VAO and VBO
@@ -346,148 +361,6 @@ function initWebGL2() {
   gl.bindVertexArray(null);
 
   console.log("WebGL2 initialized successfully");
-}
-
-// Read Clay_RenderCommandArray from memory
-function readClayRenderCommandArray(ptr) {
-  console.log("[DEBUG] Reading RenderCommandArray at ptr:", ptr);
-  const capacity = memInterface.loadU32(ptr);
-  const length = memInterface.loadU32(ptr + 4);
-  const internalArray = memInterface.loadU32(ptr + 8);
-
-  console.log("[DEBUG] RenderCommandArray - capacity:", capacity, "length:", length, "internalArray:", internalArray);
-  return { capacity, length, internalArray };
-}
-
-// Read a single Clay_RenderCommand
-function readClayRenderCommand(arrayPtr, index) {
-  // Get the actual size from WASM (cached globally)
-  if (!window.RENDER_COMMAND_SIZE) {
-    window.RENDER_COMMAND_SIZE = wasmExports.get_render_command_size();
-    console.log("[DEBUG] Clay_RenderCommand size:", window.RENDER_COMMAND_SIZE);
-  }
-  const RENDER_COMMAND_SIZE = window.RENDER_COMMAND_SIZE;
-  const cmdPtr = arrayPtr + (index * RENDER_COMMAND_SIZE);
-
-  console.log(`[DEBUG] Reading command ${index} at ptr:`, cmdPtr);
-
-  // Read bounding box (4 floats = 16 bytes)
-  const boundingBox = {
-    x: memInterface.loadF32(cmdPtr + 0),
-    y: memInterface.loadF32(cmdPtr + 4),
-    width: memInterface.loadF32(cmdPtr + 8),
-    height: memInterface.loadF32(cmdPtr + 12),
-  };
-
-  // RenderData union starts at offset 16
-  // We'll read it based on command type, but first we need to find commandType
-
-  // The struct layout is:
-  // +0: BoundingBox (16 bytes)
-  // +16: RenderData (union - size TBD, let's assume 80 bytes for now)
-  // +96: userData (4 bytes pointer)
-  // +100: id (4 bytes)
-  // +104: zIndex (2 bytes)
-  // +106: commandType (1 byte enum)
-  // +107: padding (1 byte)
-
-  // 72 byte struct layout:
-  // +0: BoundingBox (16 bytes)
-  // +16: RenderData union (48 bytes)
-  // +64: userData (4 bytes)
-  // +68: id (4 bytes)
-  // +72: WOULD BE END, but we have zIndex (2) and commandType (1) somewhere
-  // Based on testing: commandType is at offset 70
-
-  const renderDataPtr = cmdPtr + 16;
-  const userData = memInterface.loadU32(cmdPtr + 64);
-  const id = memInterface.loadU32(cmdPtr + 68);
-  const commandType = memInterface.loadU8(cmdPtr + 70);
-  const zIndex = memInterface.loadI16(cmdPtr + 68); // might be wrong but doesn't matter for now
-
-  console.log(`[DEBUG] Command ${index} - type:`, commandType, "bbox:", boundingBox, "renderDataPtr:", renderDataPtr);
-
-  return { boundingBox, renderDataPtr, id, commandType, zIndex };
-}
-
-// Read Clay_RectangleRenderData
-function readRectangleRenderData(ptr) {
-  console.log("[DEBUG] Reading RectangleRenderData at ptr:", ptr);
-  // Read backgroundColor (4 floats)
-  const backgroundColor = {
-    r: memInterface.loadF32(ptr + 0),
-    g: memInterface.loadF32(ptr + 4),
-    b: memInterface.loadF32(ptr + 8),
-    a: memInterface.loadF32(ptr + 12),
-  };
-
-  console.log("[DEBUG] backgroundColor:", backgroundColor);
-
-  // Skip cornerRadius for now (16 bytes)
-
-  return { backgroundColor };
-}
-
-// Render a single rectangle
-function renderRectangle(boundingBox, rectangleData) {
-  console.log("[DEBUG] Rendering rectangle - bbox:", boundingBox, "data:", rectangleData);
-
-  gl.useProgram(rectangleProgram);
-
-  // Set uniforms
-  gl.uniform2f(u_resolution, canvas.width, canvas.height);
-  gl.uniform4f(u_rect, boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height);
-  const normalizedColor = {
-    r: rectangleData.backgroundColor.r / 255.0,
-    g: rectangleData.backgroundColor.g / 255.0,
-    b: rectangleData.backgroundColor.b / 255.0,
-    a: rectangleData.backgroundColor.a / 255.0
-  };
-  console.log("[DEBUG] Normalized color:", normalizedColor);
-  gl.uniform4f(u_color, normalizedColor.r, normalizedColor.g, normalizedColor.b, normalizedColor.a);
-
-  // Draw quad
-  gl.bindVertexArray(quadVAO);
-  gl.drawArrays(gl.TRIANGLES, 0, 6);
-  gl.bindVertexArray(null);
-
-  console.log("[DEBUG] Rectangle drawn");
-}
-
-// Main rendering function called from C
-function renderClayCommands(renderCommandArrayPtr) {
-  console.log("[DEBUG] renderClayCommands called with ptr:", renderCommandArrayPtr);
-
-  // Clear canvas
-  gl.clear(gl.COLOR_BUFFER_BIT);
-
-  // Read render command array
-  const commandArray = readClayRenderCommandArray(renderCommandArrayPtr);
-
-  console.log(`[DEBUG] Processing ${commandArray.length} commands`);
-
-  // Loop through commands
-  for (let i = 0; i < commandArray.length; i++) {
-    const cmd = readClayRenderCommand(commandArray.internalArray, i);
-
-    switch (cmd.commandType) {
-      case CLAY_RENDER_COMMAND_TYPE_NONE:
-        console.log(`[DEBUG] Command ${i}: NONE`);
-        break;
-
-      case CLAY_RENDER_COMMAND_TYPE_RECTANGLE:
-        console.log(`[DEBUG] Command ${i}: RECTANGLE`);
-        const rectangleData = readRectangleRenderData(cmd.renderDataPtr);
-        renderRectangle(cmd.boundingBox, rectangleData);
-        break;
-
-      default:
-        console.warn("Unhandled render command type:", cmd.commandType);
-        break;
-    }
-  }
-
-  console.log("[DEBUG] renderClayCommands finished");
 }
 
 function renderLoop(currentTime) {
