@@ -1,25 +1,24 @@
 CC = clang
-CFLAGS = -Wall -Wextra -std=c99 -DCOMPILER_CLANG -DMACOS
-CFLAGS_DEBUG = -O0 -g -DDEBUG
-CFLAGS_RELEASE = -O2
-INCLUDE_FLAGS = -Isrc -Ivendor -Ios -Imeta -I./ -Igenerated
-LINK_FLAGS = -lpthread -lm
-
-TARGET = ./out/app
 SRC = src/main.c
+WASM_TARGET = web/app.wasm
 
-all: $(TARGET)
+all: build-wasm
 
-build:
-	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) $(LINK_FLAGS) -o $(TARGET) $(SRC)
-
-build-release:
-	$(CC) $(CFLAGS) $(CFLAGS_RELEASE) $(LINK_FLAGS) -o $(TARGET) $(SRC)
+build-wasm:
+	$(CC) --target=wasm32 \
+		-nostdlib \
+		-Wl,--no-entry \
+		-Wl,--export-all \
+		-Wl,--allow-undefined \
+		-Wl,--import-memory \
+		-o $(WASM_TARGET) \
+		$(SRC)
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(WASM_TARGET)
 
-run: build
-	time $(TARGET)
+serve:
+	@echo "Starting web server at http://localhost:8000"
+	@cd web && python3 -m http.server 8000
 
-.PHONY: all clean run meta test
+.PHONY: all clean build-wasm serve
