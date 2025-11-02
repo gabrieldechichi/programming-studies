@@ -4,7 +4,7 @@ WASM_TARGET = web/app.wasm
 
 all: build-wasm
 
-build-wasm:
+build:
 	$(CC) --target=wasm32 \
 		-nostdlib \
 		-Wl,--no-entry \
