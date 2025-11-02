@@ -1,208 +1,9 @@
-class WasmMemoryInterface {
-  constructor(memory) {
-    this.memory = memory;
-    // Size (in bytes) of the integer type, should be 4 on `js_wasm32` and 8 on `js_wasm64p32`
-    this.intSize = 4;
-  }
-
-  get mem() {
-    if (!this.memory) {
-      throw new Error("Memory not set");
-    }
-    return new DataView(this.memory.buffer);
-  }
-
-  loadF32Array(addr, len) {
-    if (!this.memory) {
-      throw new Error("Memory not set");
-    }
-    return new Float32Array(this.memory.buffer, addr, len);
-  }
-
-  loadF64Array(addr, len) {
-    if (!this.memory) {
-      throw new Error("Memory not set");
-    }
-    return new Float64Array(this.memory.buffer, addr, len);
-  }
-
-  loadU32Array(addr, len) {
-    if (!this.memory) {
-      throw new Error("Memory not set");
-    }
-    return new Uint32Array(this.memory.buffer, addr, len);
-  }
-
-  loadI32Array(addr, len) {
-    if (!this.memory) {
-      throw new Error("Memory not set");
-    }
-    return new Int32Array(this.memory.buffer, addr, len);
-  }
-
-  loadI16Array(addr, len) {
-    if (!this.memory) {
-      throw new Error("Memory not set");
-    }
-    return new Int16Array(this.memory.buffer, addr, len);
-  }
-
-  loadU8(addr) {
-    return this.mem.getUint8(addr);
-  }
-  loadI8(addr) {
-    return this.mem.getInt8(addr);
-  }
-  loadU16(addr) {
-    return this.mem.getUint16(addr, true);
-  }
-  loadI16(addr) {
-    return this.mem.getInt16(addr, true);
-  }
-  loadU32(addr) {
-    return this.mem.getUint32(addr, true);
-  }
-  loadI32(addr) {
-    return this.mem.getInt32(addr, true);
-  }
-  loadU64(addr) {
-    const lo = this.mem.getUint32(addr + 0, true);
-    const hi = this.mem.getUint32(addr + 4, true);
-    return lo + hi * 4294967296;
-  }
-  loadI64(addr) {
-    const lo = this.mem.getUint32(addr + 0, true);
-    const hi = this.mem.getInt32(addr + 4, true);
-    return lo + hi * 4294967296;
-  }
-  loadF32(addr) {
-    return this.mem.getFloat32(addr, true);
-  }
-  loadF64(addr) {
-    return this.mem.getFloat64(addr, true);
-  }
-  loadInt(addr) {
-    if (this.intSize === 8) {
-      return this.loadI64(addr);
-    } else if (this.intSize === 4) {
-      return this.loadI32(addr);
-    } else {
-      throw new Error("Unhandled `intSize`, expected `4` or `8`");
-    }
-  }
-  loadUint(addr) {
-    if (this.intSize === 8) {
-      return this.loadU64(addr);
-    } else if (this.intSize === 4) {
-      return this.loadU32(addr);
-    } else {
-      throw new Error("Unhandled `intSize`, expected `4` or `8`");
-    }
-  }
-  loadPtr(addr) {
-    return this.loadU32(addr);
-  }
-
-  loadB32(addr) {
-    return this.loadU32(addr) !== 0;
-  }
-
-  loadBytes(ptr, len) {
-    if (!this.memory) {
-      throw new Error("Memory not set");
-    }
-    return new Uint8Array(this.memory.buffer, ptr, Number(len));
-  }
-
-  loadString(ptr, len) {
-    const bytes = this.loadBytes(ptr, Number(len));
-    return new TextDecoder().decode(bytes);
-  }
-
-  loadCstring(ptr) {
-    return this.loadCstringDirect(this.loadPtr(ptr));
-  }
-
-  loadCstringDirect(start) {
-    if (start === 0) {
-      return null;
-    }
-    let len = 0;
-    for (; this.mem.getUint8(start + len) !== 0; len += 1) {}
-    return this.loadString(start, len);
-  }
-
-  storeU8(addr, value) {
-    this.mem.setUint8(addr, value);
-  }
-  storeI8(addr, value) {
-    this.mem.setInt8(addr, value);
-  }
-  storeU16(addr, value) {
-    this.mem.setUint16(addr, value, true);
-  }
-  storeI16(addr, value) {
-    this.mem.setInt16(addr, value, true);
-  }
-  storeU32(addr, value) {
-    this.mem.setUint32(addr, value, true);
-  }
-  storeI32(addr, value) {
-    this.mem.setInt32(addr, value, true);
-  }
-  storeU64(addr, value) {
-    this.mem.setUint32(addr + 0, Number(value), true);
-
-    let div = 4294967296;
-    if (typeof value === "bigint") {
-      div = BigInt(div);
-    }
-
-    this.mem.setUint32(addr + 4, Math.floor(Number(value / div)), true);
-  }
-  storeI64(addr, value) {
-    this.mem.setUint32(addr + 0, Number(value), true);
-
-    let div = 4294967296;
-    if (typeof value === "bigint") {
-      div = BigInt(div);
-    }
-
-    this.mem.setInt32(addr + 4, Math.floor(Number(value / div)), true);
-  }
-  storeF32(addr, value) {
-    this.mem.setFloat32(addr, value, true);
-  }
-  storeF64(addr, value) {
-    this.mem.setFloat64(addr, value, true);
-  }
-  storeInt(addr, value) {
-    if (this.intSize === 8) {
-      this.storeI64(addr, value);
-    } else if (this.intSize === 4) {
-      this.storeI32(addr, value);
-    } else {
-      throw new Error("Unhandled `intSize`, expected `4` or `8`");
-    }
-  }
-  storeUint(addr, value) {
-    if (this.intSize === 8) {
-      this.storeU64(addr, value);
-    } else if (this.intSize === 4) {
-      this.storeU32(addr, value);
-    } else {
-      throw new Error("Unhandled `intSize`, expected `4` or `8`");
-    }
-  }
-
-  // Returned length might not be the same as `value.length` if non-ascii strings are given.
-  storeString(addr, value) {
-    const src = new TextEncoder().encode(value);
-    const dst = new Uint8Array(this.memory.buffer, addr, src.length);
-    dst.set(src);
-    return src.length;
-  }
-}
+import {
+  rectangleVertexShader,
+  rectangleFragmentShader,
+} from "./rectangle.glsl.js";
+import { borderVertexShader, borderFragmentShader } from "./border.glsl.js";
+import { WasmMemoryInterface } from "./wasm.js";
 
 const canvas = document.getElementById("canvas");
 const gl = canvas.getContext("webgl2", {
@@ -279,32 +80,34 @@ const importObject = {
     ) => {
       const dpr = window.devicePixelRatio || 1;
 
-      gl.useProgram(rectangleProgram);
-      // Use physical canvas dimensions for resolution
-      gl.uniform2f(rectangleU_resolution, canvas.width, canvas.height);
-      // Scale logical coordinates to physical pixels
+      gl.useProgram(renderer.rectangle.program);
+      gl.uniform2f(
+        renderer.rectangle.uniforms.resolution,
+        canvas.width,
+        canvas.height,
+      );
       gl.uniform4f(
-        rectangleU_rect,
+        renderer.rectangle.uniforms.rect,
         x * dpr,
         y * dpr,
         width * dpr,
         height * dpr,
       );
       gl.uniform4f(
-        rectangleU_color,
+        renderer.rectangle.uniforms.color,
         r / 255.0,
         g / 255.0,
         b / 255.0,
         a / 255.0,
       );
       gl.uniform4f(
-        rectangleU_cornerRadius,
+        renderer.rectangle.uniforms.cornerRadius,
         cornerTL * dpr,
         cornerTR * dpr,
         cornerBL * dpr,
         cornerBR * dpr,
       );
-      gl.bindVertexArray(rectangleQuadVAO);
+      gl.bindVertexArray(renderer.rectangle.vao);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
     },
@@ -328,53 +131,80 @@ const importObject = {
     ) => {
       const dpr = window.devicePixelRatio || 1;
 
-      gl.useProgram(borderProgram);
-      gl.uniform2f(borderU_resolution, canvas.width, canvas.height);
-      gl.uniform4f(borderU_rect, x * dpr, y * dpr, width * dpr, height * dpr);
-      gl.uniform4f(borderU_color, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
+      gl.useProgram(renderer.border.program);
+      gl.uniform2f(
+        renderer.border.uniforms.resolution,
+        canvas.width,
+        canvas.height,
+      );
       gl.uniform4f(
-        borderU_cornerRadius,
+        renderer.border.uniforms.rect,
+        x * dpr,
+        y * dpr,
+        width * dpr,
+        height * dpr,
+      );
+      gl.uniform4f(
+        renderer.border.uniforms.color,
+        r / 255.0,
+        g / 255.0,
+        b / 255.0,
+        a / 255.0,
+      );
+      gl.uniform4f(
+        renderer.border.uniforms.cornerRadius,
         cornerTL * dpr,
         cornerTR * dpr,
         cornerBL * dpr,
         cornerBR * dpr,
       );
       gl.uniform4f(
-        borderU_borderWidth,
+        renderer.border.uniforms.borderWidth,
         borderL * dpr,
         borderR * dpr,
         borderT * dpr,
         borderB * dpr,
       );
-      gl.bindVertexArray(borderQuadVAO);
+      gl.bindVertexArray(renderer.border.vao);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
     },
   },
 };
 
-let wasmExports = null;
-let heapBase = 0;
-let previousFrameTime = 0;
+// WebGL2 Renderer state
+const renderer = {
+  rectangle: {
+    program: null,
+    vao: null,
+    vbo: null,
+    uniforms: {
+      resolution: null,
+      rect: null,
+      color: null,
+      cornerRadius: null,
+    },
+  },
+  border: {
+    program: null,
+    vao: null,
+    vbo: null,
+    uniforms: {
+      resolution: null,
+      rect: null,
+      color: null,
+      cornerRadius: null,
+      borderWidth: null,
+    },
+  },
+};
 
-// WebGL2 state - Rectangle rendering
-let rectangleProgram = null;
-let rectangleQuadVAO = null;
-let rectangleQuadVBO = null;
-let rectangleU_resolution = null;
-let rectangleU_rect = null;
-let rectangleU_color = null;
-let rectangleU_cornerRadius = null;
-
-// WebGL2 state - Border rendering
-let borderProgram = null;
-let borderQuadVAO = null;
-let borderQuadVBO = null;
-let borderU_resolution = null;
-let borderU_rect = null;
-let borderU_color = null;
-let borderU_cornerRadius = null;
-let borderU_borderWidth = null;
+// WASM runtime state
+const wasmRuntime = {
+  exports: null,
+  heapBase: 0,
+  previousFrameTime: 0,
+};
 
 // Initialize WebGL2 for rendering
 function initWebGL2() {
@@ -388,71 +218,9 @@ function initWebGL2() {
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-  // Create shader program for rectangles
-  const clayRectangleVertexShader = `#version 300 es
-    precision mediump float;
-
-    in vec2 a_position;
-    uniform vec2 u_resolution;
-    uniform vec4 u_rect;
-
-    out vec2 v_position;  // Position in rect local space
-
-    void main() {
-      vec2 position = a_position * u_rect.zw + u_rect.xy;
-      v_position = a_position * u_rect.zw;  // Local position for fragment shader
-
-      vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
-      gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
-    }
-  `;
-
-  const clayRectangleFragmentShader = `#version 300 es
-    precision mediump float;
-
-    uniform mediump vec4 u_color;
-    uniform mediump vec4 u_rect;         // x, y, width, height
-    uniform mediump vec4 u_cornerRadius; // topLeft, topRight, bottomLeft, bottomRight
-
-    in vec2 v_position;  // Pixel position in rect space (0-width, 0-height)
-
-    out vec4 fragColor;
-
-    // SDF for rounded rectangle
-    float roundedBoxSDF(vec2 p, vec2 size, vec4 radius) {
-      // Select radius based on quadrant
-      float r = (p.x < 0.0) ?
-                ((p.y < 0.0) ? radius.x : radius.z) :  // topLeft : bottomLeft
-                ((p.y < 0.0) ? radius.y : radius.w);   // topRight : bottomRight
-
-      vec2 q = abs(p) - size + r;
-      return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
-    }
-
-    void main() {
-      // Convert to centered coordinates
-      vec2 halfSize = u_rect.zw * 0.5;
-      vec2 center = v_position - halfSize;
-
-      // Calculate SDF distance
-      float dist = roundedBoxSDF(center, halfSize, u_cornerRadius);
-
-      // High-quality antialiasing using screen-space derivatives
-      float edgeWidth = length(vec2(dFdx(dist), dFdy(dist)));
-
-      // Clamp to avoid artifacts on very small shapes
-      edgeWidth = max(edgeWidth, 0.5);
-
-      // Smooth transition
-      float alpha = 1.0 - smoothstep(-edgeWidth, edgeWidth, dist);
-
-      fragColor = vec4(u_color.rgb, u_color.a * alpha);
-    }
-  `;
-
   // Compile rectangle shaders
   const rectVertShader = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(rectVertShader, clayRectangleVertexShader);
+  gl.shaderSource(rectVertShader, rectangleVertexShader);
   gl.compileShader(rectVertShader);
 
   if (!gl.getShaderParameter(rectVertShader, gl.COMPILE_STATUS)) {
@@ -464,7 +232,7 @@ function initWebGL2() {
   }
 
   const rectFragShader = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(rectFragShader, clayRectangleFragmentShader);
+  gl.shaderSource(rectFragShader, rectangleFragmentShader);
   gl.compileShader(rectFragShader);
 
   if (!gl.getShaderParameter(rectFragShader, gl.COMPILE_STATUS)) {
@@ -476,28 +244,28 @@ function initWebGL2() {
   }
 
   // Link rectangle program
-  rectangleProgram = gl.createProgram();
-  gl.attachShader(rectangleProgram, rectVertShader);
-  gl.attachShader(rectangleProgram, rectFragShader);
-  gl.linkProgram(rectangleProgram);
+  renderer.rectangle.program = gl.createProgram();
+  gl.attachShader(renderer.rectangle.program, rectVertShader);
+  gl.attachShader(renderer.rectangle.program, rectFragShader);
+  gl.linkProgram(renderer.rectangle.program);
 
-  if (!gl.getProgramParameter(rectangleProgram, gl.LINK_STATUS)) {
+  if (!gl.getProgramParameter(renderer.rectangle.program, gl.LINK_STATUS)) {
     console.error(
       "Rectangle program link error:",
-      gl.getProgramInfoLog(rectangleProgram),
+      gl.getProgramInfoLog(renderer.rectangle.program),
     );
     return;
   }
 
   // Get rectangle uniform locations
-  rectangleU_resolution = gl.getUniformLocation(
-    rectangleProgram,
+  renderer.rectangle.uniforms.resolution = gl.getUniformLocation(
+    renderer.rectangle.program,
     "u_resolution",
   );
-  rectangleU_rect = gl.getUniformLocation(rectangleProgram, "u_rect");
-  rectangleU_color = gl.getUniformLocation(rectangleProgram, "u_color");
-  rectangleU_cornerRadius = gl.getUniformLocation(
-    rectangleProgram,
+  renderer.rectangle.uniforms.rect = gl.getUniformLocation(renderer.rectangle.program, "u_rect");
+  renderer.rectangle.uniforms.color = gl.getUniformLocation(renderer.rectangle.program, "u_color");
+  renderer.rectangle.uniforms.cornerRadius = gl.getUniformLocation(
+    renderer.rectangle.program,
     "u_cornerRadius",
   );
 
@@ -518,14 +286,14 @@ function initWebGL2() {
   ]);
 
   // Create rectangle VAO and VBO
-  rectangleQuadVAO = gl.createVertexArray();
-  gl.bindVertexArray(rectangleQuadVAO);
+  renderer.rectangle.vao = gl.createVertexArray();
+  gl.bindVertexArray(renderer.rectangle.vao);
 
-  rectangleQuadVBO = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, rectangleQuadVBO);
+  renderer.rectangle.vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, renderer.rectangle.vbo);
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
-  const rectA_position = gl.getAttribLocation(rectangleProgram, "a_position");
+  const rectA_position = gl.getAttribLocation(renderer.rectangle.program, "a_position");
   gl.enableVertexAttribArray(rectA_position);
   gl.vertexAttribPointer(rectA_position, 2, gl.FLOAT, false, 0, 0);
 
@@ -533,103 +301,9 @@ function initWebGL2() {
 
   // ===== Border Shader Program =====
 
-  const clayBorderVertexShader = `#version 300 es
-    precision mediump float;
-
-    in vec2 a_position;
-    uniform vec2 u_resolution;
-    uniform vec4 u_rect;
-
-    out vec2 v_position;
-
-    void main() {
-      vec2 position = a_position * u_rect.zw + u_rect.xy;
-      v_position = a_position * u_rect.zw;
-
-      vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
-      gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
-    }
-  `;
-
-  const clayBorderFragmentShader = `#version 300 es
-    precision mediump float;
-
-    uniform mediump vec4 u_color;
-    uniform mediump vec4 u_rect;         // x, y, width, height
-    uniform mediump vec4 u_cornerRadius; // topLeft, topRight, bottomLeft, bottomRight
-    uniform mediump vec4 u_borderWidth;  // left, right, top, bottom
-
-    in vec2 v_position;
-
-    out vec4 fragColor;
-
-    // SDF for rounded rectangle (reused from rectangle shader)
-    float roundedBoxSDF(vec2 p, vec2 size, vec4 radius) {
-      float r = (p.x < 0.0) ?
-                ((p.y < 0.0) ? radius.x : radius.z) :
-                ((p.y < 0.0) ? radius.y : radius.w);
-
-      vec2 q = abs(p) - size + r;
-      return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
-    }
-
-    void main() {
-      vec2 halfSize = u_rect.zw * 0.5;
-      vec2 center = v_position - halfSize;
-
-      // Outer rounded box
-      float outerDist = roundedBoxSDF(center, halfSize, u_cornerRadius);
-
-      // Inner box: shrink by border width
-      vec2 innerFullSize = u_rect.zw - vec2(
-        u_borderWidth.x + u_borderWidth.y,  // left + right
-        u_borderWidth.z + u_borderWidth.w   // top + bottom
-      );
-      vec2 innerHalfSize = innerFullSize * 0.5;
-
-      // Inner corner radius
-      vec4 innerRadius = max(
-        u_cornerRadius - vec4(
-          max(u_borderWidth.x, u_borderWidth.z),
-          max(u_borderWidth.y, u_borderWidth.z),
-          max(u_borderWidth.x, u_borderWidth.w),
-          max(u_borderWidth.y, u_borderWidth.w)
-        ),
-        vec4(0.0)
-      );
-
-      // If border consumes everything, fill it
-      if (innerHalfSize.x <= 0.0 || innerHalfSize.y <= 0.0) {
-        float alpha = 1.0 - smoothstep(-0.5, 0.5, outerDist);
-        fragColor = vec4(u_color.rgb, u_color.a * alpha);
-        return;
-      }
-
-      // Inner box SDF
-      float innerDist = roundedBoxSDF(center, innerHalfSize, innerRadius);
-
-      // Discard pixels inside the inner box (let the background rectangle show through)
-      if (innerDist < 0.0) {
-        discard;
-      }
-
-      // Border region (inside outer, outside inner)
-      if (outerDist < 0.0) {
-        float edgeWidth = length(vec2(dFdx(outerDist), dFdy(outerDist)));
-        edgeWidth = max(edgeWidth, 0.5);
-        float alpha = 1.0 - smoothstep(-edgeWidth, edgeWidth, outerDist);
-        fragColor = vec4(u_color.rgb, u_color.a * alpha);
-        return;
-      }
-
-      // Outside everything
-      discard;
-    }
-  `;
-
   // Compile border shaders
   const borderVertShader = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(borderVertShader, clayBorderVertexShader);
+  gl.shaderSource(borderVertShader, borderVertexShader);
   gl.compileShader(borderVertShader);
 
   if (!gl.getShaderParameter(borderVertShader, gl.COMPILE_STATUS)) {
@@ -641,7 +315,7 @@ function initWebGL2() {
   }
 
   const borderFragShader = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(borderFragShader, clayBorderFragmentShader);
+  gl.shaderSource(borderFragShader, borderFragmentShader);
   gl.compileShader(borderFragShader);
 
   if (!gl.getShaderParameter(borderFragShader, gl.COMPILE_STATUS)) {
@@ -653,35 +327,35 @@ function initWebGL2() {
   }
 
   // Link border program
-  borderProgram = gl.createProgram();
-  gl.attachShader(borderProgram, borderVertShader);
-  gl.attachShader(borderProgram, borderFragShader);
-  gl.linkProgram(borderProgram);
+  renderer.border.program = gl.createProgram();
+  gl.attachShader(renderer.border.program, borderVertShader);
+  gl.attachShader(renderer.border.program, borderFragShader);
+  gl.linkProgram(renderer.border.program);
 
-  if (!gl.getProgramParameter(borderProgram, gl.LINK_STATUS)) {
+  if (!gl.getProgramParameter(renderer.border.program, gl.LINK_STATUS)) {
     console.error(
       "Border program link error:",
-      gl.getProgramInfoLog(borderProgram),
+      gl.getProgramInfoLog(renderer.border.program),
     );
     return;
   }
 
   // Get border uniform locations
-  borderU_resolution = gl.getUniformLocation(borderProgram, "u_resolution");
-  borderU_rect = gl.getUniformLocation(borderProgram, "u_rect");
-  borderU_color = gl.getUniformLocation(borderProgram, "u_color");
-  borderU_cornerRadius = gl.getUniformLocation(borderProgram, "u_cornerRadius");
-  borderU_borderWidth = gl.getUniformLocation(borderProgram, "u_borderWidth");
+  renderer.border.uniforms.resolution = gl.getUniformLocation(renderer.border.program, "u_resolution");
+  renderer.border.uniforms.rect = gl.getUniformLocation(renderer.border.program, "u_rect");
+  renderer.border.uniforms.color = gl.getUniformLocation(renderer.border.program, "u_color");
+  renderer.border.uniforms.cornerRadius = gl.getUniformLocation(renderer.border.program, "u_cornerRadius");
+  renderer.border.uniforms.borderWidth = gl.getUniformLocation(renderer.border.program, "u_borderWidth");
 
   // Create border quad VAO and VBO (same geometry as rectangle)
-  borderQuadVAO = gl.createVertexArray();
-  gl.bindVertexArray(borderQuadVAO);
+  renderer.border.vao = gl.createVertexArray();
+  gl.bindVertexArray(renderer.border.vao);
 
-  borderQuadVBO = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, borderQuadVBO);
+  renderer.border.vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, renderer.border.vbo);
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
-  const borderA_position = gl.getAttribLocation(borderProgram, "a_position");
+  const borderA_position = gl.getAttribLocation(renderer.border.program, "a_position");
   gl.enableVertexAttribArray(borderA_position);
   gl.vertexAttribPointer(borderA_position, 2, gl.FLOAT, false, 0, 0);
 
@@ -692,16 +366,16 @@ function initWebGL2() {
 
 function renderLoop(currentTime) {
   // Calculate delta time in seconds
-  const deltaTime = previousFrameTime
-    ? (currentTime - previousFrameTime) / 1000
+  const deltaTime = wasmRuntime.previousFrameTime
+    ? (currentTime - wasmRuntime.previousFrameTime) / 1000
     : 0;
-  previousFrameTime = currentTime;
+  wasmRuntime.previousFrameTime = currentTime;
 
   // Ensure canvas is at proper resolution
   resizeCanvasToDisplaySize();
 
   // Call WASM update_and_render
-  wasmExports.update_and_render(heapBase);
+  wasmRuntime.exports.update_and_render(wasmRuntime.heapBase);
 
   // Request next frame
   requestAnimationFrame(renderLoop);
@@ -712,17 +386,17 @@ async function loadWasm() {
   const wasmBytes = await response.arrayBuffer();
   const wasmModule = await WebAssembly.instantiate(wasmBytes, importObject);
 
-  wasmExports = wasmModule.instance.exports;
-  window.wasmExports = wasmExports;
+  wasmRuntime.exports = wasmModule.instance.exports;
+  window.wasmExports = wasmRuntime.exports;
 
   // Get heap base pointer
-  heapBase = wasmExports.os_get_heap_base();
+  wasmRuntime.heapBase = wasmRuntime.exports.os_get_heap_base();
 
   // Initialize WebGL2
   initWebGL2();
 
   // Call entrypoint with memory pointer
-  wasmExports.entrypoint(heapBase);
+  wasmRuntime.exports.entrypoint(wasmRuntime.heapBase);
 
   // Start the render loop
   requestAnimationFrame(renderLoop);
