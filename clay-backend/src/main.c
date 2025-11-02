@@ -24,6 +24,11 @@ extern void _renderer_draw_border(float x, float y, float width, float height,
                                    float corner_bottom_right, float border_left,
                                    float border_right, float border_top,
                                    float border_bottom);
+extern void _renderer_draw_image(float x, float y, float width, float height,
+                                  const char *image_data_ptr, float tint_r,
+                                  float tint_g, float tint_b, float tint_a,
+                                  float corner_tl, float corner_tr,
+                                  float corner_bl, float corner_br);
 extern void _renderer_scissor_start(float x, float y, float width, float height);
 extern void _renderer_scissor_end(void);
 
@@ -34,6 +39,9 @@ static Clay_Arena clay_arena = {0};
 static uint64_t clay_memory_size = 0;
 static void *clay_memory = NULL;
 static Clay_RenderCommandArray render_commands = {0};
+
+// Test image URL (placeholder - replace with actual image)
+static const char *test_image_url = "https://picsum.photos/200";
 
 WASM_EXPORT("os_get_heap_base") void *os_get_heap_base(void) {
   return &__heap_base;
@@ -92,10 +100,23 @@ void ui_render(Clay_RenderCommandArray *commands) {
       _renderer_scissor_end();
       break;
 
+    case CLAY_RENDER_COMMAND_TYPE_IMAGE: {
+      Clay_ImageRenderData *image = &cmd->renderData.image;
+      // imageData is a void* - we interpret it as a char* (URL string)
+      _renderer_draw_image(
+          cmd->boundingBox.x, cmd->boundingBox.y, cmd->boundingBox.width,
+          cmd->boundingBox.height, (const char *)image->imageData,
+          image->backgroundColor.r, image->backgroundColor.g,
+          image->backgroundColor.b, image->backgroundColor.a,
+          image->cornerRadius.topLeft, image->cornerRadius.topRight,
+          image->cornerRadius.bottomLeft, image->cornerRadius.bottomRight);
+      break;
+    }
+
     case CLAY_RENDER_COMMAND_TYPE_NONE:
       break;
 
-      // TODO: Add other command types (TEXT, IMAGE, CUSTOM)
+      // TODO: Add other command types (TEXT, CUSTOM)
 
     default:
       break;
@@ -149,6 +170,8 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                            .width = CLAY_SIZING_GROW(),
                            .height = CLAY_SIZING_GROW(),
                        },
+                   .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                   .childGap = 20,
                    .childAlignment =
                        {
                            .x = CLAY_ALIGN_X_CENTER,
@@ -208,6 +231,18 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                .cornerRadius = CLAY_CORNER_RADIUS(10),
            }) {}
     }
+
+    // Test image with rounded corners (outside clipped container)
+    CLAY(CLAY_ID("TestImage"),
+         CLAY__INIT(Clay_ElementDeclaration){
+             .layout =
+                 {
+                     .sizing = {.width = CLAY_SIZING_FIXED(200),
+                                .height = CLAY_SIZING_FIXED(200)},
+                 },
+             .image = {.imageData = (void *)test_image_url},
+             .cornerRadius = CLAY_CORNER_RADIUS(20),
+         }) {}
   }
 
   render_commands = Clay_EndLayout();

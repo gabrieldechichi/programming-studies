@@ -3,6 +3,7 @@ import {
   rectangleFragmentShader,
 } from "./rectangle.glsl.js";
 import { borderVertexShader, borderFragmentShader } from "./border.glsl.js";
+import { imageVertexShader, imageFragmentShader } from "./image.glsl.js";
 import { WasmMemoryInterface } from "./wasm.js";
 
 const canvas = document.getElementById("canvas");
@@ -44,6 +45,9 @@ window.addEventListener("resize", resizeCanvasToDisplaySize);
 
 const memory = new WebAssembly.Memory({ initial: 256, maximum: 256 });
 const memInterface = new WasmMemoryInterface(memory);
+
+// Image cache for texture loading
+const imageCache = {}; // { url: { img: Image, texture: WebGLTexture, loaded: bool } }
 
 const importObject = {
   env: {
@@ -185,6 +189,124 @@ const importObject = {
     _renderer_scissor_end: () => {
       gl.disable(gl.SCISSOR_TEST);
     },
+    _renderer_draw_image: (
+      x,
+      y,
+      width,
+      height,
+      imageDataPtr,
+      r,
+      g,
+      b,
+      a,
+      cornerTL,
+      cornerTR,
+      cornerBL,
+      cornerBR,
+    ) => {
+      // 1. Read null-terminated C string from WASM memory
+      const url = memInterface.loadCstringDirect(imageDataPtr);
+
+      if (!url) {
+        console.warn("Image URL is null");
+        return;
+      }
+
+      // 2. Load image if not cached
+      if (!imageCache[url]) {
+        imageCache[url] = {
+          img: new Image(),
+          texture: null,
+          loaded: false,
+        };
+
+        imageCache[url].img.onload = () => {
+          // Create WebGL texture
+          const texture = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+
+          // Upload image data
+          gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            imageCache[url].img,
+          );
+
+          // Texture parameters (no mipmaps for UI images)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+          imageCache[url].texture = texture;
+          imageCache[url].loaded = true;
+        };
+
+        imageCache[url].img.onerror = () => {
+          console.error(`Failed to load image: ${url}`);
+        };
+
+        // Enable CORS for cross-origin images (required for WebGL textures)
+        imageCache[url].img.crossOrigin = "anonymous";
+        imageCache[url].img.src = url;
+        return; // Skip this frame
+      }
+
+      // 3. Skip if not loaded yet
+      if (!imageCache[url].loaded) return;
+
+      // 4. Render textured quad
+      const dpr = window.devicePixelRatio || 1;
+
+      // Default tint to white if backgroundColor is (0,0,0,0)
+      let tintR = r,
+        tintG = g,
+        tintB = b,
+        tintA = a;
+      if (r === 0 && g === 0 && b === 0 && a === 0) {
+        tintR = tintG = tintB = tintA = 255;
+      }
+
+      gl.useProgram(renderer.image.program);
+      gl.uniform2f(
+        renderer.image.uniforms.resolution,
+        canvas.width,
+        canvas.height,
+      );
+      gl.uniform4f(
+        renderer.image.uniforms.rect,
+        x * dpr,
+        y * dpr,
+        width * dpr,
+        height * dpr,
+      );
+      gl.uniform4f(
+        renderer.image.uniforms.tint,
+        tintR / 255.0,
+        tintG / 255.0,
+        tintB / 255.0,
+        tintA / 255.0,
+      );
+      gl.uniform4f(
+        renderer.image.uniforms.cornerRadius,
+        cornerTL * dpr,
+        cornerTR * dpr,
+        cornerBL * dpr,
+        cornerBR * dpr,
+      );
+
+      // Bind texture to unit 0
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, imageCache[url].texture);
+      gl.uniform1i(renderer.image.uniforms.texture, 0);
+
+      gl.bindVertexArray(renderer.image.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.bindVertexArray(null);
+    },
   },
 };
 
@@ -211,6 +333,18 @@ const renderer = {
       color: null,
       cornerRadius: null,
       borderWidth: null,
+    },
+  },
+  image: {
+    program: null,
+    vao: null,
+    vbo: null,
+    uniforms: {
+      resolution: null,
+      rect: null,
+      texture: null,
+      tint: null,
+      cornerRadius: null,
     },
   },
 };
@@ -377,7 +511,75 @@ function initWebGL2() {
 
   gl.bindVertexArray(null);
 
-  console.log("WebGL2 initialized successfully (rectangles + borders)");
+  // ===== Image Shader Program =====
+
+  // Compile image shaders
+  const imageVertShader = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(imageVertShader, imageVertexShader);
+  gl.compileShader(imageVertShader);
+
+  if (!gl.getShaderParameter(imageVertShader, gl.COMPILE_STATUS)) {
+    console.error(
+      "Image vertex shader compile error:",
+      gl.getShaderInfoLog(imageVertShader),
+    );
+    return;
+  }
+
+  const imageFragShader = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(imageFragShader, imageFragmentShader);
+  gl.compileShader(imageFragShader);
+
+  if (!gl.getShaderParameter(imageFragShader, gl.COMPILE_STATUS)) {
+    console.error(
+      "Image fragment shader compile error:",
+      gl.getShaderInfoLog(imageFragShader),
+    );
+    return;
+  }
+
+  // Link image program
+  renderer.image.program = gl.createProgram();
+  gl.attachShader(renderer.image.program, imageVertShader);
+  gl.attachShader(renderer.image.program, imageFragShader);
+  gl.linkProgram(renderer.image.program);
+
+  if (!gl.getProgramParameter(renderer.image.program, gl.LINK_STATUS)) {
+    console.error(
+      "Image program link error:",
+      gl.getProgramInfoLog(renderer.image.program),
+    );
+    return;
+  }
+
+  // Get image uniform locations
+  renderer.image.uniforms.resolution = gl.getUniformLocation(
+    renderer.image.program,
+    "u_resolution",
+  );
+  renderer.image.uniforms.rect = gl.getUniformLocation(renderer.image.program, "u_rect");
+  renderer.image.uniforms.texture = gl.getUniformLocation(renderer.image.program, "u_texture");
+  renderer.image.uniforms.tint = gl.getUniformLocation(renderer.image.program, "u_tint");
+  renderer.image.uniforms.cornerRadius = gl.getUniformLocation(
+    renderer.image.program,
+    "u_cornerRadius",
+  );
+
+  // Create image quad VAO and VBO (same geometry as rectangle)
+  renderer.image.vao = gl.createVertexArray();
+  gl.bindVertexArray(renderer.image.vao);
+
+  renderer.image.vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, renderer.image.vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+
+  const imageA_position = gl.getAttribLocation(renderer.image.program, "a_position");
+  gl.enableVertexAttribArray(imageA_position);
+  gl.vertexAttribPointer(imageA_position, 2, gl.FLOAT, false, 0, 0);
+
+  gl.bindVertexArray(null);
+
+  console.log("WebGL2 initialized successfully (rectangles + borders + images)");
 }
 
 function renderLoop(currentTime) {
