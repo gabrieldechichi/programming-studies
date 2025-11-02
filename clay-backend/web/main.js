@@ -227,11 +227,25 @@ const importObject = {
       gl.clearColor(r, g, b, a);
       gl.clear(gl.COLOR_BUFFER_BIT);
     },
-    _renderer_draw_rect: (x, y, width, height, r, g, b, a) => {
+    _renderer_draw_rect: (
+      x,
+      y,
+      width,
+      height,
+      r,
+      g,
+      b,
+      a,
+      cornerTL,
+      cornerTR,
+      cornerBL,
+      cornerBR,
+    ) => {
       gl.useProgram(rectangleProgram);
       gl.uniform2f(u_resolution, canvas.width, canvas.height);
       gl.uniform4f(u_rect, x, y, width, height);
       gl.uniform4f(u_color, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
+      gl.uniform4f(u_cornerRadius, cornerTL, cornerTR, cornerBL, cornerBR);
       gl.bindVertexArray(quadVAO);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
@@ -250,6 +264,7 @@ let quadVBO = null;
 let u_resolution = null;
 let u_rect = null;
 let u_color = null;
+let u_cornerRadius = null;
 
 // Initialize WebGL2 for rendering
 function initWebGL2() {
@@ -265,12 +280,18 @@ function initWebGL2() {
 
   // Create shader program for rectangles
   const vertexShaderSource = `#version 300 es
+    precision mediump float;
+
     in vec2 a_position;
     uniform vec2 u_resolution;
     uniform vec4 u_rect;
 
+    out vec2 v_position;  // Position in rect local space
+
     void main() {
       vec2 position = a_position * u_rect.zw + u_rect.xy;
+      v_position = a_position * u_rect.zw;  // Local position for fragment shader
+
       vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
       gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
     }
@@ -278,11 +299,38 @@ function initWebGL2() {
 
   const fragmentShaderSource = `#version 300 es
     precision mediump float;
-    uniform vec4 u_color;
+
+    uniform mediump vec4 u_color;
+    uniform mediump vec4 u_rect;         // x, y, width, height
+    uniform mediump vec4 u_cornerRadius; // topLeft, topRight, bottomLeft, bottomRight
+
+    in vec2 v_position;  // Pixel position in rect space (0-width, 0-height)
+
     out vec4 fragColor;
 
+    // SDF for rounded rectangle
+    float roundedBoxSDF(vec2 p, vec2 size, vec4 radius) {
+      // Select radius based on quadrant
+      float r = (p.x < 0.0) ?
+                ((p.y < 0.0) ? radius.x : radius.z) :  // topLeft : bottomLeft
+                ((p.y < 0.0) ? radius.y : radius.w);   // topRight : bottomRight
+
+      vec2 q = abs(p) - size + r;
+      return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+    }
+
     void main() {
-      fragColor = u_color;
+      // Convert to centered coordinates
+      vec2 halfSize = u_rect.zw * 0.5;
+      vec2 center = v_position - halfSize;
+
+      // Calculate SDF distance
+      float dist = roundedBoxSDF(center, halfSize, u_cornerRadius);
+
+      // Smooth antialiasing
+      float alpha = 1.0 - smoothstep(-0.5, 0.5, dist);
+
+      fragColor = vec4(u_color.rgb, u_color.a * alpha);
     }
   `;
 
@@ -329,6 +377,7 @@ function initWebGL2() {
   u_resolution = gl.getUniformLocation(rectangleProgram, "u_resolution");
   u_rect = gl.getUniformLocation(rectangleProgram, "u_rect");
   u_color = gl.getUniformLocation(rectangleProgram, "u_color");
+  u_cornerRadius = gl.getUniformLocation(rectangleProgram, "u_cornerRadius");
 
   // Create quad geometry (normalized 0-1)
   const quadVertices = new Float32Array([

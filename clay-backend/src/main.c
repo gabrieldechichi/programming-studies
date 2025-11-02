@@ -13,7 +13,9 @@ extern unsigned char __heap_base;
 // Renderer API - simple functions called from C to JS
 extern void _renderer_clear(float r, float g, float b, float a);
 extern void _renderer_draw_rect(float x, float y, float width, float height,
-                                  float r, float g, float b, float a);
+                                  float r, float g, float b, float a,
+                                  float corner_top_left, float corner_top_right,
+                                  float corner_bottom_left, float corner_bottom_right);
 
 #define os_log(cstr) _os_log(cstr, CSTR_LEN(cstr));
 
@@ -53,7 +55,11 @@ void ui_render(Clay_RenderCommandArray *commands) {
             rect->backgroundColor.r,
             rect->backgroundColor.g,
             rect->backgroundColor.b,
-            rect->backgroundColor.a
+            rect->backgroundColor.a,
+            rect->cornerRadius.topLeft,
+            rect->cornerRadius.topRight,
+            rect->cornerRadius.bottomLeft,
+            rect->cornerRadius.bottomRight
         );
         break;
       }
@@ -118,7 +124,8 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                      .sizing = {.width = CLAY_SIZING_FIXED(400),
                                 .height = CLAY_SIZING_FIXED(300)},
                  },
-             .backgroundColor = {255, 100, 100, 255}}) {}
+             .backgroundColor = {255, 100, 100, 255},
+             .cornerRadius = CLAY_CORNER_RADIUS(20)}) {}
   }
 
   render_commands = Clay_EndLayout();
