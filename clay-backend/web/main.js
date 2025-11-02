@@ -228,7 +228,7 @@ function resizeCanvasToDisplaySize() {
     gl.viewport(0, 0, canvas.width, canvas.height);
 
     console.log(
-      `Canvas resized: ${displayWidth}x${displayHeight} CSS, ${canvas.width}x${canvas.height} pixels (DPR: ${dpr})`
+      `Canvas resized: ${displayWidth}x${displayHeight} CSS, ${canvas.width}x${canvas.height} pixels (DPR: ${dpr})`,
     );
   }
 
@@ -281,18 +281,72 @@ const importObject = {
 
       gl.useProgram(rectangleProgram);
       // Use physical canvas dimensions for resolution
-      gl.uniform2f(u_resolution, canvas.width, canvas.height);
+      gl.uniform2f(rectangleU_resolution, canvas.width, canvas.height);
       // Scale logical coordinates to physical pixels
-      gl.uniform4f(u_rect, x * dpr, y * dpr, width * dpr, height * dpr);
-      gl.uniform4f(u_color, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
       gl.uniform4f(
-        u_cornerRadius,
+        rectangleU_rect,
+        x * dpr,
+        y * dpr,
+        width * dpr,
+        height * dpr,
+      );
+      gl.uniform4f(
+        rectangleU_color,
+        r / 255.0,
+        g / 255.0,
+        b / 255.0,
+        a / 255.0,
+      );
+      gl.uniform4f(
+        rectangleU_cornerRadius,
         cornerTL * dpr,
         cornerTR * dpr,
         cornerBL * dpr,
         cornerBR * dpr,
       );
-      gl.bindVertexArray(quadVAO);
+      gl.bindVertexArray(rectangleQuadVAO);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.bindVertexArray(null);
+    },
+    _renderer_draw_border: (
+      x,
+      y,
+      width,
+      height,
+      r,
+      g,
+      b,
+      a,
+      cornerTL,
+      cornerTR,
+      cornerBL,
+      cornerBR,
+      borderL,
+      borderR,
+      borderT,
+      borderB,
+    ) => {
+      const dpr = window.devicePixelRatio || 1;
+
+      gl.useProgram(borderProgram);
+      gl.uniform2f(borderU_resolution, canvas.width, canvas.height);
+      gl.uniform4f(borderU_rect, x * dpr, y * dpr, width * dpr, height * dpr);
+      gl.uniform4f(borderU_color, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
+      gl.uniform4f(
+        borderU_cornerRadius,
+        cornerTL * dpr,
+        cornerTR * dpr,
+        cornerBL * dpr,
+        cornerBR * dpr,
+      );
+      gl.uniform4f(
+        borderU_borderWidth,
+        borderL * dpr,
+        borderR * dpr,
+        borderT * dpr,
+        borderB * dpr,
+      );
+      gl.bindVertexArray(borderQuadVAO);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
     },
@@ -303,14 +357,24 @@ let wasmExports = null;
 let heapBase = 0;
 let previousFrameTime = 0;
 
-// WebGL2 state
+// WebGL2 state - Rectangle rendering
 let rectangleProgram = null;
-let quadVAO = null;
-let quadVBO = null;
-let u_resolution = null;
-let u_rect = null;
-let u_color = null;
-let u_cornerRadius = null;
+let rectangleQuadVAO = null;
+let rectangleQuadVBO = null;
+let rectangleU_resolution = null;
+let rectangleU_rect = null;
+let rectangleU_color = null;
+let rectangleU_cornerRadius = null;
+
+// WebGL2 state - Border rendering
+let borderProgram = null;
+let borderQuadVAO = null;
+let borderQuadVBO = null;
+let borderU_resolution = null;
+let borderU_rect = null;
+let borderU_color = null;
+let borderU_cornerRadius = null;
+let borderU_borderWidth = null;
 
 // Initialize WebGL2 for rendering
 function initWebGL2() {
@@ -325,7 +389,7 @@ function initWebGL2() {
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
   // Create shader program for rectangles
-  const vertexShaderSource = `#version 300 es
+  const clayRectangleVertexShader = `#version 300 es
     precision mediump float;
 
     in vec2 a_position;
@@ -343,7 +407,7 @@ function initWebGL2() {
     }
   `;
 
-  const fragmentShaderSource = `#version 300 es
+  const clayRectangleFragmentShader = `#version 300 es
     precision mediump float;
 
     uniform mediump vec4 u_color;
@@ -386,52 +450,58 @@ function initWebGL2() {
     }
   `;
 
-  // Compile shaders
-  const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vertexShader, vertexShaderSource);
-  gl.compileShader(vertexShader);
+  // Compile rectangle shaders
+  const rectVertShader = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(rectVertShader, clayRectangleVertexShader);
+  gl.compileShader(rectVertShader);
 
-  if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+  if (!gl.getShaderParameter(rectVertShader, gl.COMPILE_STATUS)) {
     console.error(
-      "Vertex shader compile error:",
-      gl.getShaderInfoLog(vertexShader),
+      "Rectangle vertex shader compile error:",
+      gl.getShaderInfoLog(rectVertShader),
     );
     return;
   }
 
-  const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fragmentShader, fragmentShaderSource);
-  gl.compileShader(fragmentShader);
+  const rectFragShader = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(rectFragShader, clayRectangleFragmentShader);
+  gl.compileShader(rectFragShader);
 
-  if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+  if (!gl.getShaderParameter(rectFragShader, gl.COMPILE_STATUS)) {
     console.error(
-      "Fragment shader compile error:",
-      gl.getShaderInfoLog(fragmentShader),
+      "Rectangle fragment shader compile error:",
+      gl.getShaderInfoLog(rectFragShader),
     );
     return;
   }
 
-  // Link program
+  // Link rectangle program
   rectangleProgram = gl.createProgram();
-  gl.attachShader(rectangleProgram, vertexShader);
-  gl.attachShader(rectangleProgram, fragmentShader);
+  gl.attachShader(rectangleProgram, rectVertShader);
+  gl.attachShader(rectangleProgram, rectFragShader);
   gl.linkProgram(rectangleProgram);
 
   if (!gl.getProgramParameter(rectangleProgram, gl.LINK_STATUS)) {
     console.error(
-      "Program link error:",
+      "Rectangle program link error:",
       gl.getProgramInfoLog(rectangleProgram),
     );
     return;
   }
 
-  // Get uniform locations
-  u_resolution = gl.getUniformLocation(rectangleProgram, "u_resolution");
-  u_rect = gl.getUniformLocation(rectangleProgram, "u_rect");
-  u_color = gl.getUniformLocation(rectangleProgram, "u_color");
-  u_cornerRadius = gl.getUniformLocation(rectangleProgram, "u_cornerRadius");
+  // Get rectangle uniform locations
+  rectangleU_resolution = gl.getUniformLocation(
+    rectangleProgram,
+    "u_resolution",
+  );
+  rectangleU_rect = gl.getUniformLocation(rectangleProgram, "u_rect");
+  rectangleU_color = gl.getUniformLocation(rectangleProgram, "u_color");
+  rectangleU_cornerRadius = gl.getUniformLocation(
+    rectangleProgram,
+    "u_cornerRadius",
+  );
 
-  // Create quad geometry (normalized 0-1)
+  // Create rectangle quad geometry (normalized 0-1)
   const quadVertices = new Float32Array([
     0,
     0, // bottom-left
@@ -447,21 +517,177 @@ function initWebGL2() {
     1, // top-left
   ]);
 
-  // Create VAO and VBO
-  quadVAO = gl.createVertexArray();
-  gl.bindVertexArray(quadVAO);
+  // Create rectangle VAO and VBO
+  rectangleQuadVAO = gl.createVertexArray();
+  gl.bindVertexArray(rectangleQuadVAO);
 
-  quadVBO = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+  rectangleQuadVBO = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, rectangleQuadVBO);
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
-  const a_position = gl.getAttribLocation(rectangleProgram, "a_position");
-  gl.enableVertexAttribArray(a_position);
-  gl.vertexAttribPointer(a_position, 2, gl.FLOAT, false, 0, 0);
+  const rectA_position = gl.getAttribLocation(rectangleProgram, "a_position");
+  gl.enableVertexAttribArray(rectA_position);
+  gl.vertexAttribPointer(rectA_position, 2, gl.FLOAT, false, 0, 0);
 
   gl.bindVertexArray(null);
 
-  console.log("WebGL2 initialized successfully");
+  // ===== Border Shader Program =====
+
+  const clayBorderVertexShader = `#version 300 es
+    precision mediump float;
+
+    in vec2 a_position;
+    uniform vec2 u_resolution;
+    uniform vec4 u_rect;
+
+    out vec2 v_position;
+
+    void main() {
+      vec2 position = a_position * u_rect.zw + u_rect.xy;
+      v_position = a_position * u_rect.zw;
+
+      vec2 clipSpace = (position / u_resolution) * 2.0 - 1.0;
+      gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+    }
+  `;
+
+  const clayBorderFragmentShader = `#version 300 es
+    precision mediump float;
+
+    uniform mediump vec4 u_color;
+    uniform mediump vec4 u_rect;         // x, y, width, height
+    uniform mediump vec4 u_cornerRadius; // topLeft, topRight, bottomLeft, bottomRight
+    uniform mediump vec4 u_borderWidth;  // left, right, top, bottom
+
+    in vec2 v_position;
+
+    out vec4 fragColor;
+
+    // SDF for rounded rectangle (reused from rectangle shader)
+    float roundedBoxSDF(vec2 p, vec2 size, vec4 radius) {
+      float r = (p.x < 0.0) ?
+                ((p.y < 0.0) ? radius.x : radius.z) :
+                ((p.y < 0.0) ? radius.y : radius.w);
+
+      vec2 q = abs(p) - size + r;
+      return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+    }
+
+    void main() {
+      vec2 halfSize = u_rect.zw * 0.5;
+      vec2 center = v_position - halfSize;
+
+      // Outer rounded box
+      float outerDist = roundedBoxSDF(center, halfSize, u_cornerRadius);
+
+      // Inner box: shrink by border width
+      vec2 innerFullSize = u_rect.zw - vec2(
+        u_borderWidth.x + u_borderWidth.y,  // left + right
+        u_borderWidth.z + u_borderWidth.w   // top + bottom
+      );
+      vec2 innerHalfSize = innerFullSize * 0.5;
+
+      // Inner corner radius
+      vec4 innerRadius = max(
+        u_cornerRadius - vec4(
+          max(u_borderWidth.x, u_borderWidth.z),
+          max(u_borderWidth.y, u_borderWidth.z),
+          max(u_borderWidth.x, u_borderWidth.w),
+          max(u_borderWidth.y, u_borderWidth.w)
+        ),
+        vec4(0.0)
+      );
+
+      // If border consumes everything, fill it
+      if (innerHalfSize.x <= 0.0 || innerHalfSize.y <= 0.0) {
+        float alpha = 1.0 - smoothstep(-0.5, 0.5, outerDist);
+        fragColor = vec4(u_color.rgb, u_color.a * alpha);
+        return;
+      }
+
+      // Inner box SDF
+      float innerDist = roundedBoxSDF(center, innerHalfSize, innerRadius);
+
+      // Discard pixels inside the inner box (let the background rectangle show through)
+      if (innerDist < 0.0) {
+        discard;
+      }
+
+      // Border region (inside outer, outside inner)
+      if (outerDist < 0.0) {
+        float edgeWidth = length(vec2(dFdx(outerDist), dFdy(outerDist)));
+        edgeWidth = max(edgeWidth, 0.5);
+        float alpha = 1.0 - smoothstep(-edgeWidth, edgeWidth, outerDist);
+        fragColor = vec4(u_color.rgb, u_color.a * alpha);
+        return;
+      }
+
+      // Outside everything
+      discard;
+    }
+  `;
+
+  // Compile border shaders
+  const borderVertShader = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(borderVertShader, clayBorderVertexShader);
+  gl.compileShader(borderVertShader);
+
+  if (!gl.getShaderParameter(borderVertShader, gl.COMPILE_STATUS)) {
+    console.error(
+      "Border vertex shader compile error:",
+      gl.getShaderInfoLog(borderVertShader),
+    );
+    return;
+  }
+
+  const borderFragShader = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(borderFragShader, clayBorderFragmentShader);
+  gl.compileShader(borderFragShader);
+
+  if (!gl.getShaderParameter(borderFragShader, gl.COMPILE_STATUS)) {
+    console.error(
+      "Border fragment shader compile error:",
+      gl.getShaderInfoLog(borderFragShader),
+    );
+    return;
+  }
+
+  // Link border program
+  borderProgram = gl.createProgram();
+  gl.attachShader(borderProgram, borderVertShader);
+  gl.attachShader(borderProgram, borderFragShader);
+  gl.linkProgram(borderProgram);
+
+  if (!gl.getProgramParameter(borderProgram, gl.LINK_STATUS)) {
+    console.error(
+      "Border program link error:",
+      gl.getProgramInfoLog(borderProgram),
+    );
+    return;
+  }
+
+  // Get border uniform locations
+  borderU_resolution = gl.getUniformLocation(borderProgram, "u_resolution");
+  borderU_rect = gl.getUniformLocation(borderProgram, "u_rect");
+  borderU_color = gl.getUniformLocation(borderProgram, "u_color");
+  borderU_cornerRadius = gl.getUniformLocation(borderProgram, "u_cornerRadius");
+  borderU_borderWidth = gl.getUniformLocation(borderProgram, "u_borderWidth");
+
+  // Create border quad VAO and VBO (same geometry as rectangle)
+  borderQuadVAO = gl.createVertexArray();
+  gl.bindVertexArray(borderQuadVAO);
+
+  borderQuadVBO = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, borderQuadVBO);
+  gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+
+  const borderA_position = gl.getAttribLocation(borderProgram, "a_position");
+  gl.enableVertexAttribArray(borderA_position);
+  gl.vertexAttribPointer(borderA_position, 2, gl.FLOAT, false, 0, 0);
+
+  gl.bindVertexArray(null);
+
+  console.log("WebGL2 initialized successfully (rectangles + borders)");
 }
 
 function renderLoop(currentTime) {

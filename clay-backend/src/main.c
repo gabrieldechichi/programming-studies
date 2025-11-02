@@ -17,6 +17,13 @@ extern void _renderer_draw_rect(float x, float y, float width, float height,
                                 float corner_top_left, float corner_top_right,
                                 float corner_bottom_left,
                                 float corner_bottom_right);
+extern void _renderer_draw_border(float x, float y, float width, float height,
+                                   float r, float g, float b, float a,
+                                   float corner_top_left, float corner_top_right,
+                                   float corner_bottom_left,
+                                   float corner_bottom_right, float border_left,
+                                   float border_right, float border_top,
+                                   float border_bottom);
 
 #define os_log(cstr) _os_log(cstr, CSTR_LEN(cstr));
 
@@ -58,10 +65,22 @@ void ui_render(Clay_RenderCommandArray *commands) {
       break;
     }
 
+    case CLAY_RENDER_COMMAND_TYPE_BORDER: {
+      Clay_BorderRenderData *border = &cmd->renderData.border;
+      _renderer_draw_border(
+          cmd->boundingBox.x, cmd->boundingBox.y, cmd->boundingBox.width,
+          cmd->boundingBox.height, border->color.r, border->color.g,
+          border->color.b, border->color.a, border->cornerRadius.topLeft,
+          border->cornerRadius.topRight, border->cornerRadius.bottomLeft,
+          border->cornerRadius.bottomRight, border->width.left,
+          border->width.right, border->width.top, border->width.bottom);
+      break;
+    }
+
     case CLAY_RENDER_COMMAND_TYPE_NONE:
       break;
 
-      // TODO: Add other command types (BORDER, TEXT, IMAGE, SCISSOR, etc.)
+      // TODO: Add other command types (TEXT, IMAGE, SCISSOR, etc.)
 
     default:
       break;
@@ -115,10 +134,10 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                            .width = CLAY_SIZING_GROW(),
                            .height = CLAY_SIZING_GROW(),
                        },
-                   .padding =
+                   .childAlignment =
                        {
-                           .left = 100,
-                           .top = 100,
+                           .x = CLAY_ALIGN_X_CENTER,
+                           .y = CLAY_ALIGN_Y_CENTER,
                        },
                },
        }) {
@@ -130,8 +149,10 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                      .sizing = {.width = CLAY_SIZING_FIXED(400),
                                 .height = CLAY_SIZING_FIXED(300)},
                  },
-             .backgroundColor = {255, 100, 100, 255},
-             .cornerRadius = CLAY_CORNER_RADIUS(20)}) {}
+             .backgroundColor = {255, 0, 0, 255},
+             .cornerRadius = CLAY_CORNER_RADIUS(20),
+             .border = {.width = CLAY_BORDER_OUTSIDE(5),
+                        .color = {0, 255, 0, 255}}}) {}
   }
 
   render_commands = Clay_EndLayout();
