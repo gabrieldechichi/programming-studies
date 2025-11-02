@@ -205,7 +205,10 @@ class WasmMemoryInterface {
 }
 
 const canvas = document.getElementById("canvas");
-const gl = canvas.getContext("webgl2");
+const gl = canvas.getContext("webgl2", {
+  antialias: true,
+  premultipliedAlpha: false,
+});
 
 const memory = new WebAssembly.Memory({ initial: 256, maximum: 256 });
 const memInterface = new WasmMemoryInterface(memory);
@@ -327,8 +330,15 @@ function initWebGL2() {
       // Calculate SDF distance
       float dist = roundedBoxSDF(center, halfSize, u_cornerRadius);
 
-      // Smooth antialiasing
-      float alpha = 1.0 - smoothstep(-0.5, 0.5, dist);
+      // High-quality antialiasing using screen-space derivatives
+      // fwidth gives us the rate of change per pixel
+      float edgeWidth = length(vec2(dFdx(dist), dFdy(dist)));
+
+      // Clamp to avoid artifacts on very small shapes
+      edgeWidth = max(edgeWidth, 0.5);
+
+      // Smooth transition with high quality
+      float alpha = 1.0 - smoothstep(-edgeWidth, edgeWidth, dist);
 
       fragColor = vec4(u_color.rgb, u_color.a * alpha);
     }

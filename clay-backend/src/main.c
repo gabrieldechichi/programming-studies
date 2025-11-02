@@ -13,9 +13,10 @@ extern unsigned char __heap_base;
 // Renderer API - simple functions called from C to JS
 extern void _renderer_clear(float r, float g, float b, float a);
 extern void _renderer_draw_rect(float x, float y, float width, float height,
-                                  float r, float g, float b, float a,
-                                  float corner_top_left, float corner_top_right,
-                                  float corner_bottom_left, float corner_bottom_right);
+                                float r, float g, float b, float a,
+                                float corner_top_left, float corner_top_right,
+                                float corner_bottom_left,
+                                float corner_bottom_right);
 
 #define os_log(cstr) _os_log(cstr, CSTR_LEN(cstr));
 
@@ -45,32 +46,25 @@ void ui_render(Clay_RenderCommandArray *commands) {
     Clay_RenderCommand *cmd = Clay_RenderCommandArray_Get(commands, i);
 
     switch (cmd->commandType) {
-      case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
-        Clay_RectangleRenderData *rect = &cmd->renderData.rectangle;
-        _renderer_draw_rect(
-            cmd->boundingBox.x,
-            cmd->boundingBox.y,
-            cmd->boundingBox.width,
-            cmd->boundingBox.height,
-            rect->backgroundColor.r,
-            rect->backgroundColor.g,
-            rect->backgroundColor.b,
-            rect->backgroundColor.a,
-            rect->cornerRadius.topLeft,
-            rect->cornerRadius.topRight,
-            rect->cornerRadius.bottomLeft,
-            rect->cornerRadius.bottomRight
-        );
-        break;
-      }
+    case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
+      Clay_RectangleRenderData *rect = &cmd->renderData.rectangle;
+      _renderer_draw_rect(
+          cmd->boundingBox.x, cmd->boundingBox.y, cmd->boundingBox.width,
+          cmd->boundingBox.height, rect->backgroundColor.r,
+          rect->backgroundColor.g, rect->backgroundColor.b,
+          rect->backgroundColor.a, rect->cornerRadius.topLeft,
+          rect->cornerRadius.topRight, rect->cornerRadius.bottomLeft,
+          rect->cornerRadius.bottomRight);
+      break;
+    }
 
-      case CLAY_RENDER_COMMAND_TYPE_NONE:
-        break;
+    case CLAY_RENDER_COMMAND_TYPE_NONE:
+      break;
 
       // TODO: Add other command types (BORDER, TEXT, IMAGE, SCISSOR, etc.)
 
-      default:
-        break;
+    default:
+      break;
     }
   }
 }
@@ -114,8 +108,20 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
   // Create a simple UI with one red rectangle
   CLAY(CLAY_ID("MainContainer"),
        CLAY__INIT(Clay_ElementDeclaration){
-           .layout = {.sizing = {.width = CLAY_SIZING_GROW(),
-                                 .height = CLAY_SIZING_GROW()}}}) {
+           .layout =
+               {
+                   .sizing =
+                       {
+                           .width = CLAY_SIZING_GROW(),
+                           .height = CLAY_SIZING_GROW(),
+                       },
+                   .padding =
+                       {
+                           .left = 100,
+                           .top = 100,
+                       },
+               },
+       }) {
 
     CLAY(CLAY_ID("RedRectangle"),
          CLAY__INIT(Clay_ElementDeclaration){
