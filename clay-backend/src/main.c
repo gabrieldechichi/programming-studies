@@ -24,6 +24,8 @@ extern void _renderer_draw_border(float x, float y, float width, float height,
                                    float corner_bottom_right, float border_left,
                                    float border_right, float border_top,
                                    float border_bottom);
+extern void _renderer_scissor_start(float x, float y, float width, float height);
+extern void _renderer_scissor_end(void);
 
 #define os_log(cstr) _os_log(cstr, CSTR_LEN(cstr));
 
@@ -77,10 +79,23 @@ void ui_render(Clay_RenderCommandArray *commands) {
       break;
     }
 
+    case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START: {
+      // Note: Clay_ClipRenderData contains .horizontal and .vertical flags
+      // But for scissor test, we always clip both axes (scissor is a rectangle)
+      // The flags are informational about which scroll axes are enabled
+      _renderer_scissor_start(cmd->boundingBox.x, cmd->boundingBox.y,
+                              cmd->boundingBox.width, cmd->boundingBox.height);
+      break;
+    }
+
+    case CLAY_RENDER_COMMAND_TYPE_SCISSOR_END:
+      _renderer_scissor_end();
+      break;
+
     case CLAY_RENDER_COMMAND_TYPE_NONE:
       break;
 
-      // TODO: Add other command types (TEXT, IMAGE, SCISSOR, etc.)
+      // TODO: Add other command types (TEXT, IMAGE, CUSTOM)
 
     default:
       break;
@@ -124,7 +139,7 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
 
   Clay_BeginLayout();
 
-  // Create a simple UI with one red rectangle
+  // Create a UI with scrolling container to test scissor clipping
   CLAY(CLAY_ID("MainContainer"),
        CLAY__INIT(Clay_ElementDeclaration){
            .layout =
@@ -142,17 +157,57 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                },
        }) {
 
-    CLAY(CLAY_ID("RedRectangle"),
+    // Scrolling container with clipping enabled
+    CLAY(CLAY_ID("ScrollContainer"),
          CLAY__INIT(Clay_ElementDeclaration){
              .layout =
                  {
-                     .sizing = {.width = CLAY_SIZING_FIXED(400),
+                     .sizing = {.width = CLAY_SIZING_FIXED(300),
                                 .height = CLAY_SIZING_FIXED(300)},
+                     .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                     .childGap = 16,
                  },
-             .backgroundColor = {255, 0, 0, 255},
-             .cornerRadius = CLAY_CORNER_RADIUS(20),
-             .border = {.width = CLAY_BORDER_OUTSIDE(5),
-                        .color = {0, 255, 0, 255}}}) {}
+             .backgroundColor = {50, 50, 50, 255},
+             .cornerRadius = CLAY_CORNER_RADIUS(10),
+             .border = {.width = CLAY_BORDER_OUTSIDE(2),
+                        .color = {100, 100, 100, 255}},
+             .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
+         }) {
+
+      // Multiple rectangles to demonstrate scrolling
+      CLAY(CLAY_ID("RedRectangle"),
+           CLAY__INIT(Clay_ElementDeclaration){
+               .layout =
+                   {
+                       .sizing = {.width = CLAY_SIZING_FIXED(250),
+                                  .height = CLAY_SIZING_FIXED(150)},
+                   },
+               .backgroundColor = {255, 0, 0, 255},
+               .cornerRadius = CLAY_CORNER_RADIUS(10),
+           }) {}
+
+      CLAY(CLAY_ID("GreenRectangle"),
+           CLAY__INIT(Clay_ElementDeclaration){
+               .layout =
+                   {
+                       .sizing = {.width = CLAY_SIZING_FIXED(250),
+                                  .height = CLAY_SIZING_FIXED(150)},
+                   },
+               .backgroundColor = {0, 255, 0, 255},
+               .cornerRadius = CLAY_CORNER_RADIUS(10),
+           }) {}
+
+      CLAY(CLAY_ID("BlueRectangle"),
+           CLAY__INIT(Clay_ElementDeclaration){
+               .layout =
+                   {
+                       .sizing = {.width = CLAY_SIZING_FIXED(250),
+                                  .height = CLAY_SIZING_FIXED(150)},
+                   },
+               .backgroundColor = {0, 100, 255, 255},
+               .cornerRadius = CLAY_CORNER_RADIUS(10),
+           }) {}
+    }
   }
 
   render_commands = Clay_EndLayout();

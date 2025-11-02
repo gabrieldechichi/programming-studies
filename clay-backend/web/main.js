@@ -169,6 +169,22 @@ const importObject = {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
     },
+    _renderer_scissor_start: (x, y, width, height) => {
+      const dpr = window.devicePixelRatio || 1;
+
+      // WebGL scissor uses bottom-left origin, but Clay uses top-left
+      // Need to flip Y coordinate
+      const scissorX = x * dpr;
+      const scissorY = canvas.height - (y + height) * dpr;
+      const scissorW = width * dpr;
+      const scissorH = height * dpr;
+
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(scissorX, scissorY, scissorW, scissorH);
+    },
+    _renderer_scissor_end: () => {
+      gl.disable(gl.SCISSOR_TEST);
+    },
   },
 };
 
