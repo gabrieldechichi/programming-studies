@@ -1,11 +1,18 @@
 CC = clang
+
+CFLAGS = -Wall -Wextra -std=c99 -DCOMPILER_CLANG -DWASM
+CFLAGS_DEBUG = -O0 -g -DDEBUG
+CFLAGS_RELEASE = -O2
+INCLUDE_FLAGS = -Isrc -Ivendor -Ios -Imeta -I./ -Igenerated
+LINK_FLAGS =
+
 SRC = src/main.c
 WASM_TARGET = web/app.wasm
 
 all: build-wasm
 
 build:
-	$(CC) --target=wasm32 \
+	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) --target=wasm32 \
 		-nostdlib \
 		-Wl,--no-entry \
 		-Wl,--export-all \
