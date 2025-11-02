@@ -210,6 +210,37 @@ const gl = canvas.getContext("webgl2", {
   premultipliedAlpha: false,
 });
 
+// Resize canvas to match display size with proper DPI
+function resizeCanvasToDisplaySize() {
+  const dpr = window.devicePixelRatio || 1;
+  const displayWidth = canvas.clientWidth;
+  const displayHeight = canvas.clientHeight;
+
+  const needResize =
+    canvas.width !== displayWidth * dpr ||
+    canvas.height !== displayHeight * dpr;
+
+  if (needResize) {
+    canvas.width = displayWidth * dpr;
+    canvas.height = displayHeight * dpr;
+
+    // Update viewport
+    gl.viewport(0, 0, canvas.width, canvas.height);
+
+    console.log(
+      `Canvas resized: ${displayWidth}x${displayHeight} CSS, ${canvas.width}x${canvas.height} pixels (DPR: ${dpr})`
+    );
+  }
+
+  return needResize;
+}
+
+// Initial resize
+resizeCanvasToDisplaySize();
+
+// Handle window resize
+window.addEventListener("resize", resizeCanvasToDisplaySize);
+
 const memory = new WebAssembly.Memory({ initial: 256, maximum: 256 });
 const memInterface = new WasmMemoryInterface(memory);
 
@@ -221,10 +252,12 @@ const importObject = {
       console.log("[WASM]:", message);
     },
     _os_canvas_width: () => {
-      return canvas.width;
+      // Return CSS width (logical pixels), not physical pixels
+      return canvas.clientWidth;
     },
     _os_canvas_height: () => {
-      return canvas.height;
+      // Return CSS height (logical pixels), not physical pixels
+      return canvas.clientHeight;
     },
     _renderer_clear: (r, g, b, a) => {
       gl.clearColor(r, g, b, a);
@@ -244,11 +277,21 @@ const importObject = {
       cornerBL,
       cornerBR,
     ) => {
+      const dpr = window.devicePixelRatio || 1;
+
       gl.useProgram(rectangleProgram);
+      // Use physical canvas dimensions for resolution
       gl.uniform2f(u_resolution, canvas.width, canvas.height);
-      gl.uniform4f(u_rect, x, y, width, height);
+      // Scale logical coordinates to physical pixels
+      gl.uniform4f(u_rect, x * dpr, y * dpr, width * dpr, height * dpr);
       gl.uniform4f(u_color, r / 255.0, g / 255.0, b / 255.0, a / 255.0);
-      gl.uniform4f(u_cornerRadius, cornerTL, cornerTR, cornerBL, cornerBR);
+      gl.uniform4f(
+        u_cornerRadius,
+        cornerTL * dpr,
+        cornerTR * dpr,
+        cornerBL * dpr,
+        cornerBR * dpr,
+      );
       gl.bindVertexArray(quadVAO);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
@@ -331,13 +374,12 @@ function initWebGL2() {
       float dist = roundedBoxSDF(center, halfSize, u_cornerRadius);
 
       // High-quality antialiasing using screen-space derivatives
-      // fwidth gives us the rate of change per pixel
       float edgeWidth = length(vec2(dFdx(dist), dFdy(dist)));
 
       // Clamp to avoid artifacts on very small shapes
       edgeWidth = max(edgeWidth, 0.5);
 
-      // Smooth transition with high quality
+      // Smooth transition
       float alpha = 1.0 - smoothstep(-edgeWidth, edgeWidth, dist);
 
       fragColor = vec4(u_color.rgb, u_color.a * alpha);
@@ -428,6 +470,9 @@ function renderLoop(currentTime) {
     ? (currentTime - previousFrameTime) / 1000
     : 0;
   previousFrameTime = currentTime;
+
+  // Ensure canvas is at proper resolution
+  resizeCanvasToDisplaySize();
 
   // Call WASM update_and_render
   wasmExports.update_and_render(heapBase);
