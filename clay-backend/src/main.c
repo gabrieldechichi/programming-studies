@@ -1,10 +1,13 @@
 #include "memory.h"
+#include "os.h"
 #include "str.h"
 #include "typedefs.h"
 #include <stdarg.h>
 
 #include "assert.h"
 #include "str.h"
+
+#include "os.c"
 #include "thread.c"
 #include "memory.c"
 #include "vendor.c"
@@ -119,6 +122,10 @@ typedef struct {
   ThreadContext tctx;
   Clay_Arena clay_arena;
   Clay_RenderCommandArray render_commands;
+
+  OsFileReadOp font_read_op;
+  u8 *font_bytes;
+  size_t font_bytes_len;
 } AppState;
 
 // Test image URL (placeholder - replace with actual image)
@@ -225,14 +232,10 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
 
   // Allocate Clay's memory from main arena
   void *clay_memory = arena_alloc(&app_state->main_arena, clay_memory_size);
-  if (!clay_memory) {
-    printf("ERROR: Failed to allocate Clay memory!");
-    return;
-  }
+  assert(clay_memory);
 
   app_state->clay_arena =
       Clay_CreateArenaWithCapacityAndMemory(clay_memory_size, clay_memory);
-  printf("Clay arena created");
 
   // Get canvas dimensions from JavaScript
   int width = _os_canvas_width();
@@ -244,10 +247,40 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
       (Clay_Dimensions){.width = (float)width, .height = (float)height},
       (Clay_ErrorHandler){.errorHandlerFunction = HandleClayError});
   printf("Clay initialized!");
+
+  app_state->font_read_op = os_start_read_file("web/Roboto-Regular.ttf");
 }
 
 WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
   AppState *app_state = (AppState *)memory;
+
+  if (!app_state->font_bytes) {
+    switch (os_check_read_file(app_state->font_read_op)) {
+    case OS_FILE_READ_STATE_NONE:
+      printf("file operation not started");
+      break;
+    case OS_FILE_READ_STATE_IN_PROGRESS:
+      printf("loading font");
+      break;
+    case OS_FILE_READ_STATE_COMPLETED: {
+      size_t font_size = os_get_file_size(app_state->font_read_op);
+      printf("font loaded %f kb", BYTES_TO_KB(font_size));
+      PlatformFileData file_data = {0};
+      if (os_get_file_data(app_state->font_read_op, &file_data,
+                           &app_state->main_arena)) {
+        if (file_data.success) {
+          app_state->font_bytes = file_data.buffer;
+          app_state->font_bytes_len = file_data.buffer_len;
+        } else {
+          printf("error reading file data");
+        }
+      }
+    } break;
+    case OS_FILE_READ_STATE_ERROR:
+      printf("file read error");
+      break;
+    }
+  }
 
   int width = _os_canvas_width();
   int height = _os_canvas_height();

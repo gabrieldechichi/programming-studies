@@ -12,7 +12,7 @@ WASM_TARGET = web/app.wasm
 all: build-wasm
 
 build:
-	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) --target=wasm32 \
+	time $(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) --target=wasm32 \
 		-nostdlib \
 		-Wl,--no-entry \
 		-Wl,--export-all \
