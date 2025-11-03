@@ -35,7 +35,3 @@
 #include "stb/stb_truetype.h"
 #pragma clang diagnostic pop
 #undef STB_TRUETYPE_IMPLEMENTATION
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb/stb_image_write.h"
-#undef STB_IMAGE_WRITE_IMPLEMENTATION

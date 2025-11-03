@@ -11,6 +11,7 @@
 #include "os.c"
 #include "thread.c"
 #include "memory.c"
+#include "json_parser.c"
 #include "vendor.c"
 
 extern void _os_log(const char *str, int len);

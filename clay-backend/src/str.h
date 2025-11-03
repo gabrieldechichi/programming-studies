@@ -199,4 +199,89 @@ static inline int f32_to_str(float value, char *str, int precision) {
   __error("f32_to_str not implemented for platform")
 #endif
 
+static inline u32 str_len(const char *s) { strlen(s); }
+
+static inline b32 char_is_space(char c) {
+  return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
+         c == '\v';
+}
+
+static inline b32 char_is_line_break(char c) { return c == '\n'; }
+
+static inline b32 char_is_digit(char c) { return c >= '0' && c <= '9'; }
+
+static inline double str_to_double(const char *str) {
+  if (!str)
+    return 0.0;
+
+  double result = 0.0;
+  double sign = 1.0;
+  const char *ptr = str;
+
+  // Skip whitespace
+  while (char_is_space(*ptr))
+    ptr++;
+
+  // Handle sign
+  if (*ptr == '-') {
+    sign = -1.0;
+    ptr++;
+  } else if (*ptr == '+') {
+    ptr++;
+  }
+
+  // Parse integer part
+  while (char_is_digit(*ptr)) {
+    result = result * 10.0 + (*ptr - '0');
+    ptr++;
+  }
+
+  // Parse fractional part
+  if (*ptr == '.') {
+    ptr++;
+    double fraction = 0.0;
+    double divisor = 1.0;
+
+    while (char_is_digit(*ptr)) {
+      fraction = fraction * 10.0 + (*ptr - '0');
+      divisor *= 10.0;
+      ptr++;
+    }
+
+    result += fraction / divisor;
+  }
+
+  // Parse exponent (basic support for e/E notation)
+  if (*ptr == 'e' || *ptr == 'E') {
+    ptr++;
+    double exp_sign = 1.0;
+    double exponent = 0.0;
+
+    if (*ptr == '-') {
+      exp_sign = -1.0;
+      ptr++;
+    } else if (*ptr == '+') {
+      ptr++;
+    }
+
+    while (char_is_digit(*ptr)) {
+      exponent = exponent * 10.0 + (*ptr - '0');
+      ptr++;
+    }
+
+    // Apply exponent (simple power calculation)
+    double multiplier = 1.0;
+    for (int i = 0; i < (int)exponent; i++) {
+      if (exp_sign > 0) {
+        multiplier *= 10.0;
+      } else {
+        multiplier /= 10.0;
+      }
+    }
+    result *= multiplier;
+  }
+
+  return result * sign;
+}
+
 #endif // STRING_H
