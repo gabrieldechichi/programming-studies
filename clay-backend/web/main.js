@@ -233,6 +233,9 @@ const importObject = {
     _os_pow: (x, y) => {
       return Math.pow(x, y);
     },
+    _os_roundf: (x) => {
+      return Math.round(x);
+    },
     _os_log: (ptr, len) => {
       const message = memInterface.loadString(ptr, len);
       console.log("[WASM]:", message);
@@ -244,6 +247,9 @@ const importObject = {
     _os_canvas_height: () => {
       // Return CSS height (logical pixels), not physical pixels
       return canvas.clientHeight;
+    },
+    _os_get_dpr: () => {
+      return window.devicePixelRatio || 1.0;
     },
     _renderer_clear: (r, g, b, a) => {
       gl.clearColor(r, g, b, a);
@@ -525,12 +531,12 @@ const importObject = {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-      const dpr = window.devicePixelRatio || 1;
-
       // Use text shader
       gl.useProgram(renderer.text.program);
 
       // Set uniforms
+      // Note: x, y are already in physical pixels from C side
+      // width, height are the actual bitmap dimensions (already physical pixels)
       gl.uniform2f(
         renderer.text.uniforms.resolution,
         canvas.width,
@@ -538,10 +544,10 @@ const importObject = {
       );
       gl.uniform4f(
         renderer.text.uniforms.rect,
-        x * dpr,
-        y * dpr,
-        w * dpr,
-        h * dpr,
+        x,  // Already physical pixels
+        y,  // Already physical pixels
+        w,  // Bitmap width (physical pixels)
+        h,  // Bitmap height (physical pixels)
       );
       gl.uniform4f(renderer.text.uniforms.color, r, g, b, a);
 

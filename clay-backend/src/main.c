@@ -2,6 +2,7 @@
 #include "os.h"
 #include "str.h"
 #include "typedefs.h"
+#include "math.h"
 #include <stdarg.h>
 
 #include "assert.h"
@@ -15,6 +16,7 @@
 extern void _os_log(const char *str, int len);
 extern int _os_canvas_width(void);
 extern int _os_canvas_height(void);
+extern float _os_get_dpr(void);
 extern unsigned char __heap_base;
 
 int printf(const char *__restrict, ...);
@@ -169,8 +171,11 @@ Clay_Dimensions MeasureText(Clay_StringSlice text,
 
   stbtt_fontinfo *font = &app_state->text_renderer.font;
 
-  // Calculate scale for desired font size
-  f32 scale = stbtt_ScaleForPixelHeight(font, config->fontSize);
+  // Get DPI scale for crispy text
+  f32 dpr = _os_get_dpr();
+
+  // Calculate scale for desired font size at device resolution
+  f32 scale = stbtt_ScaleForPixelHeight(font, config->fontSize * dpr);
 
   f32 width = 0;
 
@@ -197,7 +202,8 @@ Clay_Dimensions MeasureText(Clay_StringSlice text,
   i32 descent = app_state->text_renderer.descent;
   f32 height = (f32)(ascent - descent) * scale;
 
-  return (Clay_Dimensions){width, height};
+  // Return logical pixels (divide by DPR)
+  return (Clay_Dimensions){width / dpr, height / dpr};
 }
 
 // Render function - iterates through Clay commands and calls JS renderer
@@ -268,11 +274,16 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
       }
 
       stbtt_fontinfo *font = &app_state->text_renderer.font;
-      f32 scale = stbtt_ScaleForPixelHeight(font, text_data->fontSize);
+
+      // Get DPI for crispy text rendering
+      f32 dpr = _os_get_dpr();
+
+      // Rasterize at device resolution for crispness
+      f32 scale = stbtt_ScaleForPixelHeight(font, text_data->fontSize * dpr);
 
       // Get baseline offset
       i32 ascent = app_state->text_renderer.ascent;
-      f32 baseline_y = cmd->boundingBox.y + (f32)ascent * scale;
+      f32 baseline_y = cmd->boundingBox.y + (f32)ascent * scale / dpr;
 
       f32 x = cmd->boundingBox.x;
 
@@ -280,19 +291,23 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
       for (i32 i = 0; i < text_data->stringContents.length; i++) {
         i32 codepoint = (i32)text_data->stringContents.chars[i];
 
-        // Rasterize glyph
+        // Rasterize glyph at high DPI
         i32 width, height, xoff, yoff;
         u8 *bitmap = stbtt_GetCodepointBitmap(font, 0, scale, codepoint,
                                               &width, &height, &xoff, &yoff);
 
         if (bitmap && width > 0 && height > 0) {
-          // Calculate position (baseline + offsets)
-          f32 glyph_x = x + (f32)xoff;
-          f32 glyph_y = baseline_y + (f32)yoff;
+          // Calculate position in logical pixels
+          f32 glyph_x = x + (f32)xoff / dpr;
+          f32 glyph_y = baseline_y + (f32)yoff / dpr;
 
-          // Call JS renderer
-          _renderer_draw_glyph(glyph_x, glyph_y, width, height, bitmap,
-                               text_data->textColor.r / 255.0f,
+          // Round to pixel boundaries for crispness
+          glyph_x = roundf(glyph_x * dpr) / dpr;
+          glyph_y = roundf(glyph_y * dpr) / dpr;
+
+          // Call JS renderer with physical pixel coordinates
+          _renderer_draw_glyph(glyph_x * dpr, glyph_y * dpr, width, height,
+                               bitmap, text_data->textColor.r / 255.0f,
                                text_data->textColor.g / 255.0f,
                                text_data->textColor.b / 255.0f,
                                text_data->textColor.a / 255.0f);
@@ -301,16 +316,16 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
           stbtt_FreeBitmap(bitmap, NULL);
         }
 
-        // Advance cursor
+        // Advance cursor in logical pixels
         i32 advance, lsb;
         stbtt_GetCodepointHMetrics(font, codepoint, &advance, &lsb);
-        x += (f32)advance * scale;
+        x += (f32)advance * scale / dpr;
 
         // Apply kerning
         if (i < text_data->stringContents.length - 1) {
           i32 next_cp = (i32)text_data->stringContents.chars[i + 1];
           i32 kern = stbtt_GetCodepointKernAdvance(font, codepoint, next_cp);
-          x += (f32)kern * scale;
+          x += (f32)kern * scale / dpr;
         }
       }
 
@@ -448,70 +463,70 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                  },
          }) {
 
-      // // Scrolling container with clipping enabled
-      // CLAY(CLAY_ID("ScrollContainer"),
-      //      CLAY__INIT(Clay_ElementDeclaration){
-      //          .layout =
-      //              {
-      //                  .sizing = {.width = CLAY_SIZING_FIXED(300),
-      //                             .height = CLAY_SIZING_FIXED(300)},
-      //                  .layoutDirection = CLAY_TOP_TO_BOTTOM,
-      //                  .childGap = 16,
-      //              },
-      //          .backgroundColor = {50, 50, 50, 255},
-      //          .cornerRadius = CLAY_CORNER_RADIUS(10),
-      //          .border = {.width = CLAY_BORDER_OUTSIDE(2),
-      //                     .color = {100, 100, 100, 255}},
-      //          .clip = {.vertical = true, .childOffset =
-      //          Clay_GetScrollOffset()},
-      //      }) {
-      //
-      //   // Multiple rectangles to demonstrate scrolling
-      //   CLAY(CLAY_ID("RedRectangle"),
-      //        CLAY__INIT(Clay_ElementDeclaration){
-      //            .layout =
-      //                {
-      //                    .sizing = {.width = CLAY_SIZING_FIXED(250),
-      //                               .height = CLAY_SIZING_FIXED(150)},
-      //                },
-      //            .backgroundColor = {255, 0, 0, 255},
-      //            .cornerRadius = CLAY_CORNER_RADIUS(10),
-      //        }) {}
-      //
-      //   CLAY(CLAY_ID("GreenRectangle"),
-      //        CLAY__INIT(Clay_ElementDeclaration){
-      //            .layout =
-      //                {
-      //                    .sizing = {.width = CLAY_SIZING_FIXED(250),
-      //                               .height = CLAY_SIZING_FIXED(150)},
-      //                },
-      //            .backgroundColor = {0, 255, 0, 255},
-      //            .cornerRadius = CLAY_CORNER_RADIUS(10),
-      //        }) {}
-      //
-      //   CLAY(CLAY_ID("BlueRectangle"),
-      //        CLAY__INIT(Clay_ElementDeclaration){
-      //            .layout =
-      //                {
-      //                    .sizing = {.width = CLAY_SIZING_FIXED(250),
-      //                               .height = CLAY_SIZING_FIXED(150)},
-      //                },
-      //            .backgroundColor = {0, 100, 255, 255},
-      //            .cornerRadius = CLAY_CORNER_RADIUS(10),
-      //        }) {}
-      // }
-      //
-      // // Test image with rounded corners (outside clipped container)
-      // CLAY(CLAY_ID("TestImage"),
-      //      CLAY__INIT(Clay_ElementDeclaration){
-      //          .layout =
-      //              {
-      //                  .sizing = {.width = CLAY_SIZING_FIXED(200),
-      //                             .height = CLAY_SIZING_FIXED(200)},
-      //              },
-      //          .image = {.imageData = (void *)test_image_url},
-      //          .cornerRadius = CLAY_CORNER_RADIUS(20),
-      //      }) {}
+      // Scrolling container with clipping enabled
+      CLAY(CLAY_ID("ScrollContainer"),
+           CLAY__INIT(Clay_ElementDeclaration){
+               .layout =
+                   {
+                       .sizing = {.width = CLAY_SIZING_FIXED(300),
+                                  .height = CLAY_SIZING_FIXED(300)},
+                       .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                       .childGap = 16,
+                   },
+               .backgroundColor = {50, 50, 50, 255},
+               .cornerRadius = CLAY_CORNER_RADIUS(10),
+               .border = {.width = CLAY_BORDER_OUTSIDE(2),
+                          .color = {100, 100, 100, 255}},
+               .clip = {.vertical = true, .childOffset =
+               Clay_GetScrollOffset()},
+           }) {
+
+        // Multiple rectangles to demonstrate scrolling
+        CLAY(CLAY_ID("RedRectangle"),
+             CLAY__INIT(Clay_ElementDeclaration){
+                 .layout =
+                     {
+                         .sizing = {.width = CLAY_SIZING_FIXED(250),
+                                    .height = CLAY_SIZING_FIXED(150)},
+                     },
+                 .backgroundColor = {255, 0, 0, 255},
+                 .cornerRadius = CLAY_CORNER_RADIUS(10),
+             }) {}
+
+        CLAY(CLAY_ID("GreenRectangle"),
+             CLAY__INIT(Clay_ElementDeclaration){
+                 .layout =
+                     {
+                         .sizing = {.width = CLAY_SIZING_FIXED(250),
+                                    .height = CLAY_SIZING_FIXED(150)},
+                     },
+                 .backgroundColor = {0, 255, 0, 255},
+                 .cornerRadius = CLAY_CORNER_RADIUS(10),
+             }) {}
+
+        CLAY(CLAY_ID("BlueRectangle"),
+             CLAY__INIT(Clay_ElementDeclaration){
+                 .layout =
+                     {
+                         .sizing = {.width = CLAY_SIZING_FIXED(250),
+                                    .height = CLAY_SIZING_FIXED(150)},
+                     },
+                 .backgroundColor = {0, 100, 255, 255},
+                 .cornerRadius = CLAY_CORNER_RADIUS(10),
+             }) {}
+      }
+
+      // Test image with rounded corners (outside clipped container)
+      CLAY(CLAY_ID("TestImage"),
+           CLAY__INIT(Clay_ElementDeclaration){
+               .layout =
+                   {
+                       .sizing = {.width = CLAY_SIZING_FIXED(200),
+                                  .height = CLAY_SIZING_FIXED(200)},
+                   },
+               .image = {.imageData = (void *)test_image_url},
+               .cornerRadius = CLAY_CORNER_RADIUS(20),
+           }) {}
 
       // Test text element
       CLAY_TEXT(CLAY_STRING("Hello World!"),

@@ -17,10 +17,12 @@
 extern f64 _os_cos(f64 x);
 extern f64 _os_acos(f64 x);
 extern f64 _os_pow(f64 x, f64 y);
+extern f32 _os_roundf(f32 x);
 
 #define cos(x) _os_cos(x)
 #define acos(x) _os_acos(x)
 #define pow(x, y) _os_pow(x, y)
+#define roundf(x) _os_roundf(x)
 #else
 
 #define floorf(x) __error("floorf not implemented")
