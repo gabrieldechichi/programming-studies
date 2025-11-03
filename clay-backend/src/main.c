@@ -116,6 +116,14 @@ int printf(const char *format, ...) {
   return buf_pos;
 }
 
+// Text Renderer
+typedef struct {
+  stbtt_fontinfo font;           // stb_truetype font info
+  f32 scale;                      // Cached scale for current font size
+  i32 ascent, descent, lineGap;   // Font metrics
+  b32 initialized;
+} TextRenderer;
+
 // App State
 typedef struct {
   ArenaAllocator main_arena;
@@ -126,6 +134,8 @@ typedef struct {
   OsFileReadOp font_read_op;
   u8 *font_bytes;
   size_t font_bytes_len;
+
+  TextRenderer text_renderer;
 } AppState;
 
 // Test image URL (placeholder - replace with actual image)
@@ -271,6 +281,24 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
         if (file_data.success) {
           app_state->font_bytes = file_data.buffer;
           app_state->font_bytes_len = file_data.buffer_len;
+
+          // Initialize stb_truetype font
+          if (!stbtt_InitFont(&app_state->text_renderer.font,
+                              app_state->font_bytes, 0)) {
+            printf("Failed to initialize font!");
+          } else {
+            // Get font metrics
+            stbtt_GetFontVMetrics(&app_state->text_renderer.font,
+                                  &app_state->text_renderer.ascent,
+                                  &app_state->text_renderer.descent,
+                                  &app_state->text_renderer.lineGap);
+
+            app_state->text_renderer.initialized = true;
+            printf("Font initialized! ascent=%d descent=%d lineGap=%d",
+                   app_state->text_renderer.ascent,
+                   app_state->text_renderer.descent,
+                   app_state->text_renderer.lineGap);
+          }
         } else {
           printf("error reading file data");
         }
