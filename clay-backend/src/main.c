@@ -21,6 +21,9 @@ extern unsigned char __heap_base;
 
 int printf(const char *__restrict, ...);
 
+#define app_log(fmt, ...)                                                      \
+  printf("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
+
 // Renderer API - simple functions called from C to JS
 extern void _renderer_clear(float r, float g, float b, float a);
 extern void _renderer_draw_rect(float x, float y, float width, float height,
@@ -44,8 +47,8 @@ extern void _renderer_scissor_start(float x, float y, float width,
                                     float height);
 extern void _renderer_scissor_end(void);
 extern void _renderer_draw_glyph(float x, float y, int width, int height,
-                                  const u8 *bitmap_data, float r, float g,
-                                  float b, float a);
+                                 const u8 *bitmap_data, float r, float g,
+                                 float b, float a);
 
 int printf(const char *format, ...) {
   char buffer[KB(4)];
@@ -153,7 +156,7 @@ WASM_EXPORT("os_get_heap_base") void *os_get_heap_base(void) {
 
 // Error handler for Clay
 void HandleClayError(Clay_ErrorData errorData) {
-  printf("Clay Error!");
+  app_log("Clay Error!");
   UNUSED(errorData);
 }
 
@@ -163,7 +166,7 @@ Clay_Dimensions MeasureText(Clay_StringSlice text,
   AppState *app_state = (AppState *)userData;
 
   debug_assert(app_state);
-  printf("%d", app_state->font_read_op);
+  app_log("%d", app_state->font_read_op);
 
   if (!app_state->text_renderer.initialized) {
     return (Clay_Dimensions){0, 0};
@@ -293,8 +296,8 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
 
         // Rasterize glyph at high DPI
         i32 width, height, xoff, yoff;
-        u8 *bitmap = stbtt_GetCodepointBitmap(font, 0, scale, codepoint,
-                                              &width, &height, &xoff, &yoff);
+        u8 *bitmap = stbtt_GetCodepointBitmap(font, 0, scale, codepoint, &width,
+                                              &height, &xoff, &yoff);
 
         if (bitmap && width > 0 && height > 0) {
           // Calculate position in logical pixels
@@ -306,11 +309,10 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
           glyph_y = roundf(glyph_y * dpr) / dpr;
 
           // Call JS renderer with physical pixel coordinates
-          _renderer_draw_glyph(glyph_x * dpr, glyph_y * dpr, width, height,
-                               bitmap, text_data->textColor.r / 255.0f,
-                               text_data->textColor.g / 255.0f,
-                               text_data->textColor.b / 255.0f,
-                               text_data->textColor.a / 255.0f);
+          _renderer_draw_glyph(
+              glyph_x * dpr, glyph_y * dpr, width, height, bitmap,
+              text_data->textColor.r / 255.0f, text_data->textColor.g / 255.0f,
+              text_data->textColor.b / 255.0f, text_data->textColor.a / 255.0f);
 
           // Free bitmap (uses arena, but still need to call free)
           stbtt_FreeBitmap(bitmap, NULL);
@@ -344,7 +346,7 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
 }
 
 WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
-  printf("entrypoint: memory size %f", BYTES_TO_MB(memory_size));
+  app_log("entrypoint: memory size %f", BYTES_TO_MB(memory_size));
 
   AppState *app_state = (AppState *)memory;
   app_state->main_arena = arena_from_buffer((uint8 *)memory + sizeof(AppState),
@@ -354,11 +356,11 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
 
   app_state->tctx.temp_allocator = temp_arena;
   tctx_set(&app_state->tctx);
-  printf("ThreadContext initialized");
+  app_log("ThreadContext initialized");
 
   // Calculate Clay's memory requirements
   uint64_t clay_memory_size = Clay_MinMemorySize();
-  printf("Clay memory size calculated");
+  app_log("Clay memory size calculated");
 
   // Allocate Clay's memory from main arena
   void *clay_memory = arena_alloc(&app_state->main_arena, clay_memory_size);
@@ -376,11 +378,11 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
       app_state->clay_arena,
       (Clay_Dimensions){.width = (float)width, .height = (float)height},
       (Clay_ErrorHandler){.errorHandlerFunction = HandleClayError});
-  printf("Clay initialized!");
+  app_log("Clay initialized!");
 
   // Register text measurement function with Clay
   Clay_SetMeasureTextFunction(MeasureText, app_state);
-  printf("Clay text measurement function registered!");
+  app_log("Clay text measurement function registered!");
 
   app_state->font_read_op = os_start_read_file("web/Roboto-Regular.ttf");
 }
@@ -391,14 +393,14 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
   if (!app_state->font_bytes) {
     switch (os_check_read_file(app_state->font_read_op)) {
     case OS_FILE_READ_STATE_NONE:
-      printf("file operation not started");
+      app_log("file operation not started");
       break;
     case OS_FILE_READ_STATE_IN_PROGRESS:
-      printf("loading font");
+      app_log("loading font");
       break;
     case OS_FILE_READ_STATE_COMPLETED: {
       size_t font_size = os_get_file_size(app_state->font_read_op);
-      printf("font loaded %f kb", BYTES_TO_KB(font_size));
+      app_log("font loaded %f kb", BYTES_TO_KB(font_size));
       PlatformFileData file_data = {0};
       if (os_get_file_data(app_state->font_read_op, &file_data,
                            &app_state->main_arena)) {
@@ -409,7 +411,7 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
           // Initialize stb_truetype font
           if (!stbtt_InitFont(&app_state->text_renderer.font,
                               app_state->font_bytes, 0)) {
-            printf("Failed to initialize font!");
+            app_log("Failed to initialize font!");
           } else {
             // Get font metrics
             stbtt_GetFontVMetrics(&app_state->text_renderer.font,
@@ -418,18 +420,18 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                                   &app_state->text_renderer.lineGap);
 
             app_state->text_renderer.initialized = true;
-            printf("Font initialized! ascent=%d descent=%d lineGap=%d",
+            app_log("Font initialized! ascent=%d descent=%d lineGap=%d",
                    app_state->text_renderer.ascent,
                    app_state->text_renderer.descent,
                    app_state->text_renderer.lineGap);
           }
         } else {
-          printf("error reading file data");
+          app_log("error reading file data");
         }
       }
     } break;
     case OS_FILE_READ_STATE_ERROR:
-      printf("file read error");
+      app_log("file read error");
       break;
     }
   }
@@ -464,22 +466,22 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
          }) {
 
       // Scrolling container with clipping enabled
-      CLAY(CLAY_ID("ScrollContainer"),
-           CLAY__INIT(Clay_ElementDeclaration){
-               .layout =
-                   {
-                       .sizing = {.width = CLAY_SIZING_FIXED(300),
-                                  .height = CLAY_SIZING_FIXED(300)},
-                       .layoutDirection = CLAY_TOP_TO_BOTTOM,
-                       .childGap = 16,
-                   },
-               .backgroundColor = {50, 50, 50, 255},
-               .cornerRadius = CLAY_CORNER_RADIUS(10),
-               .border = {.width = CLAY_BORDER_OUTSIDE(2),
-                          .color = {100, 100, 100, 255}},
-               .clip = {.vertical = true, .childOffset =
-               Clay_GetScrollOffset()},
-           }) {
+      CLAY(
+          CLAY_ID("ScrollContainer"),
+          CLAY__INIT(Clay_ElementDeclaration){
+              .layout =
+                  {
+                      .sizing = {.width = CLAY_SIZING_FIXED(300),
+                                 .height = CLAY_SIZING_FIXED(300)},
+                      .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                      .childGap = 16,
+                  },
+              .backgroundColor = {50, 50, 50, 255},
+              .cornerRadius = CLAY_CORNER_RADIUS(10),
+              .border = {.width = CLAY_BORDER_OUTSIDE(2),
+                         .color = {100, 100, 100, 255}},
+              .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
+          }) {
 
         // Multiple rectangles to demonstrate scrolling
         CLAY(CLAY_ID("RedRectangle"),
@@ -531,7 +533,7 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
       // Test text element
       CLAY_TEXT(CLAY_STRING("Hello World!"),
                 CLAY_TEXT_CONFIG(
-                    {.fontSize = 24, .textColor = {255, 255, 255, 255}}));
+                    {.fontSize = 48, .textColor = {255, 255, 255, 255}}));
     }
 
     app_state->render_commands = Clay_EndLayout();

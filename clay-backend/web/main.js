@@ -238,7 +238,7 @@ const importObject = {
     },
     _os_log: (ptr, len) => {
       const message = memInterface.loadString(ptr, len);
-      console.log("[WASM]:", message);
+      console.log(message);
     },
     _os_canvas_width: () => {
       // Return CSS width (logical pixels), not physical pixels
