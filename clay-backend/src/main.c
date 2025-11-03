@@ -41,6 +41,9 @@ extern void _renderer_draw_image(float x, float y, float width, float height,
 extern void _renderer_scissor_start(float x, float y, float width,
                                     float height);
 extern void _renderer_scissor_end(void);
+extern void _renderer_draw_glyph(float x, float y, int width, int height,
+                                  const u8 *bitmap_data, float r, float g,
+                                  float b, float a);
 
 int printf(const char *format, ...) {
   char buffer[KB(4)];
@@ -194,13 +197,11 @@ Clay_Dimensions MeasureText(Clay_StringSlice text,
   i32 descent = app_state->text_renderer.descent;
   f32 height = (f32)(ascent - descent) * scale;
 
-  printf("clay measure text %f %f", width, height);
-
   return (Clay_Dimensions){width, height};
 }
 
 // Render function - iterates through Clay commands and calls JS renderer
-void ui_render(Clay_RenderCommandArray *commands) {
+void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
   // Clear screen
   _renderer_clear(0.0f, 0.0f, 0.0f, 1.0f);
 
@@ -260,9 +261,59 @@ void ui_render(Clay_RenderCommandArray *commands) {
     }
 
     case CLAY_RENDER_COMMAND_TYPE_TEXT: {
-      Clay_TextRenderData *text = &cmd->renderData.text;
-      printf("%f %f %s", cmd->boundingBox.width, cmd->boundingBox.height,
-             text->stringContents.baseChars);
+      Clay_TextRenderData *text_data = &cmd->renderData.text;
+
+      if (!app_state->text_renderer.initialized) {
+        break;
+      }
+
+      stbtt_fontinfo *font = &app_state->text_renderer.font;
+      f32 scale = stbtt_ScaleForPixelHeight(font, text_data->fontSize);
+
+      // Get baseline offset
+      i32 ascent = app_state->text_renderer.ascent;
+      f32 baseline_y = cmd->boundingBox.y + (f32)ascent * scale;
+
+      f32 x = cmd->boundingBox.x;
+
+      // Render each character
+      for (i32 i = 0; i < text_data->stringContents.length; i++) {
+        i32 codepoint = (i32)text_data->stringContents.chars[i];
+
+        // Rasterize glyph
+        i32 width, height, xoff, yoff;
+        u8 *bitmap = stbtt_GetCodepointBitmap(font, 0, scale, codepoint,
+                                              &width, &height, &xoff, &yoff);
+
+        if (bitmap && width > 0 && height > 0) {
+          // Calculate position (baseline + offsets)
+          f32 glyph_x = x + (f32)xoff;
+          f32 glyph_y = baseline_y + (f32)yoff;
+
+          // Call JS renderer
+          _renderer_draw_glyph(glyph_x, glyph_y, width, height, bitmap,
+                               text_data->textColor.r / 255.0f,
+                               text_data->textColor.g / 255.0f,
+                               text_data->textColor.b / 255.0f,
+                               text_data->textColor.a / 255.0f);
+
+          // Free bitmap (uses arena, but still need to call free)
+          stbtt_FreeBitmap(bitmap, NULL);
+        }
+
+        // Advance cursor
+        i32 advance, lsb;
+        stbtt_GetCodepointHMetrics(font, codepoint, &advance, &lsb);
+        x += (f32)advance * scale;
+
+        // Apply kerning
+        if (i < text_data->stringContents.length - 1) {
+          i32 next_cp = (i32)text_data->stringContents.chars[i + 1];
+          i32 kern = stbtt_GetCodepointKernAdvance(font, codepoint, next_cp);
+          x += (f32)kern * scale;
+        }
+      }
+
       break;
     }
 
@@ -471,7 +522,7 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
     app_state->render_commands = Clay_EndLayout();
 
     // Render using C-side function
-    ui_render(&app_state->render_commands);
+    ui_render(app_state, &app_state->render_commands);
   }
 
   arena_reset(&tctx_current()->temp_allocator);

@@ -4,6 +4,7 @@ import {
 } from "./rectangle.glsl.js";
 import { borderVertexShader, borderFragmentShader } from "./border.glsl.js";
 import { imageVertexShader, imageFragmentShader } from "./image.glsl.js";
+import { textVertexShader, textFragmentShader } from "./text.glsl.js";
 import { WasmMemoryInterface } from "./wasm.js";
 
 export function createFileSystemFunctions(wasmMemory) {
@@ -487,6 +488,76 @@ const importObject = {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
     },
+    _renderer_draw_glyph: (x, y, width, height, bitmapPtr, r, g, b, a) => {
+      // Ensure integers (defensive)
+      const w = Math.floor(width);
+      const h = Math.floor(height);
+
+      if (w === 0 || h === 0) return;
+
+      // Copy bitmap from WASM memory (single-channel grayscale)
+      const bitmap = memInterface.loadU8Array(bitmapPtr, bitmapPtr + w * h);
+
+      // Create temporary texture
+      const texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+
+      // Set pixel store to 1-byte alignment (default is 4)
+      // This is critical for odd-width textures
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+      // Upload as single-channel RED texture (GL_ALPHA deprecated in WebGL2)
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.R8, // Internal format: single-channel 8-bit
+        w,
+        h,
+        0,
+        gl.RED, // Format: red channel
+        gl.UNSIGNED_BYTE,
+        bitmap,
+      );
+
+      // Linear filtering for smooth text
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+      const dpr = window.devicePixelRatio || 1;
+
+      // Use text shader
+      gl.useProgram(renderer.text.program);
+
+      // Set uniforms
+      gl.uniform2f(
+        renderer.text.uniforms.resolution,
+        canvas.width,
+        canvas.height,
+      );
+      gl.uniform4f(
+        renderer.text.uniforms.rect,
+        x * dpr,
+        y * dpr,
+        w * dpr,
+        h * dpr,
+      );
+      gl.uniform4f(renderer.text.uniforms.color, r, g, b, a);
+
+      // Bind texture
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.uniform1i(renderer.text.uniforms.texture, 0);
+
+      // Draw quad
+      gl.bindVertexArray(renderer.text.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.bindVertexArray(null);
+
+      // Cleanup (no caching yet)
+      gl.deleteTexture(texture);
+    },
   },
 };
 
@@ -525,6 +596,17 @@ const renderer = {
       texture: null,
       tint: null,
       cornerRadius: null,
+    },
+  },
+  text: {
+    program: null,
+    vao: null,
+    vbo: null,
+    uniforms: {
+      resolution: null,
+      rect: null,
+      texture: null,
+      color: null,
     },
   },
 };
@@ -798,8 +880,84 @@ function initWebGL2() {
 
   gl.bindVertexArray(null);
 
+  // ===== Text Shader Program =====
+
+  // Compile text shaders
+  const textVertShader = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(textVertShader, textVertexShader);
+  gl.compileShader(textVertShader);
+
+  if (!gl.getShaderParameter(textVertShader, gl.COMPILE_STATUS)) {
+    console.error(
+      "Text vertex shader compile error:",
+      gl.getShaderInfoLog(textVertShader),
+    );
+    return;
+  }
+
+  const textFragShader = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(textFragShader, textFragmentShader);
+  gl.compileShader(textFragShader);
+
+  if (!gl.getShaderParameter(textFragShader, gl.COMPILE_STATUS)) {
+    console.error(
+      "Text fragment shader compile error:",
+      gl.getShaderInfoLog(textFragShader),
+    );
+    return;
+  }
+
+  // Link text program
+  renderer.text.program = gl.createProgram();
+  gl.attachShader(renderer.text.program, textVertShader);
+  gl.attachShader(renderer.text.program, textFragShader);
+  gl.linkProgram(renderer.text.program);
+
+  if (!gl.getProgramParameter(renderer.text.program, gl.LINK_STATUS)) {
+    console.error(
+      "Text program link error:",
+      gl.getProgramInfoLog(renderer.text.program),
+    );
+    return;
+  }
+
+  // Get text uniform locations
+  renderer.text.uniforms.resolution = gl.getUniformLocation(
+    renderer.text.program,
+    "u_resolution",
+  );
+  renderer.text.uniforms.rect = gl.getUniformLocation(
+    renderer.text.program,
+    "u_rect",
+  );
+  renderer.text.uniforms.texture = gl.getUniformLocation(
+    renderer.text.program,
+    "u_texture",
+  );
+  renderer.text.uniforms.color = gl.getUniformLocation(
+    renderer.text.program,
+    "u_color",
+  );
+
+  // Create text quad VAO and VBO (same geometry as others)
+  renderer.text.vao = gl.createVertexArray();
+  gl.bindVertexArray(renderer.text.vao);
+
+  renderer.text.vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, renderer.text.vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+
+  const textA_position = gl.getAttribLocation(
+    renderer.text.program,
+    "a_position",
+  );
+  gl.enableVertexAttribArray(textA_position);
+  gl.vertexAttribPointer(textA_position, 2, gl.FLOAT, false, 0, 0);
+
+  gl.bindVertexArray(null);
+
   console.log(
-    "WebGL2 initialized successfully (rectangles + borders + images)",
+    "WebGL2 initialized successfully (rectangles + borders + images + text)",
   );
 }
 
