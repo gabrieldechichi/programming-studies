@@ -52,6 +52,15 @@ const imageCache = {}; // { url: { img: Image, texture: WebGLTexture, loaded: bo
 const importObject = {
   env: {
     memory: memory,
+    _os_cos: (x) => {
+      return Math.cos(x);
+    },
+    _os_acos: (x) => {
+      return Math.acos(x);
+    },
+    _os_pow: (x,y) => {
+      return Math.pow(x,y);
+    },
     _os_log: (ptr, len) => {
       const message = memInterface.loadString(ptr, len);
       console.log("[WASM]:", message);
@@ -412,8 +421,14 @@ function initWebGL2() {
     renderer.rectangle.program,
     "u_resolution",
   );
-  renderer.rectangle.uniforms.rect = gl.getUniformLocation(renderer.rectangle.program, "u_rect");
-  renderer.rectangle.uniforms.color = gl.getUniformLocation(renderer.rectangle.program, "u_color");
+  renderer.rectangle.uniforms.rect = gl.getUniformLocation(
+    renderer.rectangle.program,
+    "u_rect",
+  );
+  renderer.rectangle.uniforms.color = gl.getUniformLocation(
+    renderer.rectangle.program,
+    "u_color",
+  );
   renderer.rectangle.uniforms.cornerRadius = gl.getUniformLocation(
     renderer.rectangle.program,
     "u_cornerRadius",
@@ -443,7 +458,10 @@ function initWebGL2() {
   gl.bindBuffer(gl.ARRAY_BUFFER, renderer.rectangle.vbo);
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
-  const rectA_position = gl.getAttribLocation(renderer.rectangle.program, "a_position");
+  const rectA_position = gl.getAttribLocation(
+    renderer.rectangle.program,
+    "a_position",
+  );
   gl.enableVertexAttribArray(rectA_position);
   gl.vertexAttribPointer(rectA_position, 2, gl.FLOAT, false, 0, 0);
 
@@ -491,11 +509,26 @@ function initWebGL2() {
   }
 
   // Get border uniform locations
-  renderer.border.uniforms.resolution = gl.getUniformLocation(renderer.border.program, "u_resolution");
-  renderer.border.uniforms.rect = gl.getUniformLocation(renderer.border.program, "u_rect");
-  renderer.border.uniforms.color = gl.getUniformLocation(renderer.border.program, "u_color");
-  renderer.border.uniforms.cornerRadius = gl.getUniformLocation(renderer.border.program, "u_cornerRadius");
-  renderer.border.uniforms.borderWidth = gl.getUniformLocation(renderer.border.program, "u_borderWidth");
+  renderer.border.uniforms.resolution = gl.getUniformLocation(
+    renderer.border.program,
+    "u_resolution",
+  );
+  renderer.border.uniforms.rect = gl.getUniformLocation(
+    renderer.border.program,
+    "u_rect",
+  );
+  renderer.border.uniforms.color = gl.getUniformLocation(
+    renderer.border.program,
+    "u_color",
+  );
+  renderer.border.uniforms.cornerRadius = gl.getUniformLocation(
+    renderer.border.program,
+    "u_cornerRadius",
+  );
+  renderer.border.uniforms.borderWidth = gl.getUniformLocation(
+    renderer.border.program,
+    "u_borderWidth",
+  );
 
   // Create border quad VAO and VBO (same geometry as rectangle)
   renderer.border.vao = gl.createVertexArray();
@@ -505,7 +538,10 @@ function initWebGL2() {
   gl.bindBuffer(gl.ARRAY_BUFFER, renderer.border.vbo);
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
-  const borderA_position = gl.getAttribLocation(renderer.border.program, "a_position");
+  const borderA_position = gl.getAttribLocation(
+    renderer.border.program,
+    "a_position",
+  );
   gl.enableVertexAttribArray(borderA_position);
   gl.vertexAttribPointer(borderA_position, 2, gl.FLOAT, false, 0, 0);
 
@@ -557,9 +593,18 @@ function initWebGL2() {
     renderer.image.program,
     "u_resolution",
   );
-  renderer.image.uniforms.rect = gl.getUniformLocation(renderer.image.program, "u_rect");
-  renderer.image.uniforms.texture = gl.getUniformLocation(renderer.image.program, "u_texture");
-  renderer.image.uniforms.tint = gl.getUniformLocation(renderer.image.program, "u_tint");
+  renderer.image.uniforms.rect = gl.getUniformLocation(
+    renderer.image.program,
+    "u_rect",
+  );
+  renderer.image.uniforms.texture = gl.getUniformLocation(
+    renderer.image.program,
+    "u_texture",
+  );
+  renderer.image.uniforms.tint = gl.getUniformLocation(
+    renderer.image.program,
+    "u_tint",
+  );
   renderer.image.uniforms.cornerRadius = gl.getUniformLocation(
     renderer.image.program,
     "u_cornerRadius",
@@ -573,13 +618,18 @@ function initWebGL2() {
   gl.bindBuffer(gl.ARRAY_BUFFER, renderer.image.vbo);
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
-  const imageA_position = gl.getAttribLocation(renderer.image.program, "a_position");
+  const imageA_position = gl.getAttribLocation(
+    renderer.image.program,
+    "a_position",
+  );
   gl.enableVertexAttribArray(imageA_position);
   gl.vertexAttribPointer(imageA_position, 2, gl.FLOAT, false, 0, 0);
 
   gl.bindVertexArray(null);
 
-  console.log("WebGL2 initialized successfully (rectangles + borders + images)");
+  console.log(
+    "WebGL2 initialized successfully (rectangles + borders + images)",
+  );
 }
 
 function renderLoop(currentTime) {

@@ -1,3 +1,4 @@
+#include "string.h"
 #include "vendor.c"
 
 #define WASM_EXPORT(name) __attribute__((export_name(name)))
@@ -18,18 +19,19 @@ extern void _renderer_draw_rect(float x, float y, float width, float height,
                                 float corner_bottom_left,
                                 float corner_bottom_right);
 extern void _renderer_draw_border(float x, float y, float width, float height,
-                                   float r, float g, float b, float a,
-                                   float corner_top_left, float corner_top_right,
-                                   float corner_bottom_left,
-                                   float corner_bottom_right, float border_left,
-                                   float border_right, float border_top,
-                                   float border_bottom);
+                                  float r, float g, float b, float a,
+                                  float corner_top_left, float corner_top_right,
+                                  float corner_bottom_left,
+                                  float corner_bottom_right, float border_left,
+                                  float border_right, float border_top,
+                                  float border_bottom);
 extern void _renderer_draw_image(float x, float y, float width, float height,
-                                  const char *image_data_ptr, float tint_r,
-                                  float tint_g, float tint_b, float tint_a,
-                                  float corner_tl, float corner_tr,
-                                  float corner_bl, float corner_br);
-extern void _renderer_scissor_start(float x, float y, float width, float height);
+                                 const char *image_data_ptr, float tint_r,
+                                 float tint_g, float tint_b, float tint_a,
+                                 float corner_tl, float corner_tr,
+                                 float corner_bl, float corner_br);
+extern void _renderer_scissor_start(float x, float y, float width,
+                                    float height);
 extern void _renderer_scissor_end(void);
 
 #define os_log(cstr) _os_log(cstr, CSTR_LEN(cstr));
@@ -41,7 +43,8 @@ static void *clay_memory = NULL;
 static Clay_RenderCommandArray render_commands = {0};
 
 // Test image URL (placeholder - replace with actual image)
-static const char *test_image_url = "https://picsum.photos/200";
+static const char *test_image_url = "https://pbs.twimg.com/profile_images/"
+                                    "1915539238688624640/PpVk5yH7_400x400.png";
 
 WASM_EXPORT("os_get_heap_base") void *os_get_heap_base(void) {
   return &__heap_base;
@@ -249,4 +252,31 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
 
   // Render using C-side function
   ui_render(&render_commands);
+
+  // math test
+  char text[512];
+  // f32_to_str(floorf(2.2f), text, 2);
+  // os_log(text);
+  // f32_to_str(floor(3.2f), text, 2);
+  // os_log(text);
+  // f32_to_str(ceilf(2.2f), text, 2);
+  // os_log(text);
+  // f32_to_str(ceil(3.2f), text, 2);
+  // os_log(text);
+  //
+  // f32_to_str(fabs(-3.2f), text, 2);
+  // os_log(text);
+  //
+  // f32_to_str(sqrt(3.2f), text, 2);
+  // os_log(text);
+  //
+  // f32_to_str(fmod(3.2f, 1.5f), text, 2);
+  // os_log(text);
+
+  f32_to_str(cos(3.2f), text, 2);
+  os_log(text);
+  f32_to_str(acos(0.5f), text, 2);
+  os_log(text);
+  f32_to_str(pow(2,2), text, 2);
+  os_log(text);
 }
