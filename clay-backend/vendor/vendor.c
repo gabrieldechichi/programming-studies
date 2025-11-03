@@ -47,7 +47,7 @@
 
 #define STBI_NO_STDIO
 #define STBI_ONLY_PNG
-#define STBI_NO_ZLIB
+// #define STBI_NO_ZLIB
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
 #pragma clang diagnostic ignored "-Wunused-function"

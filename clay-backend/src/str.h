@@ -199,7 +199,7 @@ static inline int f32_to_str(float value, char *str, int precision) {
   __error("f32_to_str not implemented for platform")
 #endif
 
-static inline u32 str_len(const char *s) { strlen(s); }
+static inline u32 str_len(const char *s) { return strlen(s); }
 
 static inline b32 char_is_space(char c) {
   return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
