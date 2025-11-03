@@ -269,9 +269,11 @@ const importObject = {
       cornerBL,
       cornerBR,
     ) => {
+      //todo: pass dpr?
       const dpr = window.devicePixelRatio || 1;
 
       gl.useProgram(renderer.rectangle.program);
+      //todo: pack uniforms?
       gl.uniform2f(
         renderer.rectangle.uniforms.resolution,
         canvas.width,
@@ -320,6 +322,7 @@ const importObject = {
       borderT,
       borderB,
     ) => {
+      //todo: consolidate with rectangle rendering
       const dpr = window.devicePixelRatio || 1;
 
       gl.useProgram(renderer.border.program);
@@ -391,6 +394,7 @@ const importObject = {
       cornerBL,
       cornerBR,
     ) => {
+      //todo: pass image bytes instead instead of url
       // 1. Read null-terminated C string from WASM memory
       const url = memInterface.loadCstringDirect(imageDataPtr);
 
@@ -399,6 +403,7 @@ const importObject = {
         return;
       }
 
+      //todo: image atlas on the C side
       // 2. Load image if not cached
       if (!imageCache[url]) {
         imageCache[url] = {
@@ -457,6 +462,7 @@ const importObject = {
         tintR = tintG = tintB = tintA = 255;
       }
 
+      //todo: consolidate
       gl.useProgram(renderer.image.program);
       gl.uniform2f(
         renderer.image.uniforms.resolution,
@@ -490,6 +496,7 @@ const importObject = {
       gl.bindTexture(gl.TEXTURE_2D, imageCache[url].texture);
       gl.uniform1i(renderer.image.uniforms.texture, 0);
 
+      //todo: same vao as rectangle no?
       gl.bindVertexArray(renderer.image.vao);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
@@ -505,6 +512,7 @@ const importObject = {
       const bitmap = memInterface.loadU8Array(bitmapPtr, bitmapPtr + w * h);
 
       // Create temporary texture
+      // todo: no create texture every frame for every glyph
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
 
@@ -544,10 +552,10 @@ const importObject = {
       );
       gl.uniform4f(
         renderer.text.uniforms.rect,
-        x,  // Already physical pixels
-        y,  // Already physical pixels
-        w,  // Bitmap width (physical pixels)
-        h,  // Bitmap height (physical pixels)
+        x, // Already physical pixels
+        y, // Already physical pixels
+        w, // Bitmap width (physical pixels)
+        h, // Bitmap height (physical pixels)
       );
       gl.uniform4f(renderer.text.uniforms.color, r, g, b, a);
 
