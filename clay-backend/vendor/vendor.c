@@ -32,6 +32,10 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
-#include "fontstash/stb_truetype.h"
+#include "stb/stb_truetype.h"
 #pragma clang diagnostic pop
 #undef STB_TRUETYPE_IMPLEMENTATION
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb/stb_image_write.h"
+#undef STB_IMAGE_WRITE_IMPLEMENTATION
