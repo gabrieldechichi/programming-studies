@@ -35,3 +35,23 @@
 #include "stb/stb_truetype.h"
 #pragma clang diagnostic pop
 #undef STB_TRUETYPE_IMPLEMENTATION
+
+#define STB_IMAGE_IMPLEMENTATION
+
+#define STBI_MALLOC(x) arena_alloc(&tctx_current()->temp_allocator, x)
+#define STBI_FREE(x)                                                       \
+  do {                                                                         \
+    UNUSED(x);                                                                 \
+  } while (0)
+#define STBI_REALLOC(ptr, newsz) arena_realloc(&tctx_current()->temp_allocator, ptr, newsz)
+
+#define STBI_NO_STDIO
+#define STBI_ONLY_PNG
+#define STBI_NO_ZLIB
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#pragma clang diagnostic ignored "-Wunused-function"
+#include "stb/stb_image.h"
+#pragma clang diagnostic pop
+#undef STB_IMAGE_IMPLEMENTATION
+
