@@ -1,10 +1,10 @@
-#include "string.h"
-#include "vendor.c"
+#include "str.h"
+#include "typedefs.h"
 
-#define WASM_EXPORT(name) __attribute__((export_name(name)))
-#define UNUSED(x) ((void)(x))
-#define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
-#define CSTR_LEN(str) ((sizeof(str) / sizeof(str[0])) - 1)
+#include "str.h"
+#include "thread.c"
+#include "memory.c"
+#include "vendor.c"
 
 extern void _os_log(const char *str, int len);
 extern int _os_canvas_width(void);
@@ -252,31 +252,4 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
 
   // Render using C-side function
   ui_render(&render_commands);
-
-  // math test
-  char text[512];
-  // f32_to_str(floorf(2.2f), text, 2);
-  // os_log(text);
-  // f32_to_str(floor(3.2f), text, 2);
-  // os_log(text);
-  // f32_to_str(ceilf(2.2f), text, 2);
-  // os_log(text);
-  // f32_to_str(ceil(3.2f), text, 2);
-  // os_log(text);
-  //
-  // f32_to_str(fabs(-3.2f), text, 2);
-  // os_log(text);
-  //
-  // f32_to_str(sqrt(3.2f), text, 2);
-  // os_log(text);
-  //
-  // f32_to_str(fmod(3.2f, 1.5f), text, 2);
-  // os_log(text);
-
-  f32_to_str(cos(3.2f), text, 2);
-  os_log(text);
-  f32_to_str(acos(0.5f), text, 2);
-  os_log(text);
-  f32_to_str(pow(2,2), text, 2);
-  os_log(text);
 }

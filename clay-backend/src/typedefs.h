@@ -31,4 +31,18 @@ typedef double f64;
 typedef uint32_t bool32;
 typedef uint32_t b32;
 typedef uintptr_t uintptr;
+
+#define WASM_EXPORT(name) __attribute__((export_name(name)))
+#define UNUSED(x) ((void)(x))
+#define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
+#define CSTR_LEN(str) ((sizeof(str) / sizeof(str[0])) - 1)
+
+
+#define NULL 0
+#define true 1
+#define false 0
+
+#define force_inline static inline __attribute__((always_inline))
+
+#define thread_static __thread
 #endif
