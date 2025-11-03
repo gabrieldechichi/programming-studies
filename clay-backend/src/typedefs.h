@@ -37,12 +37,21 @@ typedef uintptr_t uintptr;
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
 #define CSTR_LEN(str) ((sizeof(str) / sizeof(str[0])) - 1)
 
-
 #define NULL 0
 #define true 1
 #define false 0
 
+#define KB(x) (((u32)(x)) * (u32)1024)
+#define MB(x) (KB(x) * (u32)1024)
+#define GB(x) ((size_t)(MB(x)) * (size_t)1024)
+
+#define BYTES_TO_KB(x) ((f32)(x) / (f32)1024)
+#define BYTES_TO_MB(x) ((BYTES_TO_KB(x)) / 1024)
+#define BYTES_TO_GB(x) ((BYTES_TO_MB(x)) / 1024)
+
 #define force_inline static inline __attribute__((always_inline))
 
 #define thread_static __thread
+
+#define cast(type) (type)
 #endif

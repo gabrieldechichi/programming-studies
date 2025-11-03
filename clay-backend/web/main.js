@@ -43,7 +43,7 @@ resizeCanvasToDisplaySize();
 // Handle window resize
 window.addEventListener("resize", resizeCanvasToDisplaySize);
 
-const memory = new WebAssembly.Memory({ initial: 256, maximum: 256 });
+const memory = new WebAssembly.Memory({ initial: 16384, maximum: 16384 });
 const memInterface = new WasmMemoryInterface(memory);
 
 // Image cache for texture loading
@@ -58,8 +58,8 @@ const importObject = {
     _os_acos: (x) => {
       return Math.acos(x);
     },
-    _os_pow: (x,y) => {
-      return Math.pow(x,y);
+    _os_pow: (x, y) => {
+      return Math.pow(x, y);
     },
     _os_log: (ptr, len) => {
       const message = memInterface.loadString(ptr, len);
@@ -664,7 +664,10 @@ async function loadWasm() {
   initWebGL2();
 
   // Call entrypoint with memory pointer
-  wasmRuntime.exports.entrypoint(wasmRuntime.heapBase);
+  wasmRuntime.exports.entrypoint(
+    wasmRuntime.heapBase,
+    BigInt(memory.buffer.byteLength - wasmRuntime.heapBase),
+  );
 
   // Start the render loop
   requestAnimationFrame(renderLoop);
