@@ -37,7 +37,10 @@ typedef uintptr_t uintptr;
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
 #define CSTR_LEN(str) ((sizeof(str) / sizeof(str[0])) - 1)
 
+#ifndef NULL
 #define NULL 0
+#endif
+
 #define true 1
 #define false 0
 

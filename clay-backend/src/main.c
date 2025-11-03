@@ -1,3 +1,4 @@
+#include "memory.h"
 #include "str.h"
 #include "typedefs.h"
 #include <stdarg.h>
@@ -37,8 +38,6 @@ extern void _renderer_draw_image(float x, float y, float width, float height,
 extern void _renderer_scissor_start(float x, float y, float width,
                                     float height);
 extern void _renderer_scissor_end(void);
-
-#define os_log(cstr) _os_log(cstr, CSTR_LEN(cstr));
 
 int printf(const char *format, ...) {
   char buffer[KB(4)];
@@ -122,8 +121,6 @@ typedef struct {
   Clay_RenderCommandArray render_commands;
 } AppState;
 
-static AppState *app_state = NULL;
-
 // Test image URL (placeholder - replace with actual image)
 static const char *test_image_url = "https://pbs.twimg.com/profile_images/"
                                     "1915539238688624640/PpVk5yH7_400x400.png";
@@ -134,7 +131,7 @@ WASM_EXPORT("os_get_heap_base") void *os_get_heap_base(void) {
 
 // Error handler for Clay
 void HandleClayError(Clay_ErrorData errorData) {
-  os_log("Clay Error!");
+  printf("Clay Error!");
   UNUSED(errorData);
 }
 
@@ -212,43 +209,30 @@ void ui_render(Clay_RenderCommandArray *commands) {
 WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
   printf("entrypoint: memory size %f", BYTES_TO_MB(memory_size));
 
-  // Initialize main arena from passed memory
-  ArenaAllocator main_arena = arena_from_buffer((uint8 *)memory, memory_size);
-  os_log("Main arena initialized");
+  AppState *app_state = (AppState *)memory;
+  app_state->main_arena = arena_from_buffer((uint8 *)memory + sizeof(AppState),
+                                            memory_size - sizeof(AppState));
+  ArenaAllocator temp_arena =
+      arena_from_buffer(arena_alloc(&app_state->main_arena, MB(64)), MB(64));
 
-  // Allocate AppState from main arena
-  app_state = ARENA_ALLOC(&main_arena, AppState);
-  if (!app_state) {
-    os_log("ERROR: Failed to allocate AppState!");
-    return;
-  }
-  app_state->main_arena = main_arena;
-  os_log("AppState allocated");
-
-  // Allocate temp arena for ThreadContext (1MB)
-  ArenaAllocator temp_arena;
-  if (!sub_arena_from_arena(&app_state->main_arena, 1024 * 1024, &temp_arena)) {
-    os_log("ERROR: Failed to allocate temp arena!");
-    return;
-  }
   app_state->tctx.temp_allocator = temp_arena;
   tctx_set(&app_state->tctx);
-  os_log("ThreadContext initialized");
+  printf("ThreadContext initialized");
 
   // Calculate Clay's memory requirements
   uint64_t clay_memory_size = Clay_MinMemorySize();
-  os_log("Clay memory size calculated");
+  printf("Clay memory size calculated");
 
   // Allocate Clay's memory from main arena
   void *clay_memory = arena_alloc(&app_state->main_arena, clay_memory_size);
   if (!clay_memory) {
-    os_log("ERROR: Failed to allocate Clay memory!");
+    printf("ERROR: Failed to allocate Clay memory!");
     return;
   }
 
   app_state->clay_arena =
       Clay_CreateArenaWithCapacityAndMemory(clay_memory_size, clay_memory);
-  os_log("Clay arena created");
+  printf("Clay arena created");
 
   // Get canvas dimensions from JavaScript
   int width = _os_canvas_width();
@@ -259,16 +243,11 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
       app_state->clay_arena,
       (Clay_Dimensions){.width = (float)width, .height = (float)height},
       (Clay_ErrorHandler){.errorHandlerFunction = HandleClayError});
-  os_log("Clay initialized!");
+  printf("Clay initialized!");
 }
 
 WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
-  UNUSED(memory);
-
-  if (!app_state) {
-    os_log("ERROR: AppState not initialized!");
-    return;
-  }
+  AppState *app_state = (AppState *)memory;
 
   int width = _os_canvas_width();
   int height = _os_canvas_height();
