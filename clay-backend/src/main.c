@@ -1,6 +1,8 @@
 #include "str.h"
 #include "typedefs.h"
+#include <stdarg.h>
 
+#include "assert.h"
 #include "str.h"
 #include "thread.c"
 #include "memory.c"
@@ -37,6 +39,80 @@ extern void _renderer_scissor_start(float x, float y, float width,
 extern void _renderer_scissor_end(void);
 
 #define os_log(cstr) _os_log(cstr, CSTR_LEN(cstr));
+
+int printf(const char *format, ...) {
+  char buffer[KB(4)];
+
+  int buf_pos = 0;
+  int buf_size = KB(4);
+
+  va_list args;
+  va_start(args, format);
+
+  for (const char *p = format; *p != '\0' && buf_pos < buf_size - 1; p++) {
+    if (*p == '%' && *(p + 1) != '\0') {
+      p++; // Skip '%'
+
+      switch (*p) {
+      case 'd': { // Integer
+        i32 val = va_arg(args, i32);
+        char temp[32];
+        int len = i32_to_str(val, temp);
+        for (int i = 0; i < len && buf_pos < buf_size - 1; i++) {
+          buffer[buf_pos++] = temp[i];
+        }
+        break;
+      }
+
+      case 'f': { // Float
+        f64 val = va_arg(args, f64);
+        char temp[64];
+        int len = f32_to_str((f32)val, temp, 2);
+        for (int i = 0; i < len && buf_pos < buf_size - 1; i++) {
+          buffer[buf_pos++] = temp[i];
+        }
+        break;
+      }
+
+      case 'c': { // Character
+        char val = (char)va_arg(args, int);
+        buffer[buf_pos++] = val;
+        break;
+      }
+
+      case 's': { // String
+        const char *str = va_arg(args, const char *);
+        if (str) {
+          while (*str && buf_pos < buf_size - 1) {
+            buffer[buf_pos++] = *str++;
+          }
+        }
+        break;
+      }
+
+      case '%': { // Literal %
+        buffer[buf_pos++] = '%';
+        break;
+      }
+
+      default:
+        buffer[buf_pos++] = '%';
+        buffer[buf_pos++] = *p;
+        break;
+      }
+    } else {
+      buffer[buf_pos++] = *p;
+    }
+  }
+
+  va_end(args);
+
+  // Null terminate and log
+  buffer[buf_pos] = '\0';
+  _os_log(buffer, buf_pos);
+
+  return buf_pos;
+}
 
 // App State
 typedef struct {
@@ -134,9 +210,7 @@ void ui_render(Clay_RenderCommandArray *commands) {
 }
 
 WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
-  char text[512];
-  f32_to_str(BYTES_TO_MB(memory_size), text, 2);
-  os_log(text);
+  printf("entrypoint: memory size %f", BYTES_TO_MB(memory_size));
 
   // Initialize main arena from passed memory
   ArenaAllocator main_arena = arena_from_buffer((uint8 *)memory, memory_size);

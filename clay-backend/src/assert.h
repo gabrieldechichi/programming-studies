@@ -12,6 +12,12 @@
 // Unreachable - marks code path as unreachable (optimization + runtime trap)
 #define unreachable() __builtin_unreachable()
 
+#ifdef DEBUG
+#define debug_assert(expr) assert(expr)
+#else
+#define debug_assert(expr)
+#endif
+
 #else
 #define assert(expr) __error("assert not implemented for platform")
 #define static_assert(expr, msg) __error("static_assert not implemented for platform")
