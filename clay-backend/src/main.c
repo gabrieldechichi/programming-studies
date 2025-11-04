@@ -12,6 +12,7 @@
 #include "thread.c"
 #include "memory.c"
 #include "json_parser.c"
+#include "msdf_atlas.c"
 #include "vendor.c"
 
 extern void _os_log(const char *str, int len);
@@ -125,11 +126,13 @@ int printf(const char *format, ...) {
   return buf_pos;
 }
 
-// Text Renderer
+// MSDF Text Renderer
 typedef struct {
-  stbtt_fontinfo font;          // stb_truetype font info
-  f32 scale;                    // Cached scale for current font size
-  i32 ascent, descent, lineGap; // Font metrics
+  MsdfAtlasData atlas_data;
+  u8 *atlas_image;
+  i32 atlas_width;
+  i32 atlas_height;
+  i32 atlas_channels;
   b32 initialized;
 } TextRenderer;
 
@@ -140,9 +143,12 @@ typedef struct {
   Clay_Arena clay_arena;
   Clay_RenderCommandArray render_commands;
 
-  OsFileReadOp font_read_op;
-  u8 *font_bytes;
-  size_t font_bytes_len;
+  OsFileReadOp atlas_json_read_op;
+  OsFileReadOp atlas_png_read_op;
+  u8 *atlas_json_bytes;
+  size_t atlas_json_len;
+  u8 *atlas_png_bytes;
+  size_t atlas_png_len;
 
   TextRenderer text_renderer;
 } AppState;
@@ -167,47 +173,14 @@ Clay_Dimensions MeasureText(Clay_StringSlice text,
   AppState *app_state = (AppState *)userData;
 
   debug_assert(app_state);
-  app_log("%d", app_state->font_read_op);
 
   if (!app_state->text_renderer.initialized) {
     return (Clay_Dimensions){0, 0};
   }
 
-  stbtt_fontinfo *font = &app_state->text_renderer.font;
-
-  // Get DPI scale for crispy text
-  f32 dpr = _os_get_dpr();
-
-  // Calculate scale for desired font size at device resolution
-  f32 scale = stbtt_ScaleForPixelHeight(font, config->fontSize * dpr);
-
-  f32 width = 0;
-
-  // Measure each character (ASCII only for now)
-  for (i32 i = 0; i < text.length; i++) {
-    i32 codepoint = (i32)text.chars[i];
-
-    // Get advance width for this glyph
-    i32 advance, lsb;
-    stbtt_GetCodepointHMetrics(font, codepoint, &advance, &lsb);
-
-    width += (f32)advance * scale;
-
-    // Add kerning if not first char
-    if (i > 0) {
-      i32 prev_codepoint = (i32)text.chars[i - 1];
-      i32 kern = stbtt_GetCodepointKernAdvance(font, prev_codepoint, codepoint);
-      width += (f32)kern * scale;
-    }
-  }
-
-  // Calculate height from font metrics
-  i32 ascent = app_state->text_renderer.ascent;
-  i32 descent = app_state->text_renderer.descent;
-  f32 height = (f32)(ascent - descent) * scale;
-
-  // Return logical pixels (divide by DPR)
-  return (Clay_Dimensions){width / dpr, height / dpr};
+  // TODO: Implement MSDF-based text measurement
+  // For now, return placeholder dimensions
+  return (Clay_Dimensions){0, 0};
 }
 
 void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
@@ -275,64 +248,8 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
         break;
       }
 
-      // todo: support font ids
-      stbtt_fontinfo *font = &app_state->text_renderer.font;
-
-      // todo: pass dpr on update
-      f32 dpr = _os_get_dpr();
-
-      // Rasterize at device resolution for crispness
-      // todo: how to make this performant? high res? mipmaps?
-      f32 scale = stbtt_ScaleForPixelHeight(font, text_data->fontSize * dpr);
-
-      // Get baseline offset
-      i32 ascent = app_state->text_renderer.ascent;
-      f32 baseline_y = cmd->boundingBox.y + (f32)ascent * scale / dpr;
-
-      f32 x = cmd->boundingBox.x;
-
-      // Render each character
-      for (i32 i = 0; i < text_data->stringContents.length; i++) {
-        i32 codepoint = (i32)text_data->stringContents.chars[i];
-
-        // Rasterize glyph at high DPI
-        // todo: don't rasterize every frame
-        i32 width, height, xoff, yoff;
-        u8 *bitmap = stbtt_GetCodepointBitmap(font, 0, scale, codepoint, &width,
-                                              &height, &xoff, &yoff);
-
-        if (bitmap && width > 0 && height > 0) {
-          // Calculate position in logical pixels
-          f32 glyph_x = x + (f32)xoff / dpr;
-          f32 glyph_y = baseline_y + (f32)yoff / dpr;
-
-          // Round to pixel boundaries for crispness
-          glyph_x = roundf(glyph_x * dpr) / dpr;
-          glyph_y = roundf(glyph_y * dpr) / dpr;
-
-          // Call JS renderer with physical pixel coordinates
-          _renderer_draw_glyph(
-              glyph_x * dpr, glyph_y * dpr, width, height, bitmap,
-              text_data->textColor.r / 255.0f, text_data->textColor.g / 255.0f,
-              text_data->textColor.b / 255.0f, text_data->textColor.a / 255.0f);
-
-          // Free bitmap (uses arena, but still need to call free)
-          stbtt_FreeBitmap(bitmap, NULL);
-        }
-
-        // Advance cursor in logical pixels
-        i32 advance, lsb;
-        stbtt_GetCodepointHMetrics(font, codepoint, &advance, &lsb);
-        x += (f32)advance * scale / dpr;
-
-        // Apply kerning
-        if (i < text_data->stringContents.length - 1) {
-          i32 next_cp = (i32)text_data->stringContents.chars[i + 1];
-          i32 kern = stbtt_GetCodepointKernAdvance(font, codepoint, next_cp);
-          x += (f32)kern * scale / dpr;
-        }
-      }
-
+      // TODO: Implement MSDF text rendering
+      UNUSED(text_data);
       break;
     }
 
@@ -384,56 +301,74 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
   Clay_SetMeasureTextFunction(MeasureText, app_state);
   app_log("Clay text measurement function registered!");
 
-  app_state->font_read_op = os_start_read_file("web/Roboto-Regular.ttf");
+  app_state->atlas_json_read_op = os_start_read_file("web/Roboto-Regular-atlas.json");
+  app_state->atlas_png_read_op = os_start_read_file("web/Roboto-Regular-atlas.png");
 }
 
 WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
   AppState *app_state = (AppState *)memory;
 
-  if (!app_state->font_bytes) {
-    switch (os_check_read_file(app_state->font_read_op)) {
+  // Load atlas JSON
+  if (!app_state->atlas_json_bytes) {
+    switch (os_check_read_file(app_state->atlas_json_read_op)) {
     case OS_FILE_READ_STATE_NONE:
-      app_log("file operation not started");
       break;
     case OS_FILE_READ_STATE_IN_PROGRESS:
-      app_log("loading font");
+      app_log("loading atlas JSON");
       break;
     case OS_FILE_READ_STATE_COMPLETED: {
-      size_t font_size = os_get_file_size(app_state->font_read_op);
-      app_log("font loaded %f kb", BYTES_TO_KB(font_size));
+      size_t json_size = os_get_file_size(app_state->atlas_json_read_op);
+      app_log("atlas JSON loaded %f kb", BYTES_TO_KB(json_size));
       PlatformFileData file_data = {0};
-      if (os_get_file_data(app_state->font_read_op, &file_data,
+      if (os_get_file_data(app_state->atlas_json_read_op, &file_data,
                            &app_state->main_arena)) {
-
-        Clay_ResetMeasureTextCache();
         if (file_data.success) {
-          app_state->font_bytes = file_data.buffer;
-          app_state->font_bytes_len = file_data.buffer_len;
+          app_state->atlas_json_bytes = file_data.buffer;
+          app_state->atlas_json_len = file_data.buffer_len;
 
-          // Initialize stb_truetype font
-          if (!stbtt_InitFont(&app_state->text_renderer.font,
-                              app_state->font_bytes, 0)) {
-            app_log("Failed to initialize font!");
+          // Null terminate the JSON string
+          app_state->atlas_json_bytes[app_state->atlas_json_len] = '\0';
+
+          // Parse atlas JSON
+          Allocator allocator = make_arena_allocator(&app_state->main_arena);
+          if (!msdf_parse_atlas((const char *)app_state->atlas_json_bytes,
+                                &app_state->text_renderer.atlas_data,
+                                &allocator)) {
+            app_log("Failed to parse atlas JSON!");
           } else {
-            // Get font metrics
-            stbtt_GetFontVMetrics(&app_state->text_renderer.font,
-                                  &app_state->text_renderer.ascent,
-                                  &app_state->text_renderer.descent,
-                                  &app_state->text_renderer.lineGap);
+            MsdfAtlasData *atlas = &app_state->text_renderer.atlas_data;
+            app_log("Atlas parsed successfully!");
+            app_log("  Atlas: %fx%f, distanceRange=%f, size=%f",
+                    atlas->atlas.width, atlas->atlas.height,
+                    atlas->atlas.distanceRange, atlas->atlas.size);
+            app_log("  Metrics: emSize=%f, lineHeight=%f, ascender=%f, descender=%f",
+                    atlas->metrics.emSize, atlas->metrics.lineHeight,
+                    atlas->metrics.ascender, atlas->metrics.descender);
+            app_log("  Glyphs: %d", atlas->glyph_count);
 
-            app_state->text_renderer.initialized = true;
-            app_log("Font initialized! ascent=%d descent=%d lineGap=%d",
-                    app_state->text_renderer.ascent,
-                    app_state->text_renderer.descent,
-                    app_state->text_renderer.lineGap);
+            // Log every glyph
+            for (u32 i = 0; i < atlas->glyph_count; i++) {
+              MsdfGlyph *g = &atlas->glyphs[i];
+              if (g->has_visual) {
+                app_log("  [%d] unicode=%d '%c' advance=%f plane=[%f,%f,%f,%f] atlas=[%f,%f,%f,%f]",
+                        i, g->unicode, (char)g->unicode, g->advance,
+                        g->planeBounds.left, g->planeBounds.bottom,
+                        g->planeBounds.right, g->planeBounds.top,
+                        g->atlasBounds.left, g->atlasBounds.bottom,
+                        g->atlasBounds.right, g->atlasBounds.top);
+              } else {
+                app_log("  [%d] unicode=%d '%c' advance=%f (no visual)",
+                        i, g->unicode, (char)g->unicode, g->advance);
+              }
+            }
           }
         } else {
-          app_log("error reading file data");
+          app_log("error reading atlas JSON data");
         }
       }
     } break;
     case OS_FILE_READ_STATE_ERROR:
-      app_log("file read error");
+      app_log("atlas JSON read error");
       break;
     }
   }
