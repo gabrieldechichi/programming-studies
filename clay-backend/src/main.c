@@ -167,6 +167,16 @@ void HandleClayError(Clay_ErrorData errorData) {
   UNUSED(errorData);
 }
 
+// Helper: Find glyph by unicode in atlas
+static MsdfGlyph *find_glyph(MsdfAtlasData *atlas, u32 unicode) {
+  for (u32 i = 0; i < atlas->glyph_count; i++) {
+    if (atlas->glyphs[i].unicode == unicode) {
+      return &atlas->glyphs[i];
+    }
+  }
+  return NULL;
+}
+
 // Clay text measurement function
 Clay_Dimensions MeasureText(Clay_StringSlice text,
                             Clay_TextElementConfig *config, void *userData) {
@@ -178,9 +188,28 @@ Clay_Dimensions MeasureText(Clay_StringSlice text,
     return (Clay_Dimensions){0, 0};
   }
 
-  // TODO: Implement MSDF-based text measurement
-  // For now, return placeholder dimensions
-  return (Clay_Dimensions){0, 0};
+  MsdfAtlasData *atlas = &app_state->text_renderer.atlas_data;
+  f32 fontSize = config->fontSize;
+
+  // Calculate width by accumulating glyph advances
+  f32 width = 0.0f;
+  for (i32 i = 0; i < text.length; i++) {
+    u32 codepoint = (u32)text.chars[i];
+    MsdfGlyph *glyph = find_glyph(atlas, codepoint);
+
+    if (glyph) {
+      // advance is in em units, multiply by fontSize for pixels
+      width += glyph->advance * fontSize;
+    }
+  }
+
+  // Calculate height from font metrics (also in em units)
+  f32 height = (atlas->metrics.ascender - atlas->metrics.descender) * fontSize;
+
+  app_log("MeasureText: '%.*s' fontSize=%f -> width=%f height=%f", text.length,
+          text.chars, fontSize, width, height);
+
+  return (Clay_Dimensions){width, height};
 }
 
 void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
@@ -301,8 +330,10 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
   Clay_SetMeasureTextFunction(MeasureText, app_state);
   app_log("Clay text measurement function registered!");
 
-  app_state->atlas_json_read_op = os_start_read_file("web/Roboto-Regular-atlas.json");
-  app_state->atlas_png_read_op = os_start_read_file("web/Roboto-Regular-atlas.png");
+  app_state->atlas_json_read_op =
+      os_start_read_file("web/Roboto-Regular-atlas.json");
+  app_state->atlas_png_read_op =
+      os_start_read_file("web/Roboto-Regular-atlas.png");
 }
 
 WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
@@ -322,6 +353,7 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
       PlatformFileData file_data = {0};
       if (os_get_file_data(app_state->atlas_json_read_op, &file_data,
                            &app_state->main_arena)) {
+        Clay_ResetMeasureTextCache();
         if (file_data.success) {
           app_state->atlas_json_bytes = file_data.buffer;
           app_state->atlas_json_len = file_data.buffer_len;
@@ -341,7 +373,8 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
             app_log("  Atlas: %fx%f, distanceRange=%f, size=%f",
                     atlas->atlas.width, atlas->atlas.height,
                     atlas->atlas.distanceRange, atlas->atlas.size);
-            app_log("  Metrics: emSize=%f, lineHeight=%f, ascender=%f, descender=%f",
+            app_log("  Metrics: emSize=%f, lineHeight=%f, ascender=%f, "
+                    "descender=%f",
                     atlas->metrics.emSize, atlas->metrics.lineHeight,
                     atlas->metrics.ascender, atlas->metrics.descender);
             app_log("  Glyphs: %d", atlas->glyph_count);
@@ -350,15 +383,16 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
             for (u32 i = 0; i < atlas->glyph_count; i++) {
               MsdfGlyph *g = &atlas->glyphs[i];
               if (g->has_visual) {
-                app_log("  [%d] unicode=%d '%c' advance=%f plane=[%f,%f,%f,%f] atlas=[%f,%f,%f,%f]",
+                app_log("  [%d] unicode=%d '%c' advance=%f plane=[%f,%f,%f,%f] "
+                        "atlas=[%f,%f,%f,%f]",
                         i, g->unicode, (char)g->unicode, g->advance,
                         g->planeBounds.left, g->planeBounds.bottom,
                         g->planeBounds.right, g->planeBounds.top,
                         g->atlasBounds.left, g->atlasBounds.bottom,
                         g->atlasBounds.right, g->atlasBounds.top);
               } else {
-                app_log("  [%d] unicode=%d '%c' advance=%f (no visual)",
-                        i, g->unicode, (char)g->unicode, g->advance);
+                app_log("  [%d] unicode=%d '%c' advance=%f (no visual)", i,
+                        g->unicode, (char)g->unicode, g->advance);
               }
             }
           }
@@ -393,10 +427,9 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
 
           // Parse PNG with stb_image
           i32 width, height, channels;
-          u8 *image_data = stbi_load_from_memory(
-              app_state->atlas_png_bytes,
-              (i32)app_state->atlas_png_len,
-              &width, &height, &channels, 0);
+          u8 *image_data = stbi_load_from_memory(app_state->atlas_png_bytes,
+                                                 (i32)app_state->atlas_png_len,
+                                                 &width, &height, &channels, 0);
 
           if (!image_data) {
             app_log("Failed to parse PNG!");
@@ -408,7 +441,8 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
             app_state->text_renderer.initialized = true;
 
             app_log("PNG parsed successfully!");
-            app_log("  Dimensions: %dx%d, channels=%d", width, height, channels);
+            app_log("  Dimensions: %dx%d, channels=%d", width, height,
+                    channels);
           }
         } else {
           app_log("error reading atlas PNG data");
@@ -460,7 +494,8 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                      .childGap = 16,
                  },
              .backgroundColor = {50, 50, 50, 255},
-             .cornerRadius = CLAY_CORNER_RADIUS(10), .border = {.width = CLAY_BORDER_OUTSIDE(2),
+             .cornerRadius = CLAY_CORNER_RADIUS(10),
+             .border = {.width = CLAY_BORDER_OUTSIDE(2),
                         .color = {100, 100, 100, 255}},
              .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
          }) {
