@@ -143,12 +143,7 @@ typedef struct {
   Clay_Arena clay_arena;
   Clay_RenderCommandArray render_commands;
 
-  OsFileReadOp atlas_json_read_op;
-  OsFileReadOp atlas_png_read_op;
-  u8 *atlas_json_bytes;
-  size_t atlas_json_len;
-  u8 *atlas_png_bytes;
-  size_t atlas_png_len;
+  OsFileReadOp hza_read_op;
 
   TextRenderer text_renderer;
 } AppState;
@@ -169,7 +164,7 @@ void HandleClayError(Clay_ErrorData errorData) {
 
 // Helper: Find glyph by unicode in atlas
 static MsdfGlyph *find_glyph(UIFontAsset *asset, u32 unicode) {
-  MsdfGlyph *glyphs = ui_font_asset_get_glyphs(asset);
+  MsdfGlyph *glyphs = assetptr_get(MsdfGlyph, asset, asset->glyphs);
   for (u32 i = 0; i < asset->glyph_count; i++) {
     if (glyphs[i].unicode == unicode) {
       return &glyphs[i];
@@ -378,9 +373,9 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
   Clay_SetMeasureTextFunction(MeasureText, app_state);
   app_log("Clay text measurement function registered!");
 
-  app_state->atlas_json_read_op =
-      os_start_read_file("Roboto-Regular-atlas.json");
-  app_state->atlas_png_read_op = os_start_read_file("Roboto-Regular-atlas.png");
+  // Start loading .hza font asset
+  app_state->hza_read_op = os_start_read_file("Roboto-Regular.hza");
+  app_log("Started loading font asset: Roboto-Regular.hza");
 }
 
 Clay_RenderCommandArray test_text() {
@@ -502,155 +497,67 @@ Clay_RenderCommandArray test_complete_ui() {
 WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
   AppState *app_state = (AppState *)memory;
 
-  // Temporary storage for parsed data (before packing into UIFontAsset)
-  static MsdfAtlasData temp_atlas_data = {0};
-  static u8 *temp_png_bytes = NULL;
-  static size_t temp_png_len = 0;
-
-  // Load atlas JSON
-  if (!app_state->atlas_json_bytes) {
-    switch (os_check_read_file(app_state->atlas_json_read_op)) {
+  // Load .hza font asset
+  if (!app_state->text_renderer.initialized) {
+    switch (os_check_read_file(app_state->hza_read_op)) {
     case OS_FILE_READ_STATE_NONE:
       break;
     case OS_FILE_READ_STATE_IN_PROGRESS:
-      app_log("loading atlas JSON");
+      app_log("Loading font asset...");
       break;
     case OS_FILE_READ_STATE_COMPLETED: {
-      size_t json_size = os_get_file_size(app_state->atlas_json_read_op);
-      app_log("atlas JSON loaded %f kb", BYTES_TO_KB(json_size));
+      size_t hza_size = os_get_file_size(app_state->hza_read_op);
+      app_log("Font asset loaded: %.2f KB", BYTES_TO_KB(hza_size));
+
       PlatformFileData file_data = {0};
-      if (os_get_file_data(app_state->atlas_json_read_op, &file_data,
+      if (os_get_file_data(app_state->hza_read_op, &file_data,
                            &app_state->main_arena)) {
         Clay_ResetMeasureTextCache();
         if (file_data.success) {
-          app_state->atlas_json_bytes = file_data.buffer;
-          app_state->atlas_json_len = file_data.buffer_len;
+          // Cast buffer directly to UIFontAsset (no parsing needed!)
+          UIFontAsset *asset = (UIFontAsset *)file_data.buffer;
 
-          // Null terminate the JSON string
-          app_state->atlas_json_bytes[app_state->atlas_json_len] = '\0';
+          app_log("Font asset ready:");
+          app_log("  Atlas: %.0fx%.0f, distanceRange=%.0f, size=%.0f",
+                  asset->atlas.width, asset->atlas.height,
+                  asset->atlas.distanceRange, asset->atlas.size);
+          app_log("  Metrics: emSize=%.2f, lineHeight=%.2f, ascender=%.2f, "
+                  "descender=%.2f",
+                  asset->metrics.emSize, asset->metrics.lineHeight,
+                  asset->metrics.ascender, asset->metrics.descender);
+          app_log("  Glyphs: %u", asset->glyph_count);
 
-          // Parse atlas JSON into temporary storage
-          Allocator allocator = make_arena_allocator(&app_state->main_arena);
-          if (!msdf_parse_atlas((const char *)app_state->atlas_json_bytes,
-                                &temp_atlas_data, &allocator)) {
-            app_log("Failed to parse atlas JSON!");
+          // Extract PNG data from asset
+          u8 *png_data = assetptr_get(u8, asset, asset->image_data);
+          u32 png_size = asset->image_data_size;
+
+          // Decode PNG with stb_image
+          stbi_set_flip_vertically_on_load(1);
+          i32 width, height, channels;
+          u8 *image_data = stbi_load_from_memory(png_data, (i32)png_size,
+                                                  &width, &height, &channels, 0);
+
+          if (!image_data) {
+            app_log("Failed to decode PNG from font asset!");
           } else {
-            app_log("Atlas parsed successfully!");
-            app_log("  Atlas: %fx%f, distanceRange=%f, size=%f",
-                    temp_atlas_data.atlas.width, temp_atlas_data.atlas.height,
-                    temp_atlas_data.atlas.distanceRange,
-                    temp_atlas_data.atlas.size);
-            app_log("  Metrics: emSize=%f, lineHeight=%f, ascender=%f, "
-                    "descender=%f",
-                    temp_atlas_data.metrics.emSize,
-                    temp_atlas_data.metrics.lineHeight,
-                    temp_atlas_data.metrics.ascender,
-                    temp_atlas_data.metrics.descender);
-            app_log("  Glyphs: %d", temp_atlas_data.glyph_count);
+            app_log("PNG decoded: %dx%d, channels=%d", width, height, channels);
+
+            // Upload atlas texture to WebGL
+            _renderer_upload_msdf_atlas(image_data, width, height, channels);
+
+            // Set asset and mark initialized
+            app_state->text_renderer.asset = asset;
+            app_state->text_renderer.initialized = true;
+            app_log("Font renderer initialized!");
           }
         } else {
-          app_log("error reading atlas JSON data");
+          app_log("Failed to read font asset data");
         }
       }
     } break;
     case OS_FILE_READ_STATE_ERROR:
-      app_log("atlas JSON read error");
+      app_log("Font asset read error");
       break;
-    }
-  }
-
-  // Load atlas PNG
-  if (!app_state->atlas_png_bytes) {
-    switch (os_check_read_file(app_state->atlas_png_read_op)) {
-    case OS_FILE_READ_STATE_NONE:
-      break;
-    case OS_FILE_READ_STATE_IN_PROGRESS:
-      app_log("loading atlas PNG");
-      break;
-    case OS_FILE_READ_STATE_COMPLETED: {
-      size_t png_size = os_get_file_size(app_state->atlas_png_read_op);
-      app_log("atlas PNG loaded %f kb", BYTES_TO_KB(png_size));
-      PlatformFileData file_data = {0};
-      if (os_get_file_data(app_state->atlas_png_read_op, &file_data,
-                           &app_state->main_arena)) {
-        if (file_data.success) {
-          app_state->atlas_png_bytes = file_data.buffer;
-          app_state->atlas_png_len = file_data.buffer_len;
-          temp_png_bytes = app_state->atlas_png_bytes;
-          temp_png_len = app_state->atlas_png_len;
-          app_log("PNG loaded successfully!");
-        } else {
-          app_log("error reading atlas PNG data");
-        }
-      }
-    } break;
-    case OS_FILE_READ_STATE_ERROR:
-      app_log("atlas PNG read error");
-      break;
-    }
-  }
-
-  // Pack into UIFontAsset when both JSON and PNG are loaded
-  if (!app_state->text_renderer.initialized && temp_atlas_data.glyphs &&
-      temp_png_bytes) {
-    app_log("Packing font asset...");
-
-    // Calculate memory layout
-    size_t header_size = sizeof(UIFontAsset);
-    size_t glyphs_size = temp_atlas_data.glyph_count * sizeof(MsdfGlyph);
-    size_t total_size = header_size + glyphs_size + temp_png_len;
-
-    // Allocate single buffer for entire asset
-    UIFontAsset *asset =
-        (UIFontAsset *)arena_alloc(&app_state->main_arena, total_size);
-    app_log("  Allocated %f kb for font asset", BYTES_TO_KB(total_size));
-
-    // Copy header data
-    asset->atlas = temp_atlas_data.atlas;
-    asset->metrics = temp_atlas_data.metrics;
-    asset->glyph_count = temp_atlas_data.glyph_count;
-    asset->glyphs_offset = header_size;
-    asset->image_data_offset = header_size + glyphs_size;
-    asset->image_data_size = (u32)temp_png_len;
-
-    // Copy glyph array inline
-    MsdfGlyph *packed_glyphs = ui_font_asset_get_glyphs(asset);
-    for (u32 i = 0; i < temp_atlas_data.glyph_count; i++) {
-      packed_glyphs[i] = temp_atlas_data.glyphs[i];
-    }
-
-    // Copy PNG data inline
-    u8 *packed_image = ui_font_asset_get_image_data(asset);
-    for (size_t i = 0; i < temp_png_len; i++) {
-      packed_image[i] = temp_png_bytes[i];
-    }
-
-    app_log("Font asset packed successfully!");
-    app_log("  Header: %zu bytes at offset 0", header_size);
-    app_log("  Glyphs: %zu bytes at offset %u", glyphs_size,
-            asset->glyphs_offset);
-    app_log("  PNG data: %u bytes at offset %u", asset->image_data_size,
-            asset->image_data_offset);
-
-    // Decode PNG with stb_image
-    stbi_set_flip_vertically_on_load(1);
-    i32 width, height, channels;
-    u8 *image_data =
-        stbi_load_from_memory(packed_image, (i32)asset->image_data_size,
-                              &width, &height, &channels, 0);
-
-    if (!image_data) {
-      app_log("Failed to parse PNG from packed asset!");
-    } else {
-      app_log("PNG decoded: %dx%d, channels=%d", width, height, channels);
-
-      // Upload atlas texture to WebGL
-      _renderer_upload_msdf_atlas(image_data, width, height, channels);
-
-      // Set asset and mark initialized
-      app_state->text_renderer.asset = asset;
-      app_state->text_renderer.initialized = true;
-      app_log("MSDF atlas uploaded to GPU - renderer initialized!");
     }
   }
 

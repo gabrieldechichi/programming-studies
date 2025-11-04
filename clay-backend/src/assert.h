@@ -4,7 +4,9 @@
 #if defined(__wasm__) && defined(__clang__)
 
 // Assert - checks condition and traps if false (compiles to WASM 'unreachable' instruction)
+#ifndef assert
 #define assert(expr) ((expr) ? (void)0 : __builtin_trap())
+#endif
 
 // Static assert - compile-time assertion
 #define static_assert(expr, msg) _Static_assert(expr, msg)

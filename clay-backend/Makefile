@@ -46,6 +46,7 @@ copy-static:
 	@mkdir -p $(DIST_DIR)
 	cp web/index.html $(DIST_DIR)/
 	cp web/*.glsl.js $(DIST_DIR)/
+	cp web/*.hza $(DIST_DIR)/ 2>/dev/null || true
 	cp web/*.png $(DIST_DIR)/ 2>/dev/null || true
 	cp web/*.json $(DIST_DIR)/ 2>/dev/null || true
 	cp web/*.ttf $(DIST_DIR)/ 2>/dev/null || true
@@ -61,4 +62,11 @@ serve:
 	@echo "Starting web server at http://localhost:8000"
 	@cd $(DIST_DIR) && python3 -m http.server 8000
 
-.PHONY: all clean build-wasm build-ts build-wasm-release build-ts-release copy-static build build-release serve
+# Tool: hza_gen - Generate .hza binary font assets
+tools/hza_gen: tools/hza_gen.c
+	@mkdir -p tools
+	$(CC) -o tools/hza_gen tools/hza_gen.c -Isrc -Ivendor -Wall -Wextra -std=c99 -UDWASM
+
+hza-gen: tools/hza_gen
+
+.PHONY: all clean build-wasm build-ts build-wasm-release build-ts-release copy-static build build-release serve hza-gen

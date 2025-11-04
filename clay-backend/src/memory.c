@@ -1,12 +1,10 @@
 #include "memory.h"
-#include "assert.h"
 
 force_inline b32 is_power_of_two(uintptr x) { return (x & (x - 1)) == 0; }
 
 force_inline uintptr align_forward(uintptr ptr, size_t align) {
   uintptr p, a, modulo;
 
-  assert(is_power_of_two(align));
 
   p = ptr;
   a = (uintptr)align;
@@ -31,8 +29,6 @@ ArenaAllocator arena_from_buffer(uint8 *buffer, size_t capacity) {
 
 b32 sub_arena_from_arena(ArenaAllocator *a, size_t capacity,
                          ArenaAllocator *sub_arena) {
-  assert(a->buffer);
-  assert(a->capacity);
   size_t align = DEFAULT_ALIGNMENT;
   uintptr curr_ptr = (uintptr)a->buffer + (uintptr)a->offset;
   uintptr offset = align_forward(curr_ptr, align);
@@ -53,8 +49,6 @@ b32 sub_arena_from_arena(ArenaAllocator *a, size_t capacity,
 size_t arena_committed_size(ArenaAllocator *arena) { return arena->offset; }
 
 void *arena_alloc_align(ArenaAllocator *a, size_t size, size_t align) {
-  assert(a->buffer);
-  assert(a->capacity);
   uintptr curr_ptr = (uintptr)a->buffer + (uintptr)a->offset;
   uintptr offset = align_forward(curr_ptr, align);
   offset -= (uintptr)a->buffer;
