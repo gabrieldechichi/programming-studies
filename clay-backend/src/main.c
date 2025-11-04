@@ -125,6 +125,16 @@ int printf(const char *format, ...) {
   return buf_pos;
 }
 
+// MSDF Atlas Glyph
+typedef struct {
+  i32 codepoint;
+  i32 x, y, w, h;           // Atlas position (pixels)
+  f32 u0, v0, u1, v1;       // UV coordinates (normalized 0-1)
+  i32 advance;              // Horizontal advance
+  i32 bearing_x, bearing_y; // Bearing
+  i32 width, height;        // Glyph dimensions
+} AtlasGlyph;
+
 // Text Renderer
 typedef struct {
   stbtt_fontinfo font;          // stb_truetype font info
@@ -144,6 +154,25 @@ typedef struct {
   u8 *font_bytes;
   size_t font_bytes_len;
 
+  // MSDF Atlas loading
+  OsFileReadOp atlas_png_read_op;
+  OsFileReadOp atlas_json_read_op;
+  u8 *atlas_png_bytes;
+  size_t atlas_png_bytes_len;
+  u8 *atlas_json_bytes;
+  size_t atlas_json_bytes_len;
+  b32 atlas_assets_loaded;
+
+  // MSDF Atlas parsed data
+  AtlasGlyph *glyph_atlas;
+  i32 glyph_count;
+  i32 atlas_width, atlas_height;
+  i32 atlas_glyph_size;
+  i32 atlas_padding;
+  u8 *atlas_image_data;  // Decoded PNG pixels (RGB/RGBA)
+  i32 atlas_image_channels;
+  b32 atlas_parsed;
+
   TextRenderer text_renderer;
 } AppState;
 
@@ -161,53 +190,51 @@ void HandleClayError(Clay_ErrorData errorData) {
   UNUSED(errorData);
 }
 
-// Clay text measurement function
+// Helper: Find glyph in atlas by codepoint
+AtlasGlyph* find_glyph(AppState *app_state, i32 codepoint) {
+  for (i32 i = 0; i < app_state->glyph_count; i++) {
+    if (app_state->glyph_atlas[i].codepoint == codepoint) {
+      return &app_state->glyph_atlas[i];
+    }
+  }
+  return NULL;
+}
+
+// Clay text measurement function (using MSDF atlas)
 Clay_Dimensions MeasureText(Clay_StringSlice text,
                             Clay_TextElementConfig *config, void *userData) {
   AppState *app_state = (AppState *)userData;
 
   debug_assert(app_state);
-  app_log("%d", app_state->font_read_op);
 
-  if (!app_state->text_renderer.initialized) {
+  // Use atlas if parsed, otherwise return zero
+  if (!app_state->atlas_parsed) {
     return (Clay_Dimensions){0, 0};
   }
 
-  stbtt_fontinfo *font = &app_state->text_renderer.font;
-
-  // Get DPI scale for crispy text
-  f32 dpr = _os_get_dpr();
-
-  // Calculate scale for desired font size at device resolution
-  f32 scale = stbtt_ScaleForPixelHeight(font, config->fontSize * dpr);
+  // Calculate scale factor from atlas glyph size to desired font size
+  f32 scale = config->fontSize / (f32)app_state->atlas_glyph_size;
 
   f32 width = 0;
 
-  // Measure each character (ASCII only for now)
+  // Measure each character using atlas metrics
   for (i32 i = 0; i < text.length; i++) {
     i32 codepoint = (i32)text.chars[i];
 
-    // Get advance width for this glyph
-    i32 advance, lsb;
-    stbtt_GetCodepointHMetrics(font, codepoint, &advance, &lsb);
-
-    width += (f32)advance * scale;
-
-    // Add kerning if not first char
-    if (i > 0) {
-      i32 prev_codepoint = (i32)text.chars[i - 1];
-      i32 kern = stbtt_GetCodepointKernAdvance(font, prev_codepoint, codepoint);
-      width += (f32)kern * scale;
+    AtlasGlyph *glyph = find_glyph(app_state, codepoint);
+    if (glyph) {
+      // Use atlas advance width scaled to desired font size
+      width += (f32)glyph->advance * scale;
+    } else {
+      // Fallback for missing glyphs
+      width += config->fontSize * 0.5f;
     }
   }
 
-  // Calculate height from font metrics
-  i32 ascent = app_state->text_renderer.ascent;
-  i32 descent = app_state->text_renderer.descent;
-  f32 height = (f32)(ascent - descent) * scale;
+  // Height based on atlas glyph size scaled to font size
+  f32 height = config->fontSize;
 
-  // Return logical pixels (divide by DPR)
-  return (Clay_Dimensions){width / dpr, height / dpr};
+  return (Clay_Dimensions){width, height};
 }
 
 void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
@@ -385,6 +412,11 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
   app_log("Clay text measurement function registered!");
 
   app_state->font_read_op = os_start_read_file("web/Roboto-Regular.ttf");
+
+  // Start loading MSDF atlas assets
+  app_state->atlas_png_read_op = os_start_read_file("web/roboto_atlas_msdf.png");
+  app_state->atlas_json_read_op = os_start_read_file("web/roboto_atlas.json");
+  app_log("Started loading MSDF atlas assets");
 }
 
 WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
@@ -436,6 +468,272 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
       app_log("file read error");
       break;
     }
+  }
+
+  // Load MSDF atlas PNG
+  if (!app_state->atlas_png_bytes) {
+    switch (os_check_read_file(app_state->atlas_png_read_op)) {
+    case OS_FILE_READ_STATE_NONE:
+      break;
+    case OS_FILE_READ_STATE_IN_PROGRESS:
+      break;
+    case OS_FILE_READ_STATE_COMPLETED: {
+      size_t png_size = os_get_file_size(app_state->atlas_png_read_op);
+      app_log("Atlas PNG loaded: %f kb", BYTES_TO_KB(png_size));
+      PlatformFileData file_data = {0};
+      if (os_get_file_data(app_state->atlas_png_read_op, &file_data,
+                           &app_state->main_arena)) {
+        if (file_data.success) {
+          app_state->atlas_png_bytes = file_data.buffer;
+          app_state->atlas_png_bytes_len = file_data.buffer_len;
+        } else {
+          app_log("Error reading atlas PNG data");
+        }
+      }
+    } break;
+    case OS_FILE_READ_STATE_ERROR:
+      app_log("Atlas PNG read error");
+      break;
+    }
+  }
+
+  // Load MSDF atlas JSON
+  if (!app_state->atlas_json_bytes) {
+    switch (os_check_read_file(app_state->atlas_json_read_op)) {
+    case OS_FILE_READ_STATE_NONE:
+      break;
+    case OS_FILE_READ_STATE_IN_PROGRESS:
+      break;
+    case OS_FILE_READ_STATE_COMPLETED: {
+      size_t json_size = os_get_file_size(app_state->atlas_json_read_op);
+      app_log("Atlas JSON loaded: %f kb", BYTES_TO_KB(json_size));
+      PlatformFileData file_data = {0};
+      if (os_get_file_data(app_state->atlas_json_read_op, &file_data,
+                           &app_state->main_arena)) {
+        if (file_data.success) {
+          app_state->atlas_json_bytes = file_data.buffer;
+          app_state->atlas_json_bytes_len = file_data.buffer_len;
+        } else {
+          app_log("Error reading atlas JSON data");
+        }
+      }
+    } break;
+    case OS_FILE_READ_STATE_ERROR:
+      app_log("Atlas JSON read error");
+      break;
+    }
+  }
+
+  // Check if both atlas assets are loaded
+  if (!app_state->atlas_assets_loaded &&
+      app_state->atlas_png_bytes &&
+      app_state->atlas_json_bytes) {
+    app_state->atlas_assets_loaded = true;
+    app_log("MSDF Atlas assets loaded successfully!");
+  }
+
+  // Parse atlas assets once they're loaded
+  if (app_state->atlas_assets_loaded && !app_state->atlas_parsed) {
+    app_log("Parsing MSDF atlas...");
+
+    // Ensure JSON is null-terminated
+    u8 *json_str = (u8*)arena_alloc(&app_state->main_arena,
+                                     app_state->atlas_json_bytes_len + 1);
+    memcpy(json_str, app_state->atlas_json_bytes, app_state->atlas_json_bytes_len);
+    json_str[app_state->atlas_json_bytes_len] = '\0';
+
+    // Parse JSON (wrap ArenaAllocator in Allocator interface)
+    Allocator json_allocator = make_arena_allocator(&app_state->main_arena);
+    JsonParser parser = json_parser_init((char*)json_str, &json_allocator);
+
+    // Parse root object
+    app_log("Starting JSON parse, length=%d", parser.len);
+    if (!json_expect_object_start(&parser)) {
+      app_log("JSON parse error: expected object start");
+      return;
+    }
+    app_log("Found object start");
+
+    // Parse atlas metadata
+    json_expect_key(&parser, "atlas_width");
+    json_expect_colon(&parser);
+    app_state->atlas_width = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    json_expect_key(&parser, "atlas_height");
+    json_expect_colon(&parser);
+    app_state->atlas_height = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    json_expect_key(&parser, "glyph_size");
+    json_expect_colon(&parser);
+    app_state->atlas_glyph_size = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    json_expect_key(&parser, "padding");
+    json_expect_colon(&parser);
+    app_state->atlas_padding = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse glyphs array
+    json_expect_key(&parser, "glyphs");
+    json_expect_colon(&parser);
+    json_expect_char(&parser, '[');
+    app_log("Found glyphs array start");
+
+    // Count glyphs first (we know it's 95 from the file, but let's allocate generously)
+    app_state->glyph_atlas = (AtlasGlyph*)arena_alloc(&app_state->main_arena,
+                                                       sizeof(AtlasGlyph) * 128);
+    app_state->glyph_count = 0;
+
+    // Parse each glyph
+    i32 max_glyphs = 128;
+    app_log("Starting glyph parsing loop");
+    while (json_peek_char(&parser) != ']' && app_state->glyph_count < max_glyphs) {
+      if (app_state->glyph_count % 10 == 0) {
+        app_log("Parsing glyph %d", app_state->glyph_count);
+      }
+      AtlasGlyph *glyph = &app_state->glyph_atlas[app_state->glyph_count];
+
+      json_expect_object_start(&parser);
+
+      // Parse "char" (string, skip)
+      json_expect_key(&parser, "char");
+      json_expect_colon(&parser);
+      json_parse_string_value(&parser);
+      json_expect_comma(&parser);
+
+      // Parse codepoint
+      json_expect_key(&parser, "codepoint");
+      json_expect_colon(&parser);
+      glyph->codepoint = (i32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      // Parse position
+      json_expect_key(&parser, "x");
+      json_expect_colon(&parser);
+      glyph->x = (i32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "y");
+      json_expect_colon(&parser);
+      glyph->y = (i32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "w");
+      json_expect_colon(&parser);
+      glyph->w = (i32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "h");
+      json_expect_colon(&parser);
+      glyph->h = (i32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      // Parse UVs
+      json_expect_key(&parser, "u0");
+      json_expect_colon(&parser);
+      glyph->u0 = (f32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "v0");
+      json_expect_colon(&parser);
+      glyph->v0 = (f32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "u1");
+      json_expect_colon(&parser);
+      glyph->u1 = (f32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "v1");
+      json_expect_colon(&parser);
+      glyph->v1 = (f32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      // Parse metrics
+      json_expect_key(&parser, "advance");
+      json_expect_colon(&parser);
+      glyph->advance = (i32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "bearing_x");
+      json_expect_colon(&parser);
+      glyph->bearing_x = (i32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "bearing_y");
+      json_expect_colon(&parser);
+      glyph->bearing_y = (i32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "width");
+      json_expect_colon(&parser);
+      glyph->width = (i32)json_parse_number_value(&parser);
+      json_expect_comma(&parser);
+
+      json_expect_key(&parser, "height");
+      json_expect_colon(&parser);
+      glyph->height = (i32)json_parse_number_value(&parser);
+
+      json_expect_object_end(&parser);
+
+      app_state->glyph_count++;
+
+      // Check for comma or end of array
+      json_skip_whitespace(&parser);
+      if (json_peek_char(&parser) == ',') {
+        json_consume_char(&parser);
+      }
+    }
+
+    json_expect_char(&parser, ']');
+    json_expect_object_end(&parser);
+
+    app_log("Atlas JSON parsed: %dx%d, glyph_size=%d, padding=%d, glyphs=%d",
+            app_state->atlas_width, app_state->atlas_height,
+            app_state->atlas_glyph_size, app_state->atlas_padding,
+            app_state->glyph_count);
+
+    // Log sample glyphs for verification
+    for (i32 i = 0; i < app_state->glyph_count; i++) {
+      AtlasGlyph *g = &app_state->glyph_atlas[i];
+      if (g->codepoint == 65) { // 'A'
+        app_log("Glyph 'A' (65): x=%d y=%d w=%d h=%d advance=%d bearing_x=%d",
+                g->x, g->y, g->w, g->h, g->advance, g->bearing_x);
+      }
+      if (g->codepoint == 97) { // 'a'
+        app_log("Glyph 'a' (97): x=%d y=%d w=%d h=%d advance=%d bearing_x=%d",
+                g->x, g->y, g->w, g->h, g->advance, g->bearing_x);
+      }
+    }
+
+    // Parse PNG using stb_image
+    i32 width, height, channels;
+    app_state->atlas_image_data = stbi_load_from_memory(
+        app_state->atlas_png_bytes,
+        (i32)app_state->atlas_png_bytes_len,
+        &width,
+        &height,
+        &channels,
+        0  // desired_channels (0 = use original)
+    );
+
+    if (app_state->atlas_image_data) {
+      app_state->atlas_image_channels = channels;
+      app_log("Atlas PNG decoded: %dx%d, channels=%d", width, height, channels);
+
+      if (width != app_state->atlas_width || height != app_state->atlas_height) {
+        app_log("WARNING: PNG dimensions (%dx%d) don't match JSON (%dx%d)",
+                width, height, app_state->atlas_width, app_state->atlas_height);
+      }
+    } else {
+      app_log("ERROR: Failed to decode PNG atlas");
+      return;
+    }
+
+    app_state->atlas_parsed = true;
+    app_log("MSDF Atlas parsing complete!");
   }
 
   int width = _os_canvas_width();
