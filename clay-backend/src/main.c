@@ -304,7 +304,8 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
         }
 
         // Calculate glyph position using planeBounds (in em units)
-        // Canvas has Y increasing downward, so we subtract from baseline to go UP
+        // Canvas has Y increasing downward, so we subtract from baseline to go
+        // UP
         f32 glyph_x = x + glyph->planeBounds.left * fontSize;
         f32 glyph_y = baseline_y - glyph->planeBounds.top * fontSize;
         f32 glyph_w =
@@ -384,6 +385,122 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
       os_start_read_file("web/Roboto-Regular-atlas.json");
   app_state->atlas_png_read_op =
       os_start_read_file("web/Roboto-Regular-atlas.png");
+}
+
+Clay_RenderCommandArray test_text() {
+  Clay_BeginLayout();
+
+  // Create a UI with scrolling container to test scissor clipping
+  CLAY(CLAY_ID("MainContainer"),
+       {.layout = {
+            .sizing = {.width = CLAY_SIZING_GROW(),
+                       .height = CLAY_SIZING_GROW()},
+            .layoutDirection = CLAY_LEFT_TO_RIGHT,
+            .childGap = 0,
+            .childAlignment = {.x = CLAY_ALIGN_X_LEFT, .y = CLAY_ALIGN_Y_TOP},
+        }}) {
+    CLAY_TEXT(
+        CLAY_STRING("Hello World!"),
+        CLAY_TEXT_CONFIG({.fontSize = 48, .textColor = {255, 255, 255, 255}}));
+  }
+
+  return Clay_EndLayout();
+}
+
+Clay_RenderCommandArray test_complete_ui() {
+  Clay_BeginLayout();
+
+  // Create a UI with scrolling container to test scissor clipping
+  CLAY(CLAY_ID("MainContainer"),
+       CLAY__INIT(Clay_ElementDeclaration){
+           .layout =
+               {
+                   .sizing =
+                       {
+                           .width = CLAY_SIZING_GROW(),
+                           .height = CLAY_SIZING_GROW(),
+                       },
+                   .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                   .childGap = 20,
+                   .childAlignment =
+                       {
+                           .x = CLAY_ALIGN_X_CENTER,
+                           .y = CLAY_ALIGN_Y_CENTER,
+                       },
+               },
+       }) {
+
+    // Scrolling container with clipping enabled
+    CLAY(CLAY_ID("ScrollContainer"),
+         CLAY__INIT(Clay_ElementDeclaration){
+             .layout =
+                 {
+                     .sizing = {.width = CLAY_SIZING_FIXED(300),
+                                .height = CLAY_SIZING_FIXED(300)},
+                     .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                     .childGap = 16,
+                 },
+             .backgroundColor = {50, 50, 50, 255},
+             .cornerRadius = CLAY_CORNER_RADIUS(10),
+             .border = {.width = CLAY_BORDER_OUTSIDE(2),
+                        .color = {100, 100, 100, 255}},
+             .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
+         }) {
+
+      // Multiple rectangles to demonstrate scrolling
+      CLAY(CLAY_ID("RedRectangle"),
+           CLAY__INIT(Clay_ElementDeclaration){
+               .layout =
+                   {
+                       .sizing = {.width = CLAY_SIZING_FIXED(250),
+                                  .height = CLAY_SIZING_FIXED(150)},
+                   },
+               .backgroundColor = {255, 0, 0, 255},
+               .cornerRadius = CLAY_CORNER_RADIUS(10),
+           }) {}
+
+      CLAY(CLAY_ID("GreenRectangle"),
+           CLAY__INIT(Clay_ElementDeclaration){
+               .layout =
+                   {
+                       .sizing = {.width = CLAY_SIZING_FIXED(250),
+                                  .height = CLAY_SIZING_FIXED(150)},
+                   },
+               .backgroundColor = {0, 255, 0, 255},
+               .cornerRadius = CLAY_CORNER_RADIUS(10),
+           }) {}
+
+      CLAY(CLAY_ID("BlueRectangle"),
+           CLAY__INIT(Clay_ElementDeclaration){
+               .layout =
+                   {
+                       .sizing = {.width = CLAY_SIZING_FIXED(250),
+                                  .height = CLAY_SIZING_FIXED(150)},
+                   },
+               .backgroundColor = {0, 100, 255, 255},
+               .cornerRadius = CLAY_CORNER_RADIUS(10),
+           }) {}
+    }
+
+    // Test image with rounded corners (outside clipped container)
+    CLAY(CLAY_ID("TestImage"),
+         CLAY__INIT(Clay_ElementDeclaration){
+             .layout =
+                 {
+                     .sizing = {.width = CLAY_SIZING_FIXED(200),
+                                .height = CLAY_SIZING_FIXED(200)},
+                 },
+             .image = {.imageData = (void *)test_image_url},
+             .cornerRadius = CLAY_CORNER_RADIUS(20),
+         }) {}
+
+    // Test text element
+    CLAY_TEXT(
+        CLAY_STRING("Hello World!"),
+        CLAY_TEXT_CONFIG({.fontSize = 48, .textColor = {255, 255, 255, 255}}));
+  }
+
+  return Clay_EndLayout();
 }
 
 WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
@@ -517,100 +634,7 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
   Clay_SetLayoutDimensions(
       (Clay_Dimensions){.width = (float)width, .height = (float)height});
 
-  Clay_BeginLayout();
-
-  // Create a UI with scrolling container to test scissor clipping
-  CLAY(CLAY_ID("MainContainer"),
-       CLAY__INIT(Clay_ElementDeclaration){
-           .layout =
-               {
-                   .sizing =
-                       {
-                           .width = CLAY_SIZING_GROW(),
-                           .height = CLAY_SIZING_GROW(),
-                       },
-                   .layoutDirection = CLAY_TOP_TO_BOTTOM,
-                   .childGap = 20,
-                   .childAlignment =
-                       {
-                           .x = CLAY_ALIGN_X_CENTER,
-                           .y = CLAY_ALIGN_Y_CENTER,
-                       },
-               },
-       }) {
-
-    // Scrolling container with clipping enabled
-    CLAY(CLAY_ID("ScrollContainer"),
-         CLAY__INIT(Clay_ElementDeclaration){
-             .layout =
-                 {
-                     .sizing = {.width = CLAY_SIZING_FIXED(300),
-                                .height = CLAY_SIZING_FIXED(300)},
-                     .layoutDirection = CLAY_TOP_TO_BOTTOM,
-                     .childGap = 16,
-                 },
-             .backgroundColor = {50, 50, 50, 255},
-             .cornerRadius = CLAY_CORNER_RADIUS(10),
-             .border = {.width = CLAY_BORDER_OUTSIDE(2),
-                        .color = {100, 100, 100, 255}},
-             .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
-         }) {
-
-      // Multiple rectangles to demonstrate scrolling
-      CLAY(CLAY_ID("RedRectangle"),
-           CLAY__INIT(Clay_ElementDeclaration){
-               .layout =
-                   {
-                       .sizing = {.width = CLAY_SIZING_FIXED(250),
-                                  .height = CLAY_SIZING_FIXED(150)},
-                   },
-               .backgroundColor = {255, 0, 0, 255},
-               .cornerRadius = CLAY_CORNER_RADIUS(10),
-           }) {}
-
-      CLAY(CLAY_ID("GreenRectangle"),
-           CLAY__INIT(Clay_ElementDeclaration){
-               .layout =
-                   {
-                       .sizing = {.width = CLAY_SIZING_FIXED(250),
-                                  .height = CLAY_SIZING_FIXED(150)},
-                   },
-               .backgroundColor = {0, 255, 0, 255},
-               .cornerRadius = CLAY_CORNER_RADIUS(10),
-           }) {}
-
-      CLAY(CLAY_ID("BlueRectangle"),
-           CLAY__INIT(Clay_ElementDeclaration){
-               .layout =
-                   {
-                       .sizing = {.width = CLAY_SIZING_FIXED(250),
-                                  .height = CLAY_SIZING_FIXED(150)},
-                   },
-               .backgroundColor = {0, 100, 255, 255},
-               .cornerRadius = CLAY_CORNER_RADIUS(10),
-           }) {}
-    }
-
-    // Test image with rounded corners (outside clipped container)
-    CLAY(CLAY_ID("TestImage"),
-         CLAY__INIT(Clay_ElementDeclaration){
-             .layout =
-                 {
-                     .sizing = {.width = CLAY_SIZING_FIXED(200),
-                                .height = CLAY_SIZING_FIXED(200)},
-                 },
-             .image = {.imageData = (void *)test_image_url},
-             .cornerRadius = CLAY_CORNER_RADIUS(20),
-         }) {}
-
-    // Test text element
-    CLAY_TEXT(
-        CLAY_STRING("Hello World!"),
-        CLAY_TEXT_CONFIG({.fontSize = 48, .textColor = {255, 255, 255, 255}}));
-  }
-
-  app_state->render_commands = Clay_EndLayout();
-
+  app_state->render_commands = test_text();
   ui_render(app_state, &app_state->render_commands);
 
   arena_reset(&tctx_current()->temp_allocator);
