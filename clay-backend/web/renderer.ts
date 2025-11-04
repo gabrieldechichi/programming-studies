@@ -57,6 +57,8 @@ interface TextProgram {
 }
 
 interface Renderer {
+  canvas: HTMLCanvasElement;
+  gl: WebGL2RenderingContext;
   rectangle: ShaderProgram;
   border: BorderProgram;
   image: ImageProgram;
@@ -73,14 +75,16 @@ interface ImageCache {
   [url: string]: ImageCacheEntry;
 }
 
-const canvas = document.getElementById("canvas") as HTMLCanvasElement;
-const gl = canvas.getContext("webgl2", {
-  antialias: true,
-  premultipliedAlpha: false,
-}) as WebGL2RenderingContext;
-
 // WebGL2 Renderer state
 const renderer: Renderer = {
+  canvas: document.getElementById("canvas") as HTMLCanvasElement,
+  gl: (document.getElementById("canvas") as HTMLCanvasElement).getContext(
+    "webgl2",
+    {
+      antialias: true,
+      premultipliedAlpha: false,
+    },
+  ) as WebGL2RenderingContext,
   rectangle: {
     program: null,
     vao: null,
@@ -114,6 +118,7 @@ const renderer: Renderer = {
       texture: null,
       tint: null,
       cornerRadius: null,
+      color: null,
     },
   },
   text: {
@@ -137,6 +142,7 @@ const imageCache: ImageCache = {};
 
 // Initialize WebGL2 for rendering
 export function initWebGL2(): void {
+  const { gl, canvas } = renderer;
   // Set viewport
   gl.viewport(0, 0, canvas.width, canvas.height);
 
@@ -504,6 +510,7 @@ export function initWebGL2(): void {
 
 // Resize canvas to match display size with proper DPI
 export function resizeCanvasToDisplaySize(): boolean {
+  const { gl, canvas } = renderer;
   const dpr = window.devicePixelRatio || 1;
   const displayWidth = canvas.clientWidth;
   const displayHeight = canvas.clientHeight;
@@ -528,6 +535,7 @@ export function resizeCanvasToDisplaySize(): boolean {
 }
 
 export function createRendererOSFunctions(memInterface: WasmMemoryInterface) {
+  const { gl, canvas } = renderer;
   return {
     _renderer_clear: (r: number, g: number, b: number, a: number): void => {
       gl.clearColor(r, g, b, a);
