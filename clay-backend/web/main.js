@@ -5,7 +5,6 @@ import {
 import { borderVertexShader, borderFragmentShader } from "./border.glsl.js";
 import { imageVertexShader, imageFragmentShader } from "./image.glsl.js";
 import { textVertexShader, textFragmentShader } from "./text.glsl.js";
-import { msdfVertexShader, msdfFragmentShader } from "./msdf.glsl.js";
 import { WasmMemoryInterface } from "./wasm.js";
 
 export function createFileSystemFunctions(wasmMemory) {
@@ -573,93 +572,6 @@ const importObject = {
       // Cleanup (no caching yet)
       gl.deleteTexture(texture);
     },
-    _renderer_upload_msdf_atlas: (imageDataPtr, width, height, channels) => {
-      console.log(
-        `Uploading MSDF atlas texture: ${width}x${height}, channels=${channels}`,
-      );
-
-      // Read decoded image pixels from WASM memory
-      const pixelCount = width * height * channels;
-      const pixels = memInterface.loadU8Array(imageDataPtr, pixelCount);
-
-      // Create WebGL texture
-      const texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-
-      // Upload pixel data
-      const format = channels === 3 ? gl.RGB : gl.RGBA;
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        format,
-        width,
-        height,
-        0,
-        format,
-        gl.UNSIGNED_BYTE,
-        pixels,
-      );
-
-      // MSDF requires LINEAR filtering (no mipmaps)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-      // Store atlas texture in renderer
-      renderer.msdf.atlasTexture = texture;
-
-      console.log(
-        `MSDF atlas texture uploaded successfully: ${width}x${height}`,
-      );
-    },
-    _renderer_draw_glyph_msdf: (
-      x,
-      y,
-      width,
-      height,
-      u0,
-      v0,
-      u1,
-      v1,
-      r,
-      g,
-      b,
-      a,
-    ) => {
-      if (!renderer.msdf.atlasTexture) {
-        console.warn("MSDF atlas texture not uploaded yet");
-        return;
-      }
-
-      gl.useProgram(renderer.msdf.program);
-
-      // Set uniforms
-      gl.uniform2f(
-        renderer.msdf.uniforms.resolution,
-        canvas.width,
-        canvas.height,
-      );
-      gl.uniform4f(renderer.msdf.uniforms.rect, x, y, width, height);
-      gl.uniform4f(
-        renderer.msdf.uniforms.uvRect,
-        u0,
-        v0,
-        u1 - u0,
-        v1 - v0,
-      );
-      gl.uniform4f(renderer.msdf.uniforms.color, r, g, b, a);
-
-      // Bind atlas texture
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, renderer.msdf.atlasTexture);
-      gl.uniform1i(renderer.msdf.uniforms.atlas, 0);
-
-      // Draw quad
-      gl.bindVertexArray(renderer.msdf.vao);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      gl.bindVertexArray(null);
-    },
   },
 };
 
@@ -708,19 +620,6 @@ const renderer = {
       resolution: null,
       rect: null,
       texture: null,
-      color: null,
-    },
-  },
-  msdf: {
-    program: null,
-    vao: null,
-    vbo: null,
-    atlasTexture: null,
-    uniforms: {
-      resolution: null,
-      rect: null,
-      uvRect: null,
-      atlas: null,
       color: null,
     },
   },
@@ -1071,88 +970,8 @@ function initWebGL2() {
 
   gl.bindVertexArray(null);
 
-  // ===== MSDF Shader Program =====
-
-  // Compile MSDF shaders
-  const msdfVertShader = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(msdfVertShader, msdfVertexShader);
-  gl.compileShader(msdfVertShader);
-
-  if (!gl.getShaderParameter(msdfVertShader, gl.COMPILE_STATUS)) {
-    console.error(
-      "MSDF vertex shader compile error:",
-      gl.getShaderInfoLog(msdfVertShader),
-    );
-    return;
-  }
-
-  const msdfFragShader = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(msdfFragShader, msdfFragmentShader);
-  gl.compileShader(msdfFragShader);
-
-  if (!gl.getShaderParameter(msdfFragShader, gl.COMPILE_STATUS)) {
-    console.error(
-      "MSDF fragment shader compile error:",
-      gl.getShaderInfoLog(msdfFragShader),
-    );
-    return;
-  }
-
-  // Link MSDF program
-  renderer.msdf.program = gl.createProgram();
-  gl.attachShader(renderer.msdf.program, msdfVertShader);
-  gl.attachShader(renderer.msdf.program, msdfFragShader);
-  gl.linkProgram(renderer.msdf.program);
-
-  if (!gl.getProgramParameter(renderer.msdf.program, gl.LINK_STATUS)) {
-    console.error(
-      "MSDF program link error:",
-      gl.getProgramInfoLog(renderer.msdf.program),
-    );
-    return;
-  }
-
-  // Get MSDF uniform locations
-  renderer.msdf.uniforms.resolution = gl.getUniformLocation(
-    renderer.msdf.program,
-    "u_resolution",
-  );
-  renderer.msdf.uniforms.rect = gl.getUniformLocation(
-    renderer.msdf.program,
-    "u_rect",
-  );
-  renderer.msdf.uniforms.uvRect = gl.getUniformLocation(
-    renderer.msdf.program,
-    "u_uvRect",
-  );
-  renderer.msdf.uniforms.atlas = gl.getUniformLocation(
-    renderer.msdf.program,
-    "u_atlas",
-  );
-  renderer.msdf.uniforms.color = gl.getUniformLocation(
-    renderer.msdf.program,
-    "u_color",
-  );
-
-  // Create MSDF quad VAO and VBO
-  renderer.msdf.vao = gl.createVertexArray();
-  gl.bindVertexArray(renderer.msdf.vao);
-
-  renderer.msdf.vbo = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, renderer.msdf.vbo);
-  gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
-
-  const msdfA_position = gl.getAttribLocation(
-    renderer.msdf.program,
-    "a_position",
-  );
-  gl.enableVertexAttribArray(msdfA_position);
-  gl.vertexAttribPointer(msdfA_position, 2, gl.FLOAT, false, 0, 0);
-
-  gl.bindVertexArray(null);
-
   console.log(
-    "WebGL2 initialized successfully (rectangles + borders + images + text + MSDF)",
+    "WebGL2 initialized successfully (rectangles + borders + images + text)",
   );
 }
 
