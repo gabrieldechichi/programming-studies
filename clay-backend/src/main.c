@@ -373,6 +373,54 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
     }
   }
 
+  // Load atlas PNG
+  if (!app_state->atlas_png_bytes) {
+    switch (os_check_read_file(app_state->atlas_png_read_op)) {
+    case OS_FILE_READ_STATE_NONE:
+      break;
+    case OS_FILE_READ_STATE_IN_PROGRESS:
+      app_log("loading atlas PNG");
+      break;
+    case OS_FILE_READ_STATE_COMPLETED: {
+      size_t png_size = os_get_file_size(app_state->atlas_png_read_op);
+      app_log("atlas PNG loaded %f kb", BYTES_TO_KB(png_size));
+      PlatformFileData file_data = {0};
+      if (os_get_file_data(app_state->atlas_png_read_op, &file_data,
+                           &app_state->main_arena)) {
+        if (file_data.success) {
+          app_state->atlas_png_bytes = file_data.buffer;
+          app_state->atlas_png_len = file_data.buffer_len;
+
+          // Parse PNG with stb_image
+          i32 width, height, channels;
+          u8 *image_data = stbi_load_from_memory(
+              app_state->atlas_png_bytes,
+              (i32)app_state->atlas_png_len,
+              &width, &height, &channels, 0);
+
+          if (!image_data) {
+            app_log("Failed to parse PNG!");
+          } else {
+            app_state->text_renderer.atlas_image = image_data;
+            app_state->text_renderer.atlas_width = width;
+            app_state->text_renderer.atlas_height = height;
+            app_state->text_renderer.atlas_channels = channels;
+            app_state->text_renderer.initialized = true;
+
+            app_log("PNG parsed successfully!");
+            app_log("  Dimensions: %dx%d, channels=%d", width, height, channels);
+          }
+        } else {
+          app_log("error reading atlas PNG data");
+        }
+      }
+    } break;
+    case OS_FILE_READ_STATE_ERROR:
+      app_log("atlas PNG read error");
+      break;
+    }
+  }
+
   int width = _os_canvas_width();
   int height = _os_canvas_height();
 
