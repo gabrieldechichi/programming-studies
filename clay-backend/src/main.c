@@ -132,11 +132,7 @@ int printf(const char *format, ...) {
 
 // MSDF Text Renderer
 typedef struct {
-  MsdfAtlasData atlas_data;
-  u8 *atlas_image;
-  i32 atlas_width;
-  i32 atlas_height;
-  i32 atlas_channels;
+  UIFontAsset *asset;  // Single binary asset containing all font data
   b32 initialized;
 } TextRenderer;
 
@@ -172,10 +168,11 @@ void HandleClayError(Clay_ErrorData errorData) {
 }
 
 // Helper: Find glyph by unicode in atlas
-static MsdfGlyph *find_glyph(MsdfAtlasData *atlas, u32 unicode) {
-  for (u32 i = 0; i < atlas->glyph_count; i++) {
-    if (atlas->glyphs[i].unicode == unicode) {
-      return &atlas->glyphs[i];
+static MsdfGlyph *find_glyph(UIFontAsset *asset, u32 unicode) {
+  MsdfGlyph *glyphs = ui_font_asset_get_glyphs(asset);
+  for (u32 i = 0; i < asset->glyph_count; i++) {
+    if (glyphs[i].unicode == unicode) {
+      return &glyphs[i];
     }
   }
   return NULL;
@@ -192,14 +189,14 @@ Clay_Dimensions MeasureText(Clay_StringSlice text,
     return (Clay_Dimensions){0, 0};
   }
 
-  MsdfAtlasData *atlas = &app_state->text_renderer.atlas_data;
+  UIFontAsset *asset = app_state->text_renderer.asset;
   f32 fontSize = config->fontSize;
 
   // Calculate width by accumulating glyph advances
   f32 width = 0.0f;
   for (i32 i = 0; i < text.length; i++) {
     u32 codepoint = (u32)text.chars[i];
-    MsdfGlyph *glyph = find_glyph(atlas, codepoint);
+    MsdfGlyph *glyph = find_glyph(asset, codepoint);
 
     if (glyph) {
       // advance is in em units, multiply by fontSize for pixels
@@ -208,7 +205,7 @@ Clay_Dimensions MeasureText(Clay_StringSlice text,
   }
 
   // Calculate height from font metrics (also in em units)
-  f32 height = (atlas->metrics.ascender - atlas->metrics.descender) * fontSize;
+  f32 height = (asset->metrics.ascender - asset->metrics.descender) * fontSize;
 
   app_log("MeasureText: '%.*s' fontSize=%f -> width=%f height=%f", text.length,
           text.chars, fontSize, width, height);
@@ -281,18 +278,18 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
         break;
       }
 
-      MsdfAtlasData *atlas = &app_state->text_renderer.atlas_data;
+      UIFontAsset *asset = app_state->text_renderer.asset;
       f32 fontSize = text_data->fontSize;
-      f32 distanceRange = atlas->atlas.distanceRange;
+      f32 distanceRange = asset->atlas.distanceRange;
 
       // Calculate baseline position
-      f32 baseline_y = cmd->boundingBox.y + atlas->metrics.ascender * fontSize;
+      f32 baseline_y = cmd->boundingBox.y + asset->metrics.ascender * fontSize;
       f32 x = cmd->boundingBox.x;
 
       // Render each character
       for (i32 i = 0; i < text_data->stringContents.length; i++) {
         u32 codepoint = (u32)text_data->stringContents.chars[i];
-        MsdfGlyph *glyph = find_glyph(atlas, codepoint);
+        MsdfGlyph *glyph = find_glyph(asset, codepoint);
         assert(glyph);
 
         if (!glyph || !glyph->has_visual) {
@@ -314,10 +311,10 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
             (glyph->planeBounds.top - glyph->planeBounds.bottom) * fontSize;
 
         // Calculate UV coordinates from atlasBounds (in pixels)
-        f32 u0 = glyph->atlasBounds.left / atlas->atlas.width;
-        f32 v0 = glyph->atlasBounds.top / atlas->atlas.height;
-        f32 u1 = glyph->atlasBounds.right / atlas->atlas.width;
-        f32 v1 = glyph->atlasBounds.bottom / atlas->atlas.height;
+        f32 u0 = glyph->atlasBounds.left / asset->atlas.width;
+        f32 v0 = glyph->atlasBounds.top / asset->atlas.height;
+        f32 u1 = glyph->atlasBounds.right / asset->atlas.width;
+        f32 v1 = glyph->atlasBounds.bottom / asset->atlas.height;
 
         // Draw glyph with MSDF
         _renderer_draw_msdf_glyph(
@@ -383,8 +380,7 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
 
   app_state->atlas_json_read_op =
       os_start_read_file("Roboto-Regular-atlas.json");
-  app_state->atlas_png_read_op =
-      os_start_read_file("Roboto-Regular-atlas.png");
+  app_state->atlas_png_read_op = os_start_read_file("Roboto-Regular-atlas.png");
 }
 
 Clay_RenderCommandArray test_text() {
@@ -506,6 +502,11 @@ Clay_RenderCommandArray test_complete_ui() {
 WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
   AppState *app_state = (AppState *)memory;
 
+  // Temporary storage for parsed data (before packing into UIFontAsset)
+  static MsdfAtlasData temp_atlas_data = {0};
+  static u8 *temp_png_bytes = NULL;
+  static size_t temp_png_len = 0;
+
   // Load atlas JSON
   if (!app_state->atlas_json_bytes) {
     switch (os_check_read_file(app_state->atlas_json_read_op)) {
@@ -528,40 +529,24 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
           // Null terminate the JSON string
           app_state->atlas_json_bytes[app_state->atlas_json_len] = '\0';
 
-          // Parse atlas JSON
+          // Parse atlas JSON into temporary storage
           Allocator allocator = make_arena_allocator(&app_state->main_arena);
           if (!msdf_parse_atlas((const char *)app_state->atlas_json_bytes,
-                                &app_state->text_renderer.atlas_data,
-                                &allocator)) {
+                                &temp_atlas_data, &allocator)) {
             app_log("Failed to parse atlas JSON!");
           } else {
-            MsdfAtlasData *atlas = &app_state->text_renderer.atlas_data;
             app_log("Atlas parsed successfully!");
             app_log("  Atlas: %fx%f, distanceRange=%f, size=%f",
-                    atlas->atlas.width, atlas->atlas.height,
-                    atlas->atlas.distanceRange, atlas->atlas.size);
+                    temp_atlas_data.atlas.width, temp_atlas_data.atlas.height,
+                    temp_atlas_data.atlas.distanceRange,
+                    temp_atlas_data.atlas.size);
             app_log("  Metrics: emSize=%f, lineHeight=%f, ascender=%f, "
                     "descender=%f",
-                    atlas->metrics.emSize, atlas->metrics.lineHeight,
-                    atlas->metrics.ascender, atlas->metrics.descender);
-            app_log("  Glyphs: %d", atlas->glyph_count);
-
-            // Log every glyph
-            for (u32 i = 0; i < atlas->glyph_count; i++) {
-              MsdfGlyph *g = &atlas->glyphs[i];
-              if (g->has_visual) {
-                app_log("  [%d] unicode=%d '%c' advance=%f plane=[%f,%f,%f,%f] "
-                        "atlas=[%f,%f,%f,%f]",
-                        i, g->unicode, (char)g->unicode, g->advance,
-                        g->planeBounds.left, g->planeBounds.bottom,
-                        g->planeBounds.right, g->planeBounds.top,
-                        g->atlasBounds.left, g->atlasBounds.bottom,
-                        g->atlasBounds.right, g->atlasBounds.top);
-              } else {
-                app_log("  [%d] unicode=%d '%c' advance=%f (no visual)", i,
-                        g->unicode, (char)g->unicode, g->advance);
-              }
-            }
+                    temp_atlas_data.metrics.emSize,
+                    temp_atlas_data.metrics.lineHeight,
+                    temp_atlas_data.metrics.ascender,
+                    temp_atlas_data.metrics.descender);
+            app_log("  Glyphs: %d", temp_atlas_data.glyph_count);
           }
         } else {
           app_log("error reading atlas JSON data");
@@ -591,32 +576,9 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
         if (file_data.success) {
           app_state->atlas_png_bytes = file_data.buffer;
           app_state->atlas_png_len = file_data.buffer_len;
-
-          // Parse PNG with stb_image
-          // Flip vertically to match OpenGL texture coordinates (Y=0 at bottom)
-          stbi_set_flip_vertically_on_load(1);
-          i32 width, height, channels;
-          u8 *image_data = stbi_load_from_memory(app_state->atlas_png_bytes,
-                                                 (i32)app_state->atlas_png_len,
-                                                 &width, &height, &channels, 0);
-
-          if (!image_data) {
-            app_log("Failed to parse PNG!");
-          } else {
-            app_state->text_renderer.atlas_image = image_data;
-            app_state->text_renderer.atlas_width = width;
-            app_state->text_renderer.atlas_height = height;
-            app_state->text_renderer.atlas_channels = channels;
-
-            app_log("PNG parsed successfully!");
-            app_log("  Dimensions: %dx%d, channels=%d", width, height,
-                    channels);
-
-            // Upload atlas texture to WebGL
-            _renderer_upload_msdf_atlas(image_data, width, height, channels);
-            app_state->text_renderer.initialized = true;
-            app_log("MSDF atlas uploaded to GPU");
-          }
+          temp_png_bytes = app_state->atlas_png_bytes;
+          temp_png_len = app_state->atlas_png_len;
+          app_log("PNG loaded successfully!");
         } else {
           app_log("error reading atlas PNG data");
         }
@@ -625,6 +587,70 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
     case OS_FILE_READ_STATE_ERROR:
       app_log("atlas PNG read error");
       break;
+    }
+  }
+
+  // Pack into UIFontAsset when both JSON and PNG are loaded
+  if (!app_state->text_renderer.initialized && temp_atlas_data.glyphs &&
+      temp_png_bytes) {
+    app_log("Packing font asset...");
+
+    // Calculate memory layout
+    size_t header_size = sizeof(UIFontAsset);
+    size_t glyphs_size = temp_atlas_data.glyph_count * sizeof(MsdfGlyph);
+    size_t total_size = header_size + glyphs_size + temp_png_len;
+
+    // Allocate single buffer for entire asset
+    UIFontAsset *asset =
+        (UIFontAsset *)arena_alloc(&app_state->main_arena, total_size);
+    app_log("  Allocated %f kb for font asset", BYTES_TO_KB(total_size));
+
+    // Copy header data
+    asset->atlas = temp_atlas_data.atlas;
+    asset->metrics = temp_atlas_data.metrics;
+    asset->glyph_count = temp_atlas_data.glyph_count;
+    asset->glyphs_offset = header_size;
+    asset->image_data_offset = header_size + glyphs_size;
+    asset->image_data_size = (u32)temp_png_len;
+
+    // Copy glyph array inline
+    MsdfGlyph *packed_glyphs = ui_font_asset_get_glyphs(asset);
+    for (u32 i = 0; i < temp_atlas_data.glyph_count; i++) {
+      packed_glyphs[i] = temp_atlas_data.glyphs[i];
+    }
+
+    // Copy PNG data inline
+    u8 *packed_image = ui_font_asset_get_image_data(asset);
+    for (size_t i = 0; i < temp_png_len; i++) {
+      packed_image[i] = temp_png_bytes[i];
+    }
+
+    app_log("Font asset packed successfully!");
+    app_log("  Header: %zu bytes at offset 0", header_size);
+    app_log("  Glyphs: %zu bytes at offset %u", glyphs_size,
+            asset->glyphs_offset);
+    app_log("  PNG data: %u bytes at offset %u", asset->image_data_size,
+            asset->image_data_offset);
+
+    // Decode PNG with stb_image
+    stbi_set_flip_vertically_on_load(1);
+    i32 width, height, channels;
+    u8 *image_data =
+        stbi_load_from_memory(packed_image, (i32)asset->image_data_size,
+                              &width, &height, &channels, 0);
+
+    if (!image_data) {
+      app_log("Failed to parse PNG from packed asset!");
+    } else {
+      app_log("PNG decoded: %dx%d, channels=%d", width, height, channels);
+
+      // Upload atlas texture to WebGL
+      _renderer_upload_msdf_atlas(image_data, width, height, channels);
+
+      // Set asset and mark initialized
+      app_state->text_renderer.asset = asset;
+      app_state->text_renderer.initialized = true;
+      app_log("MSDF atlas uploaded to GPU - renderer initialized!");
     }
   }
 

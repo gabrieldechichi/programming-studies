@@ -47,12 +47,32 @@ typedef struct {
   MsdfAtlasBounds atlasBounds;
 } MsdfGlyph;
 
-// Complete MSDF atlas data
+// Complete MSDF atlas data (legacy - kept for JSON parsing)
 typedef struct {
   MsdfAtlasConfig atlas;
   MsdfMetrics metrics;
   MsdfGlyph *glyphs;
   u32 glyph_count;
 } MsdfAtlasData;
+
+// Binary font asset (.hza format) - self-contained, single allocation
+// Memory layout: [UIFontAsset header][Glyph array][PNG data]
+typedef struct {
+  MsdfAtlasConfig atlas;
+  MsdfMetrics metrics;
+  u32 glyph_count;
+  u32 glyphs_offset;      // Offset in bytes from UIFontAsset base pointer
+  u32 image_data_offset;  // Offset in bytes from UIFontAsset base pointer
+  u32 image_data_size;    // Size of PNG data in bytes
+} UIFontAsset;
+
+// Accessor functions to get pointers from offsets
+static inline MsdfGlyph *ui_font_asset_get_glyphs(UIFontAsset *asset) {
+  return (MsdfGlyph *)((u8 *)asset + asset->glyphs_offset);
+}
+
+static inline u8 *ui_font_asset_get_image_data(UIFontAsset *asset) {
+  return (u8 *)asset + asset->image_data_offset;
+}
 
 #endif
