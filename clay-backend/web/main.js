@@ -501,50 +501,81 @@ const importObject = {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
     },
-    _renderer_draw_glyph: (x, y, width, height, bitmapPtr, r, g, b, a) => {
-      // Ensure integers (defensive)
-      const w = Math.floor(width);
-      const h = Math.floor(height);
+    _renderer_upload_msdf_atlas: (
+      imageDataPtr,
+      width,
+      height,
+      channels,
+    ) => {
+      console.log(
+        `Uploading MSDF atlas: ${width}x${height}, channels=${channels}`,
+      );
 
-      if (w === 0 || h === 0) return;
+      // Read image data from WASM memory
+      const imageData = memInterface.loadU8Array(
+        imageDataPtr,
+        imageDataPtr + width * height * channels,
+      );
 
-      // Copy bitmap from WASM memory (single-channel grayscale)
-      const bitmap = memInterface.loadU8Array(bitmapPtr, bitmapPtr + w * h);
-
-      // Create temporary texture
-      // todo: no create texture every frame for every glyph
+      // Create and upload texture
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
 
-      // Set pixel store to 1-byte alignment (default is 4)
-      // This is critical for odd-width textures
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-
-      // Upload as single-channel RED texture (GL_ALPHA deprecated in WebGL2)
+      // Upload RGB texture
       gl.texImage2D(
         gl.TEXTURE_2D,
         0,
-        gl.R8, // Internal format: single-channel 8-bit
-        w,
-        h,
+        gl.RGB,
+        width,
+        height,
         0,
-        gl.RED, // Format: red channel
+        gl.RGB,
         gl.UNSIGNED_BYTE,
-        bitmap,
+        imageData,
       );
 
-      // Linear filtering for smooth text
+      // Linear filtering for MSDF
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+      // Store texture in renderer
+      renderer.text.atlasTexture = texture;
+
+      console.log("MSDF atlas texture uploaded successfully");
+    },
+    _renderer_draw_msdf_glyph: (
+      x,
+      y,
+      width,
+      height,
+      u0,
+      v0,
+      u1,
+      v1,
+      r,
+      g,
+      b,
+      a,
+      fontSize,
+      distanceRange,
+    ) => {
+      if (!renderer.text.atlasTexture) {
+        console.warn("MSDF atlas texture not uploaded yet");
+        return;
+      }
+
+      console.log(
+        `Drawing MSDF glyph: pos=(${x},${y}) size=(${width}x${height}) uv=(${u0},${v0})-(${u1},${v1}) fontSize=${fontSize} distanceRange=${distanceRange}`,
+      );
+
+      const dpr = window.devicePixelRatio || 1;
+
       // Use text shader
       gl.useProgram(renderer.text.program);
 
       // Set uniforms
-      // Note: x, y are already in physical pixels from C side
-      // width, height are the actual bitmap dimensions (already physical pixels)
       gl.uniform2f(
         renderer.text.uniforms.resolution,
         canvas.width,
@@ -552,25 +583,25 @@ const importObject = {
       );
       gl.uniform4f(
         renderer.text.uniforms.rect,
-        x, // Already physical pixels
-        y, // Already physical pixels
-        w, // Bitmap width (physical pixels)
-        h, // Bitmap height (physical pixels)
+        x * dpr,
+        y * dpr,
+        width * dpr,
+        height * dpr,
       );
       gl.uniform4f(renderer.text.uniforms.color, r, g, b, a);
+      gl.uniform1f(renderer.text.uniforms.distanceRange, distanceRange);
+      gl.uniform1f(renderer.text.uniforms.fontSize, fontSize * dpr);
+      gl.uniform4f(renderer.text.uniforms.uvBounds, u0, v0, u1, v1);
 
-      // Bind texture
+      // Bind atlas texture
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.bindTexture(gl.TEXTURE_2D, renderer.text.atlasTexture);
       gl.uniform1i(renderer.text.uniforms.texture, 0);
 
-      // Draw quad
+      // Draw quad (uses standard 0-1 normalized quad)
       gl.bindVertexArray(renderer.text.vao);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
-
-      // Cleanup (no caching yet)
-      gl.deleteTexture(texture);
     },
   },
 };
@@ -616,11 +647,15 @@ const renderer = {
     program: null,
     vao: null,
     vbo: null,
+    atlasTexture: null,
     uniforms: {
       resolution: null,
       rect: null,
       texture: null,
       color: null,
+      distanceRange: null,
+      fontSize: null,
+      uvBounds: null,
     },
   },
 };
@@ -951,6 +986,18 @@ function initWebGL2() {
   renderer.text.uniforms.color = gl.getUniformLocation(
     renderer.text.program,
     "u_color",
+  );
+  renderer.text.uniforms.distanceRange = gl.getUniformLocation(
+    renderer.text.program,
+    "u_distanceRange",
+  );
+  renderer.text.uniforms.fontSize = gl.getUniformLocation(
+    renderer.text.program,
+    "u_fontSize",
+  );
+  renderer.text.uniforms.uvBounds = gl.getUniformLocation(
+    renderer.text.program,
+    "u_uvBounds",
   );
 
   // Create text quad VAO and VBO (same geometry as others)

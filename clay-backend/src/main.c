@@ -48,9 +48,13 @@ extern void _renderer_draw_image(float x, float y, float width, float height,
 extern void _renderer_scissor_start(float x, float y, float width,
                                     float height);
 extern void _renderer_scissor_end(void);
-extern void _renderer_draw_glyph(float x, float y, int width, int height,
-                                 const u8 *bitmap_data, float r, float g,
-                                 float b, float a);
+extern void _renderer_upload_msdf_atlas(const u8 *image_data, i32 width,
+                                        i32 height, i32 channels);
+extern void _renderer_draw_msdf_glyph(float x, float y, float width,
+                                      float height, float u0, float v0,
+                                      float u1, float v1, float r, float g,
+                                      float b, float a, float fontSize,
+                                      float distanceRange);
 
 int printf(const char *format, ...) {
   char buffer[KB(4)];
@@ -277,8 +281,54 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
         break;
       }
 
-      // TODO: Implement MSDF text rendering
-      UNUSED(text_data);
+      MsdfAtlasData *atlas = &app_state->text_renderer.atlas_data;
+      f32 fontSize = text_data->fontSize;
+      f32 distanceRange = atlas->atlas.distanceRange;
+
+      // Calculate baseline position
+      f32 baseline_y = cmd->boundingBox.y + atlas->metrics.ascender * fontSize;
+      f32 x = cmd->boundingBox.x;
+
+      // Render each character
+      for (i32 i = 0; i < text_data->stringContents.length; i++) {
+        u32 codepoint = (u32)text_data->stringContents.chars[i];
+        MsdfGlyph *glyph = find_glyph(atlas, codepoint);
+        assert(glyph);
+
+        if (!glyph || !glyph->has_visual) {
+          // Advance for non-visual glyphs (like space)
+          if (glyph) {
+            x += glyph->advance * fontSize;
+          }
+          continue;
+        }
+
+        // Calculate glyph position using planeBounds (in em units)
+        // Canvas has Y increasing downward, so we subtract from baseline to go UP
+        f32 glyph_x = x + glyph->planeBounds.left * fontSize;
+        f32 glyph_y = baseline_y - glyph->planeBounds.top * fontSize;
+        f32 glyph_w =
+            (glyph->planeBounds.right - glyph->planeBounds.left) * fontSize;
+        f32 glyph_h =
+            (glyph->planeBounds.top - glyph->planeBounds.bottom) * fontSize;
+
+        // Calculate UV coordinates from atlasBounds (in pixels)
+        f32 u0 = glyph->atlasBounds.left / atlas->atlas.width;
+        f32 v0 = glyph->atlasBounds.top / atlas->atlas.height;
+        f32 u1 = glyph->atlasBounds.right / atlas->atlas.width;
+        f32 v1 = glyph->atlasBounds.bottom / atlas->atlas.height;
+
+        // Draw glyph with MSDF
+        _renderer_draw_msdf_glyph(
+            glyph_x, glyph_y, glyph_w, glyph_h, u0, v0, u1, v1,
+            text_data->textColor.r / 255.0f, text_data->textColor.g / 255.0f,
+            text_data->textColor.b / 255.0f, text_data->textColor.a / 255.0f,
+            fontSize, distanceRange);
+
+        // Advance cursor
+        x += glyph->advance * fontSize;
+      }
+
       break;
     }
 
@@ -426,6 +476,8 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
           app_state->atlas_png_len = file_data.buffer_len;
 
           // Parse PNG with stb_image
+          // Flip vertically to match OpenGL texture coordinates (Y=0 at bottom)
+          stbi_set_flip_vertically_on_load(1);
           i32 width, height, channels;
           u8 *image_data = stbi_load_from_memory(app_state->atlas_png_bytes,
                                                  (i32)app_state->atlas_png_len,
@@ -438,11 +490,15 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
             app_state->text_renderer.atlas_width = width;
             app_state->text_renderer.atlas_height = height;
             app_state->text_renderer.atlas_channels = channels;
-            app_state->text_renderer.initialized = true;
 
             app_log("PNG parsed successfully!");
             app_log("  Dimensions: %dx%d, channels=%d", width, height,
                     channels);
+
+            // Upload atlas texture to WebGL
+            _renderer_upload_msdf_atlas(image_data, width, height, channels);
+            app_state->text_renderer.initialized = true;
+            app_log("MSDF atlas uploaded to GPU");
           }
         } else {
           app_log("error reading atlas PNG data");
