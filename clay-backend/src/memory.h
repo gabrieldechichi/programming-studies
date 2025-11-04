@@ -10,12 +10,6 @@
 #define memset(dest, val, n) __builtin_memset(dest, val, n)
 #define memmove(dest, src, n) __builtin_memmove(dest, src, n)
 #else
-#define memcpy(dest, src, n) __error("memcpy not implemented for platform")
-#define memset(dest, src, n) __error("memset not implemented for platform")
-#define memmove(dest, src, n) __error("memmove not implemented for platform")
-#define malloc(size) __error("malloc not implemented for platform")
-#define calloc(num, size) __error("calloc not implemented for platform")
-#define free(ptr) __error("free not implemented for platform")
 #endif
 
 #ifndef H_MEMORY

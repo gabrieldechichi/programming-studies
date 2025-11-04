@@ -140,6 +140,16 @@ typedef struct {
   i32 width, height;        // Glyph dimensions
 } AtlasGlyph;
 
+// MSDF Atlas Data (entire JSON structure)
+typedef struct {
+  i32 atlas_width;
+  i32 atlas_height;
+  i32 glyph_size;
+  i32 padding;
+  AtlasGlyph *glyphs;
+  i32 glyph_count;
+} MsdfAtlasData;
+
 // Text Renderer
 typedef struct {
   stbtt_fontinfo font;          // stb_truetype font info
@@ -169,11 +179,7 @@ typedef struct {
   b32 atlas_assets_loaded;
 
   // MSDF Atlas parsed data
-  AtlasGlyph *glyph_atlas;
-  i32 glyph_count;
-  i32 atlas_width, atlas_height;
-  i32 atlas_glyph_size;
-  i32 atlas_padding;
+  MsdfAtlasData atlas_data;
   u8 *atlas_image_data;  // Decoded PNG pixels (RGB/RGBA)
   i32 atlas_image_channels;
   b32 atlas_parsed;
@@ -195,11 +201,204 @@ void HandleClayError(Clay_ErrorData errorData) {
   UNUSED(errorData);
 }
 
+// Parse MSDF Atlas JSON
+b32 parse_msdf_atlas(const char *json_str, MsdfAtlasData *out, Allocator *allocator) {
+  app_log("parse_msdf_atlas: Starting parse");
+
+  JsonParser parser = json_parser_init(json_str, allocator);
+
+  // Parse root object start
+  if (!json_expect_object_start(&parser)) {
+    app_log("parse_msdf_atlas: ERROR - Expected object start");
+    return false;
+  }
+  app_log("parse_msdf_atlas: Found object start");
+
+  // Parse "atlas_width"
+  json_expect_key(&parser, "atlas_width");
+  json_expect_colon(&parser);
+  out->atlas_width = (i32)json_parse_number_value(&parser);
+  app_log("parse_msdf_atlas: atlas_width = %d", out->atlas_width);
+  json_expect_comma(&parser);
+
+  // Parse "atlas_height"
+  json_expect_key(&parser, "atlas_height");
+  json_expect_colon(&parser);
+  out->atlas_height = (i32)json_parse_number_value(&parser);
+  app_log("parse_msdf_atlas: atlas_height = %d", out->atlas_height);
+  json_expect_comma(&parser);
+
+  // Parse "glyph_size"
+  json_expect_key(&parser, "glyph_size");
+  json_expect_colon(&parser);
+  out->glyph_size = (i32)json_parse_number_value(&parser);
+  app_log("parse_msdf_atlas: glyph_size = %d", out->glyph_size);
+  json_expect_comma(&parser);
+
+  // Parse "padding"
+  json_expect_key(&parser, "padding");
+  json_expect_colon(&parser);
+  out->padding = (i32)json_parse_number_value(&parser);
+  app_log("parse_msdf_atlas: padding = %d", out->padding);
+  json_expect_comma(&parser);
+
+  // Parse "glyphs" array
+  json_expect_key(&parser, "glyphs");
+  json_expect_colon(&parser);
+  if (!json_expect_char(&parser, '[')) {
+    app_log("parse_msdf_atlas: ERROR - Expected array start for glyphs");
+    return false;
+  }
+  app_log("parse_msdf_atlas: Found glyphs array start");
+
+  // Allocate glyph array (allocate for 128 glyphs max)
+  out->glyphs = ALLOC_ARRAY(allocator, AtlasGlyph, 128);
+  out->glyph_count = 0;
+
+  // Parse each glyph
+  while (json_peek_char(&parser) != ']' && out->glyph_count < 128) {
+    AtlasGlyph *glyph = &out->glyphs[out->glyph_count];
+
+    // Parse glyph object start
+    if (!json_expect_object_start(&parser)) {
+      app_log("parse_msdf_atlas: ERROR - Expected object start for glyph %d", out->glyph_count);
+      return false;
+    }
+
+    // Parse "char" (string, we skip it)
+    json_expect_key(&parser, "char");
+    json_expect_colon(&parser);
+    json_parse_string_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "codepoint"
+    json_expect_key(&parser, "codepoint");
+    json_expect_colon(&parser);
+    glyph->codepoint = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "x"
+    json_expect_key(&parser, "x");
+    json_expect_colon(&parser);
+    glyph->x = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "y"
+    json_expect_key(&parser, "y");
+    json_expect_colon(&parser);
+    glyph->y = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "w"
+    json_expect_key(&parser, "w");
+    json_expect_colon(&parser);
+    glyph->w = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "h"
+    json_expect_key(&parser, "h");
+    json_expect_colon(&parser);
+    glyph->h = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "u0"
+    json_expect_key(&parser, "u0");
+    json_expect_colon(&parser);
+    glyph->u0 = (f32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "v0"
+    json_expect_key(&parser, "v0");
+    json_expect_colon(&parser);
+    glyph->v0 = (f32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "u1"
+    json_expect_key(&parser, "u1");
+    json_expect_colon(&parser);
+    glyph->u1 = (f32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "v1"
+    json_expect_key(&parser, "v1");
+    json_expect_colon(&parser);
+    glyph->v1 = (f32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "advance"
+    json_expect_key(&parser, "advance");
+    json_expect_colon(&parser);
+    glyph->advance = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "bearing_x"
+    json_expect_key(&parser, "bearing_x");
+    json_expect_colon(&parser);
+    glyph->bearing_x = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "bearing_y"
+    json_expect_key(&parser, "bearing_y");
+    json_expect_colon(&parser);
+    glyph->bearing_y = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "width"
+    json_expect_key(&parser, "width");
+    json_expect_colon(&parser);
+    glyph->width = (i32)json_parse_number_value(&parser);
+    json_expect_comma(&parser);
+
+    // Parse "height" (last field, no comma)
+    json_expect_key(&parser, "height");
+    json_expect_colon(&parser);
+    glyph->height = (i32)json_parse_number_value(&parser);
+
+    // Parse glyph object end
+    if (!json_expect_object_end(&parser)) {
+      app_log("parse_msdf_atlas: ERROR - Expected object end for glyph %d", out->glyph_count);
+      return false;
+    }
+
+    // Log every 10th glyph to avoid spam
+    if (out->glyph_count % 10 == 0) {
+      app_log("parse_msdf_atlas: glyph[%d] codepoint=%d ('%c') advance=%d",
+              out->glyph_count, glyph->codepoint,
+              (glyph->codepoint >= 32 && glyph->codepoint < 127) ? (char)glyph->codepoint : '?',
+              glyph->advance);
+    }
+
+    out->glyph_count++;
+
+    // Check for comma or end of array
+    json_skip_whitespace(&parser);
+    if (json_peek_char(&parser) == ',') {
+      json_consume_char(&parser);
+    }
+  }
+
+  // Parse glyphs array end
+  if (!json_expect_char(&parser, ']')) {
+    app_log("parse_msdf_atlas: ERROR - Expected array end for glyphs");
+    return false;
+  }
+  app_log("parse_msdf_atlas: Parsed %d glyphs", out->glyph_count);
+
+  // Parse root object end
+  if (!json_expect_object_end(&parser)) {
+    app_log("parse_msdf_atlas: ERROR - Expected object end");
+    return false;
+  }
+  app_log("parse_msdf_atlas: Parse complete!");
+
+  return true;
+}
+
 // Helper: Find glyph in atlas by codepoint
 AtlasGlyph* find_glyph(AppState *app_state, i32 codepoint) {
-  for (i32 i = 0; i < app_state->glyph_count; i++) {
-    if (app_state->glyph_atlas[i].codepoint == codepoint) {
-      return &app_state->glyph_atlas[i];
+  for (i32 i = 0; i < app_state->atlas_data.glyph_count; i++) {
+    if (app_state->atlas_data.glyphs[i].codepoint == codepoint) {
+      return &app_state->atlas_data.glyphs[i];
     }
   }
   return NULL;
@@ -218,7 +417,7 @@ Clay_Dimensions MeasureText(Clay_StringSlice text,
   }
 
   // Calculate scale factor from atlas glyph size to desired font size
-  f32 scale = config->fontSize / (f32)app_state->atlas_glyph_size;
+  f32 scale = config->fontSize / (f32)app_state->atlas_data.glyph_size;
 
   f32 width = 0;
 
@@ -309,7 +508,7 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
       }
 
       f32 dpr = _os_get_dpr();
-      f32 scale = text_data->fontSize / (f32)app_state->atlas_glyph_size;
+      f32 scale = text_data->fontSize / (f32)app_state->atlas_data.glyph_size;
 
       f32 x = cmd->boundingBox.x;
       f32 y = cmd->boundingBox.y;
@@ -326,8 +525,8 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
           continue;
         }
 
-        app_log("Rendering glyph '%c': cp=%d x=%f y=%f adv=%d bearing_x=%d bearing_y=%d",
-                (char)codepoint, codepoint, x, y, glyph->advance, glyph->bearing_x, glyph->bearing_y);
+        // app_log("Rendering glyph '%c': cp=%d x=%f y=%f adv=%d bearing_x=%d bearing_y=%d",
+        //         (char)codepoint, codepoint, x, y, glyph->advance, glyph->bearing_x, glyph->bearing_y);
 
         // Calculate screen position and size in logical pixels
         // Note: w and h include padding, but we render the full rect
@@ -521,199 +720,20 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
 
   // Parse atlas assets once they're loaded
   if (app_state->atlas_assets_loaded && !app_state->atlas_parsed) {
-    app_log("Parsing MSDF atlas...");
-
     // Ensure JSON is null-terminated
     u8 *json_str = (u8*)arena_alloc(&app_state->main_arena,
                                      app_state->atlas_json_bytes_len + 1);
     memcpy(json_str, app_state->atlas_json_bytes, app_state->atlas_json_bytes_len);
     json_str[app_state->atlas_json_bytes_len] = '\0';
 
-    // Parse JSON (wrap ArenaAllocator in Allocator interface)
+    // Parse JSON using the clean parsing function
     Allocator json_allocator = make_arena_allocator(&app_state->main_arena);
-    JsonParser parser = json_parser_init((char*)json_str, &json_allocator);
-
-    // Parse root object
-    app_log("Starting JSON parse, length=%d", parser.len);
-    if (!json_expect_object_start(&parser)) {
-      app_log("JSON parse error: expected object start");
+    if (!parse_msdf_atlas((char*)json_str, &app_state->atlas_data, &json_allocator)) {
+      app_log("ERROR: Failed to parse MSDF atlas JSON");
       return;
     }
-    app_log("Found object start");
 
-    // Parse atlas metadata
-    json_expect_key(&parser, "atlas_width");
-    json_expect_colon(&parser);
-    app_state->atlas_width = (i32)json_parse_number_value(&parser);
-    json_expect_comma(&parser);
-
-    json_expect_key(&parser, "atlas_height");
-    json_expect_colon(&parser);
-    app_state->atlas_height = (i32)json_parse_number_value(&parser);
-    json_expect_comma(&parser);
-
-    json_expect_key(&parser, "glyph_size");
-    json_expect_colon(&parser);
-    app_state->atlas_glyph_size = (i32)json_parse_number_value(&parser);
-    json_expect_comma(&parser);
-
-    json_expect_key(&parser, "padding");
-    json_expect_colon(&parser);
-    app_state->atlas_padding = (i32)json_parse_number_value(&parser);
-    json_expect_comma(&parser);
-
-    // Parse glyphs array
-    json_expect_key(&parser, "glyphs");
-    json_expect_colon(&parser);
-    json_expect_char(&parser, '[');
-    app_log("Found glyphs array start");
-
-    // Count glyphs first (we know it's 95 from the file, but let's allocate generously)
-    app_state->glyph_atlas = (AtlasGlyph*)arena_alloc(&app_state->main_arena,
-                                                       sizeof(AtlasGlyph) * 128);
-    app_state->glyph_count = 0;
-
-    // Parse each glyph
-    i32 max_glyphs = 128;
-    app_log("Starting glyph parsing loop");
-    while (json_peek_char(&parser) != ']' && app_state->glyph_count < max_glyphs) {
-      if (app_state->glyph_count % 10 == 0) {
-        app_log("Parsing glyph %d", app_state->glyph_count);
-      }
-      AtlasGlyph *glyph = &app_state->glyph_atlas[app_state->glyph_count];
-
-      if (!json_expect_object_start(&parser)) {
-        app_log("ERROR: Expected object start at glyph %d", app_state->glyph_count);
-        break;
-      }
-
-      // Parse "char" (string, skip)
-      json_expect_key(&parser, "char");
-      json_expect_colon(&parser);
-      json_parse_string_value(&parser);
-      if (!json_expect_comma(&parser)) {
-        app_log("ERROR: Expected comma after 'char' at glyph %d", app_state->glyph_count);
-        break;
-      }
-
-      // Parse codepoint
-      json_expect_key(&parser, "codepoint");
-      json_expect_colon(&parser);
-      glyph->codepoint = (i32)json_parse_number_value(&parser);
-      if (!json_expect_comma(&parser)) {
-        app_log("ERROR: Expected comma after 'codepoint' at glyph %d", app_state->glyph_count);
-        break;
-      }
-
-      // Parse position
-      json_expect_key(&parser, "x");
-      json_expect_colon(&parser);
-      glyph->x = (i32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "y");
-      json_expect_colon(&parser);
-      glyph->y = (i32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "w");
-      json_expect_colon(&parser);
-      glyph->w = (i32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "h");
-      json_expect_colon(&parser);
-      glyph->h = (i32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      // Parse UVs
-      json_expect_key(&parser, "u0");
-      json_expect_colon(&parser);
-      glyph->u0 = (f32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "v0");
-      json_expect_colon(&parser);
-      glyph->v0 = (f32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "u1");
-      json_expect_colon(&parser);
-      glyph->u1 = (f32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "v1");
-      json_expect_colon(&parser);
-      glyph->v1 = (f32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      // Parse metrics
-      json_expect_key(&parser, "advance");
-      json_expect_colon(&parser);
-      glyph->advance = (i32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "bearing_x");
-      json_expect_colon(&parser);
-      glyph->bearing_x = (i32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "bearing_y");
-      json_expect_colon(&parser);
-      glyph->bearing_y = (i32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "width");
-      json_expect_colon(&parser);
-      glyph->width = (i32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
-
-      json_expect_key(&parser, "height");
-      json_expect_colon(&parser);
-      glyph->height = (i32)json_parse_number_value(&parser);
-
-      json_expect_object_end(&parser);
-
-      app_state->glyph_count++;
-
-      // Check for comma or end of array
-      json_skip_whitespace(&parser);
-      if (json_peek_char(&parser) == ',') {
-        json_consume_char(&parser);
-      }
-    }
-
-    json_expect_char(&parser, ']');
-    json_expect_object_end(&parser);
-
-    app_log("Atlas JSON parsed: %dx%d, glyph_size=%d, padding=%d, glyphs=%d",
-            app_state->atlas_width, app_state->atlas_height,
-            app_state->atlas_glyph_size, app_state->atlas_padding,
-            app_state->glyph_count);
-
-    // Log first 10 parsed codepoints for debugging
-    app_log("First 10 parsed codepoints:");
-    for (i32 i = 0; i < 10 && i < app_state->glyph_count; i++) {
-      AtlasGlyph *g = &app_state->glyph_atlas[i];
-      app_log("  [%d] codepoint=%d ('%c') advance=%d", i, g->codepoint,
-              (g->codepoint >= 32 && g->codepoint < 127) ? (char)g->codepoint : '?',
-              g->advance);
-    }
-
-    // Log sample glyphs for verification
-    for (i32 i = 0; i < app_state->glyph_count; i++) {
-      AtlasGlyph *g = &app_state->glyph_atlas[i];
-      if (g->codepoint == 65) { // 'A'
-        app_log("Glyph 'A' (65): x=%d y=%d w=%d h=%d advance=%d bearing_x=%d",
-                g->x, g->y, g->w, g->h, g->advance, g->bearing_x);
-      }
-      if (g->codepoint == 72) { // 'H'
-        app_log("Glyph 'H' (72): x=%d y=%d w=%d h=%d advance=%d bearing_x=%d",
-                g->x, g->y, g->w, g->h, g->advance, g->bearing_x);
-      }
-    }
-
-    // Parse PNG using stb_image
+    // Decode PNG using stb_image
     i32 width, height, channels;
     app_state->atlas_image_data = stbi_load_from_memory(
         app_state->atlas_png_bytes,
@@ -728,9 +748,9 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
       app_state->atlas_image_channels = channels;
       app_log("Atlas PNG decoded: %dx%d, channels=%d", width, height, channels);
 
-      if (width != app_state->atlas_width || height != app_state->atlas_height) {
+      if (width != app_state->atlas_data.atlas_width || height != app_state->atlas_data.atlas_height) {
         app_log("WARNING: PNG dimensions (%dx%d) don't match JSON (%dx%d)",
-                width, height, app_state->atlas_width, app_state->atlas_height);
+                width, height, app_state->atlas_data.atlas_width, app_state->atlas_data.atlas_height);
       }
     } else {
       app_log("ERROR: Failed to decode PNG atlas");
@@ -742,8 +762,8 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
 
     // Upload atlas texture to GPU
     _renderer_upload_msdf_atlas(app_state->atlas_image_data,
-                                 app_state->atlas_width,
-                                 app_state->atlas_height,
+                                 app_state->atlas_data.atlas_width,
+                                 app_state->atlas_data.atlas_height,
                                  app_state->atlas_image_channels);
     app_log("Atlas texture uploaded to GPU");
   }

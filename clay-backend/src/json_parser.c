@@ -1,5 +1,6 @@
 #include "json_parser.h"
 #include "str.h"
+#include "typedefs.h"
 
 // Parser initialization
 JsonParser json_parser_init(const char *input, Allocator *arena) {
@@ -168,6 +169,7 @@ bool32 json_expect_comma(JsonParser *parser) {
 }
 
 char *json_expect_key(JsonParser *parser, const char *expected_key) {
+  UNUSED(expected_key);
   char *key = json_parse_string_value(parser);
   return key;
 }

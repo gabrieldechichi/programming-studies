@@ -26,6 +26,17 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+// Unity build for json_serializer and dependencies
+#include "../../src/typedefs.h"
+#include "../../src/assert.h"
+#include "../../src/memory.h"
+#include "../../src/str.h"
+#include "../../src/json_serializer.h"
+
+// Include implementation files
+#include "../../src/memory.c"
+#include "../../src/json_serializer.c"
+
 #define DEFAULT_ATLAS_SIZE 512
 #define DEFAULT_GLYPH_SIZE 32
 #define GLYPH_PADDING 2  // Padding around each glyph to prevent bleeding
@@ -71,36 +82,135 @@ static uint8_t* read_file(const char* path, size_t* size) {
 
 static void write_json_metadata(const char* output_path, AtlasGlyph* glyphs, int glyph_count,
                                   int atlas_width, int atlas_height, int glyph_size) {
-    FILE* f = fopen(output_path, "w");
-    if (!f) {
-        printf("Error: Could not write metadata to '%s'\n", output_path);
+    // Create arena allocator for JSON serialization (1MB should be plenty)
+    uint8_t* json_buffer = malloc(MB(1));
+    if (!json_buffer) {
+        printf("Error: Failed to allocate JSON buffer\n");
         return;
     }
 
-    fprintf(f, "{\n");
-    fprintf(f, "  \"atlas_width\": %d,\n", atlas_width);
-    fprintf(f, "  \"atlas_height\": %d,\n", atlas_height);
-    fprintf(f, "  \"glyph_size\": %d,\n", glyph_size);
-    fprintf(f, "  \"padding\": %d,\n", GLYPH_PADDING);
-    fprintf(f, "  \"glyphs\": [\n");
+    ArenaAllocator arena = arena_from_buffer(json_buffer, MB(1));
+    Allocator allocator = make_arena_allocator(&arena);
+
+    // Initialize JSON serializer
+    JsonSerializer serializer = json_serializer_init(&allocator, MB(1));
+
+    // Start root object
+    write_object_start(&serializer);
+
+    // Write atlas metadata
+    write_key(&serializer, "atlas_width");
+    serialize_number_value(&serializer, atlas_width);
+    write_comma(&serializer);
+
+    write_key(&serializer, "atlas_height");
+    serialize_number_value(&serializer, atlas_height);
+    write_comma(&serializer);
+
+    write_key(&serializer, "glyph_size");
+    serialize_number_value(&serializer, glyph_size);
+    write_comma(&serializer);
+
+    write_key(&serializer, "padding");
+    serialize_number_value(&serializer, GLYPH_PADDING);
+    write_comma(&serializer);
+
+    // Write glyphs array
+    write_key(&serializer, "glyphs");
+    write_array_start(&serializer);
 
     for (int i = 0; i < glyph_count; i++) {
         AtlasGlyph* g = &glyphs[i];
-        fprintf(f, "    {\n");
-        fprintf(f, "      \"char\": \"%c\",\n", g->codepoint >= 32 && g->codepoint <= 126 ? g->codepoint : '?');
-        fprintf(f, "      \"codepoint\": %d,\n", g->codepoint);
-        fprintf(f, "      \"x\": %d, \"y\": %d, \"w\": %d, \"h\": %d,\n", g->x, g->y, g->w, g->h);
-        fprintf(f, "      \"u0\": %.6f, \"v0\": %.6f, \"u1\": %.6f, \"v1\": %.6f,\n",
-                g->u0, g->v0, g->u1, g->v1);
-        fprintf(f, "      \"advance\": %d,\n", g->advance);
-        fprintf(f, "      \"bearing_x\": %d, \"bearing_y\": %d,\n", g->bearing_x, g->bearing_y);
-        fprintf(f, "      \"width\": %d, \"height\": %d\n", g->width, g->height);
-        fprintf(f, "    }%s\n", i < glyph_count - 1 ? "," : "");
+
+        write_object_start(&serializer);
+
+        // Char field (single character string)
+        write_key(&serializer, "char");
+        char char_str[2] = {g->codepoint >= 32 && g->codepoint <= 126 ? g->codepoint : '?', '\0'};
+        serialize_string_value(&serializer, char_str);
+        write_comma(&serializer);
+
+        write_key(&serializer, "codepoint");
+        serialize_number_value(&serializer, g->codepoint);
+        write_comma(&serializer);
+
+        write_key(&serializer, "x");
+        serialize_number_value(&serializer, g->x);
+        write_comma(&serializer);
+
+        write_key(&serializer, "y");
+        serialize_number_value(&serializer, g->y);
+        write_comma(&serializer);
+
+        write_key(&serializer, "w");
+        serialize_number_value(&serializer, g->w);
+        write_comma(&serializer);
+
+        write_key(&serializer, "h");
+        serialize_number_value(&serializer, g->h);
+        write_comma(&serializer);
+
+        write_key(&serializer, "u0");
+        serialize_number_value(&serializer, g->u0);
+        write_comma(&serializer);
+
+        write_key(&serializer, "v0");
+        serialize_number_value(&serializer, g->v0);
+        write_comma(&serializer);
+
+        write_key(&serializer, "u1");
+        serialize_number_value(&serializer, g->u1);
+        write_comma(&serializer);
+
+        write_key(&serializer, "v1");
+        serialize_number_value(&serializer, g->v1);
+        write_comma(&serializer);
+
+        write_key(&serializer, "advance");
+        serialize_number_value(&serializer, g->advance);
+        write_comma(&serializer);
+
+        write_key(&serializer, "bearing_x");
+        serialize_number_value(&serializer, g->bearing_x);
+        write_comma(&serializer);
+
+        write_key(&serializer, "bearing_y");
+        serialize_number_value(&serializer, g->bearing_y);
+        write_comma(&serializer);
+
+        write_key(&serializer, "width");
+        serialize_number_value(&serializer, g->width);
+        write_comma(&serializer);
+
+        write_key(&serializer, "height");
+        serialize_number_value(&serializer, g->height);
+
+        write_object_end(&serializer);
+
+        if (i < glyph_count - 1) {
+            write_comma(&serializer);
+        }
     }
 
-    fprintf(f, "  ]\n");
-    fprintf(f, "}\n");
+    write_array_end(&serializer);
+    write_object_end(&serializer);
+
+    // Finalize JSON
+    char* json_str = json_serializer_finalize(&serializer);
+
+    // Write to file
+    FILE* f = fopen(output_path, "w");
+    if (!f) {
+        printf("Error: Could not write metadata to '%s'\n", output_path);
+        free(json_buffer);
+        return;
+    }
+
+    fprintf(f, "%s", json_str);
     fclose(f);
+
+    // Cleanup
+    free(json_buffer);
 }
 
 int main(int argc, char** argv) {
@@ -190,7 +300,39 @@ int main(int argc, char** argv) {
         float* msdf = ex_msdf_glyph(&font, codepoint, glyph_size, glyph_size, &metrics, 1);
 
         if (!msdf) {
-            printf("  Warning: Failed to generate MSDF for character '%c' (%d)\n", codepoint, codepoint);
+            // Handle space and other whitespace characters that have no outline
+            // We still need their metrics for proper text layout
+            if (codepoint == 32) { // Space character
+                int glyph_index = stbtt_FindGlyphIndex(&font, codepoint);
+                if (glyph_index != 0) {
+                    // Get advance width for space
+                    int advance_width, left_side_bearing;
+                    stbtt_GetGlyphHMetrics(&font, glyph_index, &advance_width, &left_side_bearing);
+
+                    // Add space glyph with metrics but no atlas space
+                    AtlasGlyph* g = &glyphs[glyph_count++];
+                    g->codepoint = codepoint;
+                    g->x = 0;
+                    g->y = 0;
+                    g->w = 0;
+                    g->h = 0;
+                    g->u0 = 0;
+                    g->v0 = 0;
+                    g->u1 = 0;
+                    g->v1 = 0;
+                    g->advance = (int)(advance_width * scale);
+                    g->bearing_x = (int)(left_side_bearing * scale);
+                    g->bearing_y = 0;
+                    g->width = 0;
+                    g->height = 0;
+
+                    printf("  Added space character (no MSDF, advance=%d)\n", g->advance);
+                } else {
+                    printf("  Warning: Space character glyph not found in font\n");
+                }
+            } else {
+                printf("  Warning: Failed to generate MSDF for character '%c' (%d)\n", codepoint, codepoint);
+            }
             continue;
         }
 

@@ -186,17 +186,7 @@ static inline int f32_to_str(float value, char *str, int precision) {
 }
 
 #else
-#define strlen(s) __error("strlen not implemented for platform")
-#define strcmp(s1, s2) __error("strcmp not implemented for platform")
-#define strncmp(s1, s2, n) __error("strncmp not implemented for platform")
-#define strcpy(dest, src) __error("strcpy not implemented for platform")
-#define strncpy(dest, src, n) __error("strncpy not implemented for platform")
-#define strchr(s, c) __error("strchr not implemented for platform")
-#define strrchr(s, c) __error("strrchr not implemented for platform")
-#define i32_to_str(value, str)                                                 \
-  __error("i32_to_str not implemented for platform")
-#define f32_to_str(value, str, precision)                                      \
-  __error("f32_to_str not implemented for platform")
+#include <string.h>
 #endif
 
 static inline u32 str_len(const char *s) { return strlen(s); }
@@ -282,6 +272,175 @@ static inline double str_to_double(const char *str) {
   }
 
   return result * sign;
+}
+
+static double get_positive_infinity(void) {
+  union {
+    double d;
+    uint64 bits;
+  } u;
+  u.bits = 0x7FF0000000000000ULL;
+  return u.d;
+}
+
+static double get_negative_infinity(void) {
+  union {
+    double d;
+    uint64 bits;
+  } u;
+  u.bits = 0xFFF0000000000000ULL;
+  return u.d;
+}
+
+size_t double_to_str(double n, char *str) {
+  char *ptr = str;
+
+  if (n != n) {
+    *ptr++ = 'n';
+    *ptr++ = 'a';
+    *ptr++ = 'n';
+    *ptr = '\0';
+    return 3;
+  }
+
+  if (n == get_positive_infinity()) {
+    *ptr++ = 'i';
+    *ptr++ = 'n';
+    *ptr++ = 'f';
+    *ptr = '\0';
+    return 3;
+  }
+
+  if (n == get_negative_infinity()) {
+    *ptr++ = '-';
+    *ptr++ = 'i';
+    *ptr++ = 'n';
+    *ptr++ = 'f';
+    *ptr = '\0';
+    return 4;
+  }
+
+  // Handle sign
+  int32 sign = (n < 0) ? -1 : 1;
+  if (sign == -1) {
+    *ptr++ = '-';
+    n = -n;
+  }
+
+  // Check if it's effectively an integer (no fractional part worth showing)
+  double whole_part = (double)(int64)n;
+  if (n == whole_part && n >= -9007199254740992.0 && n <= 9007199254740992.0) {
+    // Write as integer
+    int64 int_val = (int64)n;
+    if (int_val == 0) {
+      *ptr++ = '0';
+    } else {
+      // Convert to string in reverse
+      char digits[32];
+      int digit_count = 0;
+      while (int_val > 0) {
+        digits[digit_count++] = '0' + (int_val % 10);
+        int_val /= 10;
+      }
+
+      // Write digits in correct order
+      for (int i = digit_count - 1; i >= 0; i--) {
+        *ptr++ = digits[i];
+      }
+    }
+  } else {
+    // Write as floating point with epsilon-based rounding
+    int64 int_part = (int64)n;
+    double frac_part = n - (double)int_part;
+
+    // Write integer part
+    if (int_part == 0) {
+      *ptr++ = '0';
+    } else {
+      char digits[32];
+      int digit_count = 0;
+      int64 temp = int_part;
+      while (temp > 0) {
+        digits[digit_count++] = '0' + (temp % 10);
+        temp /= 10;
+      }
+
+      for (int i = digit_count - 1; i >= 0; i--) {
+        *ptr++ = digits[i];
+      }
+    }
+
+    // Write fractional part if significant
+    if (frac_part > 0.0000001) { // Only show decimals if meaningful
+      *ptr++ = '.';
+
+      // Determine precision limit based on magnitude
+      int max_decimal_places;
+      if (int_part > 1000000000000LL) { // > 1 trillion
+        max_decimal_places = 3;
+      } else if (int_part > 1000000000LL) { // > 1 billion
+        max_decimal_places = 6;
+      } else if (int_part > 1000000LL) { // > 1 million
+        max_decimal_places = 9;
+      } else {
+        max_decimal_places = 12;
+      }
+
+      // Extract decimal digits with epsilon-based rounding
+      char frac_str[20];
+      int frac_len = 0;
+      double epsilon = 0.0000001; // Threshold for rounding decisions
+
+      for (int i = 0; i < max_decimal_places && frac_part > epsilon; i++) {
+        frac_part *= 10.0;
+        int32 digit = (int32)frac_part;
+
+        // Check if we're very close to the next digit (rounding error)
+        double remainder = frac_part - (double)digit;
+        if (remainder > (1.0 - epsilon)) { // Very close to next digit
+          digit++;
+          if (digit >= 10) {
+            // Handle carry-over case
+            if (frac_len > 0) {
+              // Try to carry to previous digit
+              int carry_pos = frac_len - 1;
+              while (carry_pos >= 0 && frac_str[carry_pos] == '9') {
+                frac_str[carry_pos] = '0';
+                carry_pos--;
+              }
+              if (carry_pos >= 0) {
+                frac_str[carry_pos]++;
+              } else {
+                // Carry propagated all the way, need to increment integer part
+                // This is rare but possible - just truncate the fraction
+                frac_len = 0;
+                break;
+              }
+            }
+            break; // Stop processing more digits
+          }
+          remainder = 0.0;
+        }
+
+        frac_str[frac_len++] = '0' + (char)digit;
+        frac_part = remainder;
+      }
+
+      // Remove trailing zeros, but keep at least one decimal if we started with
+      // any
+      while (frac_len > 1 && frac_str[frac_len - 1] == '0') {
+        frac_len--;
+      }
+
+      // Copy fraction digits
+      for (int i = 0; i < frac_len; i++) {
+        *ptr++ = frac_str[i];
+      }
+    }
+  }
+
+  *ptr = '\0';
+  return (size_t)(ptr - str);
 }
 
 #endif // STRING_H

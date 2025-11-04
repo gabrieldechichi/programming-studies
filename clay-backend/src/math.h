@@ -25,16 +25,7 @@ extern f32 _os_roundf(f32 x);
 #define roundf(x) _os_roundf(x)
 #else
 
-#define floorf(x) __error("floorf not implemented")
-#define ceilf(x) __error("ceilf not implemented")
-#define floor(x) __error("floor not implemented")
-#define ceil(x) __error("ceil not implemented")
-#define fabs(x) __error("fabs not implemented")
-#define sqrt(x) __error("sqrt not implemented")
-#define fmod(x, y) __error("fmod not implemented")
-#define cos(x) __error("cos not implemented")
-#define acos(x) __error("acos not implemented")
-#define pow(x, y) __error("pow not implemented")
+#include <math.h>
 
 #endif // __wasm__ && __clang__
 #endif // MATH_H

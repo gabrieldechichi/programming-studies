@@ -19,9 +19,7 @@
 #endif
 
 #else
-#define assert(expr) __error("assert not implemented for platform")
-#define static_assert(expr, msg) __error("static_assert not implemented for platform")
-#define unreachable() __error("unreachable not implemented for platform")
+#include <assert.h>
 #endif
 
 #endif // ASSERT_H
