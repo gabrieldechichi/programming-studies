@@ -354,10 +354,13 @@ int main(int argc, char** argv) {
                 int dst_idx = (dst_y * atlas_size + dst_x) * 3;
 
                 // Convert float distance to uint8 [0, 255]
-                // Use same formula as main.c for consistency
-                atlas_data[dst_idx + 0] = (uint8_t)(255.0f * (msdf[src_idx + 0] + glyph_size) / glyph_size);
-                atlas_data[dst_idx + 1] = (uint8_t)(255.0f * (msdf[src_idx + 1] + glyph_size) / glyph_size);
-                atlas_data[dst_idx + 2] = (uint8_t)(255.0f * (msdf[src_idx + 2] + glyph_size) / glyph_size);
+                // msdf-c outputs: dist/RANGE + 0.5 where RANGE=1.0
+                // This gives: inside < 0.5, edge = 0.5, outside > 0.5
+                // Standard MSDF expects: inside > 0.5, edge = 0.5, outside < 0.5
+                // So invert: 1.0 - value
+                atlas_data[dst_idx + 0] = (uint8_t)(255.0f * (1.0f - msdf[src_idx + 0]));
+                atlas_data[dst_idx + 1] = (uint8_t)(255.0f * (1.0f - msdf[src_idx + 1]));
+                atlas_data[dst_idx + 2] = (uint8_t)(255.0f * (1.0f - msdf[src_idx + 2]));
             }
         }
 
