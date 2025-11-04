@@ -46,7 +46,6 @@ char *json_parse_string_value(JsonParser *parser) {
     return NULL;
 
   uint32 start = parser->pos;
-  uint32 len = 0;
 
   while (parser->pos < parser->len && parser->str[parser->pos] != '"') {
     if (parser->str[parser->pos] == '\\') {
@@ -56,21 +55,23 @@ char *json_parse_string_value(JsonParser *parser) {
     } else {
       parser->pos++;
     }
-    len++;
   }
 
   if (parser->pos >= parser->len)
     return NULL; // Unterminated string
 
+  // Calculate actual length of string content (before closing quote)
+  uint32 content_len = parser->pos - start;
+
   parser->pos++; // Skip closing quote
 
-  char *result = ALLOC_ARRAY(parser->arena, char, len + 1);
+  char *result = ALLOC_ARRAY(parser->arena, char, content_len + 1);
   if (!result)
     return NULL;
 
-  // Simple copy (TODO: handle escapes properly)
-  strncpy(result, parser->str + start, len);
-  result[len] = '\0';
+  // Copy the raw string (includes escape sequences)
+  strncpy(result, parser->str + start, content_len);
+  result[content_len] = '\0';
 
   return result;
 }

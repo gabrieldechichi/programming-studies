@@ -50,6 +50,11 @@ extern void _renderer_scissor_end(void);
 extern void _renderer_draw_glyph(float x, float y, int width, int height,
                                  const u8 *bitmap_data, float r, float g,
                                  float b, float a);
+extern void _renderer_upload_msdf_atlas(const u8 *image_data, i32 width,
+                                         i32 height, i32 channels);
+extern void _renderer_draw_glyph_msdf(f32 x, f32 y, f32 width, f32 height,
+                                       f32 u0, f32 v0, f32 u1, f32 v1,
+                                       f32 r, f32 g, f32 b, f32 a);
 
 int printf(const char *format, ...) {
   char buffer[KB(4)];
@@ -298,66 +303,48 @@ void ui_render(AppState *app_state, Clay_RenderCommandArray *commands) {
     case CLAY_RENDER_COMMAND_TYPE_TEXT: {
       Clay_TextRenderData *text_data = &cmd->renderData.text;
 
-      if (!app_state->text_renderer.initialized) {
+      // Skip if atlas not ready
+      if (!app_state->atlas_parsed) {
         break;
       }
 
-      // todo: support font ids
-      stbtt_fontinfo *font = &app_state->text_renderer.font;
-
-      // todo: pass dpr on update
       f32 dpr = _os_get_dpr();
-
-      // Rasterize at device resolution for crispness
-      // todo: how to make this performant? high res? mipmaps?
-      f32 scale = stbtt_ScaleForPixelHeight(font, text_data->fontSize * dpr);
-
-      // Get baseline offset
-      i32 ascent = app_state->text_renderer.ascent;
-      f32 baseline_y = cmd->boundingBox.y + (f32)ascent * scale / dpr;
+      f32 scale = text_data->fontSize / (f32)app_state->atlas_glyph_size;
 
       f32 x = cmd->boundingBox.x;
+      f32 y = cmd->boundingBox.y;
 
-      // Render each character
+      // Render each character using MSDF atlas
       for (i32 i = 0; i < text_data->stringContents.length; i++) {
         i32 codepoint = (i32)text_data->stringContents.chars[i];
 
-        // Rasterize glyph at high DPI
-        // todo: don't rasterize every frame
-        i32 width, height, xoff, yoff;
-        u8 *bitmap = stbtt_GetCodepointBitmap(font, 0, scale, codepoint, &width,
-                                              &height, &xoff, &yoff);
-
-        if (bitmap && width > 0 && height > 0) {
-          // Calculate position in logical pixels
-          f32 glyph_x = x + (f32)xoff / dpr;
-          f32 glyph_y = baseline_y + (f32)yoff / dpr;
-
-          // Round to pixel boundaries for crispness
-          glyph_x = roundf(glyph_x * dpr) / dpr;
-          glyph_y = roundf(glyph_y * dpr) / dpr;
-
-          // Call JS renderer with physical pixel coordinates
-          _renderer_draw_glyph(
-              glyph_x * dpr, glyph_y * dpr, width, height, bitmap,
-              text_data->textColor.r / 255.0f, text_data->textColor.g / 255.0f,
-              text_data->textColor.b / 255.0f, text_data->textColor.a / 255.0f);
-
-          // Free bitmap (uses arena, but still need to call free)
-          stbtt_FreeBitmap(bitmap, NULL);
+        AtlasGlyph *glyph = find_glyph(app_state, codepoint);
+        if (!glyph) {
+          app_log("Glyph not found for codepoint %d (char '%c')", codepoint, (char)codepoint);
+          // Fallback advance for missing glyphs
+          x += text_data->fontSize * 0.5f;
+          continue;
         }
+
+        app_log("Rendering glyph '%c': cp=%d x=%f y=%f adv=%d bearing_x=%d bearing_y=%d",
+                (char)codepoint, codepoint, x, y, glyph->advance, glyph->bearing_x, glyph->bearing_y);
+
+        // Calculate screen position and size in logical pixels
+        // Note: w and h include padding, but we render the full rect
+        f32 glyph_x = x + (f32)glyph->bearing_x * scale;
+        f32 glyph_y = y + (f32)glyph->bearing_y * scale;
+        f32 glyph_w = (f32)glyph->w * scale;
+        f32 glyph_h = (f32)glyph->h * scale;
+
+        // Draw using MSDF with atlas UVs (convert to physical pixels)
+        _renderer_draw_glyph_msdf(
+            glyph_x * dpr, glyph_y * dpr, glyph_w * dpr, glyph_h * dpr,
+            glyph->u0, glyph->v0, glyph->u1, glyph->v1,
+            text_data->textColor.r / 255.0f, text_data->textColor.g / 255.0f,
+            text_data->textColor.b / 255.0f, text_data->textColor.a / 255.0f);
 
         // Advance cursor in logical pixels
-        i32 advance, lsb;
-        stbtt_GetCodepointHMetrics(font, codepoint, &advance, &lsb);
-        x += (f32)advance * scale / dpr;
-
-        // Apply kerning
-        if (i < text_data->stringContents.length - 1) {
-          i32 next_cp = (i32)text_data->stringContents.chars[i + 1];
-          i32 kern = stbtt_GetCodepointKernAdvance(font, codepoint, next_cp);
-          x += (f32)kern * scale / dpr;
-        }
+        x += (f32)glyph->advance * scale;
       }
 
       break;
@@ -595,19 +582,28 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
       }
       AtlasGlyph *glyph = &app_state->glyph_atlas[app_state->glyph_count];
 
-      json_expect_object_start(&parser);
+      if (!json_expect_object_start(&parser)) {
+        app_log("ERROR: Expected object start at glyph %d", app_state->glyph_count);
+        break;
+      }
 
       // Parse "char" (string, skip)
       json_expect_key(&parser, "char");
       json_expect_colon(&parser);
       json_parse_string_value(&parser);
-      json_expect_comma(&parser);
+      if (!json_expect_comma(&parser)) {
+        app_log("ERROR: Expected comma after 'char' at glyph %d", app_state->glyph_count);
+        break;
+      }
 
       // Parse codepoint
       json_expect_key(&parser, "codepoint");
       json_expect_colon(&parser);
       glyph->codepoint = (i32)json_parse_number_value(&parser);
-      json_expect_comma(&parser);
+      if (!json_expect_comma(&parser)) {
+        app_log("ERROR: Expected comma after 'codepoint' at glyph %d", app_state->glyph_count);
+        break;
+      }
 
       // Parse position
       json_expect_key(&parser, "x");
@@ -695,6 +691,15 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
             app_state->atlas_glyph_size, app_state->atlas_padding,
             app_state->glyph_count);
 
+    // Log first 10 parsed codepoints for debugging
+    app_log("First 10 parsed codepoints:");
+    for (i32 i = 0; i < 10 && i < app_state->glyph_count; i++) {
+      AtlasGlyph *g = &app_state->glyph_atlas[i];
+      app_log("  [%d] codepoint=%d ('%c') advance=%d", i, g->codepoint,
+              (g->codepoint >= 32 && g->codepoint < 127) ? (char)g->codepoint : '?',
+              g->advance);
+    }
+
     // Log sample glyphs for verification
     for (i32 i = 0; i < app_state->glyph_count; i++) {
       AtlasGlyph *g = &app_state->glyph_atlas[i];
@@ -702,8 +707,8 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
         app_log("Glyph 'A' (65): x=%d y=%d w=%d h=%d advance=%d bearing_x=%d",
                 g->x, g->y, g->w, g->h, g->advance, g->bearing_x);
       }
-      if (g->codepoint == 97) { // 'a'
-        app_log("Glyph 'a' (97): x=%d y=%d w=%d h=%d advance=%d bearing_x=%d",
+      if (g->codepoint == 72) { // 'H'
+        app_log("Glyph 'H' (72): x=%d y=%d w=%d h=%d advance=%d bearing_x=%d",
                 g->x, g->y, g->w, g->h, g->advance, g->bearing_x);
       }
     }
@@ -734,6 +739,13 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
 
     app_state->atlas_parsed = true;
     app_log("MSDF Atlas parsing complete!");
+
+    // Upload atlas texture to GPU
+    _renderer_upload_msdf_atlas(app_state->atlas_image_data,
+                                 app_state->atlas_width,
+                                 app_state->atlas_height,
+                                 app_state->atlas_image_channels);
+    app_log("Atlas texture uploaded to GPU");
   }
 
   int width = _os_canvas_width();
