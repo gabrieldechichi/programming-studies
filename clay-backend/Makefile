@@ -25,7 +25,7 @@ build-wasm:
 
 build-ts:
 	@mkdir -p $(DIST_DIR)
-	cd web && bun build main.js --outdir dist
+	cd web && bun build main.ts --outdir dist
 
 build-wasm-release:
 	@mkdir -p $(DIST_DIR)
@@ -40,7 +40,7 @@ build-wasm-release:
 
 build-ts-release:
 	@mkdir -p $(DIST_DIR)
-	cd web && bun build main.js --outdir dist --minify --target browser
+	cd web && bun build main.ts --outdir dist --minify --target browser
 
 copy-static:
 	@mkdir -p $(DIST_DIR)
