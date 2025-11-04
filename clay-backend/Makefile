@@ -27,6 +27,21 @@ build-ts:
 	@mkdir -p $(DIST_DIR)
 	cd web && bun build main.js --outdir dist
 
+build-wasm-release:
+	@mkdir -p $(DIST_DIR)
+	time $(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_RELEASE) --target=wasm32 \
+		-nostdlib \
+		-Wl,--no-entry \
+		-Wl,--export-all \
+		-Wl,--allow-undefined \
+		-Wl,--import-memory \
+		-o $(WASM_TARGET) \
+		$(SRC)
+
+build-ts-release:
+	@mkdir -p $(DIST_DIR)
+	cd web && bun build main.js --outdir dist --minify --target browser
+
 copy-static:
 	@mkdir -p $(DIST_DIR)
 	cp web/index.html $(DIST_DIR)/
@@ -37,6 +52,8 @@ copy-static:
 
 build: build-wasm build-ts copy-static
 
+build-release: build-wasm-release build-ts-release copy-static
+
 clean:
 	rm -rf $(DIST_DIR)
 
@@ -44,4 +61,4 @@ serve:
 	@echo "Starting web server at http://localhost:8000"
 	@cd $(DIST_DIR) && python3 -m http.server 8000
 
-.PHONY: all clean build-wasm build-ts copy-static build serve
+.PHONY: all clean build-wasm build-ts build-wasm-release build-ts-release copy-static build build-release serve
