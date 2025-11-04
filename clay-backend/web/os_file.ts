@@ -1,37 +1,64 @@
+import type { WasmMemoryInterface } from "./wasm.ts";
 
-export function createFileSystemFunctions(wasmMemory) {
+interface FileReadOp {
+  fileName: string;
+  id: number;
+}
+
+interface FileReadResult {
+  id: number;
+  fileName: string;
+  code: number;
+  data: Uint8Array | null;
+}
+
+interface TextureHandle {
+  idx: number;
+  gen: number;
+}
+
+interface WebPLoad {
+  filePath: string;
+  handle: TextureHandle;
+}
+
+interface WebPLoadResult {
+  success: boolean;
+}
+
+const FileReadOpState = {
+  NONE: 0,
+  IN_PROGRESS: 1,
+  COMPLETED: 2,
+  ERROR: 3,
+} as const;
+
+const FileReadResultCode = {
+  SUCCESS: 0,
+  FAIL: 1,
+} as const;
+
+export function createFileSystemFunctions(wasmMemory: WasmMemoryInterface) {
   let nextFileReadId = 1;
-  const pendingFileReads = new Map();
-  const completedFileReads = new Map();
-
-  const FileReadOpState = {
-    NONE: 0,
-    IN_PROGRESS: 1,
-    COMPLETED: 2,
-    ERROR: 3,
-  };
-
-  const FileReadResultCode = {
-    SUCCESS: 0,
-    FAIL: 1,
-  };
+  const pendingFileReads = new Map<number, FileReadOp>();
+  const completedFileReads = new Map<number, FileReadResult>();
 
   let nextWebPLoadId = 1;
-  const pendingWebPLoads = new Map();
-  const completedWebPLoads = new Map();
+  const pendingWebPLoads = new Map<number, WebPLoad>();
+  const completedWebPLoads = new Map<number, WebPLoadResult>();
 
-  function toAbsolutePath(path) {
+  function toAbsolutePath(path: string): string {
     return path.startsWith("/") ? path : "/" + path;
   }
 
-  function _os_start_read_file(filenamePtr, filenameLen) {
+  function _os_start_read_file(filenamePtr: number, filenameLen: number): number {
     const fileName = wasmMemory.loadString(filenamePtr, filenameLen);
 
     const id = nextFileReadId;
     nextFileReadId++;
 
-    const op = { fileName, id };
-    const result = {
+    const op: FileReadOp = { fileName, id };
+    const result: FileReadResult = {
       id,
       fileName,
       code: FileReadResultCode.FAIL,
@@ -69,7 +96,7 @@ export function createFileSystemFunctions(wasmMemory) {
     return id;
   }
 
-  function _os_check_read_file(opId) {
+  function _os_check_read_file(opId: number): number {
     if (pendingFileReads.has(opId)) {
       return FileReadOpState.IN_PROGRESS;
     }
@@ -85,7 +112,7 @@ export function createFileSystemFunctions(wasmMemory) {
     return FileReadOpState.NONE;
   }
 
-  function _os_get_file_size(opId) {
+  function _os_get_file_size(opId: number): number {
     const state = _os_check_read_file(opId);
     if (state !== FileReadOpState.COMPLETED) {
       return -1;
@@ -98,7 +125,7 @@ export function createFileSystemFunctions(wasmMemory) {
     return result.data.byteLength;
   }
 
-  function _os_get_file_data(opId, bufferPtr, bufferLen) {
+  function _os_get_file_data(opId: number, bufferPtr: number, bufferLen: number): number {
     const state = _os_check_read_file(opId);
     if (state !== FileReadOpState.COMPLETED) {
       return -1;
@@ -121,13 +148,13 @@ export function createFileSystemFunctions(wasmMemory) {
   }
 
   function _os_start_webp_texture_load(
-    filePathPtr,
-    filePathLen,
-    handleIdx,
-    handleGen,
-  ) {
+    filePathPtr: number,
+    filePathLen: number,
+    handleIdx: number,
+    handleGen: number,
+  ): number {
     const filePath = wasmMemory.loadString(filePathPtr, filePathLen);
-    const handle = { idx: handleIdx, gen: handleGen };
+    const handle: TextureHandle = { idx: handleIdx, gen: handleGen };
     const loadId = nextWebPLoadId++;
 
     console.log(
@@ -144,7 +171,7 @@ export function createFileSystemFunctions(wasmMemory) {
     return loadId;
   }
 
-  function _os_check_webp_texture_load(loadId) {
+  function _os_check_webp_texture_load(loadId: number): number {
     if (pendingWebPLoads.has(loadId)) {
       return FileReadOpState.IN_PROGRESS;
     }
@@ -168,3 +195,11 @@ export function createFileSystemFunctions(wasmMemory) {
     _os_check_webp_texture_load,
   };
 }
+
+// This function is referenced but not defined in this module
+// It's likely defined in renderer.js or another module
+declare function loadWebPTexture(
+  filePath: string,
+  handle: TextureHandle,
+  loadId: number,
+): void;

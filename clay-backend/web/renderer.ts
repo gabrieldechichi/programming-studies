@@ -5,15 +5,82 @@ import {
 import { borderVertexShader, borderFragmentShader } from "./border.glsl.js";
 import { imageVertexShader, imageFragmentShader } from "./image.glsl.js";
 import { textVertexShader, textFragmentShader } from "./text.glsl.js";
+import type { WasmMemoryInterface } from "./wasm.ts";
 
-const canvas = document.getElementById("canvas");
+interface ShaderUniforms {
+  resolution: WebGLUniformLocation | null;
+  rect: WebGLUniformLocation | null;
+  color: WebGLUniformLocation | null;
+  cornerRadius: WebGLUniformLocation | null;
+}
+
+interface BorderUniforms extends ShaderUniforms {
+  borderWidth: WebGLUniformLocation | null;
+}
+
+interface ImageUniforms extends ShaderUniforms {
+  texture: WebGLUniformLocation | null;
+  tint: WebGLUniformLocation | null;
+}
+
+interface TextUniforms {
+  resolution: WebGLUniformLocation | null;
+  rect: WebGLUniformLocation | null;
+  texture: WebGLUniformLocation | null;
+  color: WebGLUniformLocation | null;
+  distanceRange: WebGLUniformLocation | null;
+  fontSize: WebGLUniformLocation | null;
+  uvBounds: WebGLUniformLocation | null;
+}
+
+interface ShaderProgram {
+  program: WebGLProgram | null;
+  vao: WebGLVertexArrayObject | null;
+  vbo: WebGLBuffer | null;
+  uniforms: ShaderUniforms;
+}
+
+interface BorderProgram extends ShaderProgram {
+  uniforms: BorderUniforms;
+}
+
+interface ImageProgram extends ShaderProgram {
+  uniforms: ImageUniforms;
+}
+
+interface TextProgram {
+  program: WebGLProgram | null;
+  vao: WebGLVertexArrayObject | null;
+  vbo: WebGLBuffer | null;
+  atlasTexture: WebGLTexture | null;
+  uniforms: TextUniforms;
+}
+
+interface Renderer {
+  rectangle: ShaderProgram;
+  border: BorderProgram;
+  image: ImageProgram;
+  text: TextProgram;
+}
+
+interface ImageCacheEntry {
+  img: HTMLImageElement;
+  texture: WebGLTexture | null;
+  loaded: boolean;
+}
+
+interface ImageCache {
+  [url: string]: ImageCacheEntry;
+}
+
+const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const gl = canvas.getContext("webgl2", {
   antialias: true,
   premultipliedAlpha: false,
-});
+}) as WebGL2RenderingContext;
 
 // WebGL2 Renderer state
-const renderer = {
+const renderer: Renderer = {
   rectangle: {
     program: null,
     vao: null,
@@ -66,8 +133,10 @@ const renderer = {
   },
 };
 
+const imageCache: ImageCache = {};
+
 // Initialize WebGL2 for rendering
-export function initWebGL2() {
+export function initWebGL2(): void {
   // Set viewport
   gl.viewport(0, 0, canvas.width, canvas.height);
 
@@ -80,6 +149,7 @@ export function initWebGL2() {
 
   // Compile rectangle shaders
   const rectVertShader = gl.createShader(gl.VERTEX_SHADER);
+  if (!rectVertShader) return;
   gl.shaderSource(rectVertShader, rectangleVertexShader);
   gl.compileShader(rectVertShader);
 
@@ -92,6 +162,7 @@ export function initWebGL2() {
   }
 
   const rectFragShader = gl.createShader(gl.FRAGMENT_SHADER);
+  if (!rectFragShader) return;
   gl.shaderSource(rectFragShader, rectangleFragmentShader);
   gl.compileShader(rectFragShader);
 
@@ -105,6 +176,7 @@ export function initWebGL2() {
 
   // Link rectangle program
   renderer.rectangle.program = gl.createProgram();
+  if (!renderer.rectangle.program) return;
   gl.attachShader(renderer.rectangle.program, rectVertShader);
   gl.attachShader(renderer.rectangle.program, rectFragShader);
   gl.linkProgram(renderer.rectangle.program);
@@ -172,6 +244,7 @@ export function initWebGL2() {
 
   // Compile border shaders
   const borderVertShader = gl.createShader(gl.VERTEX_SHADER);
+  if (!borderVertShader) return;
   gl.shaderSource(borderVertShader, borderVertexShader);
   gl.compileShader(borderVertShader);
 
@@ -184,6 +257,7 @@ export function initWebGL2() {
   }
 
   const borderFragShader = gl.createShader(gl.FRAGMENT_SHADER);
+  if (!borderFragShader) return;
   gl.shaderSource(borderFragShader, borderFragmentShader);
   gl.compileShader(borderFragShader);
 
@@ -197,6 +271,7 @@ export function initWebGL2() {
 
   // Link border program
   renderer.border.program = gl.createProgram();
+  if (!renderer.border.program) return;
   gl.attachShader(renderer.border.program, borderVertShader);
   gl.attachShader(renderer.border.program, borderFragShader);
   gl.linkProgram(renderer.border.program);
@@ -252,6 +327,7 @@ export function initWebGL2() {
 
   // Compile image shaders
   const imageVertShader = gl.createShader(gl.VERTEX_SHADER);
+  if (!imageVertShader) return;
   gl.shaderSource(imageVertShader, imageVertexShader);
   gl.compileShader(imageVertShader);
 
@@ -264,6 +340,7 @@ export function initWebGL2() {
   }
 
   const imageFragShader = gl.createShader(gl.FRAGMENT_SHADER);
+  if (!imageFragShader) return;
   gl.shaderSource(imageFragShader, imageFragmentShader);
   gl.compileShader(imageFragShader);
 
@@ -277,6 +354,7 @@ export function initWebGL2() {
 
   // Link image program
   renderer.image.program = gl.createProgram();
+  if (!renderer.image.program) return;
   gl.attachShader(renderer.image.program, imageVertShader);
   gl.attachShader(renderer.image.program, imageFragShader);
   gl.linkProgram(renderer.image.program);
@@ -332,6 +410,7 @@ export function initWebGL2() {
 
   // Compile text shaders
   const textVertShader = gl.createShader(gl.VERTEX_SHADER);
+  if (!textVertShader) return;
   gl.shaderSource(textVertShader, textVertexShader);
   gl.compileShader(textVertShader);
 
@@ -344,6 +423,7 @@ export function initWebGL2() {
   }
 
   const textFragShader = gl.createShader(gl.FRAGMENT_SHADER);
+  if (!textFragShader) return;
   gl.shaderSource(textFragShader, textFragmentShader);
   gl.compileShader(textFragShader);
 
@@ -357,6 +437,7 @@ export function initWebGL2() {
 
   // Link text program
   renderer.text.program = gl.createProgram();
+  if (!renderer.text.program) return;
   gl.attachShader(renderer.text.program, textVertShader);
   gl.attachShader(renderer.text.program, textFragShader);
   gl.linkProgram(renderer.text.program);
@@ -422,7 +503,7 @@ export function initWebGL2() {
 }
 
 // Resize canvas to match display size with proper DPI
-export function resizeCanvasToDisplaySize() {
+export function resizeCanvasToDisplaySize(): boolean {
   const dpr = window.devicePixelRatio || 1;
   const displayWidth = canvas.clientWidth;
   const displayHeight = canvas.clientHeight;
@@ -446,27 +527,26 @@ export function resizeCanvasToDisplaySize() {
   return needResize;
 }
 
-
-export function createRendererOSFunctions(memInterface) {
+export function createRendererOSFunctions(memInterface: WasmMemoryInterface) {
   return {
-    _renderer_clear: (r, g, b, a) => {
+    _renderer_clear: (r: number, g: number, b: number, a: number): void => {
       gl.clearColor(r, g, b, a);
       gl.clear(gl.COLOR_BUFFER_BIT);
     },
     _renderer_draw_rect: (
-      x,
-      y,
-      width,
-      height,
-      r,
-      g,
-      b,
-      a,
-      cornerTL,
-      cornerTR,
-      cornerBL,
-      cornerBR,
-    ) => {
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      r: number,
+      g: number,
+      b: number,
+      a: number,
+      cornerTL: number,
+      cornerTR: number,
+      cornerBL: number,
+      cornerBR: number,
+    ): void => {
       //todo: pass dpr?
       const dpr = window.devicePixelRatio || 1;
 
@@ -503,23 +583,23 @@ export function createRendererOSFunctions(memInterface) {
       gl.bindVertexArray(null);
     },
     _renderer_draw_border: (
-      x,
-      y,
-      width,
-      height,
-      r,
-      g,
-      b,
-      a,
-      cornerTL,
-      cornerTR,
-      cornerBL,
-      cornerBR,
-      borderL,
-      borderR,
-      borderT,
-      borderB,
-    ) => {
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      r: number,
+      g: number,
+      b: number,
+      a: number,
+      cornerTL: number,
+      cornerTR: number,
+      cornerBL: number,
+      cornerBR: number,
+      borderL: number,
+      borderR: number,
+      borderT: number,
+      borderB: number,
+    ): void => {
       //todo: consolidate with rectangle rendering
       const dpr = window.devicePixelRatio || 1;
 
@@ -561,7 +641,12 @@ export function createRendererOSFunctions(memInterface) {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
     },
-    _renderer_scissor_start: (x, y, width, height) => {
+    _renderer_scissor_start: (
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+    ): void => {
       const dpr = window.devicePixelRatio || 1;
 
       // WebGL scissor uses bottom-left origin, but Clay uses top-left
@@ -574,24 +659,24 @@ export function createRendererOSFunctions(memInterface) {
       gl.enable(gl.SCISSOR_TEST);
       gl.scissor(scissorX, scissorY, scissorW, scissorH);
     },
-    _renderer_scissor_end: () => {
+    _renderer_scissor_end: (): void => {
       gl.disable(gl.SCISSOR_TEST);
     },
     _renderer_draw_image: (
-      x,
-      y,
-      width,
-      height,
-      imageDataPtr,
-      r,
-      g,
-      b,
-      a,
-      cornerTL,
-      cornerTR,
-      cornerBL,
-      cornerBR,
-    ) => {
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      imageDataPtr: number,
+      r: number,
+      g: number,
+      b: number,
+      a: number,
+      cornerTL: number,
+      cornerTR: number,
+      cornerBL: number,
+      cornerBR: number,
+    ): void => {
       //todo: pass image bytes instead instead of url
       // 1. Read null-terminated C string from WASM memory
       const url = memInterface.loadCstringDirect(imageDataPtr);
@@ -699,7 +784,12 @@ export function createRendererOSFunctions(memInterface) {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.bindVertexArray(null);
     },
-    _renderer_upload_msdf_atlas: (imageDataPtr, width, height, channels) => {
+    _renderer_upload_msdf_atlas: (
+      imageDataPtr: number,
+      width: number,
+      height: number,
+      channels: number,
+    ): void => {
       console.log(
         `Uploading MSDF atlas: ${width}x${height}, channels=${channels}`,
       );
@@ -739,21 +829,21 @@ export function createRendererOSFunctions(memInterface) {
       console.log("MSDF atlas texture uploaded successfully");
     },
     _renderer_draw_msdf_glyph: (
-      x,
-      y,
-      width,
-      height,
-      u0,
-      v0,
-      u1,
-      v1,
-      r,
-      g,
-      b,
-      a,
-      fontSize,
-      distanceRange,
-    ) => {
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      u0: number,
+      v0: number,
+      u1: number,
+      v1: number,
+      r: number,
+      g: number,
+      b: number,
+      a: number,
+      fontSize: number,
+      distanceRange: number,
+    ): void => {
       if (!renderer.text.atlasTexture) {
         console.warn("MSDF atlas texture not uploaded yet");
         return;
