@@ -382,9 +382,9 @@ WASM_EXPORT("entrypoint") void entrypoint(void *memory, u64 memory_size) {
   app_log("Clay text measurement function registered!");
 
   app_state->atlas_json_read_op =
-      os_start_read_file("web/Roboto-Regular-atlas.json");
+      os_start_read_file("Roboto-Regular-atlas.json");
   app_state->atlas_png_read_op =
-      os_start_read_file("web/Roboto-Regular-atlas.png");
+      os_start_read_file("Roboto-Regular-atlas.png");
 }
 
 Clay_RenderCommandArray test_text() {
