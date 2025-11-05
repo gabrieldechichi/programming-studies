@@ -515,8 +515,18 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                            &app_state->main_arena)) {
         Clay_ResetMeasureTextCache();
         if (file_data.success) {
-          // Cast buffer directly to UIFontAsset (no parsing needed!)
-          UIFontAsset *asset = (UIFontAsset *)file_data.buffer;
+          // Read AssetHeader first
+          AssetHeader *header = (AssetHeader *)file_data.buffer;
+
+          app_log("Asset Header:");
+          app_log("  Version: %d", header->version);
+          app_log("  Asset size: %d bytes (%.2f KB)", (u32)header->asset_size,
+                  BYTES_TO_KB(header->asset_size));
+          app_log("  Asset type hash: 0x%08x", (u32)header->asset_type_hash);
+          app_log("  Dependencies: %d", assetptr_len(header->dependencies));
+
+          // Skip header to get to UIFontAsset
+          UIFontAsset *asset = (UIFontAsset *)(file_data.buffer + sizeof(AssetHeader));
 
           app_log("Font asset ready:");
           app_log("  Atlas: %.0fx%.0f, distanceRange=%.0f, size=%.0f",

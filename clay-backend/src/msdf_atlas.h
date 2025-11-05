@@ -4,6 +4,26 @@
 #include "typedefs.h"
 #include <stddef.h>
 
+// Generic asset pointer with type safety
+typedef struct {
+  u32 offset;    // Offset in bytes from parent base pointer
+  u32 size;      // Total size in bytes of the blob
+  u32 type_size; // Size of each element (for validation and length calculation)
+  u32 typehash;  // Hash of type name + size for validation
+} AssetPtr;
+
+typedef struct {
+  u32 dependency_path_len;
+  AssetPtr dependency_path; // string
+} AssetDependency;
+
+typedef struct {
+  u32 version;
+  u64 asset_size;
+  u64 asset_type_hash;
+  AssetPtr dependencies; // array of AssetDependency
+} AssetHeader;
+
 // Atlas configuration
 typedef struct {
   f32 distanceRange;
@@ -67,25 +87,9 @@ static inline u32 fnv1a_hash_str(const char *str, u32 len) {
   return hash;
 }
 
-// Helper to get string length at compile time
-static inline u32 const_strlen(const char *str) {
-  u32 len = 0;
-  while (str[len])
-    len++;
-  return len;
-}
-
 // Compute stable type hash: hash(typename) ^ sizeof(type)
 // This catches both wrong type name and struct size changes
 #define TYPE_HASH(T) (fnv1a_hash_str(#T, CSTR_LEN(#T)) ^ (u32)sizeof(T))
-
-// Generic asset pointer with type safety
-typedef struct {
-  u32 offset;    // Offset in bytes from parent base pointer
-  u32 size;      // Total size in bytes of the blob
-  u32 type_size; // Size of each element (for validation and length calculation)
-  u32 typehash;  // Hash of type name + size for validation
-} AssetPtr;
 
 // Get pointer to asset data with type validation
 static inline void *_assetptr_get(void *parent, AssetPtr ptr,

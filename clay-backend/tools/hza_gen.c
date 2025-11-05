@@ -149,13 +149,15 @@ int main(int argc, char **argv) {
 
   // Calculate memory layout
   printf("\nPacking font asset...\n");
-  size_t header_size = sizeof(UIFontAsset);
+  size_t asset_header_size = sizeof(AssetHeader);
+  size_t ui_font_asset_size = sizeof(UIFontAsset);
   size_t glyphs_size = atlas_data.glyph_count * sizeof(MsdfGlyph);
-  size_t total_size = header_size + glyphs_size + png_size;
+  size_t total_size = asset_header_size + ui_font_asset_size + glyphs_size + png_size;
 
-  printf("  Header: %zu bytes at offset 0\n", header_size);
-  printf("  Glyphs: %zu bytes at offset %zu\n", glyphs_size, header_size);
-  printf("  PNG data: %zu bytes at offset %zu\n", png_size, header_size + glyphs_size);
+  printf("  AssetHeader: %zu bytes at offset 0\n", asset_header_size);
+  printf("  UIFontAsset: %zu bytes at offset %zu\n", ui_font_asset_size, asset_header_size);
+  printf("  Glyphs: %zu bytes at offset %zu\n", glyphs_size, asset_header_size + ui_font_asset_size);
+  printf("  PNG data: %zu bytes at offset %zu\n", png_size, asset_header_size + ui_font_asset_size + glyphs_size);
   printf("  Total: %.2f KB\n", BYTES_TO_KB(total_size));
 
   // Allocate buffer for entire asset
@@ -168,19 +170,31 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // Fill UIFontAsset header
-  UIFontAsset *asset = (UIFontAsset *)asset_buffer;
+  // Fill AssetHeader
+  AssetHeader *header = (AssetHeader *)asset_buffer;
+  header->version = 1;
+  header->asset_size = (u64)total_size;
+  header->asset_type_hash = TYPE_HASH(UIFontAsset);
+
+  // Zero dependencies for this asset
+  header->dependencies.offset = 0;
+  header->dependencies.size = 0;
+  header->dependencies.type_size = sizeof(AssetDependency);
+  header->dependencies.typehash = TYPE_HASH(AssetDependency);
+
+  // Fill UIFontAsset (after header)
+  UIFontAsset *asset = (UIFontAsset *)(asset_buffer + asset_header_size);
   asset->atlas = atlas_data.atlas;
   asset->metrics = atlas_data.metrics;
 
-  // Setup glyphs AssetPtr
-  asset->glyphs.offset = (u32)header_size;
+  // Setup glyphs AssetPtr (offset relative to UIFontAsset base)
+  asset->glyphs.offset = (u32)ui_font_asset_size;
   asset->glyphs.size = (u32)glyphs_size;
   asset->glyphs.type_size = sizeof(MsdfGlyph);
   asset->glyphs.typehash = TYPE_HASH(MsdfGlyph);
 
-  // Setup image_data AssetPtr
-  asset->image_data.offset = (u32)(header_size + glyphs_size);
+  // Setup image_data AssetPtr (offset relative to UIFontAsset base)
+  asset->image_data.offset = (u32)(ui_font_asset_size + glyphs_size);
   asset->image_data.size = (u32)png_size;
   asset->image_data.type_size = sizeof(u8);
   asset->image_data.typehash = TYPE_HASH(u8);
