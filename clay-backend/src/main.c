@@ -165,7 +165,8 @@ void HandleClayError(Clay_ErrorData errorData) {
 // Helper: Find glyph by unicode in atlas
 static MsdfGlyph *find_glyph(UIFontAsset *asset, u32 unicode) {
   MsdfGlyph *glyphs = assetptr_get(MsdfGlyph, asset, asset->glyphs);
-  for (u32 i = 0; i < asset->glyph_count; i++) {
+  u32 glyph_count = assetptr_len(asset->glyphs);
+  for (u32 i = 0; i < glyph_count; i++) {
     if (glyphs[i].unicode == unicode) {
       return &glyphs[i];
     }
@@ -525,11 +526,11 @@ WASM_EXPORT("update_and_render") void update_and_render(void *memory) {
                   "descender=%.2f",
                   asset->metrics.emSize, asset->metrics.lineHeight,
                   asset->metrics.ascender, asset->metrics.descender);
-          app_log("  Glyphs: %u", asset->glyph_count);
+          app_log("  Glyphs: %u", assetptr_len(asset->glyphs));
 
           // Extract PNG data from asset
           u8 *png_data = assetptr_get(u8, asset, asset->image_data);
-          u32 png_size = asset->image_data_size;
+          u32 png_size = asset->image_data.size;
 
           // Decode PNG with stb_image
           stbi_set_flip_vertically_on_load(1);

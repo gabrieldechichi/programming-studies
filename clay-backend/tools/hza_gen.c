@@ -172,10 +172,18 @@ int main(int argc, char **argv) {
   UIFontAsset *asset = (UIFontAsset *)asset_buffer;
   asset->atlas = atlas_data.atlas;
   asset->metrics = atlas_data.metrics;
-  asset->glyph_count = atlas_data.glyph_count;
-  asset->glyphs = (u32)header_size;
-  asset->image_data = (u32)(header_size + glyphs_size);
-  asset->image_data_size = (u32)png_size;
+
+  // Setup glyphs AssetPtr
+  asset->glyphs.offset = (u32)header_size;
+  asset->glyphs.size = (u32)glyphs_size;
+  asset->glyphs.type_size = sizeof(MsdfGlyph);
+  asset->glyphs.typehash = TYPE_HASH(MsdfGlyph);
+
+  // Setup image_data AssetPtr
+  asset->image_data.offset = (u32)(header_size + glyphs_size);
+  asset->image_data.size = (u32)png_size;
+  asset->image_data.type_size = sizeof(u8);
+  asset->image_data.typehash = TYPE_HASH(u8);
 
   // Copy glyph array
   MsdfGlyph *packed_glyphs = assetptr_get(MsdfGlyph, asset, asset->glyphs);
