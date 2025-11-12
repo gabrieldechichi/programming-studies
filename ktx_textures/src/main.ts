@@ -95,7 +95,8 @@ async function main() {
 
   // Load and upload texture
   // This will try loading files in order of format preference
-  const baseUrl = '/textures/test';
+  //
+  const baseUrl = '/textures/tripo_image_a7238a23-afc1-469c-baa3-d94a6076e7c1_0';
   const supportedFormats = getSupportedFormatsInPriorityOrder(formats);
   const result = await loadAndUploadTexture(gl, baseUrl, supportedFormats);
 
