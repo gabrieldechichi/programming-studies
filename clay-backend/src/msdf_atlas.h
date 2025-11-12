@@ -12,6 +12,10 @@ typedef struct {
   u32 typehash;  // Hash of type name + size for validation
 } AssetPtr;
 
+#define ASSETPTR_DEF(type) typedef AssetPtr AssetPtr_##type
+
+ASSETPTR_DEF(AssetDependency);
+
 typedef struct {
   u32 dependency_path_len;
   AssetPtr dependency_path; // string
@@ -21,8 +25,8 @@ typedef struct {
   u32 version;
   u64 asset_size;
   u64 asset_type_hash;
-  AssetPtr dependencies; // array of AssetDependency
-} AssetHeader;
+  AssetPtr_AssetDependency dependencies; // array of AssetDependency
+} AssetHeaderV2;
 
 // Atlas configuration
 typedef struct {
@@ -119,13 +123,16 @@ static inline u32 assetptr_len(AssetPtr ptr) {
 #define assetptr_get(type, parent, ptr)                                        \
   ((type *)_assetptr_get(parent, ptr, sizeof(type), TYPE_HASH(type)))
 
+ASSETPTR_DEF(MsdfGlyph);
+ASSETPTR_DEF(u8);
 // Binary font asset (.hza format) - self-contained, single allocation
-// Memory layout: [UIFontAsset header][Glyph array][PNG data]
+// Memory layout: [UIFontAsset (with embedded header)][Glyph array][PNG data]
 typedef struct {
+  AssetHeaderV2 header;      // Embedded asset header (MUST be first field)
   MsdfAtlasConfig atlas;
   MsdfMetrics metrics;
-  AssetPtr glyphs;     // Array of MsdfGlyph
-  AssetPtr image_data; // Array of u8 (PNG bytes)
+  AssetPtr_MsdfGlyph glyphs; // Array of MsdfGlyph
+  AssetPtr_u8 image_data;    // Array of u8 (PNG bytes)
 } UIFontAsset;
 
 // Get total size of UIFontAsset for serialization

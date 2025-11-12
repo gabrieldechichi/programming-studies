@@ -149,15 +149,13 @@ int main(int argc, char **argv) {
 
   // Calculate memory layout
   printf("\nPacking font asset...\n");
-  size_t asset_header_size = sizeof(AssetHeader);
   size_t ui_font_asset_size = sizeof(UIFontAsset);
   size_t glyphs_size = atlas_data.glyph_count * sizeof(MsdfGlyph);
-  size_t total_size = asset_header_size + ui_font_asset_size + glyphs_size + png_size;
+  size_t total_size = ui_font_asset_size + glyphs_size + png_size;
 
-  printf("  AssetHeader: %zu bytes at offset 0\n", asset_header_size);
-  printf("  UIFontAsset: %zu bytes at offset %zu\n", ui_font_asset_size, asset_header_size);
-  printf("  Glyphs: %zu bytes at offset %zu\n", glyphs_size, asset_header_size + ui_font_asset_size);
-  printf("  PNG data: %zu bytes at offset %zu\n", png_size, asset_header_size + ui_font_asset_size + glyphs_size);
+  printf("  UIFontAsset (with embedded header): %zu bytes at offset 0\n", ui_font_asset_size);
+  printf("  Glyphs: %zu bytes at offset %zu\n", glyphs_size, ui_font_asset_size);
+  printf("  PNG data: %zu bytes at offset %zu\n", png_size, ui_font_asset_size + glyphs_size);
   printf("  Total: %.2f KB\n", BYTES_TO_KB(total_size));
 
   // Allocate buffer for entire asset
@@ -170,20 +168,21 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // Fill AssetHeader
-  AssetHeader *header = (AssetHeader *)asset_buffer;
-  header->version = 1;
-  header->asset_size = (u64)total_size;
-  header->asset_type_hash = TYPE_HASH(UIFontAsset);
+  // Fill UIFontAsset (which has embedded header as first field)
+  UIFontAsset *asset = (UIFontAsset *)asset_buffer;
+
+  // Fill embedded header
+  asset->header.version = 1;
+  asset->header.asset_size = (u64)total_size;
+  asset->header.asset_type_hash = TYPE_HASH(UIFontAsset);
 
   // Zero dependencies for this asset
-  header->dependencies.offset = 0;
-  header->dependencies.size = 0;
-  header->dependencies.type_size = sizeof(AssetDependency);
-  header->dependencies.typehash = TYPE_HASH(AssetDependency);
+  asset->header.dependencies.offset = 0;
+  asset->header.dependencies.size = 0;
+  asset->header.dependencies.type_size = sizeof(AssetDependency);
+  asset->header.dependencies.typehash = TYPE_HASH(AssetDependency);
 
-  // Fill UIFontAsset (after header)
-  UIFontAsset *asset = (UIFontAsset *)(asset_buffer + asset_header_size);
+  // Fill atlas data
   asset->atlas = atlas_data.atlas;
   asset->metrics = atlas_data.metrics;
 
