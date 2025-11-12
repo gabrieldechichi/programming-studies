@@ -1,19 +1,10 @@
-#ifndef H_TYPEDEFS
-#define H_TYPEDEFS
-
+#include "raylib.h"
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 #define internal static
 #define global static
 #define local_persist static
-
-#ifdef _WIN32
-#define export __declspec(dllexport)
-#else
-#define export
-#endif
 
 #define ARRAY_SIZE(arr) (size_t)(sizeof(arr) / sizeof(arr[0]))
 
@@ -27,38 +18,11 @@
     abort();                                                                   \
   }
 
-typedef uint8_t uint8;
-typedef uint16_t uint16;
-typedef uint32_t uint32;
-typedef uint64_t uint64;
+typedef unsigned char bool8_t;
 
-typedef int8_t int8;
-typedef int16_t int16;
-typedef int32_t int32;
-typedef int64_t int64;
+typedef Color color32_t;
+typedef Texture2D tex2d_t;
+typedef AudioStream audio_stream_t;
 
 #define true 1
 #define false 0
-
-#define UNUSED(x) (void)(x)
-
-#define PI 3.14159265358979323846
-
-#define MS_TO_SECS(ms) ((float)(ms) / 1000.0f)
-#define MS_TO_MCS(ms) ((uint64)((ms) * 1000.0f))
-#define MS_TO_NS(ms) ((uint64)((ms) * 1000000.0f))
-
-#define MCS_TO_SECS(mcs) ((float)(mcs) / 1000000.0f)
-
-#define NS_TO_SECS(ns) ((float)(ns) / 1000000000.0f)
-#define NS_TO_MS(ns) ((uint64)((ns) / 1000000))
-#define NS_TO_MCS(ns) ((uint64)((ns) / 1000))
-
-#define SECS_TO_MS(secs) ((uint64)((secs) * 1000.0f))
-#define SECS_TO_MCS(secs) ((uint64)((secs) * 1000000.0f))
-#define SECS_TO_NS(secs) ((uint64)((secs) * 1000000000.0f))
-
-#define MIN(a,b) (a) < (b) ? (a) : (b)
-#define MAX(a,b) (a) > (b) ? (a) : (b)
-
-#endif

@@ -1,3 +1,4 @@
+#include "raylib.h"
 #include "rom.c"
 #include "typedefs.h"
 #include <stdbool.h>
@@ -335,22 +336,6 @@ void sound_stop(int slot) {
 
   // clear the sound slot
   game_state.audio.sound[slot] = (sound_t){0};
-}
-
-void snd_voice_tick(void) {
-  for (int i = 0; i < NUM_VOICES; i++) {
-    voice_t *voice = &game_state.audio.voice[i];
-    voice->counter += voice->frequency;
-    /* lookup current 4-bit sample from the waveform number and the
-        topmost 5 bits of the 20-bit sample counter
-    */
-    uint32_t wave_index =
-        ((voice->waveform << 5) | ((voice->counter >> 15) & 0x1F)) & 0xFF;
-    int sample = (((int)(rom_wavetable[wave_index] & 0xF)) - 8) * voice->volume;
-    voice->sample_acc +=
-        (float)sample; // sample is (-8..+7 wavetable value) * 16 (volume)
-    voice->sample_div += 128.0f;
-  }
 }
 
 void snd_func_eatdot1(int slot) {
@@ -718,112 +703,54 @@ const sound_desc_t sounds[NUM_GAME_SOUNDS] = {
 };
 // clang-format on
 
-// int main(void) {
-//   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pacman.c");
-//   InitAudioDevice();
-//   SetTargetFPS(TARGET_FPS);
-//
-//   memset(&game_state, 0, sizeof(game_state));
-//   game_state.is_running = true;
-//   game_state.fruit_pos = i2(13 * TILE_SIZE, 20 * TILE_SIZE - TILE_SIZE / 2);
-//   game_state.render_texture =
-//       LoadTextureFromImage(GenImageColor(DISPLAY_RES_X, DISPLAY_RES_Y,
-//       BLACK));
-//
-//   pm_init_rom(&game_state.rom);
-//   init_level();
-//
-//   game_state.pacman.dir = DIR_LEFT;
-//   game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
-//
-//   // audio test
-//   // audio_stream_t audio_stream = LoadAudioStream(60000, 32, 3);
-//   // PlayAudioStream(audio_stream);
-//
-//   // bool8_t did_play_sound = false;
-//
-//   while (game_state.is_running && !WindowShouldClose()) {
-//     update_fruits();
-//     update_pacman();
-//
-//     set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
-//
-//     // if (!did_play_sound && IsAudioStreamProcessed(audio_stream)) {
-//     //   sound_desc_t sound = sounds[SOUND_DEAD];
-//     //   UpdateAudioStream(audio_stream, sound.dump.ptr, sound.dump.size /
-//     32);
-//     // }
-//
-//     draw_tiles();
-//     draw_pacman();
-//     draw_fruits();
-//
-//     // draw_tile_atlas();
-//     BeginDrawing();
-//     ClearBackground(BLACK);
-//     render_frame_buffer();
-//     EndDrawing();
-//
-//     game_state.tick++;
-//   }
-//
-//   // UnloadAudioStream(audio_stream);
-//   CloseAudioDevice();
-//   CloseWindow();
-//
-//   return 0;
-// }
-
-#include "raylib.h"
-#include <math.h>
-
-#define TAU 2.0f * PI
-#define SAMPLE_RATE 48000
-#define SAMPLES_PER_BUFFER 512
-#define WAVE_FREQUENCY 256
-#define WAVE_SAMPLE_PERIOD (SAMPLE_RATE / (float)WAVE_FREQUENCY)
-#define WAVE_SAMPLE_FREQUENCY (WAVE_FREQUENCY / (float)SAMPLE_RATE)
-#define SINE_TIME_STEP (TAU * (float)WAVE_SAMPLE_FREQUENCY)
-
-const float VOLUME = 0.1f; // Adjusted for perceptibility
-
-void GenerateSineWave(float *buffer, int sampleCount, float frequency,
-                      float volume) {
-  local_persist float time = 0.0f;
-
-  for (int i = 0; i < sampleCount; ++i) {
-    buffer[i] = sinf(time) * volume;
-    if (buffer[i] < 0) {
-      buffer[i] = 0;
-    }
-    time += SINE_TIME_STEP;
-  }
-}
-
 int main(void) {
-  InitWindow(800, 600, "Namco WSG Emulator - Sine Wave");
+  InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pacman.c");
   InitAudioDevice();
-  SetTargetFPS(60);
+  SetTargetFPS(TARGET_FPS);
 
-  AudioStream stream = LoadAudioStream(SAMPLE_RATE, 32, 1);
-  PlayAudioStream(stream);
+  memset(&game_state, 0, sizeof(game_state));
+  game_state.is_running = true;
+  game_state.fruit_pos = i2(13 * TILE_SIZE, 20 * TILE_SIZE - TILE_SIZE / 2);
+  game_state.render_texture =
+      LoadTextureFromImage(GenImageColor(DISPLAY_RES_X, DISPLAY_RES_Y, BLACK));
 
-  float waveBuffer[SAMPLES_PER_BUFFER] = {0};
-  memset(waveBuffer, 0, sizeof(waveBuffer));
-  UpdateAudioStream(stream, waveBuffer, SAMPLES_PER_BUFFER);
+  pm_init_rom(&game_state.rom);
+  init_level();
 
-  while (!WindowShouldClose()) {
-    if (IsAudioStreamProcessed(stream)) {
-      GenerateSineWave(waveBuffer, SAMPLES_PER_BUFFER, WAVE_FREQUENCY, VOLUME);
-      UpdateAudioStream(stream, waveBuffer, SAMPLES_PER_BUFFER);
-    }
+  game_state.pacman.dir = DIR_LEFT;
+  game_state.pacman.pos = i2(14 * 8, 26 * 8 + 4);
 
+  // audio test
+  // audio_stream_t audio_stream = LoadAudioStream(60000, 32, 3);
+  // PlayAudioStream(audio_stream);
+
+  // bool8_t did_play_sound = false;
+
+  while (game_state.is_running && !WindowShouldClose()) {
+    update_fruits();
+    update_pacman();
+
+    set_tile_score(i2(6, 1), COLOR_DEFAULT, game_state.score);
+
+    // if (!did_play_sound && IsAudioStreamProcessed(audio_stream)) {
+    //   sound_desc_t sound = sounds[SOUND_DEAD];
+    //   UpdateAudioStream(audio_stream, sound.dump.ptr, sound.dump.size / 32);
+    // }
+
+    draw_tiles();
+    draw_pacman();
+    draw_fruits();
+
+    // draw_tile_atlas();
     BeginDrawing();
     ClearBackground(BLACK);
+    render_frame_buffer();
     EndDrawing();
+
+    game_state.tick++;
   }
 
-  UnloadAudioStream(stream);
+  // UnloadAudioStream(audio_stream);
   CloseAudioDevice();
   CloseWindow();
 
