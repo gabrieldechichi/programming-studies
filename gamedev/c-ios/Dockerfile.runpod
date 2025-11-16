@@ -1,0 +1,75 @@
+FROM ubuntu:24.04
+
+# Set non-interactive frontend to avoid prompts during build
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set NVIDIA environment variables for GPU access
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=all
+
+# Set CUDA environment variables for NVENC
+ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu
+
+# Add NVIDIA package repository
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    && wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub | apt-key add - \
+    && echo "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64 /" > /etc/apt/sources.list.d/cuda.list
+
+# Update package list and install dependencies
+RUN apt-get update && apt-get install -y \
+    # Python runtime
+    python3 \
+    python3-pip \
+    python3-venv \
+    # Vulkan runtime libraries
+    libvulkan1 \
+    vulkan-tools \
+    # FFmpeg runtime libraries (dynamically linked)
+    libavformat60 \
+    libavcodec60 \
+    libavutil58 \
+    libswscale7 \
+    # NVIDIA utilities for GPU detection
+    pciutils \
+    # NVIDIA drivers (version 535 to match host)
+    libnvidia-gl-535 \
+    libnvidia-compute-535 \
+    libnvidia-decode-535 \
+    libnvidia-encode-535 \
+    nvidia-utils-535 \
+    # Clean up to reduce image size
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create Vulkan ICD directory and add NVIDIA ICD
+RUN mkdir -p /usr/share/vulkan/icd.d/ \
+    && echo '{\n    "file_format_version": "1.0.0",\n    "ICD": {\n        "library_path": "libGLX_nvidia.so.0",\n        "api_version": "1.3.0"\n    }\n}' > /usr/share/vulkan/icd.d/nvidia_icd.json
+
+# Create application directory
+WORKDIR /app
+
+# Copy Python requirements and install dependencies
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+
+# Copy pre-built application and shaders
+COPY out/linux/video_renderer ./video_renderer
+COPY out/linux/*.spv ./
+# Also create the expected directory structure for shaders
+RUN mkdir -p /app/out/linux
+COPY out/linux/*.spv /app/out/linux/
+
+# Copy the RunPod handler
+COPY runpod_handler.py .
+
+# Make the binary executable
+RUN chmod +x ./video_renderer
+
+# Set Python path and working directory
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Set the entrypoint to run the RunPod handler
+CMD ["python3", "runpod_handler.py"]

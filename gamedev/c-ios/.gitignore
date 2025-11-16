@@ -1,0 +1,10 @@
+.cache
+.DS_Store
+out/
+build
+
+c-ios-test/c-ios-test.xcodeproj/project.xcworkspace/xcuser
+data/
+__pycache__/
+
+*.mp4

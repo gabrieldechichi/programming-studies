@@ -1,0 +1,18 @@
+#ifndef H_HASH
+#define H_HASH
+
+#include "typedefs.h"
+
+force_inline u32 fnv1a_hash(const char *bytes) {
+  u32 hash = 0x811c9dc5;        // FNV offset basis
+  const u32 prime = 0x01000193; // FNV prime
+
+  while (*bytes) {
+    hash ^= (u8)*bytes++;
+    hash *= prime;
+  }
+
+  return hash;
+}
+
+#endif

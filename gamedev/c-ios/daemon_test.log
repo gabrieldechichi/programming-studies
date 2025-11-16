@@ -1,0 +1,880 @@
+[Request 1] === Video Renderer Daemon ===
+[Request 1] Resolution: 1080x1920, Max frames: 1440
+[Request 1] Listening for JSON requests on stdin...
+[Request 1] Failed to open shader file: triangle.vert.spv
+[Request 1] Failed to open shader file: triangle.frag.spv
+[Request 1] [Memory] Initialized allocators: Permanent=200MB, Temporary=5120MB
+[Request 1] [System] Initializing GPU backend and FFmpeg...
+[Request 1] [Vulkan] Found 3 GPU(s):
+[Request 1] [Vulkan]   0: AMD Radeon Graphics (RADV RENOIR) (Integrated GPU) - VRAM: 10.6 GB
+[Request 1] [Vulkan]   1: NVIDIA GeForce RTX 3060 Laptop GPU (Discrete GPU) - VRAM: 6.0 GB
+[Request 1] [Vulkan]   2: llvmpipe (LLVM 20.1.2, 256 bits) (CPU) - VRAM: 30.8 GB
+[Request 1] [Vulkan] Selected: NVIDIA GeForce RTX 3060 Laptop GPU
+[Request 1] [Vulkan] Device initialized
+[Request 1] Warning: Could not open shader file triangle.metal
+[Request 1] [Vulkan] Pipeline created
+[Request 1] [Vulkan] Compute pipeline created (descriptor pool: 1440 sets, 5760 images)
+[Request 1] [GPU] Creating 1 texture pools (instead of per-frame textures)
+[Request 1] [Vulkan] Using cached memory for readback buffers
+[Request 1] [Memory] Frame metadata initialized. Permanent allocator usage: 0/200 MB
+[Request 1] [FFmpeg] Initializing cached objects...
+[Request 1] [FFmpeg] Using NVENC hardware encoder
+[Request 1] [FFmpeg] Cached objects initialized (using h264_nvenc)
+[Request 1] Rendering 8.00 seconds (192 frames)...
+[Request 1] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 1] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 1] [FFmpeg] Encoder opened for file: output.mp4
+[Request 1] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 1] [Encoder] Thread started
+[Request 1] [Debug] YUV data sizes: Y=2073600, U=518400, V=518400, Total=3110400
+[Request 1] [Renderer] All 192 frames completed
+[Request 1] [Encoder] Thread finished - all frames encoded
+[Request 1] 
+[Request 1] === Performance Metrics ===
+[Request 1] Render submission: 0.445 seconds
+[Request 1] All frames ready:  0.445 seconds
+[Request 1] Total time:        0.682 seconds
+[Request 1] Speedup:           1.53x (vs 1.045s baseline)
+[Request 1] FPS achieved:      281.4 fps
+[Request 1] ===========================
+[Request 1] [FFmpeg] Encoder closed for current request
+[Request 1] [Vulkan] Destroyed 576 tracked fences
+[Request 1] [Vulkan] Command pools reset - all command buffers freed
+[Request 1] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 1] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 2] 
+[Request 2] ========== PROFILER RESULTS ==========
+[Request 2] Total session time: 987.6230ms
+[Request 2] Total profiled time: 580.8085ms
+[Request 2] --------------------------------------
+[Request 2] (Sorted by average exclusive time)
+[Request 2] --------------------------------------
+[Request 2]   wait_for_completion:
+[Request 2]     Hits: 1 | Total: 237.247ms (40.8%) | Avg: 237.247ms
+[Request 2]   start_ffmpeg_encoder:
+[Request 2]     Hits: 1 | Total: 90.462ms (15.5%) | Avg: 90.462ms
+[Request 2]   ffmpeg encode frame:
+[Request 2]     Hits: 192 | Total: 580.808ms (100.0%) | Avg: 3.025ms
+[Request 2]   compute and readback:
+[Request 2]     Hits: 192 | Total: 313.420ms (53.9%) | Avg: 1.632ms
+[Request 2]   render_frame:
+[Request 2]     Hits: 192 | Total: 41.195ms (7.0%) | Avg: 0.214ms
+[Request 2]   ffmpeg wait for frame:
+[Request 2]     Hits: 192 | Total: 10.917ms (1.8%) | Avg: 0.056ms
+[Request 2]   render_all_frames:
+[Request 2]     Hits: 1 | Total: 0.050ms (0.0%) | Avg: 0.050ms
+[Request 2]     With children - Total: 354.666ms (61.0%) | Avg: 354.666ms
+[Request 2] ======================================
+[Request 2] Rendering 8.00 seconds (192 frames)...
+[Request 2] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 2] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 2] [FFmpeg] Encoder opened for file: output.mp4
+[Request 2] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 2] [Encoder] Thread started
+[Request 2] [Renderer] All 192 frames completed
+[Request 2] [Encoder] Thread finished - all frames encoded
+[Request 2] 
+[Request 2] === Performance Metrics ===
+[Request 2] Render submission: 0.387 seconds
+[Request 2] All frames ready:  0.387 seconds
+[Request 2] Total time:        0.632 seconds
+[Request 2] Speedup:           1.65x (vs 1.045s baseline)
+[Request 2] FPS achieved:      303.8 fps
+[Request 2] ===========================
+[Request 2] [FFmpeg] Encoder closed for current request
+[Request 2] [Vulkan] Destroyed 576 tracked fences
+[Request 2] [Vulkan] Command pools reset - all command buffers freed
+[Request 2] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 2] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 3] 
+[Request 3] ========== PROFILER RESULTS ==========
+[Request 3] Total session time: 742.9869ms
+[Request 3] Total profiled time: 550.9093ms
+[Request 3] --------------------------------------
+[Request 3] (Sorted by average exclusive time)
+[Request 3] --------------------------------------
+[Request 3]   wait_for_completion:
+[Request 3]     Hits: 1 | Total: 244.815ms (44.4%) | Avg: 244.815ms
+[Request 3]   start_ffmpeg_encoder:
+[Request 3]     Hits: 1 | Total: 78.666ms (14.2%) | Avg: 78.666ms
+[Request 3]   ffmpeg encode frame:
+[Request 3]     Hits: 192 | Total: 550.909ms (100.0%) | Avg: 2.869ms
+[Request 3]   compute and readback:
+[Request 3]     Hits: 192 | Total: 260.032ms (47.2%) | Avg: 1.354ms
+[Request 3]   render_frame:
+[Request 3]     Hits: 192 | Total: 48.572ms (8.8%) | Avg: 0.252ms
+[Request 3]   render_all_frames:
+[Request 3]     Hits: 1 | Total: 0.039ms (0.0%) | Avg: 0.039ms
+[Request 3]     With children - Total: 308.645ms (56.0%) | Avg: 308.645ms
+[Request 3]   ffmpeg wait for frame:
+[Request 3]     Hits: 192 | Total: 2.304ms (0.4%) | Avg: 0.012ms
+[Request 3] ======================================
+[Request 3] Rendering 8.00 seconds (192 frames)...
+[Request 3] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 3] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 3] [FFmpeg] Encoder opened for file: output.mp4
+[Request 3] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 3] [Encoder] Thread started
+[Request 3] [Renderer] All 192 frames completed
+[Request 3] [Encoder] Thread finished - all frames encoded
+[Request 3] 
+[Request 3] === Performance Metrics ===
+[Request 3] Render submission: 0.359 seconds
+[Request 3] All frames ready:  0.359 seconds
+[Request 3] Total time:        0.640 seconds
+[Request 3] Speedup:           1.63x (vs 1.045s baseline)
+[Request 3] FPS achieved:      300.0 fps
+[Request 3] ===========================
+[Request 3] [FFmpeg] Encoder closed for current request
+[Request 3] [Vulkan] Destroyed 576 tracked fences
+[Request 3] [Vulkan] Command pools reset - all command buffers freed
+[Request 3] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 3] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 4] 
+[Request 4] ========== PROFILER RESULTS ==========
+[Request 4] Total session time: 747.1328ms
+[Request 4] Total profiled time: 563.7764ms
+[Request 4] --------------------------------------
+[Request 4] (Sorted by average exclusive time)
+[Request 4] --------------------------------------
+[Request 4]   wait_for_completion:
+[Request 4]     Hits: 1 | Total: 280.853ms (49.8%) | Avg: 280.853ms
+[Request 4]   start_ffmpeg_encoder:
+[Request 4]     Hits: 1 | Total: 74.469ms (13.2%) | Avg: 74.469ms
+[Request 4]   ffmpeg encode frame:
+[Request 4]     Hits: 192 | Total: 563.776ms (100.0%) | Avg: 2.936ms
+[Request 4]   compute and readback:
+[Request 4]     Hits: 192 | Total: 246.889ms (43.7%) | Avg: 1.285ms
+[Request 4]   render_frame:
+[Request 4]     Hits: 192 | Total: 37.689ms (6.6%) | Avg: 0.196ms
+[Request 4]   render_all_frames:
+[Request 4]     Hits: 1 | Total: 0.042ms (0.0%) | Avg: 0.042ms
+[Request 4]     With children - Total: 284.621ms (50.4%) | Avg: 284.621ms
+[Request 4]   ffmpeg wait for frame:
+[Request 4]     Hits: 192 | Total: 1.614ms (0.2%) | Avg: 0.008ms
+[Request 4] ======================================
+[Request 4] Rendering 8.00 seconds (192 frames)...
+[Request 4] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 4] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 4] [FFmpeg] Encoder opened for file: output.mp4
+[Request 4] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 4] [Encoder] Thread started
+[Request 4] [Renderer] All 192 frames completed
+[Request 4] [Encoder] Thread finished - all frames encoded
+[Request 4] 
+[Request 4] === Performance Metrics ===
+[Request 4] Render submission: 0.374 seconds
+[Request 4] All frames ready:  0.374 seconds
+[Request 4] Total time:        0.632 seconds
+[Request 4] Speedup:           1.65x (vs 1.045s baseline)
+[Request 4] FPS achieved:      303.7 fps
+[Request 4] ===========================
+[Request 4] [FFmpeg] Encoder closed for current request
+[Request 4] [Vulkan] Destroyed 576 tracked fences
+[Request 4] [Vulkan] Command pools reset - all command buffers freed
+[Request 4] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 4] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 5] 
+[Request 5] ========== PROFILER RESULTS ==========
+[Request 5] Total session time: 743.7560ms
+[Request 5] Total profiled time: 555.2096ms
+[Request 5] --------------------------------------
+[Request 5] (Sorted by average exclusive time)
+[Request 5] --------------------------------------
+[Request 5]   wait_for_completion:
+[Request 5]     Hits: 1 | Total: 258.719ms (46.5%) | Avg: 258.719ms
+[Request 5]   start_ffmpeg_encoder:
+[Request 5]     Hits: 1 | Total: 75.261ms (13.5%) | Avg: 75.261ms
+[Request 5]   ffmpeg encode frame:
+[Request 5]     Hits: 192 | Total: 555.209ms (100.0%) | Avg: 2.891ms
+[Request 5]   compute and readback:
+[Request 5]     Hits: 192 | Total: 255.137ms (45.9%) | Avg: 1.328ms
+[Request 5]   render_frame:
+[Request 5]     Hits: 192 | Total: 43.232ms (7.7%) | Avg: 0.225ms
+[Request 5]   render_all_frames:
+[Request 5]     Hits: 1 | Total: 0.049ms (0.0%) | Avg: 0.049ms
+[Request 5]     With children - Total: 298.419ms (53.7%) | Avg: 298.419ms
+[Request 5]   ffmpeg wait for frame:
+[Request 5]     Hits: 192 | Total: 1.652ms (0.2%) | Avg: 0.008ms
+[Request 5] ======================================
+[Request 5] Rendering 8.00 seconds (192 frames)...
+[Request 5] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 5] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 5] [FFmpeg] Encoder opened for file: output.mp4
+[Request 5] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 5] [Encoder] Thread started
+[Request 5] [Renderer] All 192 frames completed
+[Request 5] [Encoder] Thread finished - all frames encoded
+[Request 5] 
+[Request 5] === Performance Metrics ===
+[Request 5] Render submission: 0.361 seconds
+[Request 5] All frames ready:  0.361 seconds
+[Request 5] Total time:        0.626 seconds
+[Request 5] Speedup:           1.67x (vs 1.045s baseline)
+[Request 5] FPS achieved:      306.6 fps
+[Request 5] ===========================
+[Request 5] [FFmpeg] Encoder closed for current request
+[Request 5] [Vulkan] Destroyed 576 tracked fences
+[Request 5] [Vulkan] Command pools reset - all command buffers freed
+[Request 5] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 5] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 6] 
+[Request 6] ========== PROFILER RESULTS ==========
+[Request 6] Total session time: 738.5800ms
+[Request 6] Total profiled time: 550.5100ms
+[Request 6] --------------------------------------
+[Request 6] (Sorted by average exclusive time)
+[Request 6] --------------------------------------
+[Request 6]   wait_for_completion:
+[Request 6]     Hits: 1 | Total: 265.143ms (48.1%) | Avg: 265.143ms
+[Request 6]   start_ffmpeg_encoder:
+[Request 6]     Hits: 1 | Total: 73.880ms (13.4%) | Avg: 73.880ms
+[Request 6]   ffmpeg encode frame:
+[Request 6]     Hits: 192 | Total: 550.510ms (100.0%) | Avg: 2.867ms
+[Request 6]   compute and readback:
+[Request 6]     Hits: 192 | Total: 246.040ms (44.6%) | Avg: 1.281ms
+[Request 6]   render_frame:
+[Request 6]     Hits: 192 | Total: 41.425ms (7.5%) | Avg: 0.215ms
+[Request 6]   render_all_frames:
+[Request 6]     Hits: 1 | Total: 0.040ms (0.0%) | Avg: 0.040ms
+[Request 6]     With children - Total: 287.507ms (52.2%) | Avg: 287.507ms
+[Request 6]   ffmpeg wait for frame:
+[Request 6]     Hits: 192 | Total: 1.560ms (0.2%) | Avg: 0.008ms
+[Request 6] ======================================
+[Request 6] Rendering 8.00 seconds (192 frames)...
+[Request 6] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 6] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 6] [FFmpeg] Encoder opened for file: output.mp4
+[Request 6] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 6] [Encoder] Thread started
+[Request 6] [Renderer] All 192 frames completed
+[Request 6] [Encoder] Thread finished - all frames encoded
+[Request 6] 
+[Request 6] === Performance Metrics ===
+[Request 6] Render submission: 0.367 seconds
+[Request 6] All frames ready:  0.367 seconds
+[Request 6] Total time:        0.643 seconds
+[Request 6] Speedup:           1.62x (vs 1.045s baseline)
+[Request 6] FPS achieved:      298.5 fps
+[Request 6] ===========================
+[Request 6] [FFmpeg] Encoder closed for current request
+[Request 6] [Vulkan] Destroyed 576 tracked fences
+[Request 6] [Vulkan] Command pools reset - all command buffers freed
+[Request 6] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 6] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 7] 
+[Request 7] ========== PROFILER RESULTS ==========
+[Request 7] Total session time: 754.9563ms
+[Request 7] Total profiled time: 564.8715ms
+[Request 7] --------------------------------------
+[Request 7] (Sorted by average exclusive time)
+[Request 7] --------------------------------------
+[Request 7]   wait_for_completion:
+[Request 7]     Hits: 1 | Total: 276.011ms (48.8%) | Avg: 276.011ms
+[Request 7]   start_ffmpeg_encoder:
+[Request 7]     Hits: 1 | Total: 76.287ms (13.5%) | Avg: 76.287ms
+[Request 7]   ffmpeg encode frame:
+[Request 7]     Hits: 192 | Total: 564.871ms (100.0%) | Avg: 2.942ms
+[Request 7]   compute and readback:
+[Request 7]     Hits: 192 | Total: 250.010ms (44.2%) | Avg: 1.302ms
+[Request 7]   render_frame:
+[Request 7]     Hits: 192 | Total: 41.027ms (7.2%) | Avg: 0.213ms
+[Request 7]   render_all_frames:
+[Request 7]     Hits: 1 | Total: 0.040ms (0.0%) | Avg: 0.040ms
+[Request 7]     With children - Total: 291.078ms (51.5%) | Avg: 291.078ms
+[Request 7]   ffmpeg wait for frame:
+[Request 7]     Hits: 192 | Total: 1.923ms (0.3%) | Avg: 0.010ms
+[Request 7] ======================================
+[Request 7] Rendering 8.00 seconds (192 frames)...
+[Request 7] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 7] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 7] [FFmpeg] Encoder opened for file: output.mp4
+[Request 7] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 7] [Encoder] Thread started
+[Request 7] [Renderer] All 192 frames completed
+[Request 7] [Encoder] Thread finished - all frames encoded
+[Request 7] 
+[Request 7] === Performance Metrics ===
+[Request 7] Render submission: 0.377 seconds
+[Request 7] All frames ready:  0.377 seconds
+[Request 7] Total time:        0.637 seconds
+[Request 7] Speedup:           1.64x (vs 1.045s baseline)
+[Request 7] FPS achieved:      301.2 fps
+[Request 7] ===========================
+[Request 7] [FFmpeg] Encoder closed for current request
+[Request 7] [Vulkan] Destroyed 576 tracked fences
+[Request 7] [Vulkan] Command pools reset - all command buffers freed
+[Request 7] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 7] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 8] 
+[Request 8] ========== PROFILER RESULTS ==========
+[Request 8] Total session time: 749.4973ms
+[Request 8] Total profiled time: 561.1330ms
+[Request 8] --------------------------------------
+[Request 8] (Sorted by average exclusive time)
+[Request 8] --------------------------------------
+[Request 8]   wait_for_completion:
+[Request 8]     Hits: 1 | Total: 261.085ms (46.5%) | Avg: 261.085ms
+[Request 8]   start_ffmpeg_encoder:
+[Request 8]     Hits: 1 | Total: 74.712ms (13.3%) | Avg: 74.712ms
+[Request 8]   ffmpeg encode frame:
+[Request 8]     Hits: 192 | Total: 561.133ms (100.0%) | Avg: 2.922ms
+[Request 8]   compute and readback:
+[Request 8]     Hits: 192 | Total: 258.806ms (46.1%) | Avg: 1.347ms
+[Request 8]   render_frame:
+[Request 8]     Hits: 192 | Total: 43.186ms (7.6%) | Avg: 0.224ms
+[Request 8]   render_all_frames:
+[Request 8]     Hits: 1 | Total: 0.041ms (0.0%) | Avg: 0.041ms
+[Request 8]     With children - Total: 302.034ms (53.8%) | Avg: 302.034ms
+[Request 8]   ffmpeg wait for frame:
+[Request 8]     Hits: 192 | Total: 1.582ms (0.2%) | Avg: 0.008ms
+[Request 8] ======================================
+[Request 8] Rendering 8.00 seconds (192 frames)...
+[Request 8] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 8] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 8] [FFmpeg] Encoder opened for file: output.mp4
+[Request 8] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 8] [Encoder] Thread started
+[Request 8] [Renderer] All 192 frames completed
+[Request 8] [Encoder] Thread finished - all frames encoded
+[Request 8] 
+[Request 8] === Performance Metrics ===
+[Request 8] Render submission: 0.374 seconds
+[Request 8] All frames ready:  0.374 seconds
+[Request 8] Total time:        0.649 seconds
+[Request 8] Speedup:           1.61x (vs 1.045s baseline)
+[Request 8] FPS achieved:      295.7 fps
+[Request 8] ===========================
+[Request 8] [FFmpeg] Encoder closed for current request
+[Request 8] [Vulkan] Destroyed 576 tracked fences
+[Request 8] [Vulkan] Command pools reset - all command buffers freed
+[Request 8] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 8] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 9] 
+[Request 9] ========== PROFILER RESULTS ==========
+[Request 9] Total session time: 760.7730ms
+[Request 9] Total profiled time: 569.9189ms
+[Request 9] --------------------------------------
+[Request 9] (Sorted by average exclusive time)
+[Request 9] --------------------------------------
+[Request 9]   wait_for_completion:
+[Request 9]     Hits: 1 | Total: 275.632ms (48.3%) | Avg: 275.632ms
+[Request 9]   start_ffmpeg_encoder:
+[Request 9]     Hits: 1 | Total: 77.714ms (13.6%) | Avg: 77.714ms
+[Request 9]   ffmpeg encode frame:
+[Request 9]     Hits: 192 | Total: 569.918ms (100.0%) | Avg: 2.968ms
+[Request 9]   compute and readback:
+[Request 9]     Hits: 192 | Total: 252.188ms (44.2%) | Avg: 1.313ms
+[Request 9]   render_frame:
+[Request 9]     Hits: 192 | Total: 43.835ms (7.6%) | Avg: 0.228ms
+[Request 9]   render_all_frames:
+[Request 9]     Hits: 1 | Total: 0.042ms (0.0%) | Avg: 0.042ms
+[Request 9]     With children - Total: 296.065ms (51.9%) | Avg: 296.065ms
+[Request 9]   ffmpeg wait for frame:
+[Request 9]     Hits: 192 | Total: 1.224ms (0.2%) | Avg: 0.006ms
+[Request 9] ======================================
+[Request 9] Rendering 8.00 seconds (192 frames)...
+[Request 9] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 9] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 9] [FFmpeg] Encoder opened for file: output.mp4
+[Request 9] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 9] [Encoder] Thread started
+[Request 9] [Renderer] All 192 frames completed
+[Request 9] [Encoder] Thread finished - all frames encoded
+[Request 9] 
+[Request 9] === Performance Metrics ===
+[Request 9] Render submission: 0.356 seconds
+[Request 9] All frames ready:  0.356 seconds
+[Request 9] Total time:        0.622 seconds
+[Request 9] Speedup:           1.68x (vs 1.045s baseline)
+[Request 9] FPS achieved:      308.9 fps
+[Request 9] ===========================
+[Request 9] [FFmpeg] Encoder closed for current request
+[Request 9] [Vulkan] Destroyed 576 tracked fences
+[Request 9] [Vulkan] Command pools reset - all command buffers freed
+[Request 9] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 9] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 10] 
+[Request 10] ========== PROFILER RESULTS ==========
+[Request 10] Total session time: 734.0685ms
+[Request 10] Total profiled time: 545.0398ms
+[Request 10] --------------------------------------
+[Request 10] (Sorted by average exclusive time)
+[Request 10] --------------------------------------
+[Request 10]   wait_for_completion:
+[Request 10]     Hits: 1 | Total: 265.437ms (48.7%) | Avg: 265.437ms
+[Request 10]   start_ffmpeg_encoder:
+[Request 10]     Hits: 1 | Total: 74.920ms (13.7%) | Avg: 74.920ms
+[Request 10]   ffmpeg encode frame:
+[Request 10]     Hits: 192 | Total: 545.039ms (100.0%) | Avg: 2.838ms
+[Request 10]   compute and readback:
+[Request 10]     Hits: 192 | Total: 245.503ms (45.0%) | Avg: 1.278ms
+[Request 10]   render_frame:
+[Request 10]     Hits: 192 | Total: 35.764ms (6.5%) | Avg: 0.186ms
+[Request 10]   render_all_frames:
+[Request 10]     Hits: 1 | Total: 0.041ms (0.0%) | Avg: 0.041ms
+[Request 10]     With children - Total: 281.308ms (51.6%) | Avg: 281.308ms
+[Request 10]   ffmpeg wait for frame:
+[Request 10]     Hits: 192 | Total: 1.587ms (0.2%) | Avg: 0.008ms
+[Request 10] ======================================
+[Request 10] Rendering 8.00 seconds (192 frames)...
+[Request 10] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 10] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 10] [FFmpeg] Encoder opened for file: output.mp4
+[Request 10] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 10] [Encoder] Thread started
+[Request 10] [Renderer] All 192 frames completed
+[Request 10] [Encoder] Thread finished - all frames encoded
+[Request 10] 
+[Request 10] === Performance Metrics ===
+[Request 10] Render submission: 0.369 seconds
+[Request 10] All frames ready:  0.369 seconds
+[Request 10] Total time:        0.646 seconds
+[Request 10] Speedup:           1.62x (vs 1.045s baseline)
+[Request 10] FPS achieved:      297.3 fps
+[Request 10] ===========================
+[Request 10] [FFmpeg] Encoder closed for current request
+[Request 10] [Vulkan] Destroyed 576 tracked fences
+[Request 10] [Vulkan] Command pools reset - all command buffers freed
+[Request 10] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 10] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 11] 
+[Request 11] ========== PROFILER RESULTS ==========
+[Request 11] Total session time: 757.5086ms
+[Request 11] Total profiled time: 562.0948ms
+[Request 11] --------------------------------------
+[Request 11] (Sorted by average exclusive time)
+[Request 11] --------------------------------------
+[Request 11]   wait_for_completion:
+[Request 11]     Hits: 1 | Total: 276.809ms (49.2%) | Avg: 276.809ms
+[Request 11]   start_ffmpeg_encoder:
+[Request 11]     Hits: 1 | Total: 82.195ms (14.6%) | Avg: 82.195ms
+[Request 11]   ffmpeg encode frame:
+[Request 11]     Hits: 192 | Total: 562.094ms (100.0%) | Avg: 2.927ms
+[Request 11]   compute and readback:
+[Request 11]     Hits: 192 | Total: 247.253ms (43.9%) | Avg: 1.287ms
+[Request 11]   render_frame:
+[Request 11]     Hits: 192 | Total: 39.669ms (7.0%) | Avg: 0.206ms
+[Request 11]   render_all_frames:
+[Request 11]     Hits: 1 | Total: 0.181ms (0.0%) | Avg: 0.181ms
+[Request 11]     With children - Total: 287.105ms (51.0%) | Avg: 287.105ms
+[Request 11]   ffmpeg wait for frame:
+[Request 11]     Hits: 192 | Total: 1.528ms (0.2%) | Avg: 0.007ms
+[Request 11] ======================================
+[Request 11] Rendering 8.00 seconds (192 frames)...
+[Request 11] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 11] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 11] [FFmpeg] Encoder opened for file: output.mp4
+[Request 11] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 11] [Encoder] Thread started
+[Request 11] [Renderer] All 192 frames completed
+[Request 11] [Encoder] Thread finished - all frames encoded
+[Request 11] 
+[Request 11] === Performance Metrics ===
+[Request 11] Render submission: 0.362 seconds
+[Request 11] All frames ready:  0.362 seconds
+[Request 11] Total time:        0.628 seconds
+[Request 11] Speedup:           1.67x (vs 1.045s baseline)
+[Request 11] FPS achieved:      305.9 fps
+[Request 11] ===========================
+[Request 11] [FFmpeg] Encoder closed for current request
+[Request 11] [Vulkan] Destroyed 576 tracked fences
+[Request 11] [Vulkan] Command pools reset - all command buffers freed
+[Request 11] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 11] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 12] 
+[Request 12] ========== PROFILER RESULTS ==========
+[Request 12] Total session time: 740.8620ms
+[Request 12] Total profiled time: 550.5629ms
+[Request 12] --------------------------------------
+[Request 12] (Sorted by average exclusive time)
+[Request 12] --------------------------------------
+[Request 12]   wait_for_completion:
+[Request 12]     Hits: 1 | Total: 266.187ms (48.3%) | Avg: 266.187ms
+[Request 12]   start_ffmpeg_encoder:
+[Request 12]     Hits: 1 | Total: 75.233ms (13.6%) | Avg: 75.233ms
+[Request 12]   ffmpeg encode frame:
+[Request 12]     Hits: 192 | Total: 550.562ms (100.0%) | Avg: 2.867ms
+[Request 12]   compute and readback:
+[Request 12]     Hits: 192 | Total: 246.856ms (44.8%) | Avg: 1.285ms
+[Request 12]   render_frame:
+[Request 12]     Hits: 192 | Total: 39.539ms (7.1%) | Avg: 0.205ms
+[Request 12]   render_all_frames:
+[Request 12]     Hits: 1 | Total: 0.040ms (0.0%) | Avg: 0.040ms
+[Request 12]     With children - Total: 286.436ms (52.0%) | Avg: 286.436ms
+[Request 12]   ffmpeg wait for frame:
+[Request 12]     Hits: 192 | Total: 1.720ms (0.3%) | Avg: 0.008ms
+[Request 12] ======================================
+[Request 12] Rendering 8.00 seconds (192 frames)...
+[Request 12] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 12] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 12] [FFmpeg] Encoder opened for file: output.mp4
+[Request 12] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 12] [Encoder] Thread started
+[Request 12] [Renderer] All 192 frames completed
+[Request 12] [Encoder] Thread finished - all frames encoded
+[Request 12] 
+[Request 12] === Performance Metrics ===
+[Request 12] Render submission: 0.380 seconds
+[Request 12] All frames ready:  0.380 seconds
+[Request 12] Total time:        0.632 seconds
+[Request 12] Speedup:           1.65x (vs 1.045s baseline)
+[Request 12] FPS achieved:      303.7 fps
+[Request 12] ===========================
+[Request 12] [FFmpeg] Encoder closed for current request
+[Request 12] [Vulkan] Destroyed 576 tracked fences
+[Request 12] [Vulkan] Command pools reset - all command buffers freed
+[Request 12] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 12] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 13] 
+[Request 13] ========== PROFILER RESULTS ==========
+[Request 13] Total session time: 744.1973ms
+[Request 13] Total profiled time: 548.8844ms
+[Request 13] --------------------------------------
+[Request 13] (Sorted by average exclusive time)
+[Request 13] --------------------------------------
+[Request 13]   wait_for_completion:
+[Request 13]     Hits: 1 | Total: 252.118ms (45.9%) | Avg: 252.118ms
+[Request 13]   start_ffmpeg_encoder:
+[Request 13]     Hits: 1 | Total: 81.517ms (14.8%) | Avg: 81.517ms
+[Request 13]   ffmpeg encode frame:
+[Request 13]     Hits: 192 | Total: 548.884ms (100.0%) | Avg: 2.858ms
+[Request 13]   compute and readback:
+[Request 13]     Hits: 192 | Total: 253.929ms (46.2%) | Avg: 1.322ms
+[Request 13]   render_frame:
+[Request 13]     Hits: 192 | Total: 44.610ms (8.1%) | Avg: 0.232ms
+[Request 13]   render_all_frames:
+[Request 13]     Hits: 1 | Total: 0.044ms (0.0%) | Avg: 0.044ms
+[Request 13]     With children - Total: 298.585ms (54.3%) | Avg: 298.585ms
+[Request 13]   ffmpeg wait for frame:
+[Request 13]     Hits: 192 | Total: 1.724ms (0.3%) | Avg: 0.008ms
+[Request 13] ======================================
+[Request 13] Rendering 8.00 seconds (192 frames)...
+[Request 13] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 13] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 13] [FFmpeg] Encoder opened for file: output.mp4
+[Request 13] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 13] [Encoder] Thread started
+[Request 13] [Renderer] All 192 frames completed
+[Request 13] [Encoder] Thread finished - all frames encoded
+[Request 13] 
+[Request 13] === Performance Metrics ===
+[Request 13] Render submission: 0.386 seconds
+[Request 13] All frames ready:  0.386 seconds
+[Request 13] Total time:        0.630 seconds
+[Request 13] Speedup:           1.66x (vs 1.045s baseline)
+[Request 13] FPS achieved:      304.7 fps
+[Request 13] ===========================
+[Request 13] [FFmpeg] Encoder closed for current request
+[Request 13] [Vulkan] Destroyed 576 tracked fences
+[Request 13] [Vulkan] Command pools reset - all command buffers freed
+[Request 13] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 13] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 14] 
+[Request 14] ========== PROFILER RESULTS ==========
+[Request 14] Total session time: 744.5734ms
+[Request 14] Total profiled time: 550.7664ms
+[Request 14] --------------------------------------
+[Request 14] (Sorted by average exclusive time)
+[Request 14] --------------------------------------
+[Request 14]   wait_for_completion:
+[Request 14]     Hits: 1 | Total: 244.219ms (44.3%) | Avg: 244.219ms
+[Request 14]   start_ffmpeg_encoder:
+[Request 14]     Hits: 1 | Total: 76.954ms (13.9%) | Avg: 76.954ms
+[Request 14]   ffmpeg encode frame:
+[Request 14]     Hits: 192 | Total: 550.766ms (100.0%) | Avg: 2.868ms
+[Request 14]   compute and readback:
+[Request 14]     Hits: 192 | Total: 261.467ms (47.4%) | Avg: 1.361ms
+[Request 14]   render_frame:
+[Request 14]     Hits: 192 | Total: 47.748ms (8.6%) | Avg: 0.248ms
+[Request 14]   render_all_frames:
+[Request 14]     Hits: 1 | Total: 0.050ms (0.0%) | Avg: 0.050ms
+[Request 14]     With children - Total: 309.266ms (56.1%) | Avg: 309.266ms
+[Request 14]   ffmpeg wait for frame:
+[Request 14]     Hits: 192 | Total: 2.287ms (0.4%) | Avg: 0.011ms
+[Request 14] ======================================
+[Request 14] Rendering 8.00 seconds (192 frames)...
+[Request 14] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 14] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 14] [FFmpeg] Encoder opened for file: output.mp4
+[Request 14] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 14] [Encoder] Thread started
+[Request 14] [Renderer] All 192 frames completed
+[Request 14] [Encoder] Thread finished - all frames encoded
+[Request 14] 
+[Request 14] === Performance Metrics ===
+[Request 14] Render submission: 0.387 seconds
+[Request 14] All frames ready:  0.387 seconds
+[Request 14] Total time:        0.632 seconds
+[Request 14] Speedup:           1.65x (vs 1.045s baseline)
+[Request 14] FPS achieved:      303.8 fps
+[Request 14] ===========================
+[Request 14] [FFmpeg] Encoder closed for current request
+[Request 14] [Vulkan] Destroyed 576 tracked fences
+[Request 14] [Vulkan] Command pools reset - all command buffers freed
+[Request 14] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 14] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 15] 
+[Request 15] ========== PROFILER RESULTS ==========
+[Request 15] Total session time: 744.9760ms
+[Request 15] Total profiled time: 552.8788ms
+[Request 15] --------------------------------------
+[Request 15] (Sorted by average exclusive time)
+[Request 15] --------------------------------------
+[Request 15]   wait_for_completion:
+[Request 15]     Hits: 1 | Total: 245.384ms (44.3%) | Avg: 245.384ms
+[Request 15]   start_ffmpeg_encoder:
+[Request 15]     Hits: 1 | Total: 76.736ms (13.8%) | Avg: 76.736ms
+[Request 15]   ffmpeg encode frame:
+[Request 15]     Hits: 192 | Total: 552.878ms (100.0%) | Avg: 2.879ms
+[Request 15]   compute and readback:
+[Request 15]     Hits: 192 | Total: 263.031ms (47.5%) | Avg: 1.369ms
+[Request 15]   render_frame:
+[Request 15]     Hits: 192 | Total: 46.887ms (8.4%) | Avg: 0.244ms
+[Request 15]   render_all_frames:
+[Request 15]     Hits: 1 | Total: 0.173ms (0.0%) | Avg: 0.173ms
+[Request 15]     With children - Total: 310.092ms (56.0%) | Avg: 310.092ms
+[Request 15]   ffmpeg wait for frame:
+[Request 15]     Hits: 192 | Total: 2.362ms (0.4%) | Avg: 0.012ms
+[Request 15] ======================================
+[Request 15] Rendering 8.00 seconds (192 frames)...
+[Request 15] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 15] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 15] [FFmpeg] Encoder opened for file: output.mp4
+[Request 15] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 15] [Encoder] Thread started
+[Request 15] [Renderer] All 192 frames completed
+[Request 15] [Encoder] Thread finished - all frames encoded
+[Request 15] 
+[Request 15] === Performance Metrics ===
+[Request 15] Render submission: 0.364 seconds
+[Request 15] All frames ready:  0.364 seconds
+[Request 15] Total time:        0.630 seconds
+[Request 15] Speedup:           1.66x (vs 1.045s baseline)
+[Request 15] FPS achieved:      304.6 fps
+[Request 15] ===========================
+[Request 15] [FFmpeg] Encoder closed for current request
+[Request 15] [Vulkan] Destroyed 576 tracked fences
+[Request 15] [Vulkan] Command pools reset - all command buffers freed
+[Request 15] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 15] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 16] 
+[Request 16] ========== PROFILER RESULTS ==========
+[Request 16] Total session time: 742.7021ms
+[Request 16] Total profiled time: 551.8826ms
+[Request 16] --------------------------------------
+[Request 16] (Sorted by average exclusive time)
+[Request 16] --------------------------------------
+[Request 16]   wait_for_completion:
+[Request 16]     Hits: 1 | Total: 266.528ms (48.2%) | Avg: 266.528ms
+[Request 16]   start_ffmpeg_encoder:
+[Request 16]     Hits: 1 | Total: 76.459ms (13.8%) | Avg: 76.459ms
+[Request 16]   ffmpeg encode frame:
+[Request 16]     Hits: 192 | Total: 551.882ms (100.0%) | Avg: 2.874ms
+[Request 16]   compute and readback:
+[Request 16]     Hits: 192 | Total: 247.665ms (44.8%) | Avg: 1.289ms
+[Request 16]   render_frame:
+[Request 16]     Hits: 192 | Total: 40.021ms (7.2%) | Avg: 0.208ms
+[Request 16]   render_all_frames:
+[Request 16]     Hits: 1 | Total: 0.039ms (0.0%) | Avg: 0.039ms
+[Request 16]     With children - Total: 287.726ms (52.1%) | Avg: 287.726ms
+[Request 16]   ffmpeg wait for frame:
+[Request 16]     Hits: 192 | Total: 1.972ms (0.3%) | Avg: 0.010ms
+[Request 16] ======================================
+[Request 16] Rendering 8.00 seconds (192 frames)...
+[Request 16] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 16] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 16] [FFmpeg] Encoder opened for file: output.mp4
+[Request 16] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 16] [Encoder] Thread started
+[Request 16] [Renderer] All 192 frames completed
+[Request 16] [Encoder] Thread finished - all frames encoded
+[Request 16] 
+[Request 16] === Performance Metrics ===
+[Request 16] Render submission: 0.387 seconds
+[Request 16] All frames ready:  0.387 seconds
+[Request 16] Total time:        0.633 seconds
+[Request 16] Speedup:           1.65x (vs 1.045s baseline)
+[Request 16] FPS achieved:      303.5 fps
+[Request 16] ===========================
+[Request 16] [FFmpeg] Encoder closed for current request
+[Request 16] [Vulkan] Destroyed 576 tracked fences
+[Request 16] [Vulkan] Command pools reset - all command buffers freed
+[Request 16] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 16] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 17] 
+[Request 17] ========== PROFILER RESULTS ==========
+[Request 17] Total session time: 745.2015ms
+[Request 17] Total profiled time: 549.4519ms
+[Request 17] --------------------------------------
+[Request 17] (Sorted by average exclusive time)
+[Request 17] --------------------------------------
+[Request 17]   wait_for_completion:
+[Request 17]     Hits: 1 | Total: 245.472ms (44.6%) | Avg: 245.472ms
+[Request 17]   start_ffmpeg_encoder:
+[Request 17]     Hits: 1 | Total: 81.258ms (14.7%) | Avg: 81.258ms
+[Request 17]   ffmpeg encode frame:
+[Request 17]     Hits: 192 | Total: 549.451ms (100.0%) | Avg: 2.861ms
+[Request 17]   compute and readback:
+[Request 17]     Hits: 192 | Total: 260.179ms (47.3%) | Avg: 1.355ms
+[Request 17]   render_frame:
+[Request 17]     Hits: 192 | Total: 45.943ms (8.3%) | Avg: 0.239ms
+[Request 17]   render_all_frames:
+[Request 17]     Hits: 1 | Total: 0.040ms (0.0%) | Avg: 0.040ms
+[Request 17]     With children - Total: 306.163ms (55.7%) | Avg: 306.163ms
+[Request 17]   ffmpeg wait for frame:
+[Request 17]     Hits: 192 | Total: 1.888ms (0.3%) | Avg: 0.009ms
+[Request 17] ======================================
+[Request 17] Rendering 8.00 seconds (192 frames)...
+[Request 17] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 17] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 17] [FFmpeg] Encoder opened for file: output.mp4
+[Request 17] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 17] [Encoder] Thread started
+[Request 17] [Renderer] All 192 frames completed
+[Request 17] [Encoder] Thread finished - all frames encoded
+[Request 17] 
+[Request 17] === Performance Metrics ===
+[Request 17] Render submission: 0.358 seconds
+[Request 17] All frames ready:  0.358 seconds
+[Request 17] Total time:        0.629 seconds
+[Request 17] Speedup:           1.66x (vs 1.045s baseline)
+[Request 17] FPS achieved:      305.3 fps
+[Request 17] ===========================
+[Request 17] [FFmpeg] Encoder closed for current request
+[Request 17] [Vulkan] Destroyed 576 tracked fences
+[Request 17] [Vulkan] Command pools reset - all command buffers freed
+[Request 17] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 17] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 18] 
+[Request 18] ========== PROFILER RESULTS ==========
+[Request 18] Total session time: 742.0736ms
+[Request 18] Total profiled time: 550.3324ms
+[Request 18] --------------------------------------
+[Request 18] (Sorted by average exclusive time)
+[Request 18] --------------------------------------
+[Request 18]   wait_for_completion:
+[Request 18]     Hits: 1 | Total: 270.925ms (49.2%) | Avg: 270.925ms
+[Request 18]   start_ffmpeg_encoder:
+[Request 18]     Hits: 1 | Total: 76.953ms (13.9%) | Avg: 76.953ms
+[Request 18]   ffmpeg encode frame:
+[Request 18]     Hits: 192 | Total: 550.332ms (100.0%) | Avg: 2.866ms
+[Request 18]   compute and readback:
+[Request 18]     Hits: 192 | Total: 244.951ms (44.5%) | Avg: 1.275ms
+[Request 18]   render_frame:
+[Request 18]     Hits: 192 | Total: 36.185ms (6.5%) | Avg: 0.188ms
+[Request 18]   render_all_frames:
+[Request 18]     Hits: 1 | Total: 0.046ms (0.0%) | Avg: 0.046ms
+[Request 18]     With children - Total: 281.183ms (51.0%) | Avg: 281.183ms
+[Request 18]   ffmpeg wait for frame:
+[Request 18]     Hits: 192 | Total: 1.582ms (0.2%) | Avg: 0.008ms
+[Request 18] ======================================
+[Request 18] Rendering 8.00 seconds (192 frames)...
+[Request 18] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 18] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 18] [FFmpeg] Encoder opened for file: output.mp4
+[Request 18] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 18] [Encoder] Thread started
+[Request 18] [Renderer] All 192 frames completed
+[Request 18] [Encoder] Thread finished - all frames encoded
+[Request 18] 
+[Request 18] === Performance Metrics ===
+[Request 18] Render submission: 0.378 seconds
+[Request 18] All frames ready:  0.378 seconds
+[Request 18] Total time:        0.642 seconds
+[Request 18] Speedup:           1.63x (vs 1.045s baseline)
+[Request 18] FPS achieved:      298.9 fps
+[Request 18] ===========================
+[Request 18] [FFmpeg] Encoder closed for current request
+[Request 18] [Vulkan] Destroyed 576 tracked fences
+[Request 18] [Vulkan] Command pools reset - all command buffers freed
+[Request 18] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 18] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 19] 
+[Request 19] ========== PROFILER RESULTS ==========
+[Request 19] Total session time: 755.6472ms
+[Request 19] Total profiled time: 565.0810ms
+[Request 19] --------------------------------------
+[Request 19] (Sorted by average exclusive time)
+[Request 19] --------------------------------------
+[Request 19]   wait_for_completion:
+[Request 19]     Hits: 1 | Total: 264.877ms (46.8%) | Avg: 264.877ms
+[Request 19]   start_ffmpeg_encoder:
+[Request 19]     Hits: 1 | Total: 75.359ms (13.3%) | Avg: 75.359ms
+[Request 19]   ffmpeg encode frame:
+[Request 19]     Hits: 192 | Total: 565.081ms (100.0%) | Avg: 2.943ms
+[Request 19]   compute and readback:
+[Request 19]     Hits: 192 | Total: 257.695ms (45.6%) | Avg: 1.342ms
+[Request 19]   render_frame:
+[Request 19]     Hits: 192 | Total: 44.469ms (7.8%) | Avg: 0.231ms
+[Request 19]   render_all_frames:
+[Request 19]     Hits: 1 | Total: 0.039ms (0.0%) | Avg: 0.039ms
+[Request 19]     With children - Total: 302.204ms (53.4%) | Avg: 302.204ms
+[Request 19]   ffmpeg wait for frame:
+[Request 19]     Hits: 192 | Total: 1.886ms (0.3%) | Avg: 0.009ms
+[Request 19] ======================================
+[Request 19] Rendering 8.00 seconds (192 frames)...
+[Request 19] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 19] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 19] [FFmpeg] Encoder opened for file: output.mp4
+[Request 19] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 19] [Encoder] Thread started
+[Request 19] [Renderer] All 192 frames completed
+[Request 19] [Encoder] Thread finished - all frames encoded
+[Request 19] 
+[Request 19] === Performance Metrics ===
+[Request 19] Render submission: 0.354 seconds
+[Request 19] All frames ready:  0.354 seconds
+[Request 19] Total time:        0.644 seconds
+[Request 19] Speedup:           1.62x (vs 1.045s baseline)
+[Request 19] FPS achieved:      298.3 fps
+[Request 19] ===========================
+[Request 19] [FFmpeg] Encoder closed for current request
+[Request 19] [Vulkan] Destroyed 576 tracked fences
+[Request 19] [Vulkan] Command pools reset - all command buffers freed
+[Request 19] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 19] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}
+[Request 20] 
+[Request 20] ========== PROFILER RESULTS ==========
+[Request 20] Total session time: 755.0326ms
+[Request 20] Total profiled time: 566.6834ms
+[Request 20] --------------------------------------
+[Request 20] (Sorted by average exclusive time)
+[Request 20] --------------------------------------
+[Request 20]   wait_for_completion:
+[Request 20]     Hits: 1 | Total: 289.810ms (51.1%) | Avg: 289.810ms
+[Request 20]   start_ffmpeg_encoder:
+[Request 20]     Hits: 1 | Total: 75.306ms (13.2%) | Avg: 75.306ms
+[Request 20]   ffmpeg encode frame:
+[Request 20]     Hits: 192 | Total: 566.683ms (100.0%) | Avg: 2.951ms
+[Request 20]   compute and readback:
+[Request 20]     Hits: 192 | Total: 242.307ms (42.7%) | Avg: 1.262ms
+[Request 20]   render_frame:
+[Request 20]     Hits: 192 | Total: 36.354ms (6.4%) | Avg: 0.189ms
+[Request 20]   render_all_frames:
+[Request 20]     Hits: 1 | Total: 0.039ms (0.0%) | Avg: 0.039ms
+[Request 20]     With children - Total: 278.700ms (49.1%) | Avg: 278.700ms
+[Request 20]   ffmpeg wait for frame:
+[Request 20]     Hits: 192 | Total: 1.700ms (0.3%) | Avg: 0.008ms
+[Request 20] ======================================
+[Request 20] Rendering 8.00 seconds (192 frames)...
+[Request 20] [Memory] Allocating frame data for request: 192 frames x 3110400 bytes = 569 MB
+[Request 20] [Memory] Frame allocation complete for request. Temporary allocator usage: 569/5120 MB
+[Request 20] [FFmpeg] Encoder opened for file: output.mp4
+[Request 20] [Renderer] Processing 192 frames sequentially using single texture set...
+[Request 20] [Encoder] Thread started
+[Request 20] [Renderer] All 192 frames completed
+[Request 20] [Encoder] Thread finished - all frames encoded
+[Request 20] 
+[Request 20] === Performance Metrics ===
+[Request 20] Render submission: 0.379 seconds
+[Request 20] All frames ready:  0.379 seconds
+[Request 20] Total time:        0.626 seconds
+[Request 20] Speedup:           1.67x (vs 1.045s baseline)
+[Request 20] FPS achieved:      306.7 fps
+[Request 20] ===========================
+[Request 20] [FFmpeg] Encoder closed for current request
+[Request 20] [Vulkan] Destroyed 576 tracked fences
+[Request 20] [Vulkan] Command pools reset - all command buffers freed
+[Request 20] [Vulkan] Descriptor pool reset - all descriptor sets freed
+[Request 20] {"success": true, "file_size": 1951820, "encoding": "base64", "video": "<base64-data>"}

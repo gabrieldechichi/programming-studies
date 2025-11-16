@@ -1,0 +1,56 @@
+[
+  {
+    "arguments": [
+      "/opt/homebrew/opt/llvm/bin/clang",
+      "-fobjc-arc",
+      "-x",
+      "objective-c",
+      "-std=c99",
+      "-Wall",
+      "-Wextra",
+      "-Wno-implicit-float-conversion",
+      "-Wno-implicit-int-float-conversion",
+      "-Wno-enum-enum-conversion",
+      "-I./vendor",
+      "-g",
+      "-O0",
+      "-DDEBUG",
+      "-c",
+      "-o",
+      "build/macos/vendor.o",
+      "vendor/vendor.c"
+    ],
+    "directory": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-sokol",
+    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-sokol/vendor/vendor.c",
+    "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-sokol/build/macos/vendor.o"
+  },
+  {
+    "arguments": [
+      "/opt/homebrew/opt/llvm/bin/clang",
+      "-c",
+      "-fobjc-arc",
+      "-I./vendor",
+      "-x",
+      "objective-c",
+      "-x",
+      "none",
+      "build/macos/vendor.o",
+      "-framework",
+      "Cocoa",
+      "-framework",
+      "QuartzCore",
+      "-framework",
+      "Metal",
+      "-framework",
+      "MetalKit",
+      "-framework",
+      "AudioToolbox",
+      "-o",
+      "build/macos/main",
+      "main.c"
+    ],
+    "directory": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-sokol",
+    "file": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-sokol/main.c",
+    "output": "/Users/gabrieldechichi/dev/src/github.com/gabrieldechichi/programming-studies/gamedev/c-sokol/build/macos/main"
+  }
+]

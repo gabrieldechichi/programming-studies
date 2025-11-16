@@ -1,0 +1,21 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/clang",
+      "-Isrc",
+      "-Ilib",
+      "-Isrc/vendor",
+      "-DLINUX=1",
+      "-g",
+      "-O0",
+      "-DDEBUG",
+      "-c",
+      "-o",
+      "out/linux/main.o",
+      "main.c"
+    ],
+    "directory": "/home/dechichi/dev/gabrieldechichi/programming-studies/gamedev/c-ios",
+    "file": "/home/dechichi/dev/gabrieldechichi/programming-studies/gamedev/c-ios/main.c",
+    "output": "/home/dechichi/dev/gabrieldechichi/programming-studies/gamedev/c-ios/out/linux/main.o"
+  }
+]

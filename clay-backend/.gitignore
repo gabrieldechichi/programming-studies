@@ -1,0 +1,5 @@
+/out
+.cache/
+compile_commands.json
+*.wasm
+web/dist/

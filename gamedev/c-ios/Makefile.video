@@ -1,0 +1,62 @@
+# Makefile for video_renderer without Sokol dependencies
+
+CC = clang
+CFLAGS = -std=c11 -O2 -Wall -Wextra -Isrc
+OBJCFLAGS = -x objective-c -fobjc-arc
+FRAMEWORKS = -framework Metal -framework Foundation -framework CoreGraphics
+
+# FFmpeg configuration (adjust paths if needed)
+FFMPEG_CFLAGS = -I/opt/homebrew/include
+FFMPEG_LIBS = -L/opt/homebrew/lib -lavformat -lavcodec -lavutil -lswscale
+
+# Source files
+SRCS = src/video_renderer.c \
+       src/gpu_backend_metal.m \
+       src/profiler.c
+
+# Object files
+OBJS = out/video_renderer.o \
+       out/gpu_backend_metal.o \
+       out/profiler.o
+
+# Target executable
+TARGET = out/video_renderer
+
+# Default target
+all: $(TARGET)
+
+# Create output directory
+out:
+	mkdir -p out
+
+# Compile video_renderer.c
+out/video_renderer.o: src/video_renderer.c src/gpu_backend.h out
+	$(CC) $(CFLAGS) $(FFMPEG_CFLAGS) -c $< -o $@
+
+# Compile gpu_backend_metal.m (Objective-C)
+out/gpu_backend_metal.o: src/gpu_backend_metal.m src/gpu_backend.h out
+	$(CC) $(OBJCFLAGS) $(CFLAGS) -c $< -o $@
+
+# Compile profiler.c
+out/profiler.o: src/profiler.c src/profiler.h out
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Link everything together
+$(TARGET): $(OBJS)
+	$(CC) $(OBJS) $(FRAMEWORKS) $(FFMPEG_LIBS) -o $@
+	@echo "✅ Built video_renderer successfully!"
+
+# Copy shader file to output directory
+copy-shader: out
+	cp src/shaders/triangle.metal out/
+
+# Run the video renderer
+run: $(TARGET) copy-shader
+	cd out && ./video_renderer
+
+# Clean build artifacts
+clean:
+	rm -rf out/
+	rm -f output.mp4
+
+.PHONY: all clean run copy-shader

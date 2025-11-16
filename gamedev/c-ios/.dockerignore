@@ -1,0 +1,26 @@
+# Ignore source files (we only need the built binary)
+src/
+os/
+*.c
+*.h
+
+# Ignore build artifacts except the final binary and shaders
+out/macos/
+*.o
+
+# Ignore git and development files
+.git/
+.gitignore
+*.md
+build.c
+build_old.c
+
+# Ignore Docker files themselves
+Dockerfile
+docker-*.sh
+.dockerignore
+
+# Ignore any temporary or output files
+output/
+*.mp4
+*.log

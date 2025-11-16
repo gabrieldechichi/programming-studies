@@ -1,21 +1,49 @@
-CC = gcc
-CFLAGS_DEBUG = -O0 -g -Wall -DDEBUG
-CFLAGS_RELEASE = -O2 -Wall
+CC = clang
+CFLAGS_DEBUG = -O0 -g -Wall -Wextra -DDEBUG
+CFLAGS_RELEASE = -O2 -Wall -Wextra
+IFLAGS = -I./include
 
-SOURCE = ./main.c
+LDFLAGS = -L./lib -lSDL3 \
+		  -Wl,-framework,CoreMedia \
+		  -Wl,-framework,CoreVideo \
+		  -Wl,-framework,Cocoa \
+		  -Wl,-weak_framework,UniformTypeIdentifiers \
+		  -Wl,-framework,IOKit \
+		  -Wl,-framework,ForceFeedback \
+		  -Wl,-framework,Carbon \
+		  -Wl,-framework,CoreAudio \
+		  -Wl,-framework,AudioToolbox \
+		  -Wl,-framework,AVFoundation \
+		  -Wl,-framework,Foundation \
+		  -Wl,-framework,GameController \
+		  -Wl,-framework,Metal \
+		  -Wl,-framework,QuartzCore \
+		  -Wl,-weak_framework,CoreHaptics \
+		  -lpthread -lm
+
 TARGET = ./build/pacman
+SRC_PLATFORM = main_sdl.c
+SRC_GAME = game.c
+GAME_DLL = ./build/game.so
 
-INCLUDE_RAYLIB = -Iraylib/include
-BUILD_RAYLIB = raylib/lib/libraylib.a -framework Cocoa -framework IOKit
+build-platform-debug:
+	$(CC) $(CFLAGS_DEBUG) $(IFLAGS) $(SRC_PLATFORM) -o $(TARGET) $(LDFLAGS)
 
-build-debug:
-	$(CC) $(CFLAGS_DEBUG) $(SOURCE) -o $(TARGET) $(INCLUDE_RAYLIB) $(BUILD_RAYLIB)
+build-game-debug:
+	$(CC) $(CFLAGS_DEBUG) $(SRC_GAME) -o $(GAME_DLL) -shared
+
+build-debug: build-platform-debug build-game-debug
 
 run-debug: build-debug
 	$(TARGET)
 
-build-release:
-	$(CC) $(CFLAGS_RELEASE) $(SOURCE) -o $(TARGET) $(INCLUDE_RAYLIB) $(BUILD_RAYLIB)
+build-platform-release:
+	$(CC) $(CFLAGS_RELEASE) $(SRC_GAME) -o $(GAME_DLL) -shared
+
+build-game-release:
+	$(CC) $(CFLAGS_RELEASE) $(SRC_GAME) -o $(TARGET)
+
+build-release: build-platform-release build-game-release
 
 run-release: build-release
 	$(TARGET)
