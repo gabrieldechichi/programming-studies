@@ -48,8 +48,8 @@ void entrypoint() {
   Range_u64 range = lane_range(array_size);
   i64_Array numbers = arr_view_from_range(i64, array, range);
 
-  //todo: pass struct and move arena copy elsewhere (schedule?)
-  //for sharing data you should add an attribute
+  // todo: pass struct and move arena copy elsewhere (schedule?)
+  // for sharing data you should add an attribute
   TaskWideSumInit *init_data =
       arena_alloc(&tctx->temp_arena, sizeof(TaskWideSumInit));
   *init_data = (TaskWideSumInit){
@@ -57,7 +57,6 @@ void entrypoint() {
       .values_start = range.min + 1,
   };
 
-  printf("schedule init task %d\n", tctx_current()->thread_idx);
   TaskHandle init_task_handle =
       _TaskWideSumInit_Schedule(&task_queue, init_data, NULL, 0);
 
@@ -65,10 +64,14 @@ void entrypoint() {
       .numbers = numbers,
       .lane_sum = 0,
   };
+  TaskHandle first_sum_handle = _TaskWideSumExec_Schedule(
+      &task_queue, &sum_lane_data[tctx->thread_idx], &init_task_handle, 1);
 
-  printf("schedule sum task %d\n", tctx_current()->thread_idx);
-  _TaskWideSumExec_Schedule(&task_queue, &sum_lane_data[tctx->thread_idx],
-                            &init_task_handle, 1);
+  TaskHandle test[2];
+  test[0] = init_task_handle;
+  test[1] = first_sum_handle;
+  _TaskWideSumExec_Schedule(&task_queue, &sum_lane_data[tctx->thread_idx], test,
+                            2);
 
   task_queue_process(&task_queue);
 

@@ -9,8 +9,6 @@ TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
                               TaskHandle *deps, u8 dep_count) {
   u64 next_task_id = ins_atomic_u64_inc_eval(&queue->tasks_count) - 1;
 
-  printf("next task id %d (%d)\n", next_task_id, tctx_current()->thread_idx);
-
   Task task = (Task){.task_func = (TaskFunc)(fn), .user_data = data};
   task.dependency_count_remaining = dep_count;
 
@@ -121,10 +119,7 @@ void task_queue_process(TaskQueue *queue) {
 
 process_queue_loop:
   for (;;) {
-    printf("thread %d: trying to grab task\n", tctx->thread_idx);
     u64 ready_idx = ins_atomic_u64_inc_eval(&queue->ready_counter) - 1;
-    printf("thread %d: did grab task %d of %d, %d\n", tctx->thread_idx,
-           ready_idx, queue->ready_count, queue->next_ready_count);
     // we have ready tasks
     if (ready_idx < queue->ready_count) {
       TaskHandle ready_task_handle = queue->ready_queue[ready_idx];
