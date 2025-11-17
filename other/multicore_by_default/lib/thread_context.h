@@ -9,6 +9,19 @@
 #include "thread.h"
 #include "typedefs.h"
 
+#ifdef _WIN32
+#define ins_compiler_barrier() _ReadWriteBarrier()
+#else
+#define ins_compiler_barrier() asm volatile("" ::: "memory")
+#endif
+ #ifdef _WIN32
+  #define memory_fence() MemoryBarrier()
+  #else
+  #define memory_fence() __atomic_thread_fence(__ATOMIC_SEQ_CST)
+  #endif
+// todo: fix weird macros in typedef.h
+//  #define atomic_load(ptr) __atomic_load_n((ptr), __ATOMIC_SEQ_CST)
+
 #if defined(COMPILER_MSVC)
 #define thread_static __declspec(thread)
 #define ins_atomic_u64_inc_eval(x)              InterlockedIncrement64((__int64 *)(x))
@@ -30,8 +43,6 @@
 #define ins_atomic_u32_add_eval(x,c)            (__atomic_fetch_add((u32 *)(x), c, __ATOMIC_SEQ_CST) + (c))
 #define ins_atomic_u32_eval_assign(x,c)         __atomic_exchange_n((x), (c), __ATOMIC_SEQ_CST)
 #endif
-// todo: fix weird macros in typedef.h
-//  #define atomic_load(ptr) __atomic_load_n((ptr), __ATOMIC_SEQ_CST)
 
 force_inline void cpu_pause() {
 #if defined(COMPILER_MSVC)

@@ -8,6 +8,8 @@ TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
                               TaskHandle *deps, u8 dep_count) {
   u64 next_task_id = ins_atomic_u64_inc_eval(&queue->tasks_count) - 1;
 
+  printf("next task id %d (%d)\n", next_task_id, tctx_current()->thread_idx);
+
   Task task = (Task){.task_func = (TaskFunc)(fn), .user_data = data};
   task.dependency_count_remaining = dep_count;
 
@@ -123,17 +125,17 @@ void task_queue_process(TaskQueue *queue) {
       printf("thread %d: executing task handle %d (%d)\n", tctx->thread_idx,
              ready_idx, ready_task_handle.h[0]);
       // note: should we assume valid task here?
-      Task task = queue->tasks_ptr[ready_task_handle.h[0]];
-      task.task_func(task.user_data);
+      Task *task = &queue->tasks_ptr[ready_task_handle.h[0]];
+      task->task_func(task->user_data);
 
-      for (u32 i = 0; i < task.dependents_count; i++) {
-        TaskHandle dependent_handle = task.dependent_task_ids[i];
+      for (u32 i = 0; i < task->dependents_count; i++) {
+        TaskHandle dependent_handle = task->dependent_task_ids[i];
         Task *dependent = &queue->tasks_ptr[dependent_handle.h[0]];
         // todo: what if this wraps to max u32?
         i32 dependency_count_remaining =
             ins_atomic_u32_dec_eval(&dependent->dependency_count_remaining);
         // add to the ready queue
-        if (dependency_count_remaining <= 0) {
+        if (dependency_count_remaining == 0) {
           printf("thread %d: adding task %d to ready queue\n", tctx->thread_idx,
                  dependent_handle.h[0]);
           // todo: fix repeated code (thread safe array?)

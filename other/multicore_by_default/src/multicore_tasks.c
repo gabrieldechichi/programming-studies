@@ -57,6 +57,7 @@ void entrypoint() {
       .values_start = range.min + 1,
   };
 
+  printf("schedule init task %d\n", tctx_current()->thread_idx);
   TaskHandle init_task_handle =
       _TaskWideSumInit_Schedule(&task_queue, init_data, NULL, 0);
 
@@ -65,6 +66,7 @@ void entrypoint() {
       .lane_sum = 0,
   };
 
+  printf("schedule sum task %d\n", tctx_current()->thread_idx);
   _TaskWideSumExec_Schedule(&task_queue, &sum_lane_data[tctx->thread_idx],
                             &init_task_handle, 1);
 
