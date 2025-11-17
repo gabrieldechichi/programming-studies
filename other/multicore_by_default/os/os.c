@@ -18,8 +18,8 @@
   #include "os/audio_sokol.c"
   #include "os/os_darwin_time.c"
   #include "os/os_ios.c"
-#elif defined(WIN32) || defined(WIN64)
-  #include "os/audio_sokol.c"
+#elif defined(_WIN32) || defined(WIN32) || defined(WIN64)
+  // #include "os/audio_sokol.c"
   // #include "os/time_sokol.c"
   #include "os/os_win32.c"
 #elif defined(WASM)

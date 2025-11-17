@@ -2,7 +2,7 @@
 #include "lib/common.c"
 #include "lib/string.c"
 #include "lib/memory.c"
-#include "lib/pthread_barrier.c"
+#include "lib/thread.c"
 #include "lib/thread_context.c"
 #include "lib/task.c"
 // #include "multicore_homogeneous.c"

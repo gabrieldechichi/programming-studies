@@ -1,11 +1,17 @@
 CC = clang
-CFLAGS = -Wall -Wextra -std=c99 -DCOMPILER_CLANG -DMACOS
+CFLAGS = -Wall -Wextra -std=c99 -DCOMPILER_CLANG -D_WIN32
 CFLAGS_DEBUG = -O0 -g -DDEBUG
 CFLAGS_RELEASE = -O2
 INCLUDE_FLAGS = -Isrc -Ios -Imeta -I./ -Igenerated
-LINK_FLAGS = -lpthread -lm
 
-TARGET = multicore
+# Platform-specific link flags
+ifeq ($(OS),Windows_NT)
+    LINK_FLAGS =
+else
+    LINK_FLAGS = -lpthread -lm
+endif
+
+TARGET = multicore.exe
 SRC = src/main.c
 
 all: $(TARGET)
@@ -24,12 +30,12 @@ meta: build-meta
 
 test:
 	$(CC) $(INCLUDE_FLAGS) $(CFLAGS) $(CFLAGS_DEBUG) -DTESTS $(LINK_FLAGS) -o ./out/test/test tests/test_main.c
-	time ./out/test/test
+	./out/test/test
 
 clean:
 	rm -f $(TARGET)
 
 run: build
-	time ./$(TARGET)
+	./$(TARGET)
 
 .PHONY: all clean run meta test

@@ -1,10 +1,21 @@
 #include "thread_context.h"
 #include <string.h>
+
+#ifdef _WIN32
+// Windows doesn't have unistd.h
+#else
 #include <unistd.h>
+#endif
 
 thread_static ThreadContext *tctx_thread_local;
 
-i8 os_core_count() { return (i8)sysconf(_SC_NPROCESSORS_ONLN); }
+i8 os_core_count() {
+#ifdef _WIN32
+  return (i8)os_get_processor_count();
+#else
+  return (i8)sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+}
 
 b32 is_main_thread() {
   ThreadContext *ctx = tctx_current();
@@ -20,16 +31,16 @@ void _lane_sync_u64(ThreadContext *ctx, u32 broadcast_thread_idx,
   if (value_ptr && ctx->thread_idx == broadcast_thread_idx) {
     memcpy(ctx->broadcast_memory, value_ptr, sizeof(u64));
   }
-  pthread_barrier_wait(ctx->barrier);
+  barrier_wait(ctx->barrier);
 
   // receive value <- from broadcast thread
   if (value_ptr && ctx->thread_idx != broadcast_thread_idx) {
     memcpy(value_ptr, ctx->broadcast_memory, sizeof(u64));
   }
-  pthread_barrier_wait(ctx->barrier);
+  barrier_wait(ctx->barrier);
 }
 
-void _lane_sync(ThreadContext *ctx) { pthread_barrier_wait(ctx->barrier); }
+void _lane_sync(ThreadContext *ctx) { barrier_wait(ctx->barrier); }
 
 Range_u64 _lane_range(ThreadContext *ctx, u64 values_count) {
   u32 thread_count = ctx->thread_count;

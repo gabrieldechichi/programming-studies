@@ -1,10 +1,10 @@
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <pthread.h>
 #include <string.h>
-#include "unistd.h"
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #include "typedefs.h"
 #include "thread_context.h"
 
@@ -64,10 +64,10 @@ int main(void) {
 
   printf("Core count %d Thread count %d\n", core_count, thread_count);
 
-  pthread_t *threads = malloc(thread_count * sizeof(pthread_t));
+  Thread *threads = malloc(thread_count * sizeof(Thread));
   ThreadContext *thread_ctx_arr = malloc(thread_count * sizeof(ThreadContext));
-  pthread_barrier_t barrier;
-  pthread_barrier_init(&barrier, NULL, thread_count);
+  Barrier barrier;
+  barrier_init(&barrier, thread_count);
 
   u64 broadcast_memory = 0;
   for (u8 i = 0; i < thread_count; i++) {
@@ -77,11 +77,11 @@ int main(void) {
         .barrier = &barrier,
         .broadcast_memory = &broadcast_memory,
     };
-    pthread_create(&threads[i], NULL, entrypoint_internal, &thread_ctx_arr[i]);
+    threads[i] = thread_create(entrypoint_internal, &thread_ctx_arr[i]);
   }
 
   for (u8 i = 0; i < thread_count; i++) {
-    pthread_join(threads[i], NULL);
+    thread_join(threads[i]);
   }
 
   return 0;

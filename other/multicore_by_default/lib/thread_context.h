@@ -2,7 +2,7 @@
 #define H_THREAD
 
 #include "memory.h"
-#include "pthread_barrier.h"
+#include "thread.h"
 #include "typedefs.h"
 
 #define thread_static __thread
@@ -27,7 +27,7 @@ typedef struct ThreadContext {
   u8 thread_idx;
   u8 thread_count;
   u64 *broadcast_memory;
-  pthread_barrier_t *barrier;
+  Barrier *barrier;
   ArenaAllocator temp_arena;
 } ThreadContext;
 
