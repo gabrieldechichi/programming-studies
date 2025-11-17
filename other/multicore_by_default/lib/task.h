@@ -24,15 +24,15 @@ typedef struct {
   void *user_data;
 
   // Dependencies: how many dependencies I'm waiting on
-  i8 dependency_count_remaining;
+  i32 dependency_count_remaining;
 
   // Dependents: who's waiting for me
   TaskHandle dependent_task_ids[32];
-  u8 dependents_count;
+  u32 dependents_count;
 
 #if DEBUG
   TaskResourceAccess resources[16];
-  u8 resources_count;
+  u32 resources_count;
 #endif
 } Task;
 
@@ -45,11 +45,11 @@ task_resource_access_create(TaskResourceAccessType type, void *ptr, u64 size) {
 
 typedef struct {
   Task tasks_ptr[128];
-  u8 tasks_count;
+  u64 tasks_count;
 
   TaskHandle ready_queue[128];
-  u8 ready_count;
-  u8 ready_counter;
+  u64 ready_count;
+  u64 ready_counter;
 } TaskQueue;
 
 #define TASK_ACCESS_READ(ptr, size)                                            \

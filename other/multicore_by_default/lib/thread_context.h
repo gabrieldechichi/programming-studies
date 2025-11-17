@@ -11,16 +11,24 @@
 
 #if defined(COMPILER_MSVC)
 #define thread_static __declspec(thread)
-#define atomic_add(ptr, value) _InterlockedExchangeAdd64((volatile LONG64 *)(ptr), (value))
-#define atomic_inc_eval(ptr) (_InterlockedExchangeAdd64((volatile LONG64 *)(ptr), 1) + 1)
-#define atomic_dec_eval(ptr) (_InterlockedExchangeAdd64((volatile LONG64 *)(ptr), -1) - 1)
-#define atomic_set(ptr, value) _InterlockedExchange64((volatile LONG64 *)(ptr), (value))
+#define ins_atomic_u64_inc_eval(x)              InterlockedIncrement64((__int64 *)(x))
+#define ins_atomic_u64_dec_eval(x)              InterlockedDecrement64((__int64 *)(x))
+#define ins_atomic_u64_add_eval(x,c)            InterlockedAdd64((__int64 *)(x), c)
+#define ins_atomic_u64_eval_assign(x,c)         InterlockedExchange64((__int64 *)(x),(c))
+#define ins_atomic_u32_inc_eval(x)              InterlockedIncrement((LONG *)(x))
+#define ins_atomic_u32_dec_eval(x)              InterlockedDecrement((LONG *)(x))
+#define ins_atomic_u32_add_eval(x,c)            InterlockedAdd((LONG *)(x), (c))
+#define ins_atomic_u32_eval_assign(x,c)         InterlockedExchange((LONG *)(x),(c))
 #else
 #define thread_static __thread
-#define atomic_add(ptr, value) __sync_fetch_and_add((u64 *)(ptr), (value))
-#define atomic_inc_eval(ptr) __sync_add_and_fetch((ptr), 1)
-#define atomic_dec_eval(ptr) __sync_add_and_fetch((ptr), -1)
-#define atomic_set(ptr, value) __sync_lock_test_and_set((ptr), (value))
+#define ins_atomic_u64_inc_eval(x)              (__atomic_fetch_add((u64 *)(x), 1, __ATOMIC_SEQ_CST) + 1)
+#define ins_atomic_u64_dec_eval(x)              (__atomic_fetch_sub((u64 *)(x), 1, __ATOMIC_SEQ_CST) - 1)
+#define ins_atomic_u64_add_eval(x,c)            (__atomic_fetch_add((u64 *)(x), c, __ATOMIC_SEQ_CST) + (c))
+#define ins_atomic_u64_eval_assign(x,c)         __atomic_exchange_n(x, c, __ATOMIC_SEQ_CST)
+#define ins_atomic_u32_inc_eval(x)              (__atomic_fetch_add((u32 *)(x), 1, __ATOMIC_SEQ_CST) + 1)
+#define ins_atomic_u32_dec_eval(x)              (__atomic_fetch_sub((u32 *)(x), 1, __ATOMIC_SEQ_CST) - 1)
+#define ins_atomic_u32_add_eval(x,c)            (__atomic_fetch_add((u32 *)(x), c, __ATOMIC_SEQ_CST) + (c))
+#define ins_atomic_u32_eval_assign(x,c)         __atomic_exchange_n((x), (c), __ATOMIC_SEQ_CST)
 #endif
 // todo: fix weird macros in typedef.h
 //  #define atomic_load(ptr) __atomic_load_n((ptr), __ATOMIC_SEQ_CST)

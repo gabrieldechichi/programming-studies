@@ -6,7 +6,7 @@
 TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
                               TaskResourceAccess *resources, u8 resources_count,
                               TaskHandle *deps, u8 dep_count) {
-  u8 next_task_id = atomic_inc_eval(&queue->tasks_count) - 1;
+  u64 next_task_id = ins_atomic_u64_inc_eval(&queue->tasks_count) - 1;
 
   Task task = (Task){.task_func = (TaskFunc)(fn), .user_data = data};
   task.dependency_count_remaining = dep_count;
@@ -22,13 +22,13 @@ TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
     for (u8 i = 0; i < dep_count; i++) {
       TaskHandle dependency_task_handle = deps[i];
       Task *dependency_task = &queue->tasks_ptr[dependency_task_handle.h[0]];
-      u8 next_dependent_id =
-          atomic_inc_eval(&dependency_task->dependents_count) - 1;
+      u32 next_dependent_id =
+          ins_atomic_u32_inc_eval(&dependency_task->dependents_count) - 1;
       dependency_task->dependent_task_ids[next_dependent_id] = this_task_handle;
     }
   } else {
     // if we don't have dependencies add ourselves to the ready queue directly
-    u8 next_ready_id = atomic_inc_eval(&queue->ready_count) - 1;
+    u64 next_ready_id = ins_atomic_u64_inc_eval(&queue->ready_count) - 1;
     queue->ready_queue[next_ready_id] = this_task_handle;
   }
 
@@ -116,7 +116,7 @@ void task_queue_process(TaskQueue *queue) {
   printf("thread %d: start processing queue\n", tctx->thread_idx);
 
   for (;;) {
-    u8 ready_idx = atomic_inc_eval(&queue->ready_counter) - 1;
+    u64 ready_idx = ins_atomic_u64_inc_eval(&queue->ready_counter) - 1;
     // we have ready tasks
     if (ready_idx < queue->ready_count) {
       TaskHandle ready_task_handle = queue->ready_queue[ready_idx];
@@ -126,18 +126,18 @@ void task_queue_process(TaskQueue *queue) {
       Task task = queue->tasks_ptr[ready_task_handle.h[0]];
       task.task_func(task.user_data);
 
-      for (u8 i = 0; i < task.dependents_count; i++) {
+      for (u32 i = 0; i < task.dependents_count; i++) {
         TaskHandle dependent_handle = task.dependent_task_ids[i];
         Task *dependent = &queue->tasks_ptr[dependent_handle.h[0]];
-        // todo: what if this wraps to max u8?
-        i8 dependency_count_remaining =
-            atomic_dec_eval(&dependent->dependency_count_remaining);
+        // todo: what if this wraps to max u32?
+        i32 dependency_count_remaining =
+            ins_atomic_u32_dec_eval(&dependent->dependency_count_remaining);
         // add to the ready queue
         if (dependency_count_remaining <= 0) {
           printf("thread %d: adding task %d to ready queue\n", tctx->thread_idx,
                  dependent_handle.h[0]);
           // todo: fix repeated code (thread safe array?)
-          u8 next_ready_id = atomic_inc_eval(&queue->ready_count) - 1;
+          u64 next_ready_id = ins_atomic_u64_inc_eval(&queue->ready_count) - 1;
           queue->ready_queue[next_ready_id] = dependent_handle;
         }
       }
@@ -148,7 +148,7 @@ void task_queue_process(TaskQueue *queue) {
       break;
     } else {
       // no ready tasks, put the id back and try again
-      atomic_dec_eval(&queue->ready_counter);
+      ins_atomic_u64_dec_eval(&queue->ready_counter);
       cpu_pause();
     }
   }
