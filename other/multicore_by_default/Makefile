@@ -1,7 +1,7 @@
 # Platform-specific compiler and flags
 ifeq ($(OS),Windows_NT)
     CC = cl
-    CFLAGS = /W0 /DCOMPILER_MSVC /D_WIN32
+    CFLAGS = /W0 /DCOMPILER_MSVC /D_WIN32 /Zc:preprocessor
     CFLAGS_DEBUG = /Od /Zi /DDEBUG
     CFLAGS_RELEASE = /O2
     INCLUDE_FLAGS = /Isrc /Ios /Imeta /I./ /Igenerated
