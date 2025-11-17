@@ -105,33 +105,12 @@ int main() {
         csb_remove_indent(&csb);
         csb_append_line(&csb, "}\n");
 
-        // Variadic wrapper for MSVC compatibility
-        csb_append_line_format(
-            &csb,
-            "TaskHandle %_ScheduleV(TaskQueue* queue, %* data, u8 dep_count, ...) {",
-            FMT_STR(struct_name.value), FMT_STR(struct_name.value));
-        csb_add_indent(&csb);
-        csb_append_line(&csb, "TaskHandle deps[32];");
-        csb_append_line(&csb, "va_list args;");
-        csb_append_line(&csb, "va_start(args, dep_count);");
-        csb_append_line(&csb, "for (u8 i = 0; i < dep_count; i++) {");
-        csb_add_indent(&csb);
-        csb_append_line(&csb, "deps[i] = va_arg(args, TaskHandle);");
-        csb_remove_indent(&csb);
-        csb_append_line(&csb, "}");
-        csb_append_line(&csb, "va_end(args);");
-        csb_append_line_format(
-            &csb,
-            "return _%_Schedule(queue, data, deps, dep_count);",
-            FMT_STR(struct_name.value));
-        csb_remove_indent(&csb);
-        csb_append_line(&csb, "}\n");
-
         // helper macro
         csb_append_line_format(
             &csb,
             "#define %_Schedule(queue,data,...) "
-            "%_ScheduleV(queue, data, _COUNT_ARGS(__VA_ARGS__), ##__VA_ARGS__)",
+            "_%_Schedule(queue,data,ARGS_ARRAY(TaskHandle, __VA_ARGS__), "
+            "ARGS_COUNT(TaskHandle, __VA_ARGS__))",
             FMT_STR(struct_name.value), FMT_STR(struct_name.value));
         csb_append_line(&csb, "");
       } else {

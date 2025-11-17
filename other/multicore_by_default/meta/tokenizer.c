@@ -4,7 +4,7 @@
 
 typedef struct {
   const char *keyword;
-  TokenType type;
+  TokenKind type;
 } KeywordEntry;
 
 global KeywordEntry keywords[] = {
@@ -22,7 +22,7 @@ internal b32 char_is_alnum(char c) {
   return char_is_alpha(c) || char_is_digit(c);
 }
 
-internal TokenType lookup_keyword(const char *str, u32 len) {
+internal TokenKind lookup_keyword(const char *str, u32 len) {
   for (u32 i = 0; i < KEYWORD_COUNT; i++) {
     b32 match = str_equal_len(keywords[i].keyword, str_len(keywords[i].keyword),
                               str, len);
@@ -109,7 +109,7 @@ internal void skip_block_comment(Tokenizer *tokenizer) {
   }
 }
 
-internal Token make_token(TokenType type, const char *start, u32 length,
+internal Token make_token(TokenKind type, const char *start, u32 length,
                           u32 line, u32 column) {
   return (Token){
       .type = type,
@@ -130,7 +130,7 @@ internal Token scan_identifier(Tokenizer *tokenizer) {
   }
 
   u32 length = (u32)(tokenizer->current - start);
-  TokenType type = lookup_keyword(start, length);
+  TokenKind type = lookup_keyword(start, length);
 
   return make_token(type, start, length, start_line, start_column);
 }
@@ -235,7 +235,7 @@ Token tokenizer_next_token(Tokenizer *tokenizer) {
   }
 }
 
-b32 tokenizer_match(Tokenizer *tokenizer, TokenType expected_type) {
+b32 tokenizer_match(Tokenizer *tokenizer, TokenKind expected_type) {
   Token token = tokenizer_next_token(tokenizer);
   return token.type == expected_type;
 }
@@ -279,7 +279,7 @@ void tokenizer_destroy(Tokenizer *tokenizer) {
   tokenizer->allocator = NULL;
 }
 
-const char *token_type_to_string(TokenType type) {
+const char *token_type_to_string(TokenKind type) {
   switch (type) {
 #define TOKEN_TYPE(name, str) case name: return str;
   TOKEN_TYPES

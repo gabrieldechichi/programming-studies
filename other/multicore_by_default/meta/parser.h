@@ -62,11 +62,11 @@ b32 parse_struct(Parser *parser, ReflectedStruct *out_struct);
 void parser_destroy(Parser *parser);
 void parser_reset_type_id();
 
-b32 parser_current_token_is(Parser *parser, TokenType type);
+b32 parser_current_token_is(Parser *parser, TokenKind type);
 void parser_advance_token(Parser *parser);
-b32 parser_expect_token_and_advance(Parser *parser, TokenType type);
+b32 parser_expect_token_and_advance(Parser *parser, TokenKind type);
 void parser_error(Parser *parser, const char *message);
-void parser_skip_to_next_token_type(Parser *parser, TokenType token_type);
+void parser_skip_to_next_token_type(Parser *parser, TokenKind token_type);
 void parser_skip_to_next_attribute(Parser *parser);
 
 #endif

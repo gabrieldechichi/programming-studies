@@ -25,10 +25,10 @@ typedef enum {
 #define TOKEN_TYPE(name, str) name,
   TOKEN_TYPES
 #undef TOKEN_TYPE
-} TokenType;
+} TokenKind;
 
 typedef struct {
-  TokenType type;
+  TokenKind type;
   const char *lexeme;
   u32 length;
   u32 line;
@@ -53,8 +53,8 @@ typedef struct {
 Tokenizer tokenizer_create(const char *filename, const char *source,
                            u32 source_length, Allocator *allocator);
 Token tokenizer_next_token(Tokenizer *tokenizer);
-b32 tokenizer_match(Tokenizer *tokenizer, TokenType expected_type);
-const char *token_type_to_string(TokenType type);
+b32 tokenizer_match(Tokenizer *tokenizer, TokenKind expected_type);
+const char *token_type_to_string(TokenKind type);
 const char *tokenizer_get_line_text(Tokenizer *tokenizer, u32 line_num,
                                     u32 *line_length);
 String token_to_string(Token token, Allocator *allocator);

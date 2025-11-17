@@ -5,3 +5,4 @@ multicore.pdb
 vc140.pdb
 *.obj
 .cache
+/out

@@ -10,7 +10,7 @@ void parser_advance_token(Parser *parser) {
   parser->current_token = tokenizer_next_token(&parser->tokenizer);
 }
 
-b32 parser_expect_token_and_advance(Parser *parser, TokenType type) {
+b32 parser_expect_token_and_advance(Parser *parser, TokenKind type) {
   if (parser->current_token.type == type) {
     parser_advance_token(parser);
     return true;
@@ -18,7 +18,7 @@ b32 parser_expect_token_and_advance(Parser *parser, TokenType type) {
   return false;
 }
 
-b32 parser_current_token_is(Parser *parser, TokenType type) {
+b32 parser_current_token_is(Parser *parser, TokenKind type) {
   return parser->current_token.type == type;
 }
 
@@ -139,7 +139,7 @@ void parser_error(Parser *parser, const char *message) {
   parser_error_with_context(parser, message);
 }
 
-void parser_skip_to_next_token_type(Parser *parser, TokenType token_type) {
+void parser_skip_to_next_token_type(Parser *parser, TokenKind token_type) {
   while (!parser_current_token_is(parser, TOKEN_EOF)) {
     if (parser_current_token_is(parser, token_type)) {
       break;

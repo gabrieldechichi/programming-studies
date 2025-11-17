@@ -41,7 +41,7 @@ force_inline char *csb_finish(CodeStringBuilder *csb) {
 #define csb_append_line_format(csb, fmt, ...)                                  \
   do {                                                                         \
     csb_append_indentation((csb));                                             \
-    sb_append_line_format(&(csb)->sb, fmt, __VA_ARGS__);                       \
+    sb_append_line_format(&(csb)->sb, fmt, ##__VA_ARGS__);                       \
   } while (0);
 
 #endif
