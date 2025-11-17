@@ -2,9 +2,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#ifndef _WIN32
-#include <unistd.h>
-#endif
 #include "typedefs.h"
 #include "thread_context.h"
 

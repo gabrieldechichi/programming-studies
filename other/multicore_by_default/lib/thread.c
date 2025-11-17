@@ -8,17 +8,15 @@
 #endif
 
 #ifdef _WIN32
-#include <process.h>  // For _beginthreadex
 
 //- Windows Thread Implementation
 
 Thread thread_create(ThreadFunc func, void *arg) {
   Thread thread;
-  // Use _beginthreadex instead of CreateThread for proper C runtime support
-  thread.handle = (void*)_beginthreadex(
+  thread.handle = CreateThread(
     NULL,                    // Security attributes
     0,                       // Stack size (0 = default)
-    (unsigned (__stdcall *)(void*))func,  // Function pointer (cast to Windows calling convention)
+    (DWORD (__stdcall *)(void*))func,  // Function pointer
     arg,                     // Argument
     0,                       // Creation flags (0 = start immediately)
     NULL                     // Thread ID (don't need it)
