@@ -50,6 +50,9 @@ typedef struct {
   TaskHandle ready_queue[128];
   u64 ready_count;
   u64 ready_counter;
+
+  TaskHandle next_ready_queue[128];
+  u64 next_ready_count;
 } TaskQueue;
 
 #define TASK_ACCESS_READ(ptr, size)                                            \

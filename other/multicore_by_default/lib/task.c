@@ -2,6 +2,7 @@
 #include "lib/thread_context.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
                               TaskResourceAccess *resources, u8 resources_count,
@@ -114,11 +115,16 @@ TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
 void task_queue_process(TaskQueue *queue) {
   ThreadContext *tctx = tctx_current();
   queue->ready_counter = 0;
+  queue->next_ready_count = 0;
   lane_sync();
   printf("thread %d: start processing queue\n", tctx->thread_idx);
 
+process_queue_loop:
   for (;;) {
+    printf("thread %d: trying to grab task\n", tctx->thread_idx);
     u64 ready_idx = ins_atomic_u64_inc_eval(&queue->ready_counter) - 1;
+    printf("thread %d: did grab task %d of %d, %d\n", tctx->thread_idx,
+           ready_idx, queue->ready_count, queue->next_ready_count);
     // we have ready tasks
     if (ready_idx < queue->ready_count) {
       TaskHandle ready_task_handle = queue->ready_queue[ready_idx];
@@ -139,20 +145,41 @@ void task_queue_process(TaskQueue *queue) {
           printf("thread %d: adding task %d to ready queue\n", tctx->thread_idx,
                  dependent_handle.h[0]);
           // todo: fix repeated code (thread safe array?)
-          u64 next_ready_id = ins_atomic_u64_inc_eval(&queue->ready_count) - 1;
-          queue->ready_queue[next_ready_id] = dependent_handle;
+          u64 next_ready_id =
+              ins_atomic_u64_inc_eval(&queue->next_ready_count) - 1;
+          queue->next_ready_queue[next_ready_id] = dependent_handle;
         }
       }
       printf("thread %d: done executing task %d\n", tctx->thread_idx,
              ready_task_handle.h[0]);
-    } else if (queue->ready_counter >= queue->tasks_count) {
+    } else {
       // done
       break;
-    } else {
-      // no ready tasks, put the id back and try again
-      ins_atomic_u64_dec_eval(&queue->ready_counter);
-      cpu_pause();
     }
+  }
+
+  // we need sync here to make a sure a thread doesn't early exit before next
+  // ready queue has been appended
+  lane_sync();
+  printf("thread %d: finished processing ready queue, checking for next ready "
+         "queue. count %d\n",
+         tctx->thread_idx, queue->next_ready_count);
+
+  if (queue->next_ready_count > 0) {
+    // sync here to prevent main thread from gettin ghere to fast and seting
+    // next_ready_count = 0
+    lane_sync();
+    if (is_main_thread()) {
+      // todo: too big
+      memcpy(queue->ready_queue, queue->next_ready_queue,
+             sizeof(TaskHandle) * queue->next_ready_count);
+      queue->ready_count = queue->next_ready_count;
+      queue->ready_counter = 0;
+      queue->next_ready_count = 0;
+    }
+    // sync so every thread has shared memory
+    lane_sync();
+    goto process_queue_loop;
   }
 
   printf("thread %d: done processing queue\n", tctx->thread_idx);
@@ -160,5 +187,6 @@ void task_queue_process(TaskQueue *queue) {
   queue->ready_counter = 0;
   queue->ready_count = 0;
   queue->tasks_count = 0;
+  queue->next_ready_count = 0;
   lane_sync();
 }
