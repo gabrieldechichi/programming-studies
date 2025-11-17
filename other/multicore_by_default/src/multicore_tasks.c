@@ -58,15 +58,15 @@ void entrypoint() {
   };
 
   TaskHandle init_task_handle =
-      TaskWideSumInit_Schedule(&task_queue, init_data);
+      _TaskWideSumInit_Schedule(&task_queue, init_data, NULL, 0);
 
   sum_lane_data[tctx->thread_idx] = (TaskWideSumExec){
       .numbers = numbers,
       .lane_sum = 0,
   };
 
-  TaskWideSumExec_Schedule(&task_queue, &sum_lane_data[tctx->thread_idx],
-                           init_task_handle);
+  _TaskWideSumExec_Schedule(&task_queue, &sum_lane_data[tctx->thread_idx],
+                            &init_task_handle, 1);
 
   task_queue_process(&task_queue);
 

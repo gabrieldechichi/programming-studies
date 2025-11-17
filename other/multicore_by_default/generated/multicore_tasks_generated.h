@@ -16,7 +16,7 @@ TaskHandle _TaskWideSumInit_Schedule(TaskQueue* queue, TaskWideSumInit* data, Ta
     return _task_queue_append(queue, _TaskWideSumInit_Exec, data, resource_access, 1, deps, deps_count);
 }
 
-#define TaskWideSumInit_Schedule(queue,data,...) _TaskWideSumInit_Schedule(queue,data,ARGS_ARRAY(TaskHandle, __VA_ARGS__), ARGS_COUNT(TaskHandle, __VA_ARGS__))
+#define TaskWideSumInit_Schedule(queue,data,...) _TaskWideSumInit_Schedule(queue,data,ARGS_ARRAY(TaskHandle, ##__VA_ARGS__), ARGS_COUNT(TaskHandle, ##__VA_ARGS__))
 
 void _TaskWideSumExec_Exec(void* _data) {
     TaskWideSumExec* data = (TaskWideSumExec*)_data;
@@ -29,7 +29,7 @@ TaskHandle _TaskWideSumExec_Schedule(TaskQueue* queue, TaskWideSumExec* data, Ta
     return _task_queue_append(queue, _TaskWideSumExec_Exec, data, resource_access, 1, deps, deps_count);
 }
 
-#define TaskWideSumExec_Schedule(queue,data,...) _TaskWideSumExec_Schedule(queue,data,ARGS_ARRAY(TaskHandle, __VA_ARGS__), ARGS_COUNT(TaskHandle, __VA_ARGS__))
+#define TaskWideSumExec_Schedule(queue,data,...) _TaskWideSumExec_Schedule(queue,data,ARGS_ARRAY(TaskHandle, ##__VA_ARGS__), ARGS_COUNT(TaskHandle, ##__VA_ARGS__))
 
 #endif
 // ==== GENERATED FILE DO NOT EDIT ====

@@ -1,20 +1,40 @@
 #ifndef H_THREAD
 #define H_THREAD
 
+#if defined(COMPILER_MSVC)
+#include <intrin.h>
+#endif
+
 #include "memory.h"
 #include "thread.h"
 #include "typedefs.h"
 
+#if defined(COMPILER_MSVC)
+#define thread_static __declspec(thread)
+#define atomic_add(ptr, value) _InterlockedExchangeAdd64((volatile LONG64 *)(ptr), (value))
+#define atomic_inc_eval(ptr) (_InterlockedExchangeAdd64((volatile LONG64 *)(ptr), 1) + 1)
+#define atomic_dec_eval(ptr) (_InterlockedExchangeAdd64((volatile LONG64 *)(ptr), -1) - 1)
+#define atomic_set(ptr, value) _InterlockedExchange64((volatile LONG64 *)(ptr), (value))
+#else
 #define thread_static __thread
 #define atomic_add(ptr, value) __sync_fetch_and_add((u64 *)(ptr), (value))
 #define atomic_inc_eval(ptr) __sync_add_and_fetch((ptr), 1)
 #define atomic_dec_eval(ptr) __sync_add_and_fetch((ptr), -1)
 #define atomic_set(ptr, value) __sync_lock_test_and_set((ptr), (value))
+#endif
 // todo: fix weird macros in typedef.h
 //  #define atomic_load(ptr) __atomic_load_n((ptr), __ATOMIC_SEQ_CST)
 
 force_inline void cpu_pause() {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(COMPILER_MSVC)
+  #if defined(_M_X64) || defined(_M_IX86)
+    _mm_pause();
+  #elif defined(_M_ARM64) || defined(_M_ARM)
+    __yield();
+  #else
+    _ReadWriteBarrier();
+  #endif
+#elif defined(__x86_64__) || defined(__i386__)
   __asm__ __volatile__("pause" ::: "memory");
 #elif defined(__aarch64__) || defined(__arm64__)
   __asm__ __volatile__("yield" ::: "memory"); // ARM equivalent

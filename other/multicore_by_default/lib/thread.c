@@ -11,13 +11,27 @@
 
 //- Windows Thread Implementation
 
+// Windows thread wrapper that converts between conventions
+static DWORD __stdcall thread_func_wrapper(void *arg) {
+  ThreadFunc func = ((void**)arg)[0];
+  void *user_arg = ((void**)arg)[1];
+  free(arg);
+  func(user_arg);
+  return 0;
+}
+
 Thread thread_create(ThreadFunc func, void *arg) {
   Thread thread;
+  // Package both the function and argument together
+  void **wrapper_arg = malloc(2 * sizeof(void*));
+  wrapper_arg[0] = (void*)func;
+  wrapper_arg[1] = arg;
+
   thread.handle = CreateThread(
     NULL,                    // Security attributes
     0,                       // Stack size (0 = default)
-    (DWORD (__stdcall *)(void*))func,  // Function pointer
-    arg,                     // Argument
+    thread_func_wrapper,     // Wrapper with correct convention
+    wrapper_arg,             // Packaged arguments
     0,                       // Creation flags (0 = start immediately)
     NULL                     // Thread ID (don't need it)
   );

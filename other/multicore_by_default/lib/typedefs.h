@@ -55,9 +55,9 @@ extern long _InterlockedExchangeAdd(long volatile *, long);
 
 #define UNUSED(x) (void)(x)
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
-#define ARGS_ARRAY(type, ...) ((type[]){__VA_ARGS__})
+#define ARGS_ARRAY(type, ...) ((type[]){##__VA_ARGS__})
 #define ARGS_COUNT(type, ...)                                                  \
-  (sizeof(ARGS_ARRAY(type, __VA_ARGS__)) / sizeof(type))
+  (sizeof(ARGS_ARRAY(type, ##__VA_ARGS__)) / sizeof(type))
 #define cast(type) (type)
 #define cast_data(type, data) (*((type *)&(data)))
 
