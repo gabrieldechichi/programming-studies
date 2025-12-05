@@ -26,15 +26,15 @@ i32 _sb_append_format(StringBuilder *sb, const char *fmt, const FmtArgs *args);
 
 #define sb_append_format(sb, fmt, ...)                                         \
   do {                                                                         \
-    FmtArg args[] = {(FmtArg){.type = 0}, ##__VA_ARGS__};                      \
-    size_t _count = (sizeof(args) / sizeof(FmtArg)) - 1;                       \
-    FmtArgs fmtArgs = {args + 1, (u8)_count};                                  \
+    FmtArg *args = ARGS_ARRAY(FmtArg, ##__VA_ARGS__);                          \
+    size_t _count = ARGS_COUNT(FmtArg, ##__VA_ARGS__);                         \
+    FmtArgs fmtArgs = {args, (u8)_count};                                  \
     _sb_append_format(sb, fmt, &fmtArgs);                                      \
   } while (0)
 
 #define sb_append_line_format(sb, fmt, ...)                                    \
   do {                                                                         \
-    sb_append_format(sb, fmt, ##__VA_ARGS__);                                    \
+    sb_append_format(sb, fmt, ##__VA_ARGS__);                                  \
     sb_append_char(sb, '\n');                                                  \
   } while (0)
 

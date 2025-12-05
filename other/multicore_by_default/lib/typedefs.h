@@ -56,20 +56,9 @@ extern long _InterlockedExchangeAdd(long volatile *, long);
 #define UNUSED(x) (void)(x)
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
 
-// MSVC-compatible argument counting (supports 0-32 arguments)
-// Extra indirection needed for proper __VA_ARGS__ expansion on MSVC
-#define _COUNT_ARGS_IMPL(_0,_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,_12,_13,_14,_15,_16,_17,_18,_19,_20,_21,_22,_23,_24,_25,_26,_27,_28,_29,_30,_31,_32,N,...) N
-#define _COUNT_ARGS_EXPAND(args) _COUNT_ARGS_IMPL args
-#define _COUNT_ARGS(...) _COUNT_ARGS_EXPAND((0,##__VA_ARGS__,32,31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0))
-
-// Legacy macros (kept for non-MSVC compatibility, but _COUNT_ARGS works everywhere)
-#ifndef _MSC_VER
-#define ARGS_ARRAY(type, ...) ((type[]){##__VA_ARGS__})
+#define ARGS_ARRAY(type, ...) (&((type[]){(type){0}, ##__VA_ARGS__})[1])
 #define ARGS_COUNT(type, ...)                                                  \
-  (sizeof(ARGS_ARRAY(type, ##__VA_ARGS__)) / sizeof(type))
-#else
-#define ARGS_COUNT(type, ...) _COUNT_ARGS(__VA_ARGS__)
-#endif
+  ((sizeof((type[]){(type){0}, ##__VA_ARGS__}) / sizeof(type)) - 1)
 
 #define cast(type) (type)
 #define cast_data(type, data) (*((type *)&(data)))
