@@ -4,18 +4,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-MCRHandle _mcr_queue_append(MCRQueue *queue, MCRFunc fn, void *data,
-                            MCRResourceAccess *resources, u8 resources_count,
-                            MCRHandle *deps, u8 dep_count)
+MCRTaskHandle _mcr_queue_append(MCRTaskQueue *queue, MCRTaskFunc fn, void *data,
+                                MCRResourceAccess *resources, u8 resources_count,
+                                MCRTaskHandle *deps, u8 dep_count)
 {
   u64 next_mcr_id = ins_atomic_u64_inc_eval(&queue->tasks_count) - 1;
 
-  Task task = (Task){.mcr_func = (MCRFunc)(fn), .user_data = data};
+  MCRTask task = (MCRTask){.mcr_func = (MCRTaskFunc)(fn), .user_data = data};
   task.dependency_count_remaining = dep_count;
 
   queue->tasks_ptr[next_mcr_id] = task;
 
-  MCRHandle this_mcr_handle = {
+  MCRTaskHandle this_mcr_handle = {
       next_mcr_id,
   };
   // if we have dependencies, find dependent tasks and add this task to it's
@@ -24,8 +24,8 @@ MCRHandle _mcr_queue_append(MCRQueue *queue, MCRFunc fn, void *data,
   {
     for (u8 i = 0; i < dep_count; i++)
     {
-      MCRHandle dependency_mcr_handle = deps[i];
-      Task *dependency_task = &queue->tasks_ptr[dependency_mcr_handle.h[0]];
+      MCRTaskHandle dependency_mcr_handle = deps[i];
+      MCRTask *dependency_task = &queue->tasks_ptr[dependency_mcr_handle.h[0]];
       u32 next_dependent_id =
           ins_atomic_u32_inc_eval(&dependency_task->dependents_count) - 1;
       dependency_task->dependent_mcr_ids[next_dependent_id] = this_mcr_handle;
@@ -55,7 +55,7 @@ MCRHandle _mcr_queue_append(MCRQueue *queue, MCRFunc fn, void *data,
   // Check for data race conditions against all existing tasks
   for (u8 other_mcr_idx = 0; other_mcr_idx < next_mcr_id; other_mcr_idx++)
   {
-    Task *other_task = &queue->tasks_ptr[other_mcr_idx];
+    MCRTask *other_task = &queue->tasks_ptr[other_mcr_idx];
 
     // Check each resource in this task against each resource in other task
     for (u8 i = 0; i < resources_count; i++)
@@ -124,7 +124,7 @@ MCRHandle _mcr_queue_append(MCRQueue *queue, MCRFunc fn, void *data,
   return this_mcr_handle;
 }
 
-void mcr_queue_process(MCRQueue *queue)
+void mcr_queue_process(MCRTaskQueue *queue)
 {
   ThreadContext *tctx = tctx_current();
   queue->ready_counter = 0;
@@ -139,17 +139,17 @@ process_queue_loop:
     // we have ready tasks
     if (ready_idx < queue->ready_count)
     {
-      MCRHandle ready_mcr_handle = queue->ready_queue[ready_idx];
+      MCRTaskHandle ready_mcr_handle = queue->ready_queue[ready_idx];
       printf("thread %d: executing task handle %d (%d)\n", tctx->thread_idx,
              ready_idx, ready_mcr_handle.h[0]);
       // note: should we assume valid task here?
-      Task *task = &queue->tasks_ptr[ready_mcr_handle.h[0]];
+      MCRTask *task = &queue->tasks_ptr[ready_mcr_handle.h[0]];
       task->mcr_func(task->user_data);
 
       for (u32 i = 0; i < task->dependents_count; i++)
       {
-        MCRHandle dependent_handle = task->dependent_mcr_ids[i];
-        Task *dependent = &queue->tasks_ptr[dependent_handle.h[0]];
+        MCRTaskHandle dependent_handle = task->dependent_mcr_ids[i];
+        MCRTask *dependent = &queue->tasks_ptr[dependent_handle.h[0]];
         // todo: what if this wraps to max u32?
         i32 dependency_count_remaining =
             ins_atomic_u32_dec_eval(&dependent->dependency_count_remaining);
@@ -190,7 +190,7 @@ process_queue_loop:
     {
       // todo: too big
       memcpy(queue->ready_queue, queue->next_ready_queue,
-             sizeof(MCRHandle) * queue->next_ready_count);
+             sizeof(MCRTaskHandle) * queue->next_ready_count);
       queue->ready_count = queue->next_ready_count;
       queue->ready_counter = 0;
       queue->next_ready_count = 0;

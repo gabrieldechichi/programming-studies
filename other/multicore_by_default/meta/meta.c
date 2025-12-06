@@ -86,8 +86,8 @@ int main()
 
         // Schedule function
         csb_append_line_format(&csb,
-                               "MCRHandle _%_Schedule(MCRQueue* queue, %* "
-                               "data, MCRHandle* deps, u8 deps_count) {",
+                               "MCRTaskHandle _%_Schedule(MCRTaskQueue* queue, %* "
+                               "data, MCRTaskHandle* deps, u8 deps_count) {",
                                FMT_STR(struct_name.value),
                                FMT_STR(struct_name.value));
         csb_add_indent(&csb);
@@ -119,8 +119,8 @@ int main()
         csb_append_line_format(
             &csb,
             "#define %_Schedule(queue,data,...) "
-            "_%_Schedule(queue,data,ARGS_ARRAY(MCRHandle, __VA_ARGS__), "
-            "ARGS_COUNT(MCRHandle, __VA_ARGS__))",
+            "_%_Schedule(queue,data,ARGS_ARRAY(MCRTaskHandle, __VA_ARGS__), "
+            "ARGS_COUNT(MCRTaskHandle, __VA_ARGS__))",
             FMT_STR(struct_name.value), FMT_STR(struct_name.value));
         csb_append_line(&csb, "");
       }

@@ -35,7 +35,7 @@ void TaskWideSumExec_Exec(TaskWideSumExec *data)
 
 void entrypoint()
 {
-  local_shared MCRQueue mcr_queue = {0};
+  local_shared MCRTaskQueue mcr_queue = {0};
   local_shared u64 array_size = NUMBERS_COUNT;
   local_shared i64 *array = NULL;
   local_shared TaskWideSumExec *sum_lane_data = NULL;
@@ -62,14 +62,14 @@ void entrypoint()
       .values_start = range.min + 1,
   };
 
-  MCRHandle init_mcr_handle =
+  MCRTaskHandle init_mcr_handle =
       TaskWideSumInit_Schedule(&mcr_queue, init_data);
 
   sum_lane_data[tctx->thread_idx] = (TaskWideSumExec){
       .numbers = numbers,
       .lane_sum = 0,
   };
-  MCRHandle first_sum_handle = TaskWideSumExec_Schedule(
+  MCRTaskHandle first_sum_handle = TaskWideSumExec_Schedule(
       &mcr_queue, &sum_lane_data[tctx->thread_idx], init_mcr_handle);
 
   TaskWideSumExec_Schedule(&mcr_queue, &sum_lane_data[tctx->thread_idx],

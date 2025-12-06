@@ -432,14 +432,14 @@ void test_parse_struct_with_fixed_array(TestContext *ctx)
   parser_reset_type_id();
   Allocator *allocator = &ctx->allocator;
 
-  const char *source = "typedef struct { u8 h[1]; } MCRHandle;";
+  const char *source = "typedef struct { u8 h[1]; } MCRTaskHandle;";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
 
   ReflectedStruct s = {0};
   b32 success = parse_struct(&parser, &s);
 
   assert_true(success);
-  assert_str_eq(s.typedef_name.value, "MCRHandle");
+  assert_str_eq(s.typedef_name.value, "MCRTaskHandle");
   assert_eq(s.fields.len, 1);
 
   StructField h_field = s.fields.items[0];
