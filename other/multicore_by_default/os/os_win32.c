@@ -21,7 +21,7 @@
 #include <intrin.h>
 
 #include "lib/thread.h"
-#include "lib/task.h"
+#include "lib/multicore_runtime.h"
 #include "lib/string_builder.h"
 #include <time.h>
 #include <string.h>
@@ -43,7 +43,8 @@
 #define internal static
 #endif
 
-typedef enum {
+typedef enum
+{
   OS_W32_ENTITY_NULL,
   OS_W32_ENTITY_THREAD,
   OS_W32_ENTITY_MUTEX,
@@ -52,22 +53,27 @@ typedef enum {
 } OsWin32EntityKind;
 
 typedef struct OsWin32Entity OsWin32Entity;
-struct OsWin32Entity {
+struct OsWin32Entity
+{
   OsWin32Entity *next;
   OsWin32EntityKind kind;
-  union {
-    struct {
+  union
+  {
+    struct
+    {
       HANDLE handle;
       ThreadFunc func;
       void *arg;
     } thread;
     CRITICAL_SECTION mutex;
-    struct {
+    struct
+    {
       CRITICAL_SECTION cs;
       CONDITION_VARIABLE cv;
       i32 count;
     } semaphore;
-    struct {
+    struct
+    {
       volatile OsFileReadState state;
       char file_path[MAX_PATH];
       u8 *buffer;
@@ -77,10 +83,11 @@ struct OsWin32Entity {
 };
 
 #define OS_W32_ENTITY_POOL_SIZE 256
-#define OS_W32_ENTITY_POOL_MEMORY_SIZE                                         \
+#define OS_W32_ENTITY_POOL_MEMORY_SIZE \
   (sizeof(OsWin32Entity) * OS_W32_ENTITY_POOL_SIZE)
 
-typedef struct {
+typedef struct
+{
   b32 initialized;
 
   LARGE_INTEGER time_freq;
@@ -101,29 +108,36 @@ global OsWin32State os_w32_state = {0};
 
 #define os_w32_assert_state_initialized() debug_assert(os_w32_state.initialized)
 
-internal OsWin32Entity *os_w32_entity_alloc(OsWin32EntityKind kind) {
+internal OsWin32Entity *os_w32_entity_alloc(OsWin32EntityKind kind)
+{
   os_w32_assert_state_initialized();
   OsWin32Entity *result = NULL;
   EnterCriticalSection(&os_w32_state.entity_mutex);
   {
-    if (os_w32_state.entity_free) {
+    if (os_w32_state.entity_free)
+    {
       result = os_w32_state.entity_free;
       os_w32_state.entity_free = result->next;
-    } else {
+    }
+    else
+    {
       result = (OsWin32Entity *)pool_alloc(&os_w32_state.entity_pool);
     }
-    if (result) {
+    if (result)
+    {
       memset(result, 0, sizeof(OsWin32Entity));
     }
   }
   LeaveCriticalSection(&os_w32_state.entity_mutex);
-  if (result) {
+  if (result)
+  {
     result->kind = kind;
   }
   return result;
 }
 
-internal void os_w32_entity_release(OsWin32Entity *entity) {
+internal void os_w32_entity_release(OsWin32Entity *entity)
+{
   if (!entity)
     return;
   os_w32_assert_state_initialized();
@@ -138,13 +152,15 @@ b32 os_is_mobile() { return false; }
 
 OSThermalState os_get_thermal_state(void) { return OS_THERMAL_STATE_UNKNOWN; }
 
-internal unsigned __stdcall os_w32_thread_wrapper(void *arg) {
+internal unsigned __stdcall os_w32_thread_wrapper(void *arg)
+{
   OsWin32Entity *entity = (OsWin32Entity *)arg;
   entity->thread.func(entity->thread.arg);
   return 0;
 }
 
-void os_init(void) {
+void os_init(void)
+{
   if (os_w32_state.initialized)
     return;
 
@@ -165,7 +181,8 @@ void os_init(void) {
   os_w32_state.initialized = true;
 }
 
-Thread os_thread_launch(ThreadFunc func, void *arg) {
+Thread os_thread_launch(ThreadFunc func, void *arg)
+{
   Thread result = {0};
   OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_THREAD);
   if (!entity)
@@ -176,7 +193,8 @@ Thread os_thread_launch(ThreadFunc func, void *arg) {
   entity->thread.handle =
       (HANDLE)_beginthreadex(NULL, 0, os_w32_thread_wrapper, entity, 0, NULL);
 
-  if (entity->thread.handle == 0) {
+  if (entity->thread.handle == 0)
+  {
     os_w32_entity_release(entity);
     return result;
   }
@@ -185,15 +203,18 @@ Thread os_thread_launch(ThreadFunc func, void *arg) {
   return result;
 }
 
-b32 os_thread_join(Thread t, u64 timeout_us) {
+b32 os_thread_join(Thread t, u64 timeout_us)
+{
   if (t.v[0] == 0)
     return false;
   OsWin32Entity *entity = (OsWin32Entity *)t.v[0];
-  if (entity->thread.handle) {
+  if (entity->thread.handle)
+  {
     DWORD timeout_ms =
         (timeout_us == 0) ? INFINITE : (DWORD)(timeout_us / 1000);
     DWORD result = WaitForSingleObject(entity->thread.handle, timeout_ms);
-    if (result == WAIT_OBJECT_0) {
+    if (result == WAIT_OBJECT_0)
+    {
       CloseHandle(entity->thread.handle);
       os_w32_entity_release(entity);
       return true;
@@ -203,17 +224,20 @@ b32 os_thread_join(Thread t, u64 timeout_us) {
   return false;
 }
 
-void os_thread_detach(Thread t) {
+void os_thread_detach(Thread t)
+{
   if (t.v[0] == 0)
     return;
   OsWin32Entity *entity = (OsWin32Entity *)t.v[0];
-  if (entity->thread.handle) {
+  if (entity->thread.handle)
+  {
     CloseHandle(entity->thread.handle);
   }
   os_w32_entity_release(entity);
 }
 
-Mutex os_mutex_alloc(void) {
+Mutex os_mutex_alloc(void)
+{
   Mutex result = {0};
   OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_MUTEX);
   if (!entity)
@@ -224,7 +248,8 @@ Mutex os_mutex_alloc(void) {
   return result;
 }
 
-void os_mutex_release(Mutex m) {
+void os_mutex_release(Mutex m)
+{
   if (m.v[0] == 0)
     return;
   OsWin32Entity *entity = (OsWin32Entity *)m.v[0];
@@ -232,21 +257,24 @@ void os_mutex_release(Mutex m) {
   os_w32_entity_release(entity);
 }
 
-void os_mutex_take(Mutex m) {
+void os_mutex_take(Mutex m)
+{
   if (m.v[0] == 0)
     return;
   OsWin32Entity *entity = (OsWin32Entity *)m.v[0];
   EnterCriticalSection(&entity->mutex);
 }
 
-void os_mutex_drop(Mutex m) {
+void os_mutex_drop(Mutex m)
+{
   if (m.v[0] == 0)
     return;
   OsWin32Entity *entity = (OsWin32Entity *)m.v[0];
   LeaveCriticalSection(&entity->mutex);
 }
 
-Semaphore os_semaphore_alloc(i32 initial_count) {
+Semaphore os_semaphore_alloc(i32 initial_count)
+{
   Semaphore result = {0};
   OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_SEMAPHORE);
   if (!entity)
@@ -259,7 +287,8 @@ Semaphore os_semaphore_alloc(i32 initial_count) {
   return result;
 }
 
-void os_semaphore_release(Semaphore s) {
+void os_semaphore_release(Semaphore s)
+{
   if (s.v[0] == 0)
     return;
   OsWin32Entity *entity = (OsWin32Entity *)s.v[0];
@@ -267,13 +296,15 @@ void os_semaphore_release(Semaphore s) {
   os_w32_entity_release(entity);
 }
 
-void os_semaphore_take(Semaphore s) {
+void os_semaphore_take(Semaphore s)
+{
   if (s.v[0] == 0)
     return;
   OsWin32Entity *entity = (OsWin32Entity *)s.v[0];
 
   EnterCriticalSection(&entity->semaphore.cs);
-  while (entity->semaphore.count <= 0) {
+  while (entity->semaphore.count <= 0)
+  {
     SleepConditionVariableCS(&entity->semaphore.cv, &entity->semaphore.cs,
                              INFINITE);
   }
@@ -281,7 +312,8 @@ void os_semaphore_take(Semaphore s) {
   LeaveCriticalSection(&entity->semaphore.cs);
 }
 
-void os_semaphore_drop(Semaphore s) {
+void os_semaphore_drop(Semaphore s)
+{
   if (s.v[0] == 0)
     return;
   OsWin32Entity *entity = (OsWin32Entity *)s.v[0];
@@ -292,11 +324,13 @@ void os_semaphore_drop(Semaphore s) {
   WakeConditionVariable(&entity->semaphore.cv);
 }
 
-typedef struct {
+typedef struct
+{
   SRWLOCK lock;
 } OsWin32RWMutex;
 
-RWMutex os_rw_mutex_alloc(void) {
+RWMutex os_rw_mutex_alloc(void)
+{
   RWMutex result = {0};
   OsWin32RWMutex *rw =
       (OsWin32RWMutex *)os_allocate_memory(sizeof(OsWin32RWMutex));
@@ -307,46 +341,53 @@ RWMutex os_rw_mutex_alloc(void) {
   return result;
 }
 
-void os_rw_mutex_release(RWMutex m) {
+void os_rw_mutex_release(RWMutex m)
+{
   if (m.v[0] == 0)
     return;
   OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
   os_free_memory(rw, sizeof(OsWin32RWMutex));
 }
 
-void os_rw_mutex_take_r(RWMutex m) {
+void os_rw_mutex_take_r(RWMutex m)
+{
   if (m.v[0] == 0)
     return;
   OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
   AcquireSRWLockShared(&rw->lock);
 }
 
-void os_rw_mutex_drop_r(RWMutex m) {
+void os_rw_mutex_drop_r(RWMutex m)
+{
   if (m.v[0] == 0)
     return;
   OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
   ReleaseSRWLockShared(&rw->lock);
 }
 
-void os_rw_mutex_take_w(RWMutex m) {
+void os_rw_mutex_take_w(RWMutex m)
+{
   if (m.v[0] == 0)
     return;
   OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
   AcquireSRWLockExclusive(&rw->lock);
 }
 
-void os_rw_mutex_drop_w(RWMutex m) {
+void os_rw_mutex_drop_w(RWMutex m)
+{
   if (m.v[0] == 0)
     return;
   OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
   ReleaseSRWLockExclusive(&rw->lock);
 }
 
-typedef struct {
+typedef struct
+{
   CONDITION_VARIABLE cv;
 } OsWin32CondVar;
 
-CondVar os_cond_var_alloc(void) {
+CondVar os_cond_var_alloc(void)
+{
   CondVar result = {0};
   OsWin32CondVar *cv =
       (OsWin32CondVar *)os_allocate_memory(sizeof(OsWin32CondVar));
@@ -357,14 +398,16 @@ CondVar os_cond_var_alloc(void) {
   return result;
 }
 
-void os_cond_var_release(CondVar c) {
+void os_cond_var_release(CondVar c)
+{
   if (c.v[0] == 0)
     return;
   OsWin32CondVar *cv = (OsWin32CondVar *)c.v[0];
   os_free_memory(cv, sizeof(OsWin32CondVar));
 }
 
-b32 os_cond_var_wait(CondVar c, Mutex m, u64 timeout_us) {
+b32 os_cond_var_wait(CondVar c, Mutex m, u64 timeout_us)
+{
   if (c.v[0] == 0 || m.v[0] == 0)
     return false;
   OsWin32CondVar *cv = (OsWin32CondVar *)c.v[0];
@@ -374,25 +417,29 @@ b32 os_cond_var_wait(CondVar c, Mutex m, u64 timeout_us) {
          0;
 }
 
-void os_cond_var_signal(CondVar c) {
+void os_cond_var_signal(CondVar c)
+{
   if (c.v[0] == 0)
     return;
   OsWin32CondVar *cv = (OsWin32CondVar *)c.v[0];
   WakeConditionVariable(&cv->cv);
 }
 
-void os_cond_var_broadcast(CondVar c) {
+void os_cond_var_broadcast(CondVar c)
+{
   if (c.v[0] == 0)
     return;
   OsWin32CondVar *cv = (OsWin32CondVar *)c.v[0];
   WakeAllConditionVariable(&cv->cv);
 }
 
-typedef struct {
+typedef struct
+{
   SYNCHRONIZATION_BARRIER sb;
 } OsWin32Barrier;
 
-Barrier os_barrier_alloc(u32 count) {
+Barrier os_barrier_alloc(u32 count)
+{
   Barrier result = {0};
   if (count == 0)
     return result;
@@ -400,7 +447,8 @@ Barrier os_barrier_alloc(u32 count) {
       (OsWin32Barrier *)os_allocate_memory(sizeof(OsWin32Barrier));
   if (!barrier)
     return result;
-  if (!InitializeSynchronizationBarrier(&barrier->sb, count, -1)) {
+  if (!InitializeSynchronizationBarrier(&barrier->sb, count, -1))
+  {
     os_free_memory(barrier, sizeof(OsWin32Barrier));
     return result;
   }
@@ -408,7 +456,8 @@ Barrier os_barrier_alloc(u32 count) {
   return result;
 }
 
-void os_barrier_release(Barrier b) {
+void os_barrier_release(Barrier b)
+{
   if (b.v[0] == 0)
     return;
   OsWin32Barrier *barrier = (OsWin32Barrier *)b.v[0];
@@ -416,7 +465,8 @@ void os_barrier_release(Barrier b) {
   os_free_memory(barrier, sizeof(OsWin32Barrier));
 }
 
-void os_barrier_wait(Barrier b) {
+void os_barrier_wait(Barrier b)
+{
   if (b.v[0] == 0)
     return;
   OsWin32Barrier *barrier = (OsWin32Barrier *)b.v[0];
@@ -434,11 +484,14 @@ static b32 g_stack_trace_mutex_initialized = false;
 static b32 g_symbols_initialized = false;
 static LPTOP_LEVEL_EXCEPTION_FILTER g_previous_exception_filter = NULL;
 
-static void ensure_symbols_initialized(void) {
-  if (!g_symbols_initialized) {
+static void ensure_symbols_initialized(void)
+{
+  if (!g_symbols_initialized)
+  {
     HANDLE process = GetCurrentProcess();
     SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
-    if (SymInitialize(process, NULL, TRUE)) {
+    if (SymInitialize(process, NULL, TRUE))
+    {
       g_symbols_initialized = true;
     }
   }
@@ -448,14 +501,16 @@ static void ensure_crash_dir_exists(void) { os_create_dir(CRASH_DUMP_DIR); }
 
 static void write_stack_to_buffer(char *buffer, size_t buffer_size,
                                   void **stack_frames, int frame_count,
-                                  int skip_frames) {
+                                  int skip_frames)
+{
   HANDLE process = GetCurrentProcess();
   size_t written = 0;
 
   written += snprintf(buffer + written, buffer_size - written,
                       "\n===== STACK TRACE =====\n");
 
-  for (int i = skip_frames; i < frame_count && written < buffer_size - 1; i++) {
+  for (int i = skip_frames; i < frame_count && written < buffer_size - 1; i++)
+  {
     char line_buffer[1024];
     int line_len = 0;
 
@@ -465,18 +520,21 @@ static void write_stack_to_buffer(char *buffer, size_t buffer_size,
     HMODULE module;
     MEMORY_BASIC_INFORMATION mbi;
     if (VirtualQuery(stack_frames[i], &mbi, sizeof(mbi)) &&
-        mbi.AllocationBase) {
+        mbi.AllocationBase)
+    {
       module = (HMODULE)mbi.AllocationBase;
 
       char module_name[MAX_PATH];
-      if (GetModuleFileNameA(module, module_name, sizeof(module_name))) {
+      if (GetModuleFileNameA(module, module_name, sizeof(module_name)))
+      {
         char *base_name = strrchr(module_name, '\\');
         if (base_name)
           base_name++;
         else
           base_name = module_name;
 
-        if (g_symbols_initialized) {
+        if (g_symbols_initialized)
+        {
           DWORD64 displacement64 = 0;
           char symbol_buffer[sizeof(SYMBOL_INFO) + MAX_SYMBOL_LEN];
           SYMBOL_INFO *symbol = (SYMBOL_INFO *)symbol_buffer;
@@ -484,7 +542,8 @@ static void write_stack_to_buffer(char *buffer, size_t buffer_size,
           symbol->MaxNameLen = MAX_SYMBOL_LEN;
 
           if (SymFromAddr(process, (DWORD64)stack_frames[i], &displacement64,
-                          symbol)) {
+                          symbol))
+          {
             line_len += snprintf(line_buffer + line_len,
                                  sizeof(line_buffer) - line_len, "%s!%s+0x%llx",
                                  base_name, symbol->Name, displacement64);
@@ -494,7 +553,8 @@ static void write_stack_to_buffer(char *buffer, size_t buffer_size,
             line_info.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
 
             if (SymGetLineFromAddr64(process, (DWORD64)stack_frames[i],
-                                     &displacement32, &line_info)) {
+                                     &displacement32, &line_info))
+            {
               char *source_name = strrchr(line_info.FileName, '\\');
               if (source_name)
                 source_name++;
@@ -505,24 +565,32 @@ static void write_stack_to_buffer(char *buffer, size_t buffer_size,
                                    sizeof(line_buffer) - line_len, " (%s:%lu)",
                                    source_name, line_info.LineNumber);
             }
-          } else {
+          }
+          else
+          {
             line_len +=
                 snprintf(line_buffer + line_len, sizeof(line_buffer) - line_len,
                          "%s+0x%llx", base_name,
                          (DWORD64)stack_frames[i] - (DWORD64)module);
           }
-        } else {
+        }
+        else
+        {
           line_len +=
               snprintf(line_buffer + line_len, sizeof(line_buffer) - line_len,
                        "%s+0x%llx", base_name,
                        (DWORD64)stack_frames[i] - (DWORD64)module);
         }
-      } else {
+      }
+      else
+      {
         line_len +=
             snprintf(line_buffer + line_len, sizeof(line_buffer) - line_len,
                      "0x%p", stack_frames[i]);
       }
-    } else {
+    }
+    else
+    {
       line_len +=
           snprintf(line_buffer + line_len, sizeof(line_buffer) - line_len,
                    "0x%p", stack_frames[i]);
@@ -531,7 +599,8 @@ static void write_stack_to_buffer(char *buffer, size_t buffer_size,
     line_len +=
         snprintf(line_buffer + line_len, sizeof(line_buffer) - line_len, "\n");
 
-    if (written + line_len < buffer_size) {
+    if (written + line_len < buffer_size)
+    {
       memcpy(buffer + written, line_buffer, line_len);
       written += line_len;
     }
@@ -542,8 +611,10 @@ static void write_stack_to_buffer(char *buffer, size_t buffer_size,
   buffer[buffer_size - 1] = '\0';
 }
 
-static void capture_and_save_stacktrace(FILE *output, int skip_frames) {
-  if (!g_stack_trace_mutex_initialized) {
+static void capture_and_save_stacktrace(FILE *output, int skip_frames)
+{
+  if (!g_stack_trace_mutex_initialized)
+  {
     g_stack_trace_mutex = os_mutex_alloc();
     g_stack_trace_mutex_initialized = true;
   }
@@ -556,7 +627,8 @@ static void capture_and_save_stacktrace(FILE *output, int skip_frames) {
   int frame_count =
       CaptureStackBackTrace(0, MAX_STACK_FRAMES, stack_frames, NULL);
 
-  if (frame_count <= skip_frames) {
+  if (frame_count <= skip_frames)
+  {
     os_mutex_drop(g_stack_trace_mutex);
     return;
   }
@@ -582,14 +654,16 @@ static void capture_and_save_stacktrace(FILE *output, int skip_frames) {
            timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
 
   FILE *crash_file = fopen(crash_filename, "w");
-  if (crash_file) {
+  if (crash_file)
+  {
     fprintf(crash_file, "Crash dump generated at %s", asctime(timeinfo));
     fprintf(crash_file, "Symbol resolution: %s\n",
             g_symbols_initialized ? "Available"
                                   : "Not available (PDB files may be missing)");
     fprintf(crash_file, "%s", stack_buffer);
 
-    if (!g_symbols_initialized) {
+    if (!g_symbols_initialized)
+    {
       fprintf(crash_file, "\nNote: To get function names and line numbers, "
                           "ensure PDB files are available.\n");
       fprintf(crash_file, "Raw addresses can be resolved later using:\n");
@@ -605,8 +679,10 @@ static void capture_and_save_stacktrace(FILE *output, int skip_frames) {
   os_mutex_drop(g_stack_trace_mutex);
 }
 
-static const char *get_exception_string(DWORD exception_code) {
-  switch (exception_code) {
+static const char *get_exception_string(DWORD exception_code)
+{
+  switch (exception_code)
+  {
   case EXCEPTION_ACCESS_VIOLATION:
     return "ACCESS_VIOLATION";
   case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
@@ -653,8 +729,10 @@ static const char *get_exception_string(DWORD exception_code) {
 }
 
 static LONG WINAPI
-unhandled_exception_handler(EXCEPTION_POINTERS *exception_info) {
-  if (!g_stack_trace_mutex_initialized) {
+unhandled_exception_handler(EXCEPTION_POINTERS *exception_info)
+{
+  if (!g_stack_trace_mutex_initialized)
+  {
     g_stack_trace_mutex = os_mutex_alloc();
     g_stack_trace_mutex_initialized = true;
   }
@@ -691,7 +769,8 @@ unhandled_exception_handler(EXCEPTION_POINTERS *exception_info) {
            exception_str, exception_record->ExceptionCode,
            exception_record->ExceptionAddress);
 
-  if (exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+  if (exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION)
+  {
     const char *access_type =
         (exception_record->ExceptionInformation[0] == 0)   ? "reading"
         : (exception_record->ExceptionInformation[0] == 1) ? "writing"
@@ -704,7 +783,8 @@ unhandled_exception_handler(EXCEPTION_POINTERS *exception_info) {
   }
 
   fprintf(console_output, "%s", header);
-  if (crash_file) {
+  if (crash_file)
+  {
     fprintf(crash_file, "Crash dump generated at %s", asctime(timeinfo));
     fprintf(crash_file, "%s", header);
   }
@@ -739,13 +819,16 @@ unhandled_exception_handler(EXCEPTION_POINTERS *exception_info) {
   HANDLE process = GetCurrentProcess();
   HANDLE thread = GetCurrentThread();
 
-  while (frame_count < MAX_STACK_FRAMES) {
+  while (frame_count < MAX_STACK_FRAMES)
+  {
     if (!StackWalk64(machine_type, process, thread, &stack_frame, context, NULL,
-                     SymFunctionTableAccess64, SymGetModuleBase64, NULL)) {
+                     SymFunctionTableAccess64, SymGetModuleBase64, NULL))
+    {
       break;
     }
 
-    if (stack_frame.AddrPC.Offset == 0) {
+    if (stack_frame.AddrPC.Offset == 0)
+    {
       break;
     }
 
@@ -755,11 +838,13 @@ unhandled_exception_handler(EXCEPTION_POINTERS *exception_info) {
   char *stack_buffer = (char *)os_w32_state.stack_trace_buffer;
   write_stack_to_buffer(stack_buffer, KB(64), stack_frames, frame_count, 0);
   fprintf(console_output, "%s", stack_buffer);
-  if (crash_file) {
+  if (crash_file)
+  {
     fprintf(crash_file, "%s", stack_buffer);
   }
 
-  if (crash_file) {
+  if (crash_file)
+  {
     fprintf(crash_file, "\nRegisters:\n");
 #ifdef _M_X64
     fprintf(crash_file, "RAX=%016llX RBX=%016llX RCX=%016llX\n", context->Rax,
@@ -791,14 +876,16 @@ unhandled_exception_handler(EXCEPTION_POINTERS *exception_info) {
 
   os_mutex_drop(g_stack_trace_mutex);
 
-  if (g_previous_exception_filter) {
+  if (g_previous_exception_filter)
+  {
     return g_previous_exception_filter(exception_info);
   }
 
   return EXCEPTION_EXECUTE_HANDLER;
 }
 
-void os_install_crash_handler(void) {
+void os_install_crash_handler(void)
+{
   g_previous_exception_filter =
       SetUnhandledExceptionFilter(unhandled_exception_handler);
 
@@ -806,12 +893,14 @@ void os_install_crash_handler(void) {
 }
 
 void assert_log(u8 log_level, const char *fmt, const FmtArgs *args,
-                const char *file_name, uint32 line_number) {
+                const char *file_name, uint32 line_number)
+{
   os_log(log_level, fmt, args, file_name, line_number);
 }
 
 void os_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
-            const char *file_name, uint32 line_number) {
+            const char *file_name, uint32 line_number)
+{
   char buffer[1024];
   fmt_string(buffer, sizeof(buffer), fmt, args);
 
@@ -822,7 +911,8 @@ void os_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
 
   b32 use_color = false;
 
-  switch (log_level) {
+  switch (log_level)
+  {
   case LOGLEVEL_INFO:
     level_str = "INFO";
     output = stdout;
@@ -832,7 +922,8 @@ void os_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
     level_str = "WARN";
     output = stderr;
     use_color = isatty(fileno(stderr));
-    if (use_color) {
+    if (use_color)
+    {
       color_start = "\033[33m";
       color_end = "\033[0m";
     }
@@ -841,7 +932,8 @@ void os_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
     level_str = "ERROR";
     output = stderr;
     use_color = isatty(fileno(stderr));
-    if (use_color) {
+    if (use_color)
+    {
       color_start = "\033[31m";
       color_end = "\033[0m";
     }
@@ -856,25 +948,29 @@ void os_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
   fprintf(output, "%s[%s] %s:%u: %s%s\n", color_start, level_str, file_name,
           line_number, buffer, color_end);
 
-  if (log_level == LOGLEVEL_ERROR) {
+  if (log_level == LOGLEVEL_ERROR)
+  {
     capture_and_save_stacktrace(output, 2);
   }
 
   fflush(output);
 }
 
-bool32 os_write_file(const char *file_path, u8 *buffer, size_t buffer_len) {
+bool32 os_write_file(const char *file_path, u8 *buffer, size_t buffer_len)
+{
   HANDLE file = CreateFileA(file_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
                             FILE_ATTRIBUTE_NORMAL, NULL);
 
-  if (file == INVALID_HANDLE_VALUE) {
+  if (file == INVALID_HANDLE_VALUE)
+  {
     LOG_ERROR("Error opening file for writing: %", FMT_STR(file_path));
     return false;
   }
 
   DWORD written = 0;
   BOOL success = WriteFile(file, buffer, (DWORD)buffer_len, &written, NULL);
-  if (!success || written != (DWORD)buffer_len) {
+  if (!success || written != (DWORD)buffer_len)
+  {
     LOG_ERROR("Error writing to file: %", FMT_STR(file_path));
     CloseHandle(file);
     return false;
@@ -884,9 +980,11 @@ bool32 os_write_file(const char *file_path, u8 *buffer, size_t buffer_len) {
   return true;
 }
 
-bool32 os_create_dir(const char *dir_path) {
+bool32 os_create_dir(const char *dir_path)
+{
   struct stat st;
-  if (stat(dir_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+  if (stat(dir_path, &st) == 0 && S_ISDIR(st.st_mode))
+  {
     return true;
   }
 
@@ -894,12 +992,16 @@ bool32 os_create_dir(const char *dir_path) {
   strncpy(temp_path, dir_path, sizeof(temp_path) - 1);
   temp_path[sizeof(temp_path) - 1] = '\0';
 
-  for (char *p = temp_path + 1; *p; p++) {
-    if (*p == '/' || *p == '\\') {
+  for (char *p = temp_path + 1; *p; p++)
+  {
+    if (*p == '/' || *p == '\\')
+    {
       *p = '\0';
 
-      if (stat(temp_path, &st) != 0) {
-        if (_mkdir(temp_path) != 0) {
+      if (stat(temp_path, &st) != 0)
+      {
+        if (_mkdir(temp_path) != 0)
+        {
           LOG_ERROR("Failed to create directory: %", FMT_STR(temp_path));
           return false;
         }
@@ -909,8 +1011,10 @@ bool32 os_create_dir(const char *dir_path) {
     }
   }
 
-  if (_mkdir(temp_path) != 0) {
-    if (stat(temp_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+  if (_mkdir(temp_path) != 0)
+  {
+    if (stat(temp_path, &st) == 0 && S_ISDIR(st.st_mode))
+    {
       return true;
     }
     LOG_ERROR("Failed to create directory: %", FMT_STR(dir_path));
@@ -920,26 +1024,30 @@ bool32 os_create_dir(const char *dir_path) {
   return true;
 }
 
-PlatformFileData os_read_file(const char *file_path, Allocator *allocator) {
+PlatformFileData os_read_file(const char *file_path, Allocator *allocator)
+{
   PlatformFileData result = {0};
 
   HANDLE file =
       CreateFileA(file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
                   FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
-  if (file == INVALID_HANDLE_VALUE) {
+  if (file == INVALID_HANDLE_VALUE)
+  {
     LOG_ERROR("Failed to open file: %", FMT_STR(file_path));
     return result;
   }
 
   LARGE_INTEGER file_size;
-  if (!GetFileSizeEx(file, &file_size)) {
+  if (!GetFileSizeEx(file, &file_size))
+  {
     LOG_ERROR("Failed to get file size: %", FMT_STR(file_path));
     CloseHandle(file);
     return result;
   }
 
   result.buffer = ALLOC_ARRAY(allocator, uint8, file_size.QuadPart);
-  if (!result.buffer) {
+  if (!result.buffer)
+  {
     LOG_ERROR("Failed to allocate memory for file: %", FMT_STR(file_path));
     CloseHandle(file);
     return result;
@@ -948,7 +1056,8 @@ PlatformFileData os_read_file(const char *file_path, Allocator *allocator) {
   DWORD bytes_read = 0;
   if (!ReadFile(file, result.buffer, (DWORD)file_size.QuadPart, &bytes_read,
                 NULL) ||
-      bytes_read != (DWORD)file_size.QuadPart) {
+      bytes_read != (DWORD)file_size.QuadPart)
+  {
     LOG_ERROR("Failed to read file completely: %", FMT_STR(file_path));
     CloseHandle(file);
     return result;
@@ -960,7 +1069,8 @@ PlatformFileData os_read_file(const char *file_path, Allocator *allocator) {
   return result;
 }
 
-struct OsFileOp {
+struct OsFileOp
+{
   OsWin32Entity *entity;
 };
 
@@ -1012,8 +1122,8 @@ struct OsFileOp {
 //   }
 // }
 //
-// OsFileOp *os_start_read_file(const char *file_path, TaskSystem *task_system) {
-//   if (!task_system)
+// OsFileOp *os_start_read_file(const char *file_path, TaskSystem *mcr_system) {
+//   if (!mcr_system)
 //     return NULL;
 //
 //   OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_FILE_OP);
@@ -1031,7 +1141,7 @@ struct OsFileOp {
 //   entity->file_op.buffer = NULL;
 //   entity->file_op.buffer_len = 0;
 //
-//   task_schedule(task_system, file_read_worker, entity);
+//   mcr_schedule(mcr_system, file_read_worker, entity);
 //
 //   return (OsFileOp *)entity;
 // }
@@ -1082,53 +1192,66 @@ struct OsFileOp {
 //   return true;
 // }
 
-OsDynLib os_dynlib_load(const char *path) {
+OsDynLib os_dynlib_load(const char *path)
+{
   OsDynLib lib = LoadLibraryA(path);
-  if (!lib) {
+  if (!lib)
+  {
     DWORD err = GetLastError();
     LOG_ERROR("os_dynlib_load failed. Error code %", FMT_UINT(err));
   }
   return lib;
 }
 
-void os_dynlib_unload(OsDynLib lib) {
-  if (lib) {
+void os_dynlib_unload(OsDynLib lib)
+{
+  if (lib)
+  {
     FreeLibrary((HMODULE)lib);
   }
 }
 
-OsDynSymbol os_dynlib_get_symbol(OsDynLib lib, const char *symbol_name) {
+OsDynSymbol os_dynlib_get_symbol(OsDynLib lib, const char *symbol_name)
+{
   if (!lib)
     return NULL;
   return (OsDynSymbol)GetProcAddress((HMODULE)lib, symbol_name);
 }
 
-OsFileInfo os_file_info(const char *path) {
+OsFileInfo os_file_info(const char *path)
+{
   OsFileInfo info = {0};
   struct stat file_stat;
-  if (stat(path, &file_stat) == 0) {
+  if (stat(path, &file_stat) == 0)
+  {
     info.modification_time = file_stat.st_mtime;
     info.exists = true;
-  } else {
+  }
+  else
+  {
     info.exists = false;
   }
   return info;
 }
 
-b32 os_file_copy(const char *src_path, const char *dst_path) {
+b32 os_file_copy(const char *src_path, const char *dst_path)
+{
   return CopyFileA(src_path, dst_path, FALSE) != 0;
 }
 
 b32 os_file_remove(const char *path) { return DeleteFileA(path) != 0; }
 
-b32 os_file_exists(const char *path) {
+b32 os_file_exists(const char *path)
+{
   DWORD attrs = GetFileAttributesA(path);
   return attrs != INVALID_FILE_ATTRIBUTES;
 }
 
 static b32 copy_directory_recursive(const char *src_path,
-                                    const char *dst_path) {
-  if (!os_create_dir(dst_path)) {
+                                    const char *dst_path)
+{
+  if (!os_create_dir(dst_path))
+  {
     return false;
   }
 
@@ -1137,14 +1260,17 @@ static b32 copy_directory_recursive(const char *src_path,
 
   WIN32_FIND_DATAA find_data;
   HANDLE find_handle = FindFirstFileA(search_path, &find_data);
-  if (find_handle == INVALID_HANDLE_VALUE) {
+  if (find_handle == INVALID_HANDLE_VALUE)
+  {
     return false;
   }
 
   b32 success = true;
-  do {
+  do
+  {
     if (strcmp(find_data.cFileName, ".") == 0 ||
-        strcmp(find_data.cFileName, "..") == 0) {
+        strcmp(find_data.cFileName, "..") == 0)
+    {
       continue;
     }
 
@@ -1155,13 +1281,18 @@ static b32 copy_directory_recursive(const char *src_path,
     snprintf(dst_full, sizeof(dst_full), "%s\\%s", dst_path,
              find_data.cFileName);
 
-    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-      if (!copy_directory_recursive(src_full, dst_full)) {
+    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+    {
+      if (!copy_directory_recursive(src_full, dst_full))
+      {
         success = false;
         break;
       }
-    } else {
-      if (!os_file_copy(src_full, dst_full)) {
+    }
+    else
+    {
+      if (!os_file_copy(src_full, dst_full))
+      {
         success = false;
         break;
       }
@@ -1172,37 +1303,47 @@ static b32 copy_directory_recursive(const char *src_path,
   return success;
 }
 
-b32 os_directory_copy(const char *src_path, const char *dst_path) {
+b32 os_directory_copy(const char *src_path, const char *dst_path)
+{
   return copy_directory_recursive(src_path, dst_path);
 }
 
-static b32 remove_directory_recursive(const char *path) {
+static b32 remove_directory_recursive(const char *path)
+{
   char search_path[MAX_PATH];
   snprintf(search_path, sizeof(search_path), "%s\\*", path);
 
   WIN32_FIND_DATAA find_data;
   HANDLE find_handle = FindFirstFileA(search_path, &find_data);
-  if (find_handle == INVALID_HANDLE_VALUE) {
+  if (find_handle == INVALID_HANDLE_VALUE)
+  {
     return false;
   }
 
   b32 success = true;
-  do {
+  do
+  {
     if (strcmp(find_data.cFileName, ".") == 0 ||
-        strcmp(find_data.cFileName, "..") == 0) {
+        strcmp(find_data.cFileName, "..") == 0)
+    {
       continue;
     }
 
     char full_path[MAX_PATH];
     snprintf(full_path, sizeof(full_path), "%s\\%s", path, find_data.cFileName);
 
-    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-      if (!remove_directory_recursive(full_path)) {
+    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+    {
+      if (!remove_directory_recursive(full_path))
+      {
         success = false;
         break;
       }
-    } else {
-      if (!DeleteFileA(full_path)) {
+    }
+    else
+    {
+      if (!DeleteFileA(full_path))
+      {
         success = false;
         break;
       }
@@ -1211,19 +1352,22 @@ static b32 remove_directory_recursive(const char *path) {
 
   FindClose(find_handle);
 
-  if (success) {
+  if (success)
+  {
     return RemoveDirectoryA(path) != 0;
   }
   return false;
 }
 
-b32 os_directory_remove(const char *path) {
+b32 os_directory_remove(const char *path)
+{
   return remove_directory_recursive(path);
 }
 
 b32 os_system(const char *command) { return system(command) == 0; }
 
-b32 os_symlink(const char *target_path, const char *link_path) {
+b32 os_symlink(const char *target_path, const char *link_path)
+{
   DeleteFileA(link_path);
   RemoveDirectoryA(link_path);
 
@@ -1233,29 +1377,36 @@ b32 os_symlink(const char *target_path, const char *link_path) {
 
   u32 link_len = str_len(link_path);
   i32 last_slash = -1;
-  for (i32 i = (i32)link_len - 1; i >= 0; i--) {
-    if (link_path[i] == '/' || link_path[i] == '\\') {
+  for (i32 i = (i32)link_len - 1; i >= 0; i--)
+  {
+    if (link_path[i] == '/' || link_path[i] == '\\')
+    {
       last_slash = i;
       break;
     }
   }
 
-  if (last_slash >= 0 && target_path[0] == '.') {
+  if (last_slash >= 0 && target_path[0] == '.')
+  {
     sb_append_len(&sb, link_path, (u32)last_slash + 1);
     sb_append(&sb, target_path);
-  } else {
+  }
+  else
+  {
     sb_append(&sb, target_path);
   }
 
   DWORD attrs = GetFileAttributesA(sb_get(&sb));
   DWORD flags = SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
-  if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+  if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY))
+  {
     flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
   }
 
   char win_target[MAX_PATH];
   u32 target_len = str_len(target_path);
-  for (u32 i = 0; i < target_len && i < MAX_PATH - 1; i++) {
+  for (u32 i = 0; i < target_len && i < MAX_PATH - 1; i++)
+  {
     win_target[i] = (target_path[i] == '/') ? '\\' : target_path[i];
   }
   win_target[target_len < MAX_PATH ? target_len : MAX_PATH - 1] = '\0';
@@ -1264,7 +1415,8 @@ b32 os_symlink(const char *target_path, const char *link_path) {
 }
 
 OsFileList os_list_files(const char *directory, const char *extension,
-                         Allocator *allocator) {
+                         Allocator *allocator)
+{
   OsFileList result = {0};
 
   char search_path[MAX_PATH];
@@ -1273,7 +1425,8 @@ OsFileList os_list_files(const char *directory, const char *extension,
   WIN32_FIND_DATAA find_data;
   HANDLE find_handle = FindFirstFileA(search_path, &find_data);
 
-  if (find_handle == INVALID_HANDLE_VALUE) {
+  if (find_handle == INVALID_HANDLE_VALUE)
+  {
     return result;
   }
 
@@ -1281,12 +1434,16 @@ OsFileList os_list_files(const char *directory, const char *extension,
   int capacity = 256;
   char **paths = ALLOC_ARRAY(allocator, char *, capacity);
 
-  do {
-    if (!(find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-      if (count < capacity) {
+  do
+  {
+    if (!(find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+    {
+      if (count < capacity)
+      {
         size_t path_len = strlen(directory) + strlen(find_data.cFileName) + 2;
         char *full_path = allocator->alloc_alloc(allocator->ctx, path_len, 1);
-        if (full_path) {
+        if (full_path)
+        {
           snprintf(full_path, path_len, "%s/%s", directory,
                    find_data.cFileName);
           paths[count++] = full_path;
@@ -1302,7 +1459,8 @@ OsFileList os_list_files(const char *directory, const char *extension,
   return result;
 }
 
-OsFileList os_list_dirs(const char *directory, Allocator *allocator) {
+OsFileList os_list_dirs(const char *directory, Allocator *allocator)
+{
   OsFileList result = {0};
 
   char search_path[MAX_PATH];
@@ -1311,7 +1469,8 @@ OsFileList os_list_dirs(const char *directory, Allocator *allocator) {
   WIN32_FIND_DATAA find_data;
   HANDLE find_handle = FindFirstFileA(search_path, &find_data);
 
-  if (find_handle == INVALID_HANDLE_VALUE) {
+  if (find_handle == INVALID_HANDLE_VALUE)
+  {
     return result;
   }
 
@@ -1319,16 +1478,21 @@ OsFileList os_list_dirs(const char *directory, Allocator *allocator) {
   int capacity = 256;
   char **paths = ALLOC_ARRAY(allocator, char *, capacity);
 
-  do {
-    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+  do
+  {
+    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+    {
       if (strcmp(find_data.cFileName, ".") == 0 ||
-          strcmp(find_data.cFileName, "..") == 0) {
+          strcmp(find_data.cFileName, "..") == 0)
+      {
         continue;
       }
-      if (count < capacity) {
+      if (count < capacity)
+      {
         size_t path_len = strlen(directory) + strlen(find_data.cFileName) + 2;
         char *full_path = allocator->alloc_alloc(allocator->ctx, path_len, 1);
-        if (full_path) {
+        if (full_path)
+        {
           snprintf(full_path, path_len, "%s/%s", directory,
                    find_data.cFileName);
           paths[count++] = full_path;
@@ -1344,24 +1508,30 @@ OsFileList os_list_dirs(const char *directory, Allocator *allocator) {
   return result;
 }
 
-b32 os_file_set_executable(const char *path) {
+b32 os_file_set_executable(const char *path)
+{
   UNUSED(path);
   return true;
 }
 
-char *os_cwd(char *buffer, u32 buffer_size) {
-  if (!_getcwd(buffer, buffer_size)) {
+char *os_cwd(char *buffer, u32 buffer_size)
+{
+  if (!_getcwd(buffer, buffer_size))
+  {
     return NULL;
   }
-  for (u32 i = 0; i < buffer_size && buffer[i] != '\0'; i++) {
-    if (buffer[i] == '\\') {
+  for (u32 i = 0; i < buffer_size && buffer[i] != '\0'; i++)
+  {
+    if (buffer[i] == '\\')
+    {
       buffer[i] = '/';
     }
   }
   return buffer;
 }
 
-internal i64 os_w32_int64_muldiv(i64 value, i64 numer, i64 denom) {
+internal i64 os_w32_int64_muldiv(i64 value, i64 numer, i64 denom)
+{
   i64 q = value / denom;
   i64 r = value % denom;
   return q * numer + r * numer / denom;
@@ -1369,7 +1539,8 @@ internal i64 os_w32_int64_muldiv(i64 value, i64 numer, i64 denom) {
 
 void os_time_init(void) { os_init(); }
 
-u64 os_time_now(void) {
+u64 os_time_now(void)
+{
   os_w32_assert_state_initialized();
   LARGE_INTEGER qpc_t;
   QueryPerformanceCounter(&qpc_t);
@@ -1379,10 +1550,14 @@ u64 os_time_now(void) {
   return now;
 }
 
-u64 os_time_diff(u64 new_ticks, u64 old_ticks) {
-  if (new_ticks > old_ticks) {
+u64 os_time_diff(u64 new_ticks, u64 old_ticks)
+{
+  if (new_ticks > old_ticks)
+  {
     return new_ticks - old_ticks;
-  } else {
+  }
+  else
+  {
     return 1;
   }
 }
@@ -1395,15 +1570,18 @@ f64 os_ticks_to_ns(u64 ticks) { return (f64)ticks; }
 
 void os_sleep(u64 microseconds) { Sleep((DWORD)(microseconds / 1000)); }
 
-i32 os_get_processor_count(void) {
+i32 os_get_processor_count(void)
+{
   os_w32_assert_state_initialized();
   return (i32)os_w32_state.processor_count;
 }
 
-u8 *os_allocate_memory(size_t size) {
+u8 *os_allocate_memory(size_t size)
+{
   void *memory =
       VirtualAlloc(0, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-  if (!memory) {
+  if (!memory)
+  {
     DWORD err = GetLastError();
     LOG_ERROR("VirtualAlloc failed. Size: %, Error: %", FMT_UINT(size),
               FMT_UINT(err));
@@ -1412,19 +1590,24 @@ u8 *os_allocate_memory(size_t size) {
   return memory;
 }
 
-void os_free_memory(void *ptr, size_t size) {
+void os_free_memory(void *ptr, size_t size)
+{
   UNUSED(size);
-  if (ptr) {
-    if (!VirtualFree(ptr, 0, MEM_RELEASE)) {
+  if (ptr)
+  {
+    if (!VirtualFree(ptr, 0, MEM_RELEASE))
+    {
       DWORD err = GetLastError();
       LOG_ERROR("VirtualFree failed. Error: %", FMT_UINT(err));
     }
   }
 }
 
-u8 *os_reserve_memory(size_t size) {
+u8 *os_reserve_memory(size_t size)
+{
   void *memory = VirtualAlloc(0, size, MEM_RESERVE, PAGE_READWRITE);
-  if (!memory) {
+  if (!memory)
+  {
     DWORD err = GetLastError();
     LOG_ERROR("VirtualAlloc (reserve) failed. Size: %, Error: %",
               FMT_UINT(size), FMT_UINT(err));
@@ -1433,9 +1616,11 @@ u8 *os_reserve_memory(size_t size) {
   return memory;
 }
 
-b32 os_commit_memory(void *ptr, size_t size) {
+b32 os_commit_memory(void *ptr, size_t size)
+{
   void *result = VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE);
-  if (!result) {
+  if (!result)
+  {
     DWORD err = GetLastError();
     LOG_ERROR("VirtualAlloc (commit) failed. Size: %, Error: %", FMT_UINT(size),
               FMT_UINT(err));
@@ -1444,20 +1629,23 @@ b32 os_commit_memory(void *ptr, size_t size) {
   return true;
 }
 
-u32 os_get_page_size(void) {
+u32 os_get_page_size(void)
+{
   os_w32_assert_state_initialized();
   return os_w32_state.page_size;
 }
 
 const char *os_get_compressed_texture_format_suffix(void) { return "_dxt5"; }
 
-OsKeyboardRect os_get_keyboard_rect(f32 time) {
+OsKeyboardRect os_get_keyboard_rect(f32 time)
+{
   UNUSED(time);
   OsKeyboardRect rect = {0};
   return rect;
 }
 
-OsSafeAreaInsets os_get_safe_area(void) {
+OsSafeAreaInsets os_get_safe_area(void)
+{
   OsSafeAreaInsets insets = {0};
   return insets;
 }
@@ -1465,7 +1653,8 @@ OsSafeAreaInsets os_get_safe_area(void) {
 PlatformHttpRequestOp os_start_http_request(HttpMethod method, const char *url,
                                             int url_len, const char *headers,
                                             int headers_len, const char *body,
-                                            int body_len) {
+                                            int body_len)
+{
   UNUSED(method);
   UNUSED(url);
   UNUSED(url_len);
@@ -1476,7 +1665,8 @@ PlatformHttpRequestOp os_start_http_request(HttpMethod method, const char *url,
   return -1;
 }
 
-HttpOpState os_check_http_request(PlatformHttpRequestOp op_id) {
+HttpOpState os_check_http_request(PlatformHttpRequestOp op_id)
+{
   UNUSED(op_id);
   return HTTP_OP_ERROR;
 }
@@ -1484,7 +1674,8 @@ HttpOpState os_check_http_request(PlatformHttpRequestOp op_id) {
 int32 os_get_http_response_info(PlatformHttpRequestOp op_id,
                                 _out_ int32 *status_code,
                                 _out_ int32 *headers_len,
-                                _out_ int32 *body_len) {
+                                _out_ int32 *body_len)
+{
   UNUSED(op_id);
   UNUSED(status_code);
   UNUSED(headers_len);
@@ -1493,7 +1684,8 @@ int32 os_get_http_response_info(PlatformHttpRequestOp op_id,
 }
 
 int32 os_get_http_body(PlatformHttpRequestOp op_id, char *buffer,
-                       int32 buffer_len) {
+                       int32 buffer_len)
+{
   UNUSED(op_id);
   UNUSED(buffer);
   UNUSED(buffer_len);
@@ -1503,7 +1695,8 @@ int32 os_get_http_body(PlatformHttpRequestOp op_id, char *buffer,
 PlatformHttpStreamOp os_start_http_stream(HttpMethod method, const char *url,
                                           int url_len, const char *headers,
                                           int headers_len, const char *body,
-                                          int body_len) {
+                                          int body_len)
+{
   UNUSED(method);
   UNUSED(url);
   UNUSED(url_len);
@@ -1514,25 +1707,29 @@ PlatformHttpStreamOp os_start_http_stream(HttpMethod method, const char *url,
   return -1;
 }
 
-HttpStreamState os_check_http_stream(PlatformHttpStreamOp op_id) {
+HttpStreamState os_check_http_stream(PlatformHttpStreamOp op_id)
+{
   UNUSED(op_id);
   return HTTP_STREAM_ERROR;
 }
 
 int32 os_get_http_stream_info(PlatformHttpStreamOp op_id,
-                              _out_ int32 *status_code) {
+                              _out_ int32 *status_code)
+{
   UNUSED(op_id);
   UNUSED(status_code);
   return -1;
 }
 
-int32 os_get_http_stream_chunk_size(PlatformHttpStreamOp op_id) {
+int32 os_get_http_stream_chunk_size(PlatformHttpStreamOp op_id)
+{
   UNUSED(op_id);
   return 0;
 }
 
 int32 os_get_http_stream_chunk(PlatformHttpStreamOp op_id, char *buffer,
-                               int32 buffer_len, _out_ bool32 *is_final) {
+                               int32 buffer_len, _out_ bool32 *is_final)
+{
   UNUSED(op_id);
   UNUSED(buffer);
   UNUSED(buffer_len);
@@ -1541,7 +1738,8 @@ int32 os_get_http_stream_chunk(PlatformHttpStreamOp op_id, char *buffer,
 }
 
 u32 os_mic_get_available_samples(void) { return 0; }
-u32 os_mic_read_samples(i16 *buffer, u32 max_samples) {
+u32 os_mic_read_samples(i16 *buffer, u32 max_samples)
+{
   UNUSED(buffer);
   UNUSED(max_samples);
   return 0;

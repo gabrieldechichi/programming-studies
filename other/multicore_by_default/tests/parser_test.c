@@ -6,9 +6,10 @@
 // Basic Parsing Tests
 // ============================================================================
 
-void test_parse_struct_basic(TestContext* ctx) {
+void test_parse_struct_basic(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Point { int x; int y; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -34,9 +35,10 @@ void test_parse_struct_basic(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_empty(TestContext* ctx) {
+void test_parse_struct_empty(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Empty {}";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -51,9 +53,10 @@ void test_parse_struct_empty(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_anonymous(TestContext* ctx) {
+void test_parse_struct_anonymous(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct { int value; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -73,9 +76,10 @@ void test_parse_struct_anonymous(TestContext* ctx) {
 // Typedef Tests
 // ============================================================================
 
-void test_parse_typedef_named_same(TestContext* ctx) {
+void test_parse_typedef_named_same(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "typedef struct Point { int x; int y; } Point;";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -91,9 +95,10 @@ void test_parse_typedef_named_same(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_typedef_anonymous(TestContext* ctx) {
+void test_parse_typedef_anonymous(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "typedef struct { float x; float y; } Vector2D;";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -109,9 +114,10 @@ void test_parse_typedef_anonymous(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_typedef_different_names(TestContext* ctx) {
+void test_parse_typedef_different_names(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "typedef struct Point { int x; int y; } Point2D;";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -131,9 +137,10 @@ void test_parse_typedef_different_names(TestContext* ctx) {
 // Attribute Tests
 // ============================================================================
 
-void test_parse_struct_with_struct_attributes(TestContext* ctx) {
+void test_parse_struct_with_struct_attributes(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "HZ_TASK() struct TaskData { u64 value; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -149,9 +156,10 @@ void test_parse_struct_with_struct_attributes(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_with_field_attributes(TestContext* ctx) {
+void test_parse_struct_with_field_attributes(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Data { HZ_READ() u64 input; HZ_WRITE() u64 output; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -175,9 +183,10 @@ void test_parse_struct_with_field_attributes(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_with_multiple_attributes(TestContext* ctx) {
+void test_parse_struct_with_multiple_attributes(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "HM_REFLECT() HZ_TASK() typedef struct TaskData { HZ_READ() HZ_ATOMIC() u64 counter; } TaskData;";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -199,9 +208,10 @@ void test_parse_struct_with_multiple_attributes(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_no_attributes(TestContext* ctx) {
+void test_parse_struct_no_attributes(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Plain { int x; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -220,9 +230,10 @@ void test_parse_struct_no_attributes(TestContext* ctx) {
 // Error Handling Tests
 // ============================================================================
 
-void test_parse_struct_error_missing_semicolon(TestContext* ctx) {
+void test_parse_struct_error_missing_semicolon(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Broken { int field }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -237,9 +248,10 @@ void test_parse_struct_error_missing_semicolon(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_error_missing_closing_brace(TestContext* ctx) {
+void test_parse_struct_error_missing_closing_brace(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Broken { int field;";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -254,9 +266,10 @@ void test_parse_struct_error_missing_closing_brace(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_typedef_error_missing_name(TestContext* ctx) {
+void test_parse_typedef_error_missing_name(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "typedef struct { int x; };";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -271,9 +284,10 @@ void test_parse_typedef_error_missing_name(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_error_missing_field_name(TestContext* ctx) {
+void test_parse_struct_error_missing_field_name(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Broken { int; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -288,9 +302,10 @@ void test_parse_struct_error_missing_field_name(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_error_message_format(TestContext* ctx) {
+void test_parse_error_message_format(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Broken\n{\n  int field\n}";
   Parser parser = parser_create("multiline.h", source, str_len(source), allocator);
@@ -313,9 +328,10 @@ void test_parse_error_message_format(TestContext* ctx) {
 // Pointer Tests
 // ============================================================================
 
-void test_parse_struct_with_pointer(TestContext* ctx) {
+void test_parse_struct_with_pointer(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Data { int* ptr; u64 value; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -339,9 +355,10 @@ void test_parse_struct_with_pointer(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_with_double_pointer(TestContext* ctx) {
+void test_parse_struct_with_double_pointer(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Node { char** strings; int value; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -363,9 +380,10 @@ void test_parse_struct_with_double_pointer(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_with_triple_pointer(TestContext* ctx) {
+void test_parse_struct_with_triple_pointer(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Complex { void*** ptr; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -384,9 +402,10 @@ void test_parse_struct_with_triple_pointer(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_mixed_pointers(TestContext* ctx) {
+void test_parse_struct_mixed_pointers(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Mixed { int x; float* y; char** z; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -408,18 +427,19 @@ void test_parse_struct_mixed_pointers(TestContext* ctx) {
 // Array Tests
 // ============================================================================
 
-void test_parse_struct_with_fixed_array(TestContext* ctx) {
+void test_parse_struct_with_fixed_array(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
-  const char *source = "typedef struct { u8 h[1]; } TaskHandle;";
+  const char *source = "typedef struct { u8 h[1]; } MCRHandle;";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
 
   ReflectedStruct s = {0};
   b32 success = parse_struct(&parser, &s);
 
   assert_true(success);
-  assert_str_eq(s.typedef_name.value, "TaskHandle");
+  assert_str_eq(s.typedef_name.value, "MCRHandle");
   assert_eq(s.fields.len, 1);
 
   StructField h_field = s.fields.items[0];
@@ -432,9 +452,10 @@ void test_parse_struct_with_fixed_array(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_with_larger_array(TestContext* ctx) {
+void test_parse_struct_with_larger_array(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Data { int values[256]; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -453,9 +474,10 @@ void test_parse_struct_with_larger_array(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_with_multiple_arrays(TestContext* ctx) {
+void test_parse_struct_with_multiple_arrays(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Buffers { u8 a[10]; u32 b[20]; char c[5]; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -478,9 +500,10 @@ void test_parse_struct_with_multiple_arrays(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_error_missing_array_size(TestContext* ctx) {
+void test_parse_struct_error_missing_array_size(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Bad { u8 h[]; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -495,9 +518,10 @@ void test_parse_struct_error_missing_array_size(TestContext* ctx) {
   parser_destroy(&parser);
 }
 
-void test_parse_struct_error_missing_closing_bracket(TestContext* ctx) {
+void test_parse_struct_error_missing_closing_bracket(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source = "struct Bad { u8 h[1; }";
   Parser parser = parser_create("test.h", source, str_len(source), allocator);
@@ -516,16 +540,17 @@ void test_parse_struct_error_missing_closing_bracket(TestContext* ctx) {
 // Complex Integration Tests
 // ============================================================================
 
-void test_parse_struct_comprehensive(TestContext* ctx) {
+void test_parse_struct_comprehensive(TestContext *ctx)
+{
   parser_reset_type_id();
-  Allocator* allocator = &ctx->allocator;
+  Allocator *allocator = &ctx->allocator;
 
   const char *source =
-    "HM_REFLECT() HZ_TASK() typedef struct TaskWideSum {\n"
-    "    HZ_READ() u64 values_start;\n"
-    "    HZ_READ() u64 values_end;\n"
-    "    HZ_WRITE() i64 result;\n"
-    "} TaskWideSum;";
+      "HM_REFLECT() HZ_TASK() typedef struct TaskWideSum {\n"
+      "    HZ_READ() u64 values_start;\n"
+      "    HZ_READ() u64 values_end;\n"
+      "    HZ_WRITE() i64 result;\n"
+      "} TaskWideSum;";
 
   Parser parser = parser_create("comprehensive.h", source, str_len(source), allocator);
 

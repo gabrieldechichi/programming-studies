@@ -1,61 +1,70 @@
-#include "task.h"
+#include "multicore_runtime.h"
 #include "lib/thread_context.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
-                              TaskResourceAccess *resources, u8 resources_count,
-                              TaskHandle *deps, u8 dep_count) {
-  u64 next_task_id = ins_atomic_u64_inc_eval(&queue->tasks_count) - 1;
+MCRHandle _mcr_queue_append(MCRQueue *queue, MCRFunc fn, void *data,
+                            MCRResourceAccess *resources, u8 resources_count,
+                            MCRHandle *deps, u8 dep_count)
+{
+  u64 next_mcr_id = ins_atomic_u64_inc_eval(&queue->tasks_count) - 1;
 
-  Task task = (Task){.task_func = (TaskFunc)(fn), .user_data = data};
+  Task task = (Task){.mcr_func = (MCRFunc)(fn), .user_data = data};
   task.dependency_count_remaining = dep_count;
 
-  queue->tasks_ptr[next_task_id] = task;
+  queue->tasks_ptr[next_mcr_id] = task;
 
-  TaskHandle this_task_handle = {
-      next_task_id,
+  MCRHandle this_mcr_handle = {
+      next_mcr_id,
   };
   // if we have dependencies, find dependent tasks and add this task to it's
   // dependencies
-  if (dep_count > 0) {
-    for (u8 i = 0; i < dep_count; i++) {
-      TaskHandle dependency_task_handle = deps[i];
-      Task *dependency_task = &queue->tasks_ptr[dependency_task_handle.h[0]];
+  if (dep_count > 0)
+  {
+    for (u8 i = 0; i < dep_count; i++)
+    {
+      MCRHandle dependency_mcr_handle = deps[i];
+      Task *dependency_task = &queue->tasks_ptr[dependency_mcr_handle.h[0]];
       u32 next_dependent_id =
           ins_atomic_u32_inc_eval(&dependency_task->dependents_count) - 1;
-      dependency_task->dependent_task_ids[next_dependent_id] = this_task_handle;
+      dependency_task->dependent_mcr_ids[next_dependent_id] = this_mcr_handle;
     }
-  } else {
+  }
+  else
+  {
     // if we don't have dependencies add ourselves to the ready queue directly
     u64 next_ready_id = ins_atomic_u64_inc_eval(&queue->ready_count) - 1;
-    queue->ready_queue[next_ready_id] = this_task_handle;
+    queue->ready_queue[next_ready_id] = this_mcr_handle;
   }
 
 #if DEBUG
-  if (resources == NULL) {
+  if (resources == NULL)
+  {
     resources_count = 0;
   }
 
   // store resources for race detection
   task.resources_count = resources_count;
   memcpy(task.resources, resources,
-         sizeof(TaskResourceAccess) * resources_count);
+         sizeof(MCRResourceAccess) * resources_count);
 
   // re-assign task
-  queue->tasks_ptr[next_task_id] = task;
+  queue->tasks_ptr[next_mcr_id] = task;
 
   // Check for data race conditions against all existing tasks
-  for (u8 other_task_idx = 0; other_task_idx < next_task_id; other_task_idx++) {
-    Task *other_task = &queue->tasks_ptr[other_task_idx];
+  for (u8 other_mcr_idx = 0; other_mcr_idx < next_mcr_id; other_mcr_idx++)
+  {
+    Task *other_task = &queue->tasks_ptr[other_mcr_idx];
 
     // Check each resource in this task against each resource in other task
-    for (u8 i = 0; i < resources_count; i++) {
-      TaskResourceAccess *my_resource = &task.resources[i];
+    for (u8 i = 0; i < resources_count; i++)
+    {
+      MCRResourceAccess *my_resource = &task.resources[i];
 
-      for (u8 j = 0; j < other_task->resources_count; j++) {
-        TaskResourceAccess *other_resource = &other_task->resources[j];
+      for (u8 j = 0; j < other_task->resources_count; j++)
+      {
+        MCRResourceAccess *other_resource = &other_task->resources[j];
 
         // Check if memory regions overlap
         u64 my_start = (u64)my_resource->ptr;
@@ -65,39 +74,44 @@ TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
 
         b32 overlaps = (my_start < other_end) && (other_start < my_end);
 
-        if (overlaps) {
+        if (overlaps)
+        {
           // Check if there's a conflict (at least one WRITE)
           b32 has_conflict =
-              (my_resource->access_mode == TASK_RESOURCE_TYPE_WRITE) ||
-              (other_resource->access_mode == TASK_RESOURCE_TYPE_WRITE);
+              (my_resource->access_mode == MCR_RESOURCE_TYPE_WRITE) ||
+              (other_resource->access_mode == MCR_RESOURCE_TYPE_WRITE);
 
-          if (has_conflict) {
+          if (has_conflict)
+          {
             // Verify the other task is in our dependency chain
             b32 is_dependency = 0;
-            for (u8 d = 0; d < dep_count; d++) {
-              if (deps[d].h[0] == other_task_idx) {
+            for (u8 d = 0; d < dep_count; d++)
+            {
+              if (deps[d].h[0] == other_mcr_idx)
+              {
                 is_dependency = 1;
                 break;
               }
             }
 
-            if (!is_dependency) {
+            if (!is_dependency)
+            {
               printf("RACE CONDITION DETECTED:\n"
                      "  Task %d conflicts with Task %d\n"
                      "  Memory region: [%p - %p] overlaps [%p - %p]\n"
                      "  Access modes: Task %d = %s, Task %d = %s\n"
                      "  Task %d should depend on Task %d\n",
-                     next_task_id, other_task_idx, (void *)my_start,
+                     next_mcr_id, other_mcr_idx, (void *)my_start,
                      (void *)my_end, (void *)other_start, (void *)other_end,
-                     next_task_id,
-                     my_resource->access_mode == TASK_RESOURCE_TYPE_WRITE
+                     next_mcr_id,
+                     my_resource->access_mode == MCR_RESOURCE_TYPE_WRITE
                          ? "WRITE"
                          : "READ",
-                     other_task_idx,
-                     other_resource->access_mode == TASK_RESOURCE_TYPE_WRITE
+                     other_mcr_idx,
+                     other_resource->access_mode == MCR_RESOURCE_TYPE_WRITE
                          ? "WRITE"
                          : "READ",
-                     next_task_id, other_task_idx);
+                     next_mcr_id, other_mcr_idx);
               exit(1);
             }
           }
@@ -107,10 +121,11 @@ TaskHandle _task_queue_append(TaskQueue *queue, TaskFunc fn, void *data,
   }
 #endif
 
-  return this_task_handle;
+  return this_mcr_handle;
 }
 
-void task_queue_process(TaskQueue *queue) {
+void mcr_queue_process(MCRQueue *queue)
+{
   ThreadContext *tctx = tctx_current();
   queue->ready_counter = 0;
   queue->next_ready_count = 0;
@@ -118,25 +133,29 @@ void task_queue_process(TaskQueue *queue) {
   printf("thread %d: start processing queue\n", tctx->thread_idx);
 
 process_queue_loop:
-  for (;;) {
+  for (;;)
+  {
     u64 ready_idx = ins_atomic_u64_inc_eval(&queue->ready_counter) - 1;
     // we have ready tasks
-    if (ready_idx < queue->ready_count) {
-      TaskHandle ready_task_handle = queue->ready_queue[ready_idx];
+    if (ready_idx < queue->ready_count)
+    {
+      MCRHandle ready_mcr_handle = queue->ready_queue[ready_idx];
       printf("thread %d: executing task handle %d (%d)\n", tctx->thread_idx,
-             ready_idx, ready_task_handle.h[0]);
+             ready_idx, ready_mcr_handle.h[0]);
       // note: should we assume valid task here?
-      Task *task = &queue->tasks_ptr[ready_task_handle.h[0]];
-      task->task_func(task->user_data);
+      Task *task = &queue->tasks_ptr[ready_mcr_handle.h[0]];
+      task->mcr_func(task->user_data);
 
-      for (u32 i = 0; i < task->dependents_count; i++) {
-        TaskHandle dependent_handle = task->dependent_task_ids[i];
+      for (u32 i = 0; i < task->dependents_count; i++)
+      {
+        MCRHandle dependent_handle = task->dependent_mcr_ids[i];
         Task *dependent = &queue->tasks_ptr[dependent_handle.h[0]];
         // todo: what if this wraps to max u32?
         i32 dependency_count_remaining =
             ins_atomic_u32_dec_eval(&dependent->dependency_count_remaining);
         // add to the ready queue
-        if (dependency_count_remaining == 0) {
+        if (dependency_count_remaining == 0)
+        {
           printf("thread %d: adding task %d to ready queue\n", tctx->thread_idx,
                  dependent_handle.h[0]);
           // todo: fix repeated code (thread safe array?)
@@ -146,8 +165,10 @@ process_queue_loop:
         }
       }
       printf("thread %d: done executing task %d\n", tctx->thread_idx,
-             ready_task_handle.h[0]);
-    } else {
+             ready_mcr_handle.h[0]);
+    }
+    else
+    {
       // done
       break;
     }
@@ -160,14 +181,16 @@ process_queue_loop:
          "queue. count %d\n",
          tctx->thread_idx, queue->next_ready_count);
 
-  if (queue->next_ready_count > 0) {
+  if (queue->next_ready_count > 0)
+  {
     // sync here to prevent main thread from gettin ghere to fast and seting
     // next_ready_count = 0
     lane_sync();
-    if (is_main_thread()) {
+    if (is_main_thread())
+    {
       // todo: too big
       memcpy(queue->ready_queue, queue->next_ready_queue,
-             sizeof(TaskHandle) * queue->next_ready_count);
+             sizeof(MCRHandle) * queue->next_ready_count);
       queue->ready_count = queue->next_ready_count;
       queue->ready_counter = 0;
       queue->next_ready_count = 0;

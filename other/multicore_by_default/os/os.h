@@ -5,7 +5,8 @@
 
 b32 os_is_mobile();
 
-typedef enum {
+typedef enum
+{
   OS_THERMAL_STATE_UNKNOWN = 0,
   OS_THERMAL_STATE_NOMINAL,
   OS_THERMAL_STATE_FAIR,
@@ -15,17 +16,23 @@ typedef enum {
 
 HZ_ENGINE_API OSThermalState os_get_thermal_state(void);
 
-typedef enum { LOGLEVEL_INFO, LOGLEVEL_WARN, LOGLEVEL_ERROR } LogLevel;
+typedef enum
+{
+  LOGLEVEL_INFO,
+  LOGLEVEL_WARN,
+  LOGLEVEL_ERROR
+} LogLevel;
 HZ_ENGINE_API void os_log(LogLevel log_level, const char *fmt,
                           const FmtArgs *args, const char *file_name,
                           uint32 line_number);
 
-#define PLATFORM_LOG(level, fmt, ...)                                          \
-  do {                                                                         \
-    FmtArg args[] = {(FmtArg){.type = 0}, ##__VA_ARGS__};                      \
-    size_t _count = (sizeof(args) / sizeof(FmtArg)) - 1;                       \
-    FmtArgs fmtArgs = {args + 1, (u8)_count};                                  \
-    os_log(level, fmt, &fmtArgs, __FILE_NAME__, __LINE__);                     \
+#define PLATFORM_LOG(level, fmt, ...)                      \
+  do                                                       \
+  {                                                        \
+    FmtArg args[] = {(FmtArg){.type = 0}, ##__VA_ARGS__};  \
+    size_t _count = (sizeof(args) / sizeof(FmtArg)) - 1;   \
+    FmtArgs fmtArgs = {args + 1, (u8)_count};              \
+    os_log(level, fmt, &fmtArgs, __FILE_NAME__, __LINE__); \
   } while (0)
 
 #define LOG_INFO(fmt, ...) PLATFORM_LOG(LOGLEVEL_INFO, fmt, ##__VA_ARGS__)
@@ -42,7 +49,8 @@ HZ_ENGINE_API bool32 os_write_file(const char *file_path, u8 *buffer,
                                    size_t buffer_len);
 HZ_ENGINE_API bool32 os_create_dir(const char *dir_path);
 
-typedef struct {
+typedef struct
+{
   uint32 buffer_len;
   uint8 *buffer;
   bool32 success;
@@ -51,7 +59,8 @@ typedef struct {
 HZ_ENGINE_API PlatformFileData os_read_file(const char *file_path,
                                             Allocator *allocator);
 
-typedef enum {
+typedef enum
+{
   OS_FILE_READ_STATE_NONE = 0,
   OS_FILE_READ_STATE_IN_PROGRESS = 1,
   OS_FILE_READ_STATE_COMPLETED = 2,
@@ -66,7 +75,8 @@ HZ_ENGINE_API void os_show_keyboard(b32 show, f32 time);
 HZ_ENGINE_API b32 os_is_keyboard_shown();
 HZ_ENGINE_API void os_set_text_input(const char *text, uint32_t cursor_pos, uint32_t selection_length);
 
-typedef struct {
+typedef struct
+{
   f32 x;
   f32 y;
   f32 width;
@@ -75,7 +85,8 @@ typedef struct {
 
 HZ_ENGINE_API OsKeyboardRect os_get_keyboard_rect(f32 time);
 
-typedef struct {
+typedef struct
+{
   f32 top;
   f32 left;
   f32 bottom;
@@ -87,21 +98,24 @@ HZ_ENGINE_API OsSafeAreaInsets os_get_safe_area(void);
 /*!
  * HTTP Requests
  * */
-typedef enum {
+typedef enum
+{
   HTTP_METHOD_GET = 0,
   HTTP_METHOD_POST = 1,
   HTTP_METHOD_PUT = 2,
   HTTP_METHOD_DELETE = 3
 } HttpMethod;
 
-typedef enum {
+typedef enum
+{
   HTTP_OP_NONE = 0,
   HTTP_OP_IN_PROGRESS = 1,
   HTTP_OP_COMPLETED = 2,
   HTTP_OP_ERROR = 3
 } HttpOpState;
 
-typedef enum {
+typedef enum
+{
   HTTP_SUCCESS = 0,
   HTTP_NETWORK_ERROR = 1,
   HTTP_TIMEOUT = 2,
@@ -130,7 +144,8 @@ HZ_ENGINE_API int32 os_get_http_body(PlatformHttpRequestOp op_id, char *buffer,
 /*!
  * HTTP Streaming
  * */
-typedef enum {
+typedef enum
+{
   HTTP_STREAM_NOT_STARTED = 0,
   HTTP_STREAM_READY = 1,
   HTTP_STREAM_HAS_CHUNK = 2,
@@ -225,7 +240,7 @@ HZ_ENGINE_API void os_barrier_wait(Barrier b);
 typedef struct TaskSystem TaskSystem;
 
 HZ_ENGINE_API OsFileOp *os_start_read_file(const char *file_path,
-                                           TaskSystem *task_system);
+                                           TaskSystem *mcr_system);
 HZ_ENGINE_API OsFileReadState os_check_read_file(OsFileOp *op);
 HZ_ENGINE_API i32 os_get_file_size(OsFileOp *op);
 HZ_ENGINE_API b32 os_get_file_data(OsFileOp *op,
@@ -246,7 +261,8 @@ HZ_ENGINE_API OsDynSymbol os_dynlib_get_symbol(OsDynLib lib,
 /*!
  * File System
  * */
-typedef struct {
+typedef struct
+{
   i64 modification_time;
   b32 exists;
 } OsFileInfo;
@@ -260,7 +276,8 @@ HZ_ENGINE_API b32 os_directory_remove(const char *path);
 HZ_ENGINE_API b32 os_symlink(const char *target_path, const char *link_path);
 HZ_ENGINE_API b32 os_system(const char *command);
 
-typedef struct {
+typedef struct
+{
   char **paths;
   i32 count;
 } OsFileList;
@@ -295,7 +312,8 @@ HZ_ENGINE_API u32 os_get_page_size(void);
 /*!
  * Compressed Texture Format Detection
  * */
-typedef enum {
+typedef enum
+{
   COMPRESSED_TEXTURE_FORMAT_NONE = 0,
   COMPRESSED_TEXTURE_FORMAT_DXT5,
   COMPRESSED_TEXTURE_FORMAT_ETC2,
@@ -309,7 +327,8 @@ HZ_ENGINE_API const char *os_get_compressed_texture_format_suffix(void);
  * */
 typedef i32 OsVideoDecoder;
 
-typedef struct {
+typedef struct
+{
   u32 width;
   u32 height;
   f32 duration_seconds;
@@ -319,7 +338,8 @@ typedef struct {
   i32 audio_channels;
 } OsVideoInfo;
 
-typedef enum {
+typedef enum
+{
   OS_VIDEO_DECODE_OK = 0,
   OS_VIDEO_DECODE_EOF = 1,
   OS_VIDEO_DECODE_ERROR = 2,
@@ -339,7 +359,6 @@ HZ_ENGINE_API i32 os_video_decoder_get_audio(OsVideoDecoder handle,
 
 HZ_ENGINE_API OsVideoDecodeResult os_video_decoder_seek(OsVideoDecoder handle,
                                                         f32 time_seconds);
-
 
 HZ_ENGINE_API u32 os_mic_get_available_samples(void);
 HZ_ENGINE_API u32 os_mic_read_samples(i16 *buffer, u32 max_samples);

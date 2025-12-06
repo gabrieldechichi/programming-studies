@@ -5,7 +5,7 @@
 #include "lib/thread.c"
 #include "lib/thread_context.h"
 #include "lib/thread_context.c"
-#include "lib/task.c"
+#include "lib/multicore_runtime.c"
 #include "os/os.c"
 // #include "multicore_homogeneous.c"
 #include "multicore_tasks.c"

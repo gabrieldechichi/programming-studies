@@ -9,7 +9,7 @@ CodeStringBuilder csb_create(char *file_name, Allocator *allocator, u32 cap) {
   csb_append_line_format(&csb, "#ifndef H_%_GEN", FMT_STR(csb.file_name));
   csb_append_line_format(&csb, "#define H_%_GEN", FMT_STR(csb.file_name));
   csb_append_line(&csb, "#include <stdarg.h>");
-  csb_append_line(&csb, "#include \"lib/task.h\"");
+  csb_append_line(&csb, "#include \"lib/multicore_runtime.h\"");
   csb_append_line_format(&csb, "#include \"%.h\"", FMT_STR(csb.file_name));
   csb_append_line(&csb, "");
 
