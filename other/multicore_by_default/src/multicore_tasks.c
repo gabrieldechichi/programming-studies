@@ -105,28 +105,7 @@ int main(void)
   u8 thread_count = core_count * thread_mult;
 
   printf("Core count %d Thread count %d\n", core_count, thread_count);
-
-  Thread *threads = malloc(thread_count * sizeof(Thread));
-  ThreadContext *thread_ctx_arr = malloc(thread_count * sizeof(ThreadContext));
-  Barrier barrier = barrier_alloc(thread_count);
-
-  u64 broadcast_memory = 0;
-  for (u8 i = 0; i < thread_count; i++)
-  {
-    thread_ctx_arr[i] = (ThreadContext){
-        .thread_idx = i,
-        .thread_count = thread_count,
-        .barrier = &barrier,
-        .broadcast_memory = &broadcast_memory,
-        .temp_arena = arena_from_buffer(calloc(1, MB(8)), MB(8)),
-    };
-    threads[i] = thread_launch(entrypoint_internal, &thread_ctx_arr[i]);
-  }
-
-  for (u8 i = 0; i < thread_count; i++)
-  {
-    thread_join(threads[i], SECS_TO_MCS(1000));
-  }
+  mcr_run(thread_count, MB(8), entrypoint);
 
   return 0;
 }
