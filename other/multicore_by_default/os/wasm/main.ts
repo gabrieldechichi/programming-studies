@@ -1,94 +1,9 @@
-import { createFileSystemFunctions } from "./os_fs.js";
-import { createWebGLRenderer } from "./renderer.js";
+import { createFileSystemFunctions } from "./os_fs.ts";
+import { createWebGLRenderer } from "./renderer.ts";
+import { createAudioFunctions } from "./audio.ts";
+import { WasmMemoryInterface } from "./wasm_memory.ts";
 
-const canvas = document.getElementById("canvas");
-
-class HandleArray {
-  constructor() {
-    this.items = [];
-    this.freelist = [];
-    this.num = 0;
-  }
-
-  add(v) {
-    if (this.freelist.length > 0) {
-      const h = this.freelist.pop();
-      h.gen += 1;
-      v.handle = h;
-      this.items[h.idx] = v;
-      this.num += 1;
-      return h;
-    }
-
-    if (this.items.length === 0) {
-      this.items.push(null);
-    }
-
-    const idx = this.items.length;
-    v.handle = { idx, gen: 1 };
-    this.items.push(v);
-    this.num += 1;
-    return v.handle;
-  }
-
-  get(h) {
-    const item = this.items[h.idx];
-    if (!item) {
-      return null;
-    }
-    if (
-      h.idx > 0 &&
-      h.idx < this.items.length &&
-      item.handle.idx === h.idx &&
-      item.handle.gen === h.gen
-    ) {
-      return item;
-    }
-    return null;
-  }
-
-  getAssert(h) {
-    const item = this.get(h);
-    if (!item) {
-      console.error(`Failed to find item for handle ${h.idx} ${h.gen}`);
-    }
-    return item;
-  }
-
-  set(h, value) {
-    const item = this.items[h.idx];
-    if (!item) {
-      return;
-    }
-    if (
-      h.idx > 0 &&
-      h.idx < this.items.length &&
-      item.handle.idx === h.idx &&
-      item.handle.gen === h.gen
-    ) {
-      this.items[h.idx] = value;
-      value.handle = h;
-    }
-  }
-}
-
-function createSimpleRenderer(canvas) {
-  const gl = canvas.getContext("webgl2", {
-    antialias: true,
-    powerPreference: "high-performance",
-  });
-  if (!gl) {
-    throw new Error("WebGL2 not supported");
-  }
-
-  const textures = new HandleArray();
-
-  return {
-    gl,
-    canvas,
-    textures,
-  };
-}
+const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 
 const InputButton = {
   KEY_A: 0,
@@ -163,7 +78,7 @@ const InputButton = {
   MOUSE_LEFT: 69,
   MOUSE_RIGHT: 70,
   MOUSE_MIDDLE: 71,
-};
+} as const;
 
 const InputEventType = {
   INPUT_EVENT_KEYDOWN: 0,
@@ -172,9 +87,9 @@ const InputEventType = {
   INPUT_EVENT_TOUCH_END: 3,
   INPUT_EVENT_TOUCH_MOVE: 4,
   INPUT_EVENT_SCROLL: 5,
-};
+} as const;
 
-const keyCodeToButton = [
+const keyCodeToButton: [string, number][] = [
   ["KeyA", InputButton.KEY_A],
   ["KeyB", InputButton.KEY_B],
   ["KeyC", InputButton.KEY_C],
@@ -254,72 +169,85 @@ const mouseButtonMap = [
   InputButton.MOUSE_RIGHT,
 ];
 
-class WasmMemory {
-  constructor(memory) {
-    this.memory = memory;
-  }
-
-  loadString(ptr, len) {
-    const bytes = new Uint8Array(this.memory.buffer, ptr, len);
-    return new TextDecoder().decode(bytes);
-  }
-
-  loadF32Array(ptr, count) {
-    return new Float32Array(this.memory.buffer, ptr, count);
-  }
-
-  loadU32Array(ptr, count) {
-    return new Uint32Array(this.memory.buffer, ptr, count);
-  }
-}
-
 class StructWriter {
-  constructor(memory, baseOffset) {
+  buffer: ArrayBuffer;
+  view: DataView;
+  offset: number;
+
+  constructor(memory: WebAssembly.Memory, baseOffset: number) {
     this.buffer = memory.buffer;
     this.view = new DataView(this.buffer);
     this.offset = baseOffset;
   }
 
-  writeF32(value) {
+  writeF32(value: number): this {
     this.view.setFloat32(this.offset, value, true);
     this.offset += 4;
     return this;
   }
 
-  writeU32(value) {
+  writeU32(value: number): this {
     this.view.setUint32(this.offset, value, true);
     this.offset += 4;
     return this;
   }
 
-  skip(bytes) {
+  skip(bytes: number): this {
     this.offset += bytes;
     return this;
   }
 
-  reset(baseOffset) {
+  reset(baseOffset: number): this {
     this.offset = baseOffset;
     return this;
   }
 
-  getCurrentOffset() {
+  getCurrentOffset(): number {
     return this.offset;
   }
 }
 
+interface GameInputEvent {
+  type: number;
+  keyType?: number;
+  touchId?: number;
+  touchX?: number;
+  touchY?: number;
+  scrollDeltaX?: number;
+  scrollDeltaY?: number;
+}
+
 class AppMemoryWriter {
+  writer: StructWriter;
+  baseOffset: number;
+  permanentMemorySize: number;
+  temporaryMemorySize: number;
+  permanentMemoryCommitted: number;
+  temporaryMemoryCommitted: number;
+  permanentMemoryPtr: number;
+  temporaryMemoryPtr: number;
+  time: { now: number; dt: number };
+  canvas: { width: number; height: number };
+  inputEvents: {
+    mouseX: number;
+    mouseY: number;
+    events: GameInputEvent[];
+  };
+
   constructor(
-    wasmMemory,
-    baseOffset,
-    permanentMemorySize,
-    temporaryMemorySize,
-    permanentMemoryPtr,
-    temporaryMemoryPtr
+    wasmMemory: WasmMemoryInterface,
+    baseOffset: number,
+    permanentMemorySize: number,
+    temporaryMemorySize: number,
+    permanentMemoryPtr: number,
+    temporaryMemoryPtr: number,
   ) {
     this.writer = new StructWriter(wasmMemory.memory, baseOffset);
     this.baseOffset = baseOffset;
     this.permanentMemorySize = permanentMemorySize;
     this.temporaryMemorySize = temporaryMemorySize;
+    this.permanentMemoryCommitted = permanentMemorySize;
+    this.temporaryMemoryCommitted = temporaryMemorySize;
     this.permanentMemoryPtr = permanentMemoryPtr;
     this.temporaryMemoryPtr = temporaryMemoryPtr;
 
@@ -340,7 +268,7 @@ class AppMemoryWriter {
     };
   }
 
-  write() {
+  write(): this {
     this.writer.reset(this.baseOffset);
 
     this.writer
@@ -362,20 +290,20 @@ class AppMemoryWriter {
           event.type === InputEventType.INPUT_EVENT_KEYDOWN ||
           event.type === InputEventType.INPUT_EVENT_KEYUP
         ) {
-          this.writer.writeU32(event.keyType).skip(8);
+          this.writer.writeU32(event.keyType!).skip(8);
         } else if (
           event.type === InputEventType.INPUT_EVENT_TOUCH_START ||
           event.type === InputEventType.INPUT_EVENT_TOUCH_END ||
           event.type === InputEventType.INPUT_EVENT_TOUCH_MOVE
         ) {
           this.writer
-            .writeU32(event.touchId)
-            .writeF32(event.touchX)
-            .writeF32(event.touchY);
+            .writeU32(event.touchId!)
+            .writeF32(event.touchX!)
+            .writeF32(event.touchY!);
         } else if (event.type === InputEventType.INPUT_EVENT_SCROLL) {
           this.writer
-            .writeF32(event.scrollDeltaX)
-            .writeF32(event.scrollDeltaY)
+            .writeF32(event.scrollDeltaX!)
+            .writeF32(event.scrollDeltaY!)
             .skip(4);
         } else {
           this.writer.skip(12);
@@ -391,6 +319,8 @@ class AppMemoryWriter {
       .writeU32(0)
       .writeU32(this.permanentMemorySize)
       .writeU32(this.temporaryMemorySize)
+      .writeU32(this.permanentMemoryCommitted)
+      .writeU32(this.temporaryMemoryCommitted)
       .writeU32(this.permanentMemoryPtr)
       .writeU32(this.temporaryMemoryPtr);
 
@@ -398,68 +328,182 @@ class AppMemoryWriter {
   }
 }
 
-async function runGame() {
+interface WasmExports extends WebAssembly.Exports {
+  app_init: (offset: number) => void;
+  app_update_and_render: (offset: number) => void;
+  app_on_reload: (offset: number) => void;
+  app_memory_size: () => number;
+  os_get_heap_base: () => number;
+  app_ctx_current: () => number;
+  app_ctx_set: (ctxPtr: number) => void;
+}
+
+interface GameState {
+  memory: WebAssembly.Memory;
+  wasmMemory: WasmMemoryInterface;
+  appMemory: AppMemoryWriter;
+  appMemoryOffset: number;
+  exports: {
+    app_init: (offset: number) => void;
+    app_update_and_render: (offset: number) => void;
+    app_on_reload: (offset: number) => void;
+    app_ctx_current: () => number;
+    app_ctx_set: (ctxPtr: number) => void;
+  };
+  renderer: ReturnType<typeof createWebGLRenderer>;
+  fsFunctions: ReturnType<typeof createFileSystemFunctions>;
+  audioFunctions: ReturnType<typeof createAudioFunctions>;
+  platform: {
+    audioContext: AudioContext | null;
+    audioWorkletNode: AudioWorkletNode | null;
+  };
+  isRunning: boolean;
+}
+
+async function loadWasmModule(
+  memory: WebAssembly.Memory,
+  wasmMemory: WasmMemoryInterface,
+  renderer: ReturnType<typeof createWebGLRenderer>,
+  fsFunctions: ReturnType<typeof createFileSystemFunctions>,
+  audioFunctions: ReturnType<typeof createAudioFunctions>,
+): Promise<WasmExports> {
+  const wasmPath = `./game.wasm?v=${Date.now()}`;
+  const response = await fetch(wasmPath);
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch WASM: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const bytes = await response.arrayBuffer();
+  console.log(`Loaded ${bytes.byteLength} bytes`);
+
+  function _os_log_info(
+    ptr: number,
+    len: number,
+    fileNamePtr: number,
+    fileNameLen: number,
+    lineNumber: number,
+  ): void {
+    const message = wasmMemory.loadString(ptr, len);
+    const fileName = wasmMemory.loadString(fileNamePtr, fileNameLen);
+    console.log(`${fileName}:${lineNumber}: ${message}`);
+  }
+
+  function _os_log_warn(
+    ptr: number,
+    len: number,
+    fileNamePtr: number,
+    fileNameLen: number,
+    lineNumber: number,
+  ): void {
+    const message = wasmMemory.loadString(ptr, len);
+    const fileName = wasmMemory.loadString(fileNamePtr, fileNameLen);
+    console.warn(`${fileName}:${lineNumber}: ${message}`);
+  }
+
+  function _os_log_error(
+    ptr: number,
+    len: number,
+    fileNamePtr: number,
+    fileNameLen: number,
+    lineNumber: number,
+  ): void {
+    const message = wasmMemory.loadString(ptr, len);
+    const fileName = wasmMemory.loadString(fileNamePtr, fileNameLen);
+    console.error(`${fileName}:${lineNumber}: ${message}`);
+  }
+
+  function _os_lock_mouse(lock: number): void {
+    if (lock) {
+      canvas.requestPointerLock();
+    } else {
+      document.exitPointerLock();
+    }
+  }
+
+  function _os_is_mouse_locked(): number {
+    return document.pointerLockElement === canvas ? 1 : 0;
+  }
+
+  const wasmModule = await WebAssembly.instantiate(bytes, {
+    env: {
+      memory,
+      _os_log_info,
+      _os_log_warn,
+      _os_log_error,
+      _os_lock_mouse,
+      _os_is_mouse_locked,
+      ...fsFunctions,
+      ...renderer,
+      _platform_audio_write_samples:
+        audioFunctions._platform_audio_write_samples,
+      _platform_audio_get_sample_rate:
+        audioFunctions._platform_audio_get_sample_rate,
+      _platform_audio_get_samples_needed:
+        audioFunctions._platform_audio_get_samples_needed,
+      _platform_audio_update: audioFunctions._platform_audio_update,
+      _platform_audio_shutdown: audioFunctions._platform_audio_shutdown,
+    },
+    wasi_snapshot_preview1: {
+      fd_close: (_fd: number): number => 0,
+      fd_seek: (_fd: number, _offset: bigint, _whence: number, _newoffset: number): number => 0,
+      fd_write: (_fd: number, _iovs: number, _iovsLen: number, _nwritten: number): number => 0,
+    },
+  });
+
+  return wasmModule.instance.exports as WasmExports;
+}
+
+async function runGame(): Promise<void> {
   try {
     console.log("Loading WASM...");
 
-    const pageCount = 16384 * 2;
+    const pageCount = 16384 * 4;
     const memory = new WebAssembly.Memory({
       initial: pageCount,
       maximum: pageCount,
     });
-    const wasmMemory = new WasmMemory(memory);
+    const wasmMemory = new WasmMemoryInterface(memory);
 
-    function _os_log_info(ptr, len, fileNamePtr, fileNameLen, lineNumber) {
-      const message = wasmMemory.loadString(ptr, len);
-      const fileName = wasmMemory.loadString(fileNamePtr, fileNameLen);
-      console.log(`${fileName}:${lineNumber}: ${message}`);
-    }
+    const platform = {
+      audioContext: null as AudioContext | null,
+      audioWorkletNode: null as AudioWorkletNode | null,
+    };
 
-    function _os_log_warn(ptr, len, fileNamePtr, fileNameLen, lineNumber) {
-      const message = wasmMemory.loadString(ptr, len);
-      const fileName = wasmMemory.loadString(fileNamePtr, fileNameLen);
-      console.warn(`${fileName}:${lineNumber}: ${message}`);
-    }
-
-    function _os_log_error(ptr, len, fileNamePtr, fileNameLen, lineNumber) {
-      const message = wasmMemory.loadString(ptr, len);
-      const fileName = wasmMemory.loadString(fileNamePtr, fileNameLen);
-      console.error(`${fileName}:${lineNumber}: ${message}`);
-    }
-
-    const simpleRenderer = createSimpleRenderer(canvas);
-    const fsFunctions = createFileSystemFunctions(wasmMemory, simpleRenderer);
     const renderer = createWebGLRenderer(wasmMemory, canvas);
+    const fsFunctions = createFileSystemFunctions(wasmMemory);
+    const audioFunctions = createAudioFunctions(wasmMemory, platform);
 
-    const wasmPath = `/out/wasm/game.wasm?v=${Date.now()}`;
-    const response = await fetch(wasmPath);
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch WASM: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const bytes = await response.arrayBuffer();
-    console.log(`Loaded ${bytes.byteLength} bytes`);
-
-    const wasmModule = await WebAssembly.instantiate(bytes, {
-      env: {
-        memory,
-        _os_log_info,
-        _os_log_warn,
-        _os_log_error,
-        ...fsFunctions,
-        ...renderer,
-      },
-    });
-
+    const wasmExports = await loadWasmModule(
+      memory,
+      wasmMemory,
+      renderer,
+      fsFunctions,
+      audioFunctions,
+    );
     console.log("WASM instantiated");
 
-    const { app_init, app_update_and_render, app_memory_size, os_get_heap_base } =
-      wasmModule.instance.exports;
+    const {
+      app_init,
+      app_update_and_render,
+      app_on_reload,
+      app_memory_size,
+      os_get_heap_base,
+      app_ctx_set,
+      app_ctx_current,
+    } = wasmExports;
 
-    if (!app_init || !app_update_and_render || !app_memory_size || !os_get_heap_base) {
+    if (
+      !app_init ||
+      !app_update_and_render ||
+      !app_on_reload ||
+      !app_memory_size ||
+      !os_get_heap_base ||
+      !app_ctx_current ||
+      !app_ctx_set
+    ) {
       throw new Error("Missing required WASM exports");
     }
 
@@ -476,10 +520,16 @@ async function runGame() {
     const permanentMemoryPtr = AppMemoryOffset + appMemoryStructSize;
     const temporaryMemoryPtr = permanentMemoryPtr + permanentMemorySize;
 
-    console.log(`Total memory: ${totalMemory} bytes (${totalMemory / 1024 / 1024} MB)`);
+    console.log(
+      `Total memory: ${totalMemory} bytes (${totalMemory / 1024 / 1024} MB)`,
+    );
     console.log(`Usable memory: ${usableMemory} bytes`);
-    console.log(`Permanent memory: ${permanentMemorySize} bytes at offset ${permanentMemoryPtr}`);
-    console.log(`Temporary memory: ${temporaryMemorySize} bytes at offset ${temporaryMemoryPtr}`);
+    console.log(
+      `Permanent memory: ${permanentMemorySize} bytes at offset ${permanentMemoryPtr}`,
+    );
+    console.log(
+      `Temporary memory: ${temporaryMemorySize} bytes at offset ${temporaryMemoryPtr}`,
+    );
 
     const appMemory = new AppMemoryWriter(
       wasmMemory,
@@ -487,18 +537,18 @@ async function runGame() {
       permanentMemorySize,
       temporaryMemorySize,
       permanentMemoryPtr,
-      temporaryMemoryPtr
+      temporaryMemoryPtr,
     );
 
     const maxInputEvents = 20;
 
-    function preventContextMenu(e) {
+    function preventContextMenu(e: MouseEvent): boolean {
       e.preventDefault();
       e.stopPropagation();
       return false;
     }
 
-    function handleKeyDown(event) {
+    function handleKeyDown(event: KeyboardEvent): void {
       const button = keyCodeMap.get(event.code);
       if (
         button !== undefined &&
@@ -511,7 +561,7 @@ async function runGame() {
       }
     }
 
-    function handleKeyUp(event) {
+    function handleKeyUp(event: KeyboardEvent): void {
       const button = keyCodeMap.get(event.code);
       if (
         button !== undefined &&
@@ -524,7 +574,7 @@ async function runGame() {
       }
     }
 
-    function handleMouseMove(event) {
+    function handleMouseMove(event: MouseEvent): void {
       if (document.pointerLockElement === canvas) {
         appMemory.inputEvents.mouseX += event.movementX;
         appMemory.inputEvents.mouseY += event.movementY;
@@ -535,7 +585,7 @@ async function runGame() {
       }
     }
 
-    function handleMouseDown(event) {
+    function handleMouseDown(event: MouseEvent): void {
       const button = mouseButtonMap[event.button];
       if (
         button !== undefined &&
@@ -548,7 +598,7 @@ async function runGame() {
       }
     }
 
-    function handleMouseUp(event) {
+    function handleMouseUp(event: MouseEvent): void {
       const button = mouseButtonMap[event.button];
       if (
         button !== undefined &&
@@ -561,7 +611,7 @@ async function runGame() {
       }
     }
 
-    function handleTouchStart(event) {
+    function handleTouchStart(event: TouchEvent): void {
       event.preventDefault();
       for (
         let i = 0;
@@ -579,7 +629,7 @@ async function runGame() {
       }
     }
 
-    function handleTouchEnd(event) {
+    function handleTouchEnd(event: TouchEvent): void {
       event.preventDefault();
       for (
         let i = 0;
@@ -597,7 +647,7 @@ async function runGame() {
       }
     }
 
-    function handleTouchMove(event) {
+    function handleTouchMove(event: TouchEvent): void {
       event.preventDefault();
       for (
         let i = 0;
@@ -615,7 +665,7 @@ async function runGame() {
       }
     }
 
-    function handleWheel(event) {
+    function handleWheel(event: WheelEvent): void {
       if (appMemory.inputEvents.events.length < maxInputEvents) {
         appMemory.inputEvents.events.push({
           type: InputEventType.INPUT_EVENT_SCROLL,
@@ -625,9 +675,17 @@ async function runGame() {
       }
     }
 
-    function handleResize() {
+    function handleResize(): void {
       canvas.width = window.innerWidth * window.devicePixelRatio;
       canvas.height = window.innerHeight * window.devicePixelRatio;
+    }
+
+    function handleFocus(): void {
+      canvas.requestPointerLock();
+    }
+
+    function handleBlur(): void {
+      document.exitPointerLock();
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -641,6 +699,8 @@ async function runGame() {
     canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
     canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
     canvas.addEventListener("wheel", handleWheel);
+    canvas.addEventListener("focus", handleFocus);
+    canvas.addEventListener("blur", handleBlur);
     handleResize();
 
     appMemory.time.now = performance.now() / 1000;
@@ -648,6 +708,10 @@ async function runGame() {
     appMemory.canvas.width = canvas.width / window.devicePixelRatio;
     appMemory.canvas.height = canvas.height / window.devicePixelRatio;
     appMemory.write();
+
+    console.log("Initializing audio...");
+    await audioFunctions.initializeAudio();
+    console.log("Audio initialized");
 
     console.log("Initializing game...");
     app_init(AppMemoryOffset);
@@ -666,25 +730,44 @@ async function runGame() {
 
     let isRunning = true;
 
-    function tick() {
-      if (!isRunning) {
+    const gameState: GameState = {
+      memory,
+      wasmMemory,
+      appMemory,
+      appMemoryOffset: AppMemoryOffset,
+      exports: {
+        app_init,
+        app_update_and_render,
+        app_on_reload,
+        app_ctx_set,
+        app_ctx_current,
+      },
+      renderer,
+      fsFunctions,
+      audioFunctions,
+      platform,
+      isRunning: true,
+    };
+
+    function tick(): void {
+      if (!isRunning || !gameState.isRunning) {
         return;
       }
 
       {
-        let startFrameMs = performance.now();
-        let lastStartFrameMs = time.nowMs;
-        let lastFrameDtMs = startFrameMs - lastStartFrameMs;
-
-        if (lastFrameDtMs < targetFrameTimeMs - sleepToleranceMs) {
-          requestAnimationFrame(tick);
-          return;
-        }
-
-        while (lastFrameDtMs < targetFrameTimeMs - loopSleepToleranceMs) {
-          startFrameMs = performance.now();
-          lastFrameDtMs = startFrameMs - lastStartFrameMs;
-        }
+        // let startFrameMs = performance.now();
+        // let lastStartFrameMs = time.nowMs;
+        // let lastFrameDtMs = startFrameMs - lastStartFrameMs;
+        //
+        // if (lastFrameDtMs < targetFrameTimeMs - sleepToleranceMs) {
+        //   requestAnimationFrame(tick);
+        //   return;
+        // }
+        //
+        // while (lastFrameDtMs < targetFrameTimeMs - loopSleepToleranceMs) {
+        //   startFrameMs = performance.now();
+        //   lastFrameDtMs = startFrameMs - lastStartFrameMs;
+        // }
       }
 
       time.nowMs = performance.now();
@@ -699,15 +782,66 @@ async function runGame() {
 
       appMemory.write();
 
-      app_update_and_render(AppMemoryOffset);
+      gameState.exports.app_update_and_render(AppMemoryOffset);
 
       requestAnimationFrame(tick);
     }
 
+    async function hotReload(): Promise<void> {
+      console.log("Hot reloading WASM...");
+      gameState.isRunning = false;
+
+      try {
+        const current_app_ctx_ptr = gameState.exports.app_ctx_current();
+        const newExports = await loadWasmModule(
+          gameState.memory,
+          gameState.wasmMemory,
+          gameState.renderer,
+          gameState.fsFunctions,
+          gameState.audioFunctions,
+        );
+
+        gameState.exports.app_init = newExports.app_init;
+        gameState.exports.app_update_and_render =
+          newExports.app_update_and_render;
+        gameState.exports.app_on_reload = newExports.app_on_reload;
+        gameState.exports.app_ctx_current = newExports.app_ctx_current;
+        gameState.exports.app_ctx_set = newExports.app_ctx_set;
+
+        gameState.exports.app_ctx_set(current_app_ctx_ptr)
+
+        console.log("Calling app_on_reload...");
+        gameState.exports.app_on_reload(gameState.appMemoryOffset);
+        console.log("Hot reload complete");
+
+        gameState.isRunning = true;
+        requestAnimationFrame(tick);
+      } catch (err) {
+        console.error("Hot reload failed, keeping old module:", err);
+        gameState.isRunning = true;
+        requestAnimationFrame(tick);
+      }
+    }
+
+    // if (process.env.NODE_ENV === 'development') {
+    const ws = new WebSocket(`ws://${window.location.host}/hot-reload`);
+    ws.onmessage = (event) => {
+      if (event.data === "reload") {
+        hotReload();
+      }
+    };
+    ws.onerror = (err) => {
+      console.log(
+        "Hot reload WebSocket not available (not running dev server?)",
+      );
+    };
+    // }
+
     console.log("Starting game loop at 60 FPS");
     requestAnimationFrame(tick);
 
-    window.wasmExports = wasmModule.instance.exports;
+    (window as any).wasmExports = wasmExports;
+    (window as any).hotReload = hotReload;
   } catch (err) {
     console.error("Failed to load WASM:", err);
     throw err;

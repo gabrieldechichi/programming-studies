@@ -3,6 +3,7 @@
 
 #if defined(COMPILER_MSVC)
 #include <intrin.h>
+#include <windows.h>
 #endif
 
 #include "memory.h"
@@ -32,6 +33,10 @@
 #define ins_atomic_u32_dec_eval(x)              InterlockedDecrement((LONG *)(x))
 #define ins_atomic_u32_add_eval(x,c)            InterlockedAdd((LONG *)(x), (c))
 #define ins_atomic_u32_eval_assign(x,c)         InterlockedExchange((LONG *)(x),(c))
+#define ins_atomic_load_acquire(x)              _InterlockedOr((volatile LONG *)(x), 0)
+#define ins_atomic_store_release(x,v)           _InterlockedExchange((volatile LONG *)(x), (LONG)(v))
+#define ins_atomic_load_acquire64(x)            _InterlockedOr64((volatile __int64 *)(x), 0)
+#define ins_atomic_store_release64(x,v)         _InterlockedExchange64((volatile __int64 *)(x), (__int64)(v))
 #else
 #define thread_static __thread
 #define ins_atomic_u64_inc_eval(x)              (__atomic_fetch_add((u64 *)(x), 1, __ATOMIC_SEQ_CST) + 1)
@@ -42,6 +47,10 @@
 #define ins_atomic_u32_dec_eval(x)              (__atomic_fetch_sub((u32 *)(x), 1, __ATOMIC_SEQ_CST) - 1)
 #define ins_atomic_u32_add_eval(x,c)            (__atomic_fetch_add((u32 *)(x), c, __ATOMIC_SEQ_CST) + (c))
 #define ins_atomic_u32_eval_assign(x,c)         __atomic_exchange_n((x), (c), __ATOMIC_SEQ_CST)
+#define ins_atomic_load_acquire(x)              __atomic_load_n((x), __ATOMIC_ACQUIRE)
+#define ins_atomic_store_release(x,v)           __atomic_store_n((x), (v), __ATOMIC_RELEASE)
+#define ins_atomic_load_acquire64(x)            __atomic_load_n((x), __ATOMIC_ACQUIRE)
+#define ins_atomic_store_release64(x,v)         __atomic_store_n((x), (v), __ATOMIC_RELEASE)
 #endif
 
 force_inline void cpu_pause() {
@@ -62,12 +71,15 @@ force_inline void cpu_pause() {
 #endif
 }
 
+typedef struct TaskSystem TaskSystem;
+
 typedef struct ThreadContext {
   u8 thread_idx;
   u8 thread_count;
   u64 *broadcast_memory;
   Barrier *barrier;
   ArenaAllocator temp_arena;
+  TaskSystem *task_system;
 } ThreadContext;
 
 i8 os_core_count();

@@ -27,20 +27,18 @@ void tctx_set_current(ThreadContext *ctx) { tctx_thread_local = ctx; }
 
 void _lane_sync_u64(ThreadContext *ctx, u32 broadcast_thread_idx,
                     u64 *value_ptr) {
-  // broadcast from source thread -> other threads
   if (value_ptr && ctx->thread_idx == broadcast_thread_idx) {
     memcpy(ctx->broadcast_memory, value_ptr, sizeof(u64));
   }
-  barrier_wait(ctx->barrier);
+  barrier_wait(*ctx->barrier);
 
-  // receive value <- from broadcast thread
   if (value_ptr && ctx->thread_idx != broadcast_thread_idx) {
     memcpy(value_ptr, ctx->broadcast_memory, sizeof(u64));
   }
-  barrier_wait(ctx->barrier);
+  barrier_wait(*ctx->barrier);
 }
 
-void _lane_sync(ThreadContext *ctx) { barrier_wait(ctx->barrier); }
+void _lane_sync(ThreadContext *ctx) { barrier_wait(*ctx->barrier); }
 
 Range_u64 _lane_range(ThreadContext *ctx, u64 values_count) {
   u32 thread_count = ctx->thread_count;

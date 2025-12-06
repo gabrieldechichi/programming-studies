@@ -1,6 +1,7 @@
 #ifndef H_STRBUILDER
 #define H_STRBUILDER
 
+#include "lib/string.h"
 #include "lib/typedefs.h"
 #include "lib/fmt.h"
 
@@ -16,6 +17,11 @@ void sb_clear(StringBuilder *sb);
 
 i32 sb_append(StringBuilder *sb, const char *str);
 
+i32 sb_append_len(StringBuilder *sb, const char *str, u32 len);
+force_inline i32 sb_append_str(StringBuilder *sb, String str) {
+  return sb_append_len(sb, str.value, str.len);
+}
+
 i32 sb_append_space(StringBuilder *sb);
 i32 sb_append_char(StringBuilder *sb, char c);
 i32 sb_append_line(StringBuilder *sb, const char *str);
@@ -26,15 +32,15 @@ i32 _sb_append_format(StringBuilder *sb, const char *fmt, const FmtArgs *args);
 
 #define sb_append_format(sb, fmt, ...)                                         \
   do {                                                                         \
-    FmtArg *args = ARGS_ARRAY(FmtArg, ##__VA_ARGS__);                          \
-    size_t _count = ARGS_COUNT(FmtArg, ##__VA_ARGS__);                         \
-    FmtArgs fmtArgs = {args, (u8)_count};                                  \
+    FmtArgs fmtArgs = {.args = (FmtArg[]){__VA_ARGS__},                        \
+                       .args_size =                                            \
+                           sizeof((FmtArg[]){__VA_ARGS__}) / sizeof(FmtArg)};  \
     _sb_append_format(sb, fmt, &fmtArgs);                                      \
   } while (0)
 
 #define sb_append_line_format(sb, fmt, ...)                                    \
   do {                                                                         \
-    sb_append_format(sb, fmt, ##__VA_ARGS__);                                  \
+    sb_append_format(sb, fmt, __VA_ARGS__);                                    \
     sb_append_char(sb, '\n');                                                  \
   } while (0)
 

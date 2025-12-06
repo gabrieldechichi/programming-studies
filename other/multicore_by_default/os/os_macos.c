@@ -1,7 +1,7 @@
 #undef internal
 
 #include "os.h"
-#include "string.h"
+#include "lib/string.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,9 +18,13 @@
 #include <pwd.h>
 
 #include "os_darwin_common.c"
+#ifndef BUILD_SYSTEM
+#include "os_darwin_http.c"
+#include "microphone_darwin.c"
+#include "os_video_darwin.c"
+#endif
 
 b32 os_is_mobile() { return false; }
-void os_lock_mouse(b32 lock) { UNUSED(lock); }
 
 OSThermalState os_get_thermal_state(void) { return OS_THERMAL_STATE_UNKNOWN; }
 
@@ -102,7 +106,7 @@ static void capture_and_print_stacktrace(FILE *output, int skip_frames) {
 
     FILE *atos_pipe = popen(atos_cmd, "r");
     if (atos_pipe) {
-      char line_info[256];
+      char line_info[512];
       int line_idx = 0;
 
       while (fgets(line_info, sizeof(line_info), atos_pipe) &&
@@ -353,7 +357,9 @@ OsFileList os_list_files(const char *directory, const char *extension,
   OsFileList result = {0};
   UNUSED(allocator); // We'll use malloc for now to match other implementations
 
-  char **temp_paths = malloc(sizeof(char *) * 256);
+  int capacity = 1024;
+
+  char **temp_paths = malloc(sizeof(char *) * capacity);
   if (!temp_paths)
     return result;
 
@@ -364,7 +370,6 @@ OsFileList os_list_files(const char *directory, const char *extension,
   }
 
   int count = 0;
-  int capacity = 256;
   size_t ext_len = strlen(extension);
 
   struct dirent *entry;
@@ -379,6 +384,60 @@ OsFileList os_list_files(const char *directory, const char *extension,
           snprintf(full_path, path_len, "%s/%s", directory, entry->d_name);
           temp_paths[count++] = full_path;
         }
+      }
+    }
+  }
+
+  closedir(dir);
+
+  if (count > 0) {
+    result.paths = malloc(sizeof(char *) * count);
+    if (result.paths) {
+      for (int i = 0; i < count; i++) {
+        result.paths[i] = temp_paths[i];
+      }
+      result.count = count;
+    } else {
+      for (int i = 0; i < count; i++) {
+        free(temp_paths[i]);
+      }
+    }
+  }
+
+  free(temp_paths);
+  return result;
+}
+
+OsFileList os_list_dirs(const char *directory, Allocator *allocator) {
+  OsFileList result = {0};
+  UNUSED(allocator);
+
+  int capacity = 256;
+
+  char **temp_paths = malloc(sizeof(char *) * capacity);
+  if (!temp_paths)
+    return result;
+
+  DIR *dir = opendir(directory);
+  if (!dir) {
+    free(temp_paths);
+    return result;
+  }
+
+  int count = 0;
+
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != NULL && count < capacity) {
+    if (entry->d_type == DT_DIR) {
+      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+        continue;
+      }
+      size_t name_len = strlen(entry->d_name);
+      size_t path_len = strlen(directory) + name_len + 2;
+      char *full_path = malloc(path_len);
+      if (full_path) {
+        snprintf(full_path, path_len, "%s/%s", directory, entry->d_name);
+        temp_paths[count++] = full_path;
       }
     }
   }
@@ -567,21 +626,25 @@ void os_install_crash_handler(void) {
   sigaction(SIGTRAP, &sa, NULL);
 }
 
-// HTTP functions (stub implementations)
-typedef int32 PlatformHttpRequestOp;
-typedef int32 PlatformHttpStreamOp;
+const char *os_get_compressed_texture_format_suffix(void) { return "_dxt5"; }
 
+OsKeyboardRect os_get_keyboard_rect(f32 time) {
+  UNUSED(time);
+  OsKeyboardRect rect = {0};
+  return rect;
+}
+
+OsSafeAreaInsets os_get_safe_area(void) {
+  OsSafeAreaInsets insets = {0};
+  return insets;
+}
+
+#ifdef BUILD_SYSTEM
 PlatformHttpRequestOp os_start_http_request(HttpMethod method, const char *url,
                                             int url_len, const char *headers,
                                             int headers_len, const char *body,
                                             int body_len) {
-  UNUSED(method);
-  UNUSED(url);
-  UNUSED(url_len);
-  UNUSED(headers);
-  UNUSED(headers_len);
-  UNUSED(body);
-  UNUSED(body_len);
+  UNUSED(method); UNUSED(url); UNUSED(url_len); UNUSED(headers); UNUSED(headers_len); UNUSED(body); UNUSED(body_len);
   return -1;
 }
 
@@ -594,26 +657,19 @@ int32 os_get_http_response_info(PlatformHttpRequestOp op_id,
                                 _out_ int32 *status_code,
                                 _out_ int32 *headers_len,
                                 _out_ int32 *body_len) {
-  UNUSED(op_id);
-  UNUSED(status_code);
-  UNUSED(headers_len);
-  UNUSED(body_len);
+  UNUSED(op_id); UNUSED(status_code); UNUSED(headers_len); UNUSED(body_len);
   return -1;
 }
 
 int32 os_get_http_headers(PlatformHttpRequestOp op_id, char *buffer,
                           int32 buffer_len) {
-  UNUSED(op_id);
-  UNUSED(buffer);
-  UNUSED(buffer_len);
+  UNUSED(op_id); UNUSED(buffer); UNUSED(buffer_len);
   return -1;
 }
 
 int32 os_get_http_body(PlatformHttpRequestOp op_id, char *buffer,
                        int32 buffer_len) {
-  UNUSED(op_id);
-  UNUSED(buffer);
-  UNUSED(buffer_len);
+  UNUSED(op_id); UNUSED(buffer); UNUSED(buffer_len);
   return -1;
 }
 
@@ -621,13 +677,7 @@ PlatformHttpStreamOp os_start_http_stream(HttpMethod method, const char *url,
                                           int url_len, const char *headers,
                                           int headers_len, const char *body,
                                           int body_len) {
-  UNUSED(method);
-  UNUSED(url);
-  UNUSED(url_len);
-  UNUSED(headers);
-  UNUSED(headers_len);
-  UNUSED(body);
-  UNUSED(body_len);
+  UNUSED(method); UNUSED(url); UNUSED(url_len); UNUSED(headers); UNUSED(headers_len); UNUSED(body); UNUSED(body_len);
   return -1;
 }
 
@@ -638,8 +688,7 @@ HttpStreamState os_check_http_stream(PlatformHttpStreamOp op_id) {
 
 int32 os_get_http_stream_info(PlatformHttpStreamOp op_id,
                               _out_ int32 *status_code) {
-  UNUSED(op_id);
-  UNUSED(status_code);
+  UNUSED(op_id); UNUSED(status_code);
   return -1;
 }
 
@@ -650,11 +699,9 @@ int32 os_get_http_stream_chunk_size(PlatformHttpStreamOp op_id) {
 
 int32 os_get_http_stream_chunk(PlatformHttpStreamOp op_id, char *buffer,
                                int32 buffer_len, _out_ bool32 *is_final) {
-  UNUSED(op_id);
-  UNUSED(buffer);
-  UNUSED(buffer_len);
-  UNUSED(is_final);
+  UNUSED(op_id); UNUSED(buffer); UNUSED(buffer_len); UNUSED(is_final);
   return -1;
 }
+#endif
 
 #define internal static

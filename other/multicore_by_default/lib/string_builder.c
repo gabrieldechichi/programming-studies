@@ -18,11 +18,10 @@ void sb_clear(StringBuilder *sb) {
   }
 }
 
-i32 sb_append(StringBuilder *sb, const char *str) {
+i32 sb_append_len(StringBuilder *sb, const char *str, u32 len) {
   if (!str)
     return 0;
 
-  size_t len = str_len(str);
   size_t available = sb->size - sb->len - 1; // -1 for null terminator
 
   if (len > available) {
@@ -39,6 +38,10 @@ i32 sb_append(StringBuilder *sb, const char *str) {
   sb->len += len;
   sb->buffer[sb->len] = '\0';
   return 0;
+}
+
+i32 sb_append(StringBuilder *sb, const char *str) {
+  return sb_append_len(sb, str, str_len(str));
 }
 
 i32 sb_append_char(StringBuilder *sb, char c) {
@@ -124,7 +127,7 @@ void sb_append_u32(StringBuilder *sb, u32 value) {
 }
 
 i32 _sb_append_format(StringBuilder *sb, const char *fmt, const FmtArgs *args) {
-  char temp_buffer[512];
+  char temp_buffer[KB(16)];
   fmt_string(temp_buffer, sizeof(temp_buffer), fmt, args);
   return sb_append(sb, temp_buffer);
 }

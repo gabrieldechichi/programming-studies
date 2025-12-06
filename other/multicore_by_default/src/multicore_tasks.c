@@ -91,6 +91,7 @@ void *entrypoint_internal(void *arg) {
 
 int main(void) {
   const u8 thread_mult = 1;
+  os_init();
   i8 core_count = os_core_count();
   u8 thread_count = core_count * thread_mult;
 
@@ -98,8 +99,7 @@ int main(void) {
 
   Thread *threads = malloc(thread_count * sizeof(Thread));
   ThreadContext *thread_ctx_arr = malloc(thread_count * sizeof(ThreadContext));
-  Barrier barrier;
-  barrier_init(&barrier, thread_count);
+  Barrier barrier = barrier_alloc(thread_count);
 
   u64 broadcast_memory = 0;
   for (u8 i = 0; i < thread_count; i++) {
@@ -110,11 +110,11 @@ int main(void) {
         .broadcast_memory = &broadcast_memory,
         .temp_arena = arena_from_buffer(calloc(1, MB(8)), MB(8)),
     };
-    threads[i] = thread_create(entrypoint_internal, &thread_ctx_arr[i]);
+    threads[i] = thread_launch(entrypoint_internal, &thread_ctx_arr[i]);
   }
 
   for (u8 i = 0; i < thread_count; i++) {
-    thread_join(threads[i]);
+    thread_join(threads[i], SECS_TO_MCS(1000));
   }
 
   return 0;

@@ -1,3 +1,4 @@
+#include "lib/typedefs.h"
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 
@@ -18,6 +19,10 @@
 #include <shlwapi.h>
 #include <dbghelp.h>
 #include <intrin.h>
+
+#include "lib/thread.h"
+#include "lib/task.h"
+#include "lib/string_builder.h"
 #include <time.h>
 #include <string.h>
 
@@ -34,233 +39,388 @@
 #define pclose _pclose
 #define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 
+#ifndef internal
+#define internal static
+#endif
+
+typedef enum {
+  OS_W32_ENTITY_NULL,
+  OS_W32_ENTITY_THREAD,
+  OS_W32_ENTITY_MUTEX,
+  OS_W32_ENTITY_SEMAPHORE,
+  OS_W32_ENTITY_FILE_OP,
+} OsWin32EntityKind;
+
+typedef struct OsWin32Entity OsWin32Entity;
+struct OsWin32Entity {
+  OsWin32Entity *next;
+  OsWin32EntityKind kind;
+  union {
+    struct {
+      HANDLE handle;
+      ThreadFunc func;
+      void *arg;
+    } thread;
+    CRITICAL_SECTION mutex;
+    struct {
+      CRITICAL_SECTION cs;
+      CONDITION_VARIABLE cv;
+      i32 count;
+    } semaphore;
+    struct {
+      volatile OsFileReadState state;
+      char file_path[MAX_PATH];
+      u8 *buffer;
+      u32 buffer_len;
+    } file_op;
+  };
+};
+
+#define OS_W32_ENTITY_POOL_SIZE 256
+#define OS_W32_ENTITY_POOL_MEMORY_SIZE                                         \
+  (sizeof(OsWin32Entity) * OS_W32_ENTITY_POOL_SIZE)
+
+typedef struct {
+  b32 initialized;
+
+  LARGE_INTEGER time_freq;
+  LARGE_INTEGER time_start;
+
+  u32 processor_count;
+  u32 page_size;
+
+  CRITICAL_SECTION entity_mutex;
+  u8 entity_memory[OS_W32_ENTITY_POOL_MEMORY_SIZE];
+  PoolAllocator entity_pool;
+  OsWin32Entity *entity_free;
+
+  u8 stack_trace_buffer[KB(64)];
+} OsWin32State;
+
+global OsWin32State os_w32_state = {0};
+
+#define os_w32_assert_state_initialized() debug_assert(os_w32_state.initialized)
+
+internal OsWin32Entity *os_w32_entity_alloc(OsWin32EntityKind kind) {
+  os_w32_assert_state_initialized();
+  OsWin32Entity *result = NULL;
+  EnterCriticalSection(&os_w32_state.entity_mutex);
+  {
+    if (os_w32_state.entity_free) {
+      result = os_w32_state.entity_free;
+      os_w32_state.entity_free = result->next;
+    } else {
+      result = (OsWin32Entity *)pool_alloc(&os_w32_state.entity_pool);
+    }
+    if (result) {
+      memset(result, 0, sizeof(OsWin32Entity));
+    }
+  }
+  LeaveCriticalSection(&os_w32_state.entity_mutex);
+  if (result) {
+    result->kind = kind;
+  }
+  return result;
+}
+
+internal void os_w32_entity_release(OsWin32Entity *entity) {
+  if (!entity)
+    return;
+  os_w32_assert_state_initialized();
+  entity->kind = OS_W32_ENTITY_NULL;
+  EnterCriticalSection(&os_w32_state.entity_mutex);
+  entity->next = os_w32_state.entity_free;
+  os_w32_state.entity_free = entity;
+  LeaveCriticalSection(&os_w32_state.entity_mutex);
+}
+
 b32 os_is_mobile() { return false; }
-void os_lock_mouse(b32 lock) { UNUSED(lock); }
 
 OSThermalState os_get_thermal_state(void) { return OS_THERMAL_STATE_UNKNOWN; }
 
-struct OsThread {
-  HANDLE handle;
-  OsThreadFunc func;
-  void *arg;
-};
-
-struct OsMutex {
-  CRITICAL_SECTION cs;
-};
-
-static unsigned __stdcall thread_wrapper(void *arg) {
-  OsThread *thread = (OsThread *)arg;
-  thread->func(thread->arg);
+internal unsigned __stdcall os_w32_thread_wrapper(void *arg) {
+  OsWin32Entity *entity = (OsWin32Entity *)arg;
+  entity->thread.func(entity->thread.arg);
   return 0;
 }
 
-OsThread *os_thread_create(OsThreadFunc func, void *arg) {
-  OsThread *thread = (OsThread *)malloc(sizeof(OsThread));
-  if (!thread)
-    return NULL;
+void os_init(void) {
+  if (os_w32_state.initialized)
+    return;
 
-  thread->func = func;
-  thread->arg = arg;
-  thread->handle =
-      (HANDLE)_beginthreadex(NULL, 0, thread_wrapper, thread, 0, NULL);
+  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  os_w32_state.processor_count = sysinfo.dwNumberOfProcessors;
+  os_w32_state.page_size = sysinfo.dwPageSize;
 
-  if (thread->handle == 0) {
-    free(thread);
-    return NULL;
-  }
+  QueryPerformanceFrequency(&os_w32_state.time_freq);
+  QueryPerformanceCounter(&os_w32_state.time_start);
 
-  return thread;
+  InitializeCriticalSection(&os_w32_state.entity_mutex);
+  os_w32_state.entity_pool =
+      pool_from_buffer(os_w32_state.entity_memory,
+                       OS_W32_ENTITY_POOL_MEMORY_SIZE, sizeof(OsWin32Entity));
+  os_w32_state.entity_free = NULL;
+
+  os_w32_state.initialized = true;
 }
 
-void os_thread_join(OsThread *thread) {
-  if (thread && thread->handle) {
-    WaitForSingleObject(thread->handle, INFINITE);
+Thread os_thread_launch(ThreadFunc func, void *arg) {
+  Thread result = {0};
+  OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_THREAD);
+  if (!entity)
+    return result;
+
+  entity->thread.func = func;
+  entity->thread.arg = arg;
+  entity->thread.handle =
+      (HANDLE)_beginthreadex(NULL, 0, os_w32_thread_wrapper, entity, 0, NULL);
+
+  if (entity->thread.handle == 0) {
+    os_w32_entity_release(entity);
+    return result;
   }
+
+  result.v[0] = (u64)entity;
+  return result;
 }
 
-void os_thread_destroy(OsThread *thread) {
-  if (thread) {
-    if (thread->handle) {
-      CloseHandle(thread->handle);
+b32 os_thread_join(Thread t, u64 timeout_us) {
+  if (t.v[0] == 0)
+    return false;
+  OsWin32Entity *entity = (OsWin32Entity *)t.v[0];
+  if (entity->thread.handle) {
+    DWORD timeout_ms =
+        (timeout_us == 0) ? INFINITE : (DWORD)(timeout_us / 1000);
+    DWORD result = WaitForSingleObject(entity->thread.handle, timeout_ms);
+    if (result == WAIT_OBJECT_0) {
+      CloseHandle(entity->thread.handle);
+      os_w32_entity_release(entity);
+      return true;
     }
-    free(thread);
+    return false;
   }
+  return false;
 }
 
-OsMutex *os_mutex_create(void) {
-  OsMutex *mutex = (OsMutex *)malloc(sizeof(OsMutex));
-  if (!mutex)
-    return NULL;
-
-  InitializeCriticalSection(&mutex->cs);
-  return mutex;
-}
-
-void os_mutex_lock(OsMutex *mutex) {
-  if (mutex) {
-    EnterCriticalSection(&mutex->cs);
+void os_thread_detach(Thread t) {
+  if (t.v[0] == 0)
+    return;
+  OsWin32Entity *entity = (OsWin32Entity *)t.v[0];
+  if (entity->thread.handle) {
+    CloseHandle(entity->thread.handle);
   }
+  os_w32_entity_release(entity);
 }
 
-void os_mutex_unlock(OsMutex *mutex) {
-  if (mutex) {
-    LeaveCriticalSection(&mutex->cs);
+Mutex os_mutex_alloc(void) {
+  Mutex result = {0};
+  OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_MUTEX);
+  if (!entity)
+    return result;
+
+  InitializeCriticalSection(&entity->mutex);
+  result.v[0] = (u64)entity;
+  return result;
+}
+
+void os_mutex_release(Mutex m) {
+  if (m.v[0] == 0)
+    return;
+  OsWin32Entity *entity = (OsWin32Entity *)m.v[0];
+  DeleteCriticalSection(&entity->mutex);
+  os_w32_entity_release(entity);
+}
+
+void os_mutex_take(Mutex m) {
+  if (m.v[0] == 0)
+    return;
+  OsWin32Entity *entity = (OsWin32Entity *)m.v[0];
+  EnterCriticalSection(&entity->mutex);
+}
+
+void os_mutex_drop(Mutex m) {
+  if (m.v[0] == 0)
+    return;
+  OsWin32Entity *entity = (OsWin32Entity *)m.v[0];
+  LeaveCriticalSection(&entity->mutex);
+}
+
+Semaphore os_semaphore_alloc(i32 initial_count) {
+  Semaphore result = {0};
+  OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_SEMAPHORE);
+  if (!entity)
+    return result;
+
+  InitializeCriticalSection(&entity->semaphore.cs);
+  InitializeConditionVariable(&entity->semaphore.cv);
+  entity->semaphore.count = initial_count;
+  result.v[0] = (u64)entity;
+  return result;
+}
+
+void os_semaphore_release(Semaphore s) {
+  if (s.v[0] == 0)
+    return;
+  OsWin32Entity *entity = (OsWin32Entity *)s.v[0];
+  DeleteCriticalSection(&entity->semaphore.cs);
+  os_w32_entity_release(entity);
+}
+
+void os_semaphore_take(Semaphore s) {
+  if (s.v[0] == 0)
+    return;
+  OsWin32Entity *entity = (OsWin32Entity *)s.v[0];
+
+  EnterCriticalSection(&entity->semaphore.cs);
+  while (entity->semaphore.count <= 0) {
+    SleepConditionVariableCS(&entity->semaphore.cv, &entity->semaphore.cs,
+                             INFINITE);
   }
+  entity->semaphore.count--;
+  LeaveCriticalSection(&entity->semaphore.cs);
 }
 
-void os_mutex_destroy(OsMutex *mutex) {
-  if (mutex) {
-    DeleteCriticalSection(&mutex->cs);
-    free(mutex);
-  }
-}
+void os_semaphore_drop(Semaphore s) {
+  if (s.v[0] == 0)
+    return;
+  OsWin32Entity *entity = (OsWin32Entity *)s.v[0];
 
-#define WORK_QUEUE_ENTRIES_MAX 256
+  EnterCriticalSection(&entity->semaphore.cs);
+  entity->semaphore.count++;
+  LeaveCriticalSection(&entity->semaphore.cs);
+  WakeConditionVariable(&entity->semaphore.cv);
+}
 
 typedef struct {
-  OsWorkQueueCallback callback;
-  void *data;
-} WorkQueueEntry;
+  SRWLOCK lock;
+} OsWin32RWMutex;
 
-struct OsWorkQueue {
-  WorkQueueEntry entries[WORK_QUEUE_ENTRIES_MAX];
-
-  volatile LONG next_entry_to_write;
-  volatile LONG next_entry_to_read;
-
-  volatile LONG completion_goal;
-  volatile LONG completion_count;
-
-  HANDLE semaphore;
-  HANDLE *worker_threads;
-  i32 thread_count;
-  volatile LONG should_quit;
-};
-
-static DWORD WINAPI WorkerThreadProc(LPVOID lpParam) {
-  OsWorkQueue *queue = (OsWorkQueue *)lpParam;
-
-  while (!queue->should_quit) {
-    LONG original_next_read = queue->next_entry_to_read;
-    LONG new_next_read = (original_next_read + 1) % WORK_QUEUE_ENTRIES_MAX;
-
-    if (original_next_read != queue->next_entry_to_write) {
-      LONG index = InterlockedCompareExchange(
-          &queue->next_entry_to_read, new_next_read, original_next_read);
-
-      if (index == original_next_read) {
-        WorkQueueEntry entry = queue->entries[index];
-        entry.callback(entry.data);
-        InterlockedIncrement(&queue->completion_count);
-      }
-    } else {
-      WaitForSingleObject(queue->semaphore, INFINITE);
-    }
-  }
-
-  return 0;
+RWMutex os_rw_mutex_alloc(void) {
+  RWMutex result = {0};
+  OsWin32RWMutex *rw =
+      (OsWin32RWMutex *)os_allocate_memory(sizeof(OsWin32RWMutex));
+  if (!rw)
+    return result;
+  InitializeSRWLock(&rw->lock);
+  result.v[0] = (u64)rw;
+  return result;
 }
 
-OsWorkQueue *os_work_queue_create(i32 thread_count) {
-  OsWorkQueue *queue = (OsWorkQueue *)malloc(sizeof(OsWorkQueue));
-  if (!queue) {
-    return NULL;
-  }
-
-  memset(queue, 0, sizeof(OsWorkQueue));
-
-  queue->thread_count = thread_count;
-  queue->semaphore = CreateSemaphoreA(NULL, 0, thread_count, NULL);
-  if (!queue->semaphore) {
-    free(queue);
-    return NULL;
-  }
-
-  queue->worker_threads = (HANDLE *)malloc(sizeof(HANDLE) * thread_count);
-  if (!queue->worker_threads) {
-    CloseHandle(queue->semaphore);
-    free(queue);
-    return NULL;
-  }
-
-  for (i32 i = 0; i < thread_count; i++) {
-    queue->worker_threads[i] =
-        CreateThread(NULL, 0, WorkerThreadProc, queue, 0, NULL);
-    if (!queue->worker_threads[i]) {
-      queue->should_quit = 1;
-      for (i32 j = 0; j < i; j++) {
-        WaitForSingleObject(queue->worker_threads[j], INFINITE);
-        CloseHandle(queue->worker_threads[j]);
-      }
-      free(queue->worker_threads);
-      CloseHandle(queue->semaphore);
-      free(queue);
-      return NULL;
-    }
-  }
-
-  return queue;
-}
-
-void os_work_queue_destroy(OsWorkQueue *queue) {
-  if (!queue) {
+void os_rw_mutex_release(RWMutex m) {
+  if (m.v[0] == 0)
     return;
-  }
-
-  queue->should_quit = 1;
-
-  ReleaseSemaphore(queue->semaphore, queue->thread_count, NULL);
-
-  for (i32 i = 0; i < queue->thread_count; i++) {
-    WaitForSingleObject(queue->worker_threads[i], INFINITE);
-    CloseHandle(queue->worker_threads[i]);
-  }
-
-  free(queue->worker_threads);
-  CloseHandle(queue->semaphore);
-  free(queue);
+  OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
+  os_free_memory(rw, sizeof(OsWin32RWMutex));
 }
 
-void os_add_work_entry(OsWorkQueue *queue, OsWorkQueueCallback callback,
-                       void *data) {
-  LONG new_next_write =
-      (queue->next_entry_to_write + 1) % WORK_QUEUE_ENTRIES_MAX;
-  assert_msg(new_next_write != queue->next_entry_to_read,
-             "Work queue is full!");
-
-  WorkQueueEntry *entry = &queue->entries[queue->next_entry_to_write];
-  entry->callback = callback;
-  entry->data = data;
-
-  InterlockedIncrement(&queue->completion_goal);
-
-  _WriteBarrier();
-
-  queue->next_entry_to_write = new_next_write;
-
-  ReleaseSemaphore(queue->semaphore, 1, NULL);
+void os_rw_mutex_take_r(RWMutex m) {
+  if (m.v[0] == 0)
+    return;
+  OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
+  AcquireSRWLockShared(&rw->lock);
 }
 
-void os_complete_all_work(OsWorkQueue *queue) {
-  while (queue->completion_count != queue->completion_goal) {
-    LONG original_next_read = queue->next_entry_to_read;
-    LONG new_next_read = (original_next_read + 1) % WORK_QUEUE_ENTRIES_MAX;
+void os_rw_mutex_drop_r(RWMutex m) {
+  if (m.v[0] == 0)
+    return;
+  OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
+  ReleaseSRWLockShared(&rw->lock);
+}
 
-    if (original_next_read != queue->next_entry_to_write) {
-      LONG index = InterlockedCompareExchange(
-          &queue->next_entry_to_read, new_next_read, original_next_read);
+void os_rw_mutex_take_w(RWMutex m) {
+  if (m.v[0] == 0)
+    return;
+  OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
+  AcquireSRWLockExclusive(&rw->lock);
+}
 
-      if (index == original_next_read) {
-        WorkQueueEntry entry = queue->entries[index];
-        entry.callback(entry.data);
-        InterlockedIncrement(&queue->completion_count);
-      }
-    }
+void os_rw_mutex_drop_w(RWMutex m) {
+  if (m.v[0] == 0)
+    return;
+  OsWin32RWMutex *rw = (OsWin32RWMutex *)m.v[0];
+  ReleaseSRWLockExclusive(&rw->lock);
+}
+
+typedef struct {
+  CONDITION_VARIABLE cv;
+} OsWin32CondVar;
+
+CondVar os_cond_var_alloc(void) {
+  CondVar result = {0};
+  OsWin32CondVar *cv =
+      (OsWin32CondVar *)os_allocate_memory(sizeof(OsWin32CondVar));
+  if (!cv)
+    return result;
+  InitializeConditionVariable(&cv->cv);
+  result.v[0] = (u64)cv;
+  return result;
+}
+
+void os_cond_var_release(CondVar c) {
+  if (c.v[0] == 0)
+    return;
+  OsWin32CondVar *cv = (OsWin32CondVar *)c.v[0];
+  os_free_memory(cv, sizeof(OsWin32CondVar));
+}
+
+b32 os_cond_var_wait(CondVar c, Mutex m, u64 timeout_us) {
+  if (c.v[0] == 0 || m.v[0] == 0)
+    return false;
+  OsWin32CondVar *cv = (OsWin32CondVar *)c.v[0];
+  OsWin32Entity *mutex_entity = (OsWin32Entity *)m.v[0];
+  DWORD timeout_ms = (timeout_us == 0) ? INFINITE : (DWORD)(timeout_us / 1000);
+  return SleepConditionVariableCS(&cv->cv, &mutex_entity->mutex, timeout_ms) !=
+         0;
+}
+
+void os_cond_var_signal(CondVar c) {
+  if (c.v[0] == 0)
+    return;
+  OsWin32CondVar *cv = (OsWin32CondVar *)c.v[0];
+  WakeConditionVariable(&cv->cv);
+}
+
+void os_cond_var_broadcast(CondVar c) {
+  if (c.v[0] == 0)
+    return;
+  OsWin32CondVar *cv = (OsWin32CondVar *)c.v[0];
+  WakeAllConditionVariable(&cv->cv);
+}
+
+typedef struct {
+  SYNCHRONIZATION_BARRIER sb;
+} OsWin32Barrier;
+
+Barrier os_barrier_alloc(u32 count) {
+  Barrier result = {0};
+  if (count == 0)
+    return result;
+  OsWin32Barrier *barrier =
+      (OsWin32Barrier *)os_allocate_memory(sizeof(OsWin32Barrier));
+  if (!barrier)
+    return result;
+  if (!InitializeSynchronizationBarrier(&barrier->sb, count, -1)) {
+    os_free_memory(barrier, sizeof(OsWin32Barrier));
+    return result;
   }
+  result.v[0] = (u64)barrier;
+  return result;
+}
 
-  queue->completion_goal = 0;
-  queue->completion_count = 0;
+void os_barrier_release(Barrier b) {
+  if (b.v[0] == 0)
+    return;
+  OsWin32Barrier *barrier = (OsWin32Barrier *)b.v[0];
+  DeleteSynchronizationBarrier(&barrier->sb);
+  os_free_memory(barrier, sizeof(OsWin32Barrier));
+}
+
+void os_barrier_wait(Barrier b) {
+  if (b.v[0] == 0)
+    return;
+  OsWin32Barrier *barrier = (OsWin32Barrier *)b.v[0];
+  EnterSynchronizationBarrier(&barrier->sb, 0);
 }
 
 #define MAX_STACK_FRAMES 50
@@ -269,7 +429,8 @@ void os_complete_all_work(OsWorkQueue *queue) {
 
 #pragma comment(lib, "dbghelp.lib")
 
-static OsMutex *g_stack_trace_mutex = NULL;
+static Mutex g_stack_trace_mutex = {0};
+static b32 g_stack_trace_mutex_initialized = false;
 static b32 g_symbols_initialized = false;
 static LPTOP_LEVEL_EXCEPTION_FILTER g_previous_exception_filter = NULL;
 
@@ -382,11 +543,12 @@ static void write_stack_to_buffer(char *buffer, size_t buffer_size,
 }
 
 static void capture_and_save_stacktrace(FILE *output, int skip_frames) {
-  if (!g_stack_trace_mutex) {
-    g_stack_trace_mutex = os_mutex_create();
+  if (!g_stack_trace_mutex_initialized) {
+    g_stack_trace_mutex = os_mutex_alloc();
+    g_stack_trace_mutex_initialized = true;
   }
 
-  os_mutex_lock(g_stack_trace_mutex);
+  os_mutex_take(g_stack_trace_mutex);
 
   ensure_symbols_initialized();
 
@@ -395,22 +557,13 @@ static void capture_and_save_stacktrace(FILE *output, int skip_frames) {
       CaptureStackBackTrace(0, MAX_STACK_FRAMES, stack_frames, NULL);
 
   if (frame_count <= skip_frames) {
-    os_mutex_unlock(g_stack_trace_mutex);
+    os_mutex_drop(g_stack_trace_mutex);
     return;
   }
 
-  char *stack_buffer = malloc(64 * 1024);
-  if (!stack_buffer) {
-    fprintf(output, "\n===== STACK TRACE (allocation failed) =====\n");
-    for (int i = skip_frames; i < frame_count; i++) {
-      fprintf(output, "  [%2d] 0x%p\n", i - skip_frames, stack_frames[i]);
-    }
-    fprintf(output, "=======================\n");
-    os_mutex_unlock(g_stack_trace_mutex);
-    return;
-  }
+  char *stack_buffer = (char *)os_w32_state.stack_trace_buffer;
 
-  write_stack_to_buffer(stack_buffer, 64 * 1024, stack_frames, frame_count,
+  write_stack_to_buffer(stack_buffer, KB(64), stack_frames, frame_count,
                         skip_frames);
 
   fprintf(output, "%s", stack_buffer);
@@ -449,42 +602,64 @@ static void capture_and_save_stacktrace(FILE *output, int skip_frames) {
     fprintf(output, "Stack trace saved to: %s\n", crash_filename);
   }
 
-  free(stack_buffer);
-  os_mutex_unlock(g_stack_trace_mutex);
+  os_mutex_drop(g_stack_trace_mutex);
 }
 
-static const char* get_exception_string(DWORD exception_code) {
+static const char *get_exception_string(DWORD exception_code) {
   switch (exception_code) {
-    case EXCEPTION_ACCESS_VIOLATION:         return "ACCESS_VIOLATION";
-    case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:    return "ARRAY_BOUNDS_EXCEEDED";
-    case EXCEPTION_BREAKPOINT:               return "BREAKPOINT";
-    case EXCEPTION_DATATYPE_MISALIGNMENT:    return "DATATYPE_MISALIGNMENT";
-    case EXCEPTION_FLT_DENORMAL_OPERAND:     return "FLT_DENORMAL_OPERAND";
-    case EXCEPTION_FLT_DIVIDE_BY_ZERO:       return "FLT_DIVIDE_BY_ZERO";
-    case EXCEPTION_FLT_INEXACT_RESULT:       return "FLT_INEXACT_RESULT";
-    case EXCEPTION_FLT_INVALID_OPERATION:    return "FLT_INVALID_OPERATION";
-    case EXCEPTION_FLT_OVERFLOW:             return "FLT_OVERFLOW";
-    case EXCEPTION_FLT_STACK_CHECK:          return "FLT_STACK_CHECK";
-    case EXCEPTION_FLT_UNDERFLOW:            return "FLT_UNDERFLOW";
-    case EXCEPTION_ILLEGAL_INSTRUCTION:      return "ILLEGAL_INSTRUCTION";
-    case EXCEPTION_IN_PAGE_ERROR:            return "IN_PAGE_ERROR";
-    case EXCEPTION_INT_DIVIDE_BY_ZERO:       return "INT_DIVIDE_BY_ZERO";
-    case EXCEPTION_INT_OVERFLOW:             return "INT_OVERFLOW";
-    case EXCEPTION_INVALID_DISPOSITION:      return "INVALID_DISPOSITION";
-    case EXCEPTION_NONCONTINUABLE_EXCEPTION: return "NONCONTINUABLE_EXCEPTION";
-    case EXCEPTION_PRIV_INSTRUCTION:         return "PRIV_INSTRUCTION";
-    case EXCEPTION_SINGLE_STEP:              return "SINGLE_STEP";
-    case EXCEPTION_STACK_OVERFLOW:           return "STACK_OVERFLOW";
-    default:                                 return "UNKNOWN_EXCEPTION";
+  case EXCEPTION_ACCESS_VIOLATION:
+    return "ACCESS_VIOLATION";
+  case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
+    return "ARRAY_BOUNDS_EXCEEDED";
+  case EXCEPTION_BREAKPOINT:
+    return "BREAKPOINT";
+  case EXCEPTION_DATATYPE_MISALIGNMENT:
+    return "DATATYPE_MISALIGNMENT";
+  case EXCEPTION_FLT_DENORMAL_OPERAND:
+    return "FLT_DENORMAL_OPERAND";
+  case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+    return "FLT_DIVIDE_BY_ZERO";
+  case EXCEPTION_FLT_INEXACT_RESULT:
+    return "FLT_INEXACT_RESULT";
+  case EXCEPTION_FLT_INVALID_OPERATION:
+    return "FLT_INVALID_OPERATION";
+  case EXCEPTION_FLT_OVERFLOW:
+    return "FLT_OVERFLOW";
+  case EXCEPTION_FLT_STACK_CHECK:
+    return "FLT_STACK_CHECK";
+  case EXCEPTION_FLT_UNDERFLOW:
+    return "FLT_UNDERFLOW";
+  case EXCEPTION_ILLEGAL_INSTRUCTION:
+    return "ILLEGAL_INSTRUCTION";
+  case EXCEPTION_IN_PAGE_ERROR:
+    return "IN_PAGE_ERROR";
+  case EXCEPTION_INT_DIVIDE_BY_ZERO:
+    return "INT_DIVIDE_BY_ZERO";
+  case EXCEPTION_INT_OVERFLOW:
+    return "INT_OVERFLOW";
+  case EXCEPTION_INVALID_DISPOSITION:
+    return "INVALID_DISPOSITION";
+  case EXCEPTION_NONCONTINUABLE_EXCEPTION:
+    return "NONCONTINUABLE_EXCEPTION";
+  case EXCEPTION_PRIV_INSTRUCTION:
+    return "PRIV_INSTRUCTION";
+  case EXCEPTION_SINGLE_STEP:
+    return "SINGLE_STEP";
+  case EXCEPTION_STACK_OVERFLOW:
+    return "STACK_OVERFLOW";
+  default:
+    return "UNKNOWN_EXCEPTION";
   }
 }
 
-static LONG WINAPI unhandled_exception_handler(EXCEPTION_POINTERS* exception_info) {
-  if (!g_stack_trace_mutex) {
-    g_stack_trace_mutex = os_mutex_create();
+static LONG WINAPI
+unhandled_exception_handler(EXCEPTION_POINTERS *exception_info) {
+  if (!g_stack_trace_mutex_initialized) {
+    g_stack_trace_mutex = os_mutex_alloc();
+    g_stack_trace_mutex_initialized = true;
   }
 
-  os_mutex_lock(g_stack_trace_mutex);
+  os_mutex_take(g_stack_trace_mutex);
 
   ensure_symbols_initialized();
   ensure_crash_dir_exists();
@@ -505,26 +680,26 @@ static LONG WINAPI unhandled_exception_handler(EXCEPTION_POINTERS* exception_inf
   PEXCEPTION_RECORD exception_record = exception_info->ExceptionRecord;
   PCONTEXT context = exception_info->ContextRecord;
 
-  const char *exception_str = get_exception_string(exception_record->ExceptionCode);
+  const char *exception_str =
+      get_exception_string(exception_record->ExceptionCode);
 
   char header[1024];
   snprintf(header, sizeof(header),
            "\n===== FATAL EXCEPTION =====\n"
            "Exception: %s (0x%08lX)\n"
            "Address: 0x%p\n",
-           exception_str,
-           exception_record->ExceptionCode,
+           exception_str, exception_record->ExceptionCode,
            exception_record->ExceptionAddress);
 
   if (exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
-    const char *access_type = (exception_record->ExceptionInformation[0] == 0) ? "reading" :
-                              (exception_record->ExceptionInformation[0] == 1) ? "writing" :
-                              "executing";
+    const char *access_type =
+        (exception_record->ExceptionInformation[0] == 0)   ? "reading"
+        : (exception_record->ExceptionInformation[0] == 1) ? "writing"
+                                                           : "executing";
     char access_info[256];
     snprintf(access_info, sizeof(access_info),
-             "Access violation %s address: 0x%p\n",
-             access_type,
-             (void*)exception_record->ExceptionInformation[1]);
+             "Access violation %s address: 0x%p\n", access_type,
+             (void *)exception_record->ExceptionInformation[1]);
     strcat(header, access_info);
   }
 
@@ -537,7 +712,7 @@ static LONG WINAPI unhandled_exception_handler(EXCEPTION_POINTERS* exception_inf
   void *stack_frames[MAX_STACK_FRAMES];
   int frame_count = 0;
 
-  #ifdef _M_X64
+#ifdef _M_X64
   STACKFRAME64 stack_frame;
   memset(&stack_frame, 0, sizeof(stack_frame));
 
@@ -548,7 +723,7 @@ static LONG WINAPI unhandled_exception_handler(EXCEPTION_POINTERS* exception_inf
   stack_frame.AddrFrame.Mode = AddrModeFlat;
   stack_frame.AddrStack.Offset = context->Rsp;
   stack_frame.AddrStack.Mode = AddrModeFlat;
-  #else
+#else
   STACKFRAME64 stack_frame;
   memset(&stack_frame, 0, sizeof(stack_frame));
 
@@ -559,14 +734,14 @@ static LONG WINAPI unhandled_exception_handler(EXCEPTION_POINTERS* exception_inf
   stack_frame.AddrFrame.Mode = AddrModeFlat;
   stack_frame.AddrStack.Offset = context->Esp;
   stack_frame.AddrStack.Mode = AddrModeFlat;
-  #endif
+#endif
 
   HANDLE process = GetCurrentProcess();
   HANDLE thread = GetCurrentThread();
 
   while (frame_count < MAX_STACK_FRAMES) {
-    if (!StackWalk64(machine_type, process, thread, &stack_frame, context,
-                     NULL, SymFunctionTableAccess64, SymGetModuleBase64, NULL)) {
+    if (!StackWalk64(machine_type, process, thread, &stack_frame, context, NULL,
+                     SymFunctionTableAccess64, SymGetModuleBase64, NULL)) {
       break;
     }
 
@@ -574,42 +749,38 @@ static LONG WINAPI unhandled_exception_handler(EXCEPTION_POINTERS* exception_inf
       break;
     }
 
-    stack_frames[frame_count++] = (void*)(uintptr_t)stack_frame.AddrPC.Offset;
+    stack_frames[frame_count++] = (void *)(uintptr_t)stack_frame.AddrPC.Offset;
   }
 
-  char *stack_buffer = malloc(64 * 1024);
-  if (stack_buffer) {
-    write_stack_to_buffer(stack_buffer, 64 * 1024, stack_frames, frame_count, 0);
-    fprintf(console_output, "%s", stack_buffer);
-    if (crash_file) {
-      fprintf(crash_file, "%s", stack_buffer);
-    }
-    free(stack_buffer);
+  char *stack_buffer = (char *)os_w32_state.stack_trace_buffer;
+  write_stack_to_buffer(stack_buffer, KB(64), stack_frames, frame_count, 0);
+  fprintf(console_output, "%s", stack_buffer);
+  if (crash_file) {
+    fprintf(crash_file, "%s", stack_buffer);
   }
 
   if (crash_file) {
     fprintf(crash_file, "\nRegisters:\n");
-    #ifdef _M_X64
-    fprintf(crash_file, "RAX=%016llX RBX=%016llX RCX=%016llX\n",
-            context->Rax, context->Rbx, context->Rcx);
-    fprintf(crash_file, "RDX=%016llX RSI=%016llX RDI=%016llX\n",
-            context->Rdx, context->Rsi, context->Rdi);
-    fprintf(crash_file, "RIP=%016llX RSP=%016llX RBP=%016llX\n",
-            context->Rip, context->Rsp, context->Rbp);
-    fprintf(crash_file, "R8 =%016llX R9 =%016llX R10=%016llX\n",
-            context->R8, context->R9, context->R10);
-    fprintf(crash_file, "R11=%016llX R12=%016llX R13=%016llX\n",
-            context->R11, context->R12, context->R13);
-    fprintf(crash_file, "R14=%016llX R15=%016llX\n",
-            context->R14, context->R15);
-    #else
-    fprintf(crash_file, "EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
-            context->Eax, context->Ebx, context->Ecx, context->Edx);
-    fprintf(crash_file, "ESI=%08X EDI=%08X EIP=%08X ESP=%08X\n",
-            context->Esi, context->Edi, context->Eip, context->Esp);
-    fprintf(crash_file, "EBP=%08X EFL=%08X\n",
-            context->Ebp, context->EFlags);
-    #endif
+#ifdef _M_X64
+    fprintf(crash_file, "RAX=%016llX RBX=%016llX RCX=%016llX\n", context->Rax,
+            context->Rbx, context->Rcx);
+    fprintf(crash_file, "RDX=%016llX RSI=%016llX RDI=%016llX\n", context->Rdx,
+            context->Rsi, context->Rdi);
+    fprintf(crash_file, "RIP=%016llX RSP=%016llX RBP=%016llX\n", context->Rip,
+            context->Rsp, context->Rbp);
+    fprintf(crash_file, "R8 =%016llX R9 =%016llX R10=%016llX\n", context->R8,
+            context->R9, context->R10);
+    fprintf(crash_file, "R11=%016llX R12=%016llX R13=%016llX\n", context->R11,
+            context->R12, context->R13);
+    fprintf(crash_file, "R14=%016llX R15=%016llX\n", context->R14,
+            context->R15);
+#else
+    fprintf(crash_file, "EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n", context->Eax,
+            context->Ebx, context->Ecx, context->Edx);
+    fprintf(crash_file, "ESI=%08X EDI=%08X EIP=%08X ESP=%08X\n", context->Esi,
+            context->Edi, context->Eip, context->Esp);
+    fprintf(crash_file, "EBP=%08X EFL=%08X\n", context->Ebp, context->EFlags);
+#endif
 
     fclose(crash_file);
     fprintf(console_output, "\nCrash dump saved to: %s\n", crash_filename);
@@ -618,7 +789,7 @@ static LONG WINAPI unhandled_exception_handler(EXCEPTION_POINTERS* exception_inf
   fprintf(console_output, "===========================\n");
   fflush(console_output);
 
-  os_mutex_unlock(g_stack_trace_mutex);
+  os_mutex_drop(g_stack_trace_mutex);
 
   if (g_previous_exception_filter) {
     return g_previous_exception_filter(exception_info);
@@ -628,7 +799,8 @@ static LONG WINAPI unhandled_exception_handler(EXCEPTION_POINTERS* exception_inf
 }
 
 void os_install_crash_handler(void) {
-  g_previous_exception_filter = SetUnhandledExceptionFilter(unhandled_exception_handler);
+  g_previous_exception_filter =
+      SetUnhandledExceptionFilter(unhandled_exception_handler);
 
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 }
@@ -692,20 +864,23 @@ void os_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
 }
 
 bool32 os_write_file(const char *file_path, u8 *buffer, size_t buffer_len) {
-  FILE *file = fopen(file_path, "wb");
-  if (file == NULL) {
+  HANDLE file = CreateFileA(file_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL, NULL);
+
+  if (file == INVALID_HANDLE_VALUE) {
     LOG_ERROR("Error opening file for writing: %", FMT_STR(file_path));
     return false;
   }
 
-  size_t written = fwrite(buffer, 1, buffer_len, file);
-  if (written != buffer_len) {
+  DWORD written = 0;
+  BOOL success = WriteFile(file, buffer, (DWORD)buffer_len, &written, NULL);
+  if (!success || written != (DWORD)buffer_len) {
     LOG_ERROR("Error writing to file: %", FMT_STR(file_path));
-    fclose(file);
+    CloseHandle(file);
     return false;
   }
 
-  fclose(file);
+  CloseHandle(file);
   return true;
 }
 
@@ -748,68 +923,164 @@ bool32 os_create_dir(const char *dir_path) {
 PlatformFileData os_read_file(const char *file_path, Allocator *allocator) {
   PlatformFileData result = {0};
 
-  FILE *file = fopen(file_path, "rb");
-  if (!file) {
+  HANDLE file =
+      CreateFileA(file_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+  if (file == INVALID_HANDLE_VALUE) {
     LOG_ERROR("Failed to open file: %", FMT_STR(file_path));
     return result;
   }
 
-  fseek(file, 0, SEEK_END);
-  long file_size = ftell(file);
-  fseek(file, 0, SEEK_SET);
-
-  if (file_size < 0) {
+  LARGE_INTEGER file_size;
+  if (!GetFileSizeEx(file, &file_size)) {
     LOG_ERROR("Failed to get file size: %", FMT_STR(file_path));
-    fclose(file);
+    CloseHandle(file);
     return result;
   }
 
-  result.buffer = ALLOC_ARRAY(allocator, uint8, file_size);
+  result.buffer = ALLOC_ARRAY(allocator, uint8, file_size.QuadPart);
   if (!result.buffer) {
     LOG_ERROR("Failed to allocate memory for file: %", FMT_STR(file_path));
-    fclose(file);
+    CloseHandle(file);
     return result;
   }
 
-  size_t bytes_read = fread(result.buffer, 1, file_size, file);
-  fclose(file);
-
-  if (bytes_read != (size_t)file_size) {
+  DWORD bytes_read = 0;
+  if (!ReadFile(file, result.buffer, (DWORD)file_size.QuadPart, &bytes_read,
+                NULL) ||
+      bytes_read != (DWORD)file_size.QuadPart) {
     LOG_ERROR("Failed to read file completely: %", FMT_STR(file_path));
+    CloseHandle(file);
     return result;
   }
 
-  result.buffer_len = (uint32)file_size;
+  CloseHandle(file);
+  result.buffer_len = (uint32)file_size.QuadPart;
   result.success = true;
   return result;
 }
 
-OsFileReadOp os_start_read_file(const char *file_path) {
-  UNUSED(file_path);
-  assert_msg(false, "Async file read not supported on native platforms");
-  return -1;
-}
+struct OsFileOp {
+  OsWin32Entity *entity;
+};
 
-OsFileReadState os_check_read_file(OsFileReadOp op_id) {
-  UNUSED(op_id);
-  assert_msg(false, "Async file read not supported on native platforms");
-  return OS_FILE_READ_STATE_ERROR;
-}
-
-int32 os_get_file_size(OsFileReadOp op_id) {
-  UNUSED(op_id);
-  assert_msg(false, "Async file read not supported on native platforms");
-  return -1;
-}
-
-bool32 os_get_file_data(OsFileReadOp op_id, _out_ PlatformFileData *data,
-                        Allocator *allocator) {
-  UNUSED(op_id);
-  UNUSED(data);
-  UNUSED(allocator);
-  assert_msg(false, "Async file read not supported on native platforms");
-  return false;
-}
+// internal void file_read_worker(void *data) {
+//   OsWin32Entity *entity = (OsWin32Entity *)data;
+//
+//   HANDLE file =
+//       CreateFileA(entity->file_op.file_path, GENERIC_READ, FILE_SHARE_READ,
+//                   NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+//   if (file == INVALID_HANDLE_VALUE) {
+//     ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+//     return;
+//   }
+//
+//   LARGE_INTEGER file_size;
+//   if (!GetFileSizeEx(file, &file_size)) {
+//     CloseHandle(file);
+//     ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+//     return;
+//   }
+//
+//   if (file_size.QuadPart < 0 || file_size.QuadPart > UINT32_MAX) {
+//     CloseHandle(file);
+//     ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+//     return;
+//   }
+//
+//   // todo: solution to not allocate here
+//   u8 *buffer = os_allocate_memory((size_t)file_size.QuadPart);
+//   if (!buffer) {
+//     CloseHandle(file);
+//     ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+//     return;
+//   }
+//
+//   DWORD bytes_read;
+//   BOOL read_success =
+//       ReadFile(file, buffer, (DWORD)file_size.QuadPart, &bytes_read, NULL);
+//   CloseHandle(file);
+//
+//   if (read_success && bytes_read == (DWORD)file_size.QuadPart) {
+//     entity->file_op.buffer = buffer;
+//     entity->file_op.buffer_len = (u32)file_size.QuadPart;
+//     ins_atomic_store_release(&entity->file_op.state,
+//                              OS_FILE_READ_STATE_COMPLETED);
+//   } else {
+//     os_free_memory(buffer, file_size.QuadPart);
+//     ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+//   }
+// }
+//
+// OsFileOp *os_start_read_file(const char *file_path, TaskSystem *task_system) {
+//   if (!task_system)
+//     return NULL;
+//
+//   OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_FILE_OP);
+//   if (!entity)
+//     return NULL;
+//
+//   size_t path_len = strlen(file_path);
+//   if (path_len >= MAX_PATH) {
+//     os_w32_entity_release(entity);
+//     return NULL;
+//   }
+//
+//   memcpy(entity->file_op.file_path, file_path, path_len + 1);
+//   entity->file_op.state = OS_FILE_READ_STATE_IN_PROGRESS;
+//   entity->file_op.buffer = NULL;
+//   entity->file_op.buffer_len = 0;
+//
+//   task_schedule(task_system, file_read_worker, entity);
+//
+//   return (OsFileOp *)entity;
+// }
+//
+// OsFileReadState os_check_read_file(OsFileOp *op) {
+//   if (!op)
+//     return OS_FILE_READ_STATE_ERROR;
+//   OsWin32Entity *entity = (OsWin32Entity *)op;
+//   return ins_atomic_load_acquire(&entity->file_op.state);
+// }
+//
+// i32 os_get_file_size(OsFileOp *op) {
+//   if (!op)
+//     return -1;
+//   OsWin32Entity *entity = (OsWin32Entity *)op;
+//   OsFileReadState state = ins_atomic_load_acquire(&entity->file_op.state);
+//   return (state == OS_FILE_READ_STATE_COMPLETED)
+//              ? (i32)entity->file_op.buffer_len
+//              : -1;
+// }
+//
+// b32 os_get_file_data(OsFileOp *op, _out_ PlatformFileData *data,
+//                      Allocator *allocator) {
+//   if (!op)
+//     return false;
+//   OsWin32Entity *entity = (OsWin32Entity *)op;
+//   OsFileReadState state = ins_atomic_load_acquire(&entity->file_op.state);
+//
+//   if (state != OS_FILE_READ_STATE_COMPLETED || !entity->file_op.buffer) {
+//     return false;
+//   }
+//
+//   data->buffer_len = entity->file_op.buffer_len;
+//   data->buffer = ALLOC_ARRAY(allocator, u8, entity->file_op.buffer_len);
+//   if (!data->buffer) {
+//     return false;
+//   }
+//
+//   memcpy(data->buffer, entity->file_op.buffer, entity->file_op.buffer_len);
+//   data->success = true;
+//
+//   os_free_memory(entity->file_op.buffer, entity->file_op.buffer_len);
+//   entity->file_op.buffer = NULL;
+//   entity->file_op.buffer_len = 0;
+//
+//   os_w32_entity_release(entity);
+//
+//   return true;
+// }
 
 OsDynLib os_dynlib_load(const char *path) {
   OsDynLib lib = LoadLibraryA(path);
@@ -952,6 +1223,46 @@ b32 os_directory_remove(const char *path) {
 
 b32 os_system(const char *command) { return system(command) == 0; }
 
+b32 os_symlink(const char *target_path, const char *link_path) {
+  DeleteFileA(link_path);
+  RemoveDirectoryA(link_path);
+
+  char resolved[MAX_PATH];
+  StringBuilder sb;
+  sb_init(&sb, resolved, sizeof(resolved));
+
+  u32 link_len = str_len(link_path);
+  i32 last_slash = -1;
+  for (i32 i = (i32)link_len - 1; i >= 0; i--) {
+    if (link_path[i] == '/' || link_path[i] == '\\') {
+      last_slash = i;
+      break;
+    }
+  }
+
+  if (last_slash >= 0 && target_path[0] == '.') {
+    sb_append_len(&sb, link_path, (u32)last_slash + 1);
+    sb_append(&sb, target_path);
+  } else {
+    sb_append(&sb, target_path);
+  }
+
+  DWORD attrs = GetFileAttributesA(sb_get(&sb));
+  DWORD flags = SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
+  if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+    flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
+  }
+
+  char win_target[MAX_PATH];
+  u32 target_len = str_len(target_path);
+  for (u32 i = 0; i < target_len && i < MAX_PATH - 1; i++) {
+    win_target[i] = (target_path[i] == '/') ? '\\' : target_path[i];
+  }
+  win_target[target_len < MAX_PATH ? target_len : MAX_PATH - 1] = '\0';
+
+  return CreateSymbolicLinkA(link_path, win_target, flags) != 0;
+}
+
 OsFileList os_list_files(const char *directory, const char *extension,
                          Allocator *allocator) {
   OsFileList result = {0};
@@ -974,8 +1285,49 @@ OsFileList os_list_files(const char *directory, const char *extension,
     if (!(find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
       if (count < capacity) {
         size_t path_len = strlen(directory) + strlen(find_data.cFileName) + 2;
-        char *full_path =
-            allocator->alloc_alloc(allocator->ctx, path_len, 1);
+        char *full_path = allocator->alloc_alloc(allocator->ctx, path_len, 1);
+        if (full_path) {
+          snprintf(full_path, path_len, "%s/%s", directory,
+                   find_data.cFileName);
+          paths[count++] = full_path;
+        }
+      }
+    }
+  } while (FindNextFileA(find_handle, &find_data) && count < capacity);
+
+  FindClose(find_handle);
+
+  result.paths = paths;
+  result.count = count;
+  return result;
+}
+
+OsFileList os_list_dirs(const char *directory, Allocator *allocator) {
+  OsFileList result = {0};
+
+  char search_path[MAX_PATH];
+  snprintf(search_path, sizeof(search_path), "%s\\*", directory);
+
+  WIN32_FIND_DATAA find_data;
+  HANDLE find_handle = FindFirstFileA(search_path, &find_data);
+
+  if (find_handle == INVALID_HANDLE_VALUE) {
+    return result;
+  }
+
+  int count = 0;
+  int capacity = 256;
+  char **paths = ALLOC_ARRAY(allocator, char *, capacity);
+
+  do {
+    if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+      if (strcmp(find_data.cFileName, ".") == 0 ||
+          strcmp(find_data.cFileName, "..") == 0) {
+        continue;
+      }
+      if (count < capacity) {
+        size_t path_len = strlen(directory) + strlen(find_data.cFileName) + 2;
+        char *full_path = allocator->alloc_alloc(allocator->ctx, path_len, 1);
         if (full_path) {
           snprintf(full_path, path_len, "%s/%s", directory,
                    find_data.cFileName);
@@ -1009,30 +1361,21 @@ char *os_cwd(char *buffer, u32 buffer_size) {
   return buffer;
 }
 
-static struct {
-  LARGE_INTEGER freq;
-  LARGE_INTEGER start;
-  b32 initialized;
-} g_time_state = {0};
-
-static int64_t _stm_int64_muldiv(int64_t value, int64_t numer, int64_t denom) {
-  int64_t q = value / denom;
-  int64_t r = value % denom;
+internal i64 os_w32_int64_muldiv(i64 value, i64 numer, i64 denom) {
+  i64 q = value / denom;
+  i64 r = value % denom;
   return q * numer + r * numer / denom;
 }
 
-void os_time_init(void) {
-  QueryPerformanceFrequency(&g_time_state.freq);
-  QueryPerformanceCounter(&g_time_state.start);
-  g_time_state.initialized = true;
-}
+void os_time_init(void) { os_init(); }
 
 u64 os_time_now(void) {
-  assert(g_time_state.initialized);
+  os_w32_assert_state_initialized();
   LARGE_INTEGER qpc_t;
   QueryPerformanceCounter(&qpc_t);
-  u64 now = (u64)_stm_int64_muldiv(qpc_t.QuadPart - g_time_state.start.QuadPart,
-                                   1000000000, g_time_state.freq.QuadPart);
+  u64 now = (u64)os_w32_int64_muldiv(
+      qpc_t.QuadPart - os_w32_state.time_start.QuadPart, 1000000000,
+      os_w32_state.time_freq.QuadPart);
   return now;
 }
 
@@ -1050,10 +1393,11 @@ f64 os_ticks_to_us(u64 ticks) { return (f64)ticks / 1000.0; }
 
 f64 os_ticks_to_ns(u64 ticks) { return (f64)ticks; }
 
+void os_sleep(u64 microseconds) { Sleep((DWORD)(microseconds / 1000)); }
+
 i32 os_get_processor_count(void) {
-  SYSTEM_INFO sysinfo;
-  GetSystemInfo(&sysinfo);
-  return (i32)sysinfo.dwNumberOfProcessors;
+  os_w32_assert_state_initialized();
+  return (i32)os_w32_state.processor_count;
 }
 
 u8 *os_allocate_memory(size_t size) {
@@ -1078,18 +1422,131 @@ void os_free_memory(void *ptr, size_t size) {
   }
 }
 
-OsWebPLoadOp os_start_webp_texture_load(const char *file_path,
-                                         u32 file_path_len,
-                                         u32 texture_handle_idx,
-                                         u32 texture_handle_gen) {
-  UNUSED(file_path);
-  UNUSED(file_path_len);
-  UNUSED(texture_handle_idx);
-  UNUSED(texture_handle_gen);
+u8 *os_reserve_memory(size_t size) {
+  void *memory = VirtualAlloc(0, size, MEM_RESERVE, PAGE_READWRITE);
+  if (!memory) {
+    DWORD err = GetLastError();
+    LOG_ERROR("VirtualAlloc (reserve) failed. Size: %, Error: %",
+              FMT_UINT(size), FMT_UINT(err));
+    return NULL;
+  }
+  return memory;
+}
+
+b32 os_commit_memory(void *ptr, size_t size) {
+  void *result = VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE);
+  if (!result) {
+    DWORD err = GetLastError();
+    LOG_ERROR("VirtualAlloc (commit) failed. Size: %, Error: %", FMT_UINT(size),
+              FMT_UINT(err));
+    return false;
+  }
+  return true;
+}
+
+u32 os_get_page_size(void) {
+  os_w32_assert_state_initialized();
+  return os_w32_state.page_size;
+}
+
+const char *os_get_compressed_texture_format_suffix(void) { return "_dxt5"; }
+
+OsKeyboardRect os_get_keyboard_rect(f32 time) {
+  UNUSED(time);
+  OsKeyboardRect rect = {0};
+  return rect;
+}
+
+OsSafeAreaInsets os_get_safe_area(void) {
+  OsSafeAreaInsets insets = {0};
+  return insets;
+}
+
+PlatformHttpRequestOp os_start_http_request(HttpMethod method, const char *url,
+                                            int url_len, const char *headers,
+                                            int headers_len, const char *body,
+                                            int body_len) {
+  UNUSED(method);
+  UNUSED(url);
+  UNUSED(url_len);
+  UNUSED(headers);
+  UNUSED(headers_len);
+  UNUSED(body);
+  UNUSED(body_len);
   return -1;
 }
 
-OsFileReadState os_check_webp_texture_load(OsWebPLoadOp op_id) {
+HttpOpState os_check_http_request(PlatformHttpRequestOp op_id) {
   UNUSED(op_id);
-  return OS_FILE_READ_STATE_ERROR;
+  return HTTP_OP_ERROR;
 }
+
+int32 os_get_http_response_info(PlatformHttpRequestOp op_id,
+                                _out_ int32 *status_code,
+                                _out_ int32 *headers_len,
+                                _out_ int32 *body_len) {
+  UNUSED(op_id);
+  UNUSED(status_code);
+  UNUSED(headers_len);
+  UNUSED(body_len);
+  return -1;
+}
+
+int32 os_get_http_body(PlatformHttpRequestOp op_id, char *buffer,
+                       int32 buffer_len) {
+  UNUSED(op_id);
+  UNUSED(buffer);
+  UNUSED(buffer_len);
+  return -1;
+}
+
+PlatformHttpStreamOp os_start_http_stream(HttpMethod method, const char *url,
+                                          int url_len, const char *headers,
+                                          int headers_len, const char *body,
+                                          int body_len) {
+  UNUSED(method);
+  UNUSED(url);
+  UNUSED(url_len);
+  UNUSED(headers);
+  UNUSED(headers_len);
+  UNUSED(body);
+  UNUSED(body_len);
+  return -1;
+}
+
+HttpStreamState os_check_http_stream(PlatformHttpStreamOp op_id) {
+  UNUSED(op_id);
+  return HTTP_STREAM_ERROR;
+}
+
+int32 os_get_http_stream_info(PlatformHttpStreamOp op_id,
+                              _out_ int32 *status_code) {
+  UNUSED(op_id);
+  UNUSED(status_code);
+  return -1;
+}
+
+int32 os_get_http_stream_chunk_size(PlatformHttpStreamOp op_id) {
+  UNUSED(op_id);
+  return 0;
+}
+
+int32 os_get_http_stream_chunk(PlatformHttpStreamOp op_id, char *buffer,
+                               int32 buffer_len, _out_ bool32 *is_final) {
+  UNUSED(op_id);
+  UNUSED(buffer);
+  UNUSED(buffer_len);
+  UNUSED(is_final);
+  return -1;
+}
+
+u32 os_mic_get_available_samples(void) { return 0; }
+u32 os_mic_read_samples(i16 *buffer, u32 max_samples) {
+  UNUSED(buffer);
+  UNUSED(max_samples);
+  return 0;
+}
+void os_mic_start_recording(void) {}
+void os_mic_stop_recording(void) {}
+u32 os_mic_get_sample_rate(void) { return 48000; }
+#include "os_win32_video.c"
