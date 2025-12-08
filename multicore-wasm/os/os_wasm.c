@@ -1,14 +1,6 @@
+#include "os.h"
 #include "lib/typedefs.h"
 #include "lib/memory.h"
-
-// Opaque handles (same as win32)
-typedef struct {
-  u64 v[1];
-} Thread;
-typedef struct {
-  u64 v[1];
-} Barrier;
-typedef void (*ThreadFunc)(void *);
 
 // Entity system (mirrors win32 pattern)
 typedef enum {
@@ -24,6 +16,7 @@ struct OsWasmEntity {
   union {
     struct {
       i32 js_thread_id;
+      u32 stack_slot_idx; // index into stack_slots
     } thread;
     struct {
       u32 slot_id; // index into barrier_slots
@@ -42,6 +35,13 @@ typedef struct {
 #define MAX_THREADS 32
 #define MAX_BARRIERS 4
 #define OS_WASM_ENTITY_POOL_SIZE 64
+#define THREAD_STACK_SIZE (64 * 1024) // 64KB per thread stack
+
+// Stack slot for thread - tracks if in use and its top address
+typedef struct {
+  b32 in_use;
+  u32 stack_top; // top of stack (stack grows down from here)
+} ThreadStackSlot;
 
 typedef struct {
   i32 thread_flags[MAX_THREADS]; // one i32 per thread for JS Atomics
@@ -50,6 +50,8 @@ typedef struct {
   OsWasmEntity *entity_free;
   u32 next_entity_idx;
   u32 next_barrier_slot;
+  ThreadStackSlot stack_slots[MAX_THREADS];
+  b32 stacks_initialized;
 } OsWasmState;
 
 global OsWasmState os_wasm_state = {0};
@@ -78,6 +80,43 @@ internal void os_wasm_entity_release(OsWasmEntity *entity) {
   os_wasm_state.entity_free = entity;
 }
 
+// Stack slot management
+extern unsigned char __heap_base;
+
+internal void os_wasm_init_stacks(void) {
+  if (os_wasm_state.stacks_initialized)
+    return;
+  u32 stacks_base = (u32)(uintptr)&__heap_base;
+  for (u32 i = 0; i < MAX_THREADS; i++) {
+    // Stack grows down, so stack_top is at the END of each region
+    os_wasm_state.stack_slots[i].stack_top =
+        stacks_base + (i + 1) * THREAD_STACK_SIZE;
+    os_wasm_state.stack_slots[i].in_use = 0;
+  }
+  os_wasm_state.stacks_initialized = 1;
+}
+
+internal i32 os_wasm_stack_alloc(void) {
+  os_wasm_init_stacks();
+  for (u32 i = 0; i < MAX_THREADS; i++) {
+    if (!os_wasm_state.stack_slots[i].in_use) {
+      os_wasm_state.stack_slots[i].in_use = 1;
+      return (i32)i;
+    }
+  }
+  return -1; // no free slots
+}
+
+internal void os_wasm_stack_free(u32 slot_idx) {
+  if (slot_idx < MAX_THREADS) {
+    os_wasm_state.stack_slots[slot_idx].in_use = 0;
+  }
+}
+
+internal u32 os_wasm_stack_get_top(u32 slot_idx) {
+  return os_wasm_state.stack_slots[slot_idx].stack_top;
+}
+
 // Getter functions to export addresses to JS
 WASM_EXPORT(get_thread_flags_ptr)
 i32 *get_thread_flags_ptr(void) { return os_wasm_state.thread_flags; }
@@ -87,9 +126,20 @@ BarrierSlot *get_barrier_data_ptr(void) { return os_wasm_state.barrier_slots; }
 
 // JS imports
 WASM_IMPORT(js_log) extern void js_log(const char *str, int len);
-WASM_IMPORT(js_thread_spawn) extern int js_thread_spawn(void *func, void *arg);
+WASM_IMPORT(js_thread_spawn)
+extern int js_thread_spawn(void *func, void *arg, u32 stack_top);
 WASM_IMPORT(js_thread_join) extern void js_thread_join(int thread_id);
 WASM_IMPORT(js_barrier_wait) extern void js_barrier_wait(u32 barrier_id);
+
+WASM_IMPORT(_os_log_info)
+void _os_log_info(const char *message, int length, const char *file_name,
+                  int file_name_len, int line_num);
+WASM_IMPORT(_os_log_warn)
+void _os_log_warn(const char *message, int length, const char *file_name,
+                  int file_name_len, int line_num);
+WASM_IMPORT(_os_log_error)
+void _os_log_error(const char *message, int length, const char *file_name,
+                   int file_name_len, int line_num);
 
 // Simple print - just logs the string, no format parsing
 void print(const char *str) {
@@ -99,6 +149,70 @@ void print(const char *str) {
   js_log(str, len);
 }
 
+void os_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
+            const char *file_name, uint32 line_number) {
+  char buffer[1024 * 8];
+  size_t msg_len = fmt_string(buffer, sizeof(buffer), fmt, args);
+  const size_t file_name_len = str_len(file_name);
+  switch (log_level) {
+  case LOGLEVEL_INFO:
+    _os_log_info(buffer, msg_len, file_name, file_name_len, line_number);
+    break;
+  case LOGLEVEL_WARN:
+    _os_log_warn(buffer, msg_len, file_name, file_name_len, line_number);
+    break;
+  case LOGLEVEL_ERROR:
+    _os_log_error(buffer, msg_len, file_name, file_name_len, line_number);
+    break;
+  default:
+    break;
+  }
+}
+
+void assert_log(u8 log_level, const char *fmt, const FmtArgs *args,
+                const char *file_name, uint32 line_number) {
+  os_log(log_level, fmt, args, file_name, line_number);
+}
+
+
+// Print string followed by integer
+void print_int(const char *prefix, i32 value) {
+  char buffer[128];
+  int pos = 0;
+
+  // Copy prefix
+  while (prefix[pos] && pos < 100) {
+    buffer[pos] = prefix[pos];
+    pos++;
+  }
+
+  // Convert integer to string
+  if (value == 0) {
+    buffer[pos++] = '0';
+  } else {
+    b32 negative = value < 0;
+    if (negative)
+      value = -value;
+
+    char digits[16];
+    int digit_count = 0;
+    while (value > 0) {
+      digits[digit_count++] = '0' + (value % 10);
+      value /= 10;
+    }
+
+    if (negative)
+      buffer[pos++] = '-';
+
+    // Reverse digits into buffer
+    while (digit_count > 0) {
+      buffer[pos++] = digits[--digit_count];
+    }
+  }
+
+  js_log(buffer, pos);
+}
+
 // Threads
 Thread os_thread_launch(ThreadFunc fn, void *arg) {
   Thread result = {0};
@@ -106,7 +220,16 @@ Thread os_thread_launch(ThreadFunc fn, void *arg) {
   if (!entity)
     return result;
 
-  entity->thread.js_thread_id = js_thread_spawn((void *)fn, arg);
+  // Allocate a stack slot for this thread
+  i32 stack_slot = os_wasm_stack_alloc();
+  if (stack_slot < 0) {
+    os_wasm_entity_release(entity);
+    return result;
+  }
+
+  entity->thread.stack_slot_idx = (u32)stack_slot;
+  u32 stack_top = os_wasm_stack_get_top((u32)stack_slot);
+  entity->thread.js_thread_id = js_thread_spawn((void *)fn, arg, stack_top);
   result.v[0] = (u64)entity;
   return result;
 }
@@ -118,6 +241,7 @@ b32 os_thread_join(Thread t, u64 timeout_us) {
 
   OsWasmEntity *entity = (OsWasmEntity *)t.v[0];
   js_thread_join(entity->thread.js_thread_id);
+  os_wasm_stack_free(entity->thread.stack_slot_idx);
   os_wasm_entity_release(entity);
   return 1;
 }
@@ -161,15 +285,24 @@ void os_barrier_release(Barrier b) {
   os_wasm_entity_release(entity);
 }
 
-extern unsigned char __heap_base;
+// Set the __stack_pointer global - used by workers to set their own stack
+WASM_EXPORT(set_stack_pointer)
+void set_stack_pointer(u32 sp) {
+  __asm__("local.get %0\n"
+          "global.set __stack_pointer\n"
+          :
+          : "r"(sp));
+}
 
-WASM_EXPORT(os_get_heap_base) void *os_get_heap_base(void) {
+WASM_EXPORT(os_get_heap_base)
+void *os_get_heap_base(void) {
+  // Heap starts after reserved thread stack space
+  u8 *base = &__heap_base + (MAX_THREADS * THREAD_STACK_SIZE);
 #ifdef DEBUG
   // add 1MB padding on debug builds to support hot reload
-  return (&__heap_base + KB(1024));
-#else
-  return &__heap_base;
+  base += KB(1024);
 #endif
+  return base;
 }
 
 // Memory

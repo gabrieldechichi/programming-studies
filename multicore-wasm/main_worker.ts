@@ -26,7 +26,7 @@ interface WorkerInfo {
     ready: boolean;
 }
 const workerPool: WorkerInfo[] = [];
-const hardwareCores = navigator.hardwareConcurrency
+const hardwareCores = navigator.hardwareConcurrency;
 const POOL_SIZE = hardwareCores < 8 ? 16 : hardwareCores + 4;
 
 // Preload worker pool
@@ -109,7 +109,44 @@ const imports = {
             const str = readString(ptr, len);
             console.log(str);
         },
-        js_thread_spawn: (funcPtr: number, argPtr: number): number => {
+        _os_log_info: (
+            ptr: number,
+            len: number,
+            fileNamePtr: number,
+            fileNameLen: number,
+            lineNumber: number,
+        ): void => {
+            const message = readString(ptr, len);
+            const fileName = readString(fileNamePtr, fileNameLen);
+            console.log(`${fileName}:${lineNumber}: ${message}`);
+        },
+        _os_log_warn: (
+            ptr: number,
+            len: number,
+            fileNamePtr: number,
+            fileNameLen: number,
+            lineNumber: number,
+        ): void => {
+            const message = readString(ptr, len);
+            const fileName = readString(fileNamePtr, fileNameLen);
+            console.warn(`${fileName}:${lineNumber}: ${message}`);
+        },
+        _os_log_error: (
+            ptr: number,
+            len: number,
+            fileNamePtr: number,
+            fileNameLen: number,
+            lineNumber: number,
+        ): void => {
+            const message = readString(ptr, len);
+            const fileName = readString(fileNamePtr, fileNameLen);
+            console.error(`${fileName}:${lineNumber}: ${message}`);
+        },
+        js_thread_spawn: (
+            funcPtr: number,
+            argPtr: number,
+            stackTop: number,
+        ): number => {
             // Get a ready worker from pool
             const info = workerPool.find((w) => w.ready);
             if (!info) {
@@ -120,13 +157,14 @@ const imports = {
 
             const threadId = nextThreadId++;
             // Use exported thread_flags array - each thread gets one i32 slot
-            const flagIndex = (threadFlagsBase / 4) + threadId;
+            const flagIndex = threadFlagsBase / 4 + threadId;
 
             // Initialize done flag to 0
             const flags = new Int32Array(memory.buffer);
             Atomics.store(flags, flagIndex, 0);
 
             // Send run command - worker is already loaded
+            // stackTop comes from C (allocated by os_thread_launch)
             info.worker.postMessage({
                 cmd: "run",
                 funcPtr,
@@ -134,6 +172,7 @@ const imports = {
                 threadId,
                 flagIndex,
                 barrierDataBase,
+                stackTop,
             });
 
             threads.set(threadId, { worker: info.worker, flagIndex });

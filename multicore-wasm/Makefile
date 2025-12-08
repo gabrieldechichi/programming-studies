@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS = --target=wasm32 -nostdlib -O0 -I. -DWASM -matomics -mbulk-memory
+CFLAGS = --target=wasm32 -nostdlib -O0 -I. -DWASM -matomics
 # --shared-memory requires --max-memory (shared memory can't grow)
 # --export-table needed for indirect function calls (function pointers) from JS
 LDFLAGS = -Wl,--no-entry -Wl,--export-table -Wl,--import-memory -Wl,--shared-memory -Wl,--max-memory=4294967296 -Wl,--allow-undefined

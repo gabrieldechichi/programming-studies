@@ -38,6 +38,7 @@ function barrierWait(barrierId: number): void {
     }
 }
 
+
 self.onmessage = async (e) => {
     const { cmd } = e.data;
 
@@ -52,6 +53,41 @@ self.onmessage = async (e) => {
                 js_log: (ptr: number, len: number) => {
                     const str = readString(ptr, len);
                     console.log(`[Thread] ${str}`);
+                },
+
+                _os_log_info: (
+                    ptr: number,
+                    len: number,
+                    fileNamePtr: number,
+                    fileNameLen: number,
+                    lineNumber: number,
+                ): void => {
+                    const message = readString(ptr, len);
+                    const fileName = readString(fileNamePtr, fileNameLen);
+                    console.log(`${fileName}:${lineNumber}: ${message}`);
+                },
+
+                _os_log_warn: (
+                    ptr: number,
+                    len: number,
+                    fileNamePtr: number,
+                    fileNameLen: number,
+                    lineNumber: number,
+                ): void => {
+                    const message = readString(ptr, len);
+                    const fileName = readString(fileNamePtr, fileNameLen);
+                    console.warn(`${fileName}:${lineNumber}: ${message}`);
+                },
+                _os_log_error: (
+                    ptr: number,
+                    len: number,
+                    fileNamePtr: number,
+                    fileNameLen: number,
+                    lineNumber: number,
+                ): void => {
+                    const message = readString(ptr, len);
+                    const fileName = readString(fileNamePtr, fileNameLen);
+                    console.error(`${fileName}:${lineNumber}: ${message}`);
                 },
                 // Workers can't spawn threads (for now)
                 js_thread_spawn: () => {
@@ -79,13 +115,17 @@ self.onmessage = async (e) => {
         barrierDataBase = e.data.barrierDataBase;
     } else if (cmd === "run") {
         // Phase 2: Execute the function
-        const { funcPtr, argPtr, threadId, flagIndex } = e.data;
+        const { funcPtr, argPtr, threadId, flagIndex, stackTop } = e.data;
         // Update barrier base if provided with run command
         if (e.data.barrierDataBase !== undefined) {
             barrierDataBase = e.data.barrierDataBase;
         }
 
         try {
+            // Set this worker's stack pointer to its dedicated stack region
+            const set_stack_pointer = wasmInstance.exports.set_stack_pointer as (sp: number) => void;
+            set_stack_pointer(stackTop);
+
             const table = wasmInstance.exports.__indirect_function_table as WebAssembly.Table;
             const fn = table.get(funcPtr) as (arg: number) => void;
 

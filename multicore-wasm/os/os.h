@@ -4,6 +4,23 @@
 #include "lib/typedefs.h"
 #include "lib/thread.h"
 
+typedef enum { LOGLEVEL_INFO, LOGLEVEL_WARN, LOGLEVEL_ERROR } LogLevel;
+void os_log(LogLevel log_level, const char *fmt,
+                          const FmtArgs *args, const char *file_name,
+                          uint32 line_number);
+
+#define PLATFORM_LOG(level, fmt, ...)                                          \
+  do {                                                                         \
+    FmtArg args[] = {(FmtArg){.type = 0}, ##__VA_ARGS__};                      \
+    size_t _count = (sizeof(args) / sizeof(FmtArg)) - 1;                       \
+    FmtArgs fmtArgs = {args + 1, (u8)_count};                                  \
+    os_log(level, fmt, &fmtArgs, __FILE_NAME__, __LINE__);                     \
+  } while (0)
+
+#define LOG_INFO(fmt, ...) PLATFORM_LOG(LOGLEVEL_INFO, fmt, ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...) PLATFORM_LOG(LOGLEVEL_WARN, fmt, ##__VA_ARGS__)
+#define LOG_ERROR(fmt, ...) PLATFORM_LOG(LOGLEVEL_ERROR, fmt, ##__VA_ARGS__)
+
 // Memory
 void* os_allocate_memory(size_t size);
 void os_free_memory(void* ptr, size_t size);
