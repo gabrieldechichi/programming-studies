@@ -1,28 +1,16 @@
-// Create memory (16MB initial, will be shared later for threads)
-const memory = new WebAssembly.Memory({ initial: 256 });
+// Main thread just spawns a worker to run main()
+// This allows the worker to use Atomics.wait for thread joins
 
-// Helper to read a string from WASM memory
-function readString(ptr: number, len: number): string {
-    const bytes = new Uint8Array(memory.buffer, ptr, len);
-    return new TextDecoder().decode(bytes);
-}
+const worker = new Worker(new URL("./main_worker.mjs", import.meta.url), {
+    type: "module",
+});
 
-// Import object - functions provided to WASM
-const imports = {
-    env: {
-        memory,
-        js_log: (ptr: number, len: number) => {
-            const str = readString(ptr, len);
-            console.log(str);
-        },
-    },
+worker.onmessage = (e) => {
+    if (e.data.type === "done") {
+        console.log(`main() returned: ${e.data.result}`);
+    }
 };
 
-// Load and run (works in both browser and bun)
-const wasmUrl = new URL("./wasm.wasm", import.meta.url);
-const wasmBytes = await (await fetch(wasmUrl)).arrayBuffer();
-const { instance } = await WebAssembly.instantiate(wasmBytes, imports);
-
-const main = instance.exports.main as () => number;
-const result = main();
-console.log(`main() returned: ${result}`);
+worker.onerror = (e) => {
+    console.error("Worker error:", e);
+};

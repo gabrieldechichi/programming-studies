@@ -1,15 +1,36 @@
-// #include "os.h"
-// #include <pthread.h>
-// #include <stdlib.h>
+// Basic types (no stdlib)
+typedef unsigned int u32;
+typedef unsigned long long u64;
+typedef int i32;
+typedef int b32;
 
-// JS import for logging
+// Thread handle
+typedef struct { u64 v[1]; } Thread;
+typedef void (*ThreadFunc)(void*);
+
+// JS imports
 extern void js_log(const char* str, int len);
+extern int js_thread_spawn(void* func, void* arg);
+extern void js_thread_join(int thread_id);
 
 // Simple print - just logs the string, no format parsing
 void print(const char* str) {
     int len = 0;
     while (str[len]) len++;
     js_log(str, len);
+}
+
+// Threads
+Thread os_thread_launch(ThreadFunc fn, void* arg) {
+    int id = js_thread_spawn((void*)fn, arg);
+    Thread t = {.v = {(u64)id}};
+    return t;
+}
+
+b32 os_thread_join(Thread t, u64 timeout_us) {
+    (void)timeout_us; // unused for now
+    js_thread_join((int)t.v[0]);
+    return 1;
 }
 
 
