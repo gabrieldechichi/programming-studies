@@ -1,25 +1,27 @@
-EMSDK = D:/dev/tools/emsdk
-CC = $(EMSDK)/upstream/emscripten/emcc
-CFLAGS = -O0 -I. -DWASM
-LDFLAGS = -pthread -s PROXY_TO_PTHREAD -s EXIT_RUNTIME=1 -s WASM=1 -s MODULARIZE=1 -s EXPORT_ES6=1 -s EXPORT_NAME='createModule'
+CC = clang
+CFLAGS = --target=wasm32 -nostdlib -O0 -I. -DWASM
+LDFLAGS = -Wl,--no-entry -Wl,--export=main -Wl,--import-memory -Wl,--allow-undefined
 
 SRC = main.c
 OUT_DIR = out
-WASM_OUT = $(OUT_DIR)/wasm.mjs
-TS_OUT = $(OUT_DIR)/main.mjs
+WASM_OUT = $(OUT_DIR)/wasm.wasm
+JS_OUT = $(OUT_DIR)/main.mjs
 
-all: $(OUT_DIR) $(WASM_OUT) $(TS_OUT)
+all: $(OUT_DIR) $(WASM_OUT) $(JS_OUT)
 
 $(OUT_DIR):
-	if not exist $(OUT_DIR) mkdir $(OUT_DIR)
+	powershell -Command "if (!(Test-Path $(OUT_DIR))) { New-Item -ItemType Directory -Path $(OUT_DIR) }"
 
-$(WASM_OUT): $(SRC)
+$(WASM_OUT): $(SRC) os/os_wasm.c
 	$(CC) $(CFLAGS) $(SRC) -o $(WASM_OUT) $(LDFLAGS)
 
-$(TS_OUT): main.ts $(WASM_OUT)
-	bun build main.ts --outfile $(TS_OUT) --external ./wasm.mjs
+$(JS_OUT): main.ts
+	bun build main.ts --outfile $(JS_OUT)
+
+run: all
+	bun run main.ts
 
 clean:
-	if exist $(OUT_DIR) rmdir /s /q $(OUT_DIR)
+	powershell -Command "if (Test-Path $(OUT_DIR)) { Remove-Item -Recurse -Force $(OUT_DIR) }"
 
-.PHONY: all clean
+.PHONY: all clean run
