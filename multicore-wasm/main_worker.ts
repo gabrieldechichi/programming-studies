@@ -26,7 +26,8 @@ interface WorkerInfo {
     ready: boolean;
 }
 const workerPool: WorkerInfo[] = [];
-const POOL_SIZE = 4;
+const hardwareCores = navigator.hardwareConcurrency
+const POOL_SIZE = hardwareCores < 8 ? 16 : hardwareCores + 4;
 
 // Preload worker pool
 async function preloadWorker(): Promise<WorkerInfo> {
@@ -64,16 +65,43 @@ for (let i = 0; i < POOL_SIZE; i++) {
 // Thread tracking
 interface ThreadInfo {
     worker: Worker;
-    doneOffset: number;
+    flagIndex: number; // index into Int32Array (not byte offset)
 }
 const threads = new Map<number, ThreadInfo>();
 let nextThreadId = 1;
 
-// Reserve first 1KB for thread flags
-const THREAD_FLAGS_BASE = 0;
-const THREAD_FLAG_SIZE = 4;
+// These will be set after WASM instantiation from exported globals
+let threadFlagsBase = 0; // byte offset of thread_flags array
+let barrierDataBase = 0; // byte offset of barrier_data array
 
-// Imports for WASM
+// Barrier wait implementation using Atomics
+function barrierWait(barrierId: number): void {
+    const i32 = new Int32Array(memory.buffer);
+    // Barrier layout: [count, generation, arrived] - 3 i32s per barrier
+    const baseIndex = (barrierDataBase / 4) + barrierId * 3;
+    const countIndex = baseIndex + 0;
+    const genIndex = baseIndex + 1;
+    const arrivedIndex = baseIndex + 2;
+
+    const count = Atomics.load(i32, countIndex);
+    const myGen = Atomics.load(i32, genIndex);
+
+    // Atomically increment arrived count
+    const arrived = Atomics.add(i32, arrivedIndex, 1) + 1;
+
+    if (arrived === count) {
+        // Last thread: reset arrived, flip generation, wake everyone
+        Atomics.store(i32, arrivedIndex, 0);
+        Atomics.store(i32, genIndex, 1 - myGen);
+        Atomics.notify(i32, genIndex);
+    } else {
+        // Wait for generation to change
+        Atomics.wait(i32, genIndex, myGen);
+    }
+}
+
+// Imports for WASM - js_barrier_wait needs access to barrierDataBase which is set later,
+// but the function closes over the variable so it will use the updated value
 const imports = {
     env: {
         memory,
@@ -91,11 +119,12 @@ const imports = {
             info.ready = false;
 
             const threadId = nextThreadId++;
-            const doneOffset = THREAD_FLAGS_BASE + threadId * THREAD_FLAG_SIZE;
+            // Use exported thread_flags array - each thread gets one i32 slot
+            const flagIndex = (threadFlagsBase / 4) + threadId;
 
             // Initialize done flag to 0
             const flags = new Int32Array(memory.buffer);
-            Atomics.store(flags, doneOffset / 4, 0);
+            Atomics.store(flags, flagIndex, 0);
 
             // Send run command - worker is already loaded
             info.worker.postMessage({
@@ -103,10 +132,11 @@ const imports = {
                 funcPtr,
                 argPtr,
                 threadId,
-                doneOffset,
+                flagIndex,
+                barrierDataBase,
             });
 
-            threads.set(threadId, { worker: info.worker, doneOffset });
+            threads.set(threadId, { worker: info.worker, flagIndex });
             return threadId;
         },
         js_thread_join: (threadId: number) => {
@@ -114,11 +144,10 @@ const imports = {
             if (!thread) return;
 
             const flags = new Int32Array(memory.buffer);
-            const flagIndex = thread.doneOffset / 4;
 
             // Wait for thread to complete
-            while (Atomics.load(flags, flagIndex) === 0) {
-                Atomics.wait(flags, flagIndex, 0);
+            while (Atomics.load(flags, thread.flagIndex) === 0) {
+                Atomics.wait(flags, thread.flagIndex, 0);
             }
 
             // Return worker to pool
@@ -129,12 +158,29 @@ const imports = {
 
             threads.delete(threadId);
         },
+        js_barrier_wait: (barrierId: number) => {
+            barrierWait(barrierId);
+        },
     },
 };
 
 // Instantiate and run
-// Note: WebAssembly.instantiate with a Module returns Instance directly (not {module, instance})
 const instance = await WebAssembly.instantiate(wasmModule, imports);
+
+// Get addresses for thread sync data via getter functions
+const get_thread_flags_ptr = instance.exports.get_thread_flags_ptr as () => number;
+const get_barrier_data_ptr = instance.exports.get_barrier_data_ptr as () => number;
+threadFlagsBase = get_thread_flags_ptr();
+barrierDataBase = get_barrier_data_ptr();
+
+// Send barrier base to all workers so they can do barrier_wait
+for (const info of workerPool) {
+    info.worker.postMessage({
+        cmd: "set_barrier_base",
+        barrierDataBase,
+    });
+}
+
 const wasm_main = instance.exports.wasm_main as () => number;
 const result = wasm_main();
 
