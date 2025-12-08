@@ -1,17 +1,13 @@
-// Basic types (no stdlib)
-typedef unsigned int u32;
-typedef unsigned long long u64;
-typedef int i32;
-typedef int b32;
+#include "lib/typedefs.h"
 
 // Thread handle
 typedef struct { u64 v[1]; } Thread;
 typedef void (*ThreadFunc)(void*);
 
 // JS imports
-extern void js_log(const char* str, int len);
-extern int js_thread_spawn(void* func, void* arg);
-extern void js_thread_join(int thread_id);
+WASM_IMPORT(js_log) extern void js_log(const char* str, int len);
+WASM_IMPORT(js_thread_spawn) extern int js_thread_spawn(void* func, void* arg);
+WASM_IMPORT(js_thread_join) extern void js_thread_join(int thread_id);
 
 // Simple print - just logs the string, no format parsing
 void print(const char* str) {

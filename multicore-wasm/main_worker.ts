@@ -1,9 +1,9 @@
 // Main worker - runs WASM main() and can use Atomics.wait
 
-// Shared memory (16MB)
+// Shared memory (4GB max)
 const memory = new WebAssembly.Memory({
-    initial: 256,
-    maximum: 256,
+    initial: 65536,      // 16MB initial
+    maximum: 65536,    // 4GB max (65536 * 64KB)
     shared: true,
 });
 
@@ -135,8 +135,8 @@ const imports = {
 // Instantiate and run
 // Note: WebAssembly.instantiate with a Module returns Instance directly (not {module, instance})
 const instance = await WebAssembly.instantiate(wasmModule, imports);
-const main = instance.exports.main as () => number;
-const result = main();
+const wasm_main = instance.exports.wasm_main as () => number;
+const result = wasm_main();
 
 // Notify main thread
 self.postMessage({ type: "done", result });
