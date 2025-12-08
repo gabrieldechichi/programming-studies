@@ -1,7 +1,7 @@
 EMSDK = D:/dev/tools/emsdk
 CC = $(EMSDK)/upstream/emscripten/emcc
 CFLAGS = -O0
-LDFLAGS = -s WASM=1 -s MODULARIZE=1 -s EXPORT_ES6=1 -s EXPORT_NAME='createModule'
+LDFLAGS = -pthread -s PROXY_TO_PTHREAD -s EXIT_RUNTIME=1 -s WASM=1 -s MODULARIZE=1 -s EXPORT_ES6=1 -s EXPORT_NAME='createModule'
 
 SRC = main.c
 OUT_DIR = out

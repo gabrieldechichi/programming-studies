@@ -7,6 +7,11 @@ const MIME_TYPES: Record<string, string> = {
     '.json': 'application/json',
 };
 
+const HEADERS = {
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'require-corp',
+};
+
 const PORT = 3000;
 
 Bun.serve({
@@ -23,7 +28,7 @@ Bun.serve({
             const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
             return new Response(file, {
-                headers: { 'Content-Type': contentType },
+                headers: { 'Content-Type': contentType, ...HEADERS },
             });
         }
 
