@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:web.dev)"
+      "WebFetch(domain:web.dev)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []

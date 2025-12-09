@@ -5,6 +5,10 @@ let wasmInstance: WebAssembly.Instance;
 let memory: WebAssembly.Memory;
 let barrierDataBase = 0;
 
+// Worker pool size (must match main_worker.ts)
+const hardwareCores = navigator.hardwareConcurrency;
+const OS_CORES = hardwareCores < 8 ? 16 : hardwareCores;
+
 // Helper to read a string from WASM memory
 function readString(ptr: number, len: number): string {
     const bytes = new Uint8Array(memory.buffer, ptr, len);
@@ -117,7 +121,7 @@ self.onmessage = async (e) => {
         barrierDataBase = e.data.barrierDataBase;
     } else if (cmd === "run") {
         // Phase 2: Execute the function
-        const { funcPtr, argPtr, threadId, flagIndex, stackTop } = e.data;
+        const { funcPtr, argPtr, threadId, flagIndex, stackTop, tlsBase } = e.data;
         // Update barrier base if provided with run command
         if (e.data.barrierDataBase !== undefined) {
             barrierDataBase = e.data.barrierDataBase;
@@ -127,6 +131,12 @@ self.onmessage = async (e) => {
             // Set this worker's stack pointer to its dedicated stack region
             const set_stack_pointer = wasmInstance.exports.set_stack_pointer as (sp: number) => void;
             set_stack_pointer(stackTop);
+
+            // Initialize TLS for this worker
+            if (tlsBase !== undefined && tlsBase !== 0) {
+                const __wasm_init_tls = wasmInstance.exports.__wasm_init_tls as (ptr: number) => void;
+                __wasm_init_tls(tlsBase);
+            }
 
             const table = wasmInstance.exports.__indirect_function_table as WebAssembly.Table;
             const fn = table.get(funcPtr) as (arg: number) => void;

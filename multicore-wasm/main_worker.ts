@@ -75,6 +75,26 @@ let nextThreadId = 1;
 let threadFlagsBase = 0; // byte offset of thread_flags array
 let barrierDataBase = 0; // byte offset of barrier_data array
 
+// TLS (Thread Local Storage) support
+let tlsSize = 0;
+let tlsAlign = 0;
+let tlsAllocBase = 0; // Base address for TLS allocations
+let tlsAllocOffset = 0; // Current offset into TLS region
+
+// Allocate TLS memory for a thread
+function allocateTlsMemory(): number {
+    if (tlsSize === 0) return 0; // No TLS needed
+
+    // Align the offset
+    const alignMask = tlsAlign - 1;
+    tlsAllocOffset = (tlsAllocOffset + alignMask) & ~alignMask;
+
+    const tlsBase = tlsAllocBase + tlsAllocOffset;
+    tlsAllocOffset += tlsSize;
+
+    return tlsBase;
+}
+
 // Barrier wait implementation using Atomics
 function barrierWait(barrierId: number): void {
     const i32 = new Int32Array(memory.buffer);
@@ -167,6 +187,9 @@ const imports = {
             const flags = new Int32Array(memory.buffer);
             Atomics.store(flags, flagIndex, 0);
 
+            // Allocate TLS memory for this thread
+            const tlsBase = allocateTlsMemory();
+
             // Send run command - worker is already loaded
             // stackTop comes from C (allocated by os_thread_launch)
             info.worker.postMessage({
@@ -177,6 +200,7 @@ const imports = {
                 flagIndex,
                 barrierDataBase,
                 stackTop,
+                tlsBase,
             });
 
             threads.set(threadId, { worker: info.worker, flagIndex });
@@ -216,7 +240,26 @@ const get_barrier_data_ptr = instance.exports.get_barrier_data_ptr as () => numb
 threadFlagsBase = get_thread_flags_ptr();
 barrierDataBase = get_barrier_data_ptr();
 
-// Send barrier base to all workers so they can do barrier_wait
+// Get TLS info from exports
+const __tls_size = instance.exports.__tls_size as WebAssembly.Global;
+const __tls_align = instance.exports.__tls_align as WebAssembly.Global;
+tlsSize = __tls_size.value as number;
+tlsAlign = __tls_align.value as number;
+
+// Set up TLS allocation region (after heap base + some offset)
+const os_get_heap_base = instance.exports.os_get_heap_base as () => number;
+// TLS region starts after a 32MB offset from heap base to avoid conflicts
+tlsAllocBase = os_get_heap_base() + 32 * 1024 * 1024;
+tlsAllocOffset = 0;
+
+// Initialize TLS for main worker
+const __wasm_init_tls = instance.exports.__wasm_init_tls as (ptr: number) => void;
+if (tlsSize > 0) {
+    const mainTlsBase = allocateTlsMemory();
+    __wasm_init_tls(mainTlsBase);
+}
+
+// Send barrier base and TLS info to all workers so they can do barrier_wait
 for (const info of workerPool) {
     info.worker.postMessage({
         cmd: "set_barrier_base",
