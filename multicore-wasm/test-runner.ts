@@ -17,7 +17,7 @@ const TIMEOUT_MS = 30000;
 const DEMOS = [
     "demo_thread_create.c",
     "demo_tls.c",
-    // "demo_shared_memory.c",
+    "demo_shared_memory.c",
     // "demo_mutex.c",
     // "demo_barrier.c",
     // "demo_condvar.c",

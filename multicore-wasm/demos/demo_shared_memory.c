@@ -3,85 +3,86 @@
 // Demonstrates that threads CAN see each other's writes (unlike TLS)
 // Also shows race conditions when no synchronization is used
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
+#include "os/os.h"
 
 #define NUM_THREADS 4
 #define ITERATIONS 10000
 
 // Shared memory - all threads access the same variable
-static int shared_counter = 0;
-static int shared_array[NUM_THREADS] = {0};
+static i32 shared_counter = 0;
+static i32 shared_array[NUM_THREADS] = {0};
 
-void* thread_func(void* arg) {
-    int id = *(int*)arg;
+typedef struct {
+    i32 id;
+} SharedMemThreadArg;
+
+void thread_func(void* arg) {
+    SharedMemThreadArg* targ = (SharedMemThreadArg*)arg;
+    i32 id = targ->id;
 
     // Write to our slot in the shared array (no race - each thread owns a slot)
     shared_array[id] = id * 100;
-    printf("Thread %d: wrote %d to shared_array[%d]\n", id, shared_array[id], id);
+    LOG_INFO("Thread %: wrote % to shared_array[%]", FMT_INT(id), FMT_INT(shared_array[id]), FMT_INT(id));
 
     // Increment shared counter (WILL HAVE RACES - intentional!)
-    for (int i = 0; i < ITERATIONS; i++) {
+    for (i32 i = 0; i < ITERATIONS; i++) {
         shared_counter++;  // This is NOT atomic!
     }
-
-    return NULL;
 }
 
 int demo_main(void) {
-    printf("=== Demo: Shared Memory ===\n\n");
+    LOG_INFO("=== Demo: Shared Memory ===");
 
-    pthread_t threads[NUM_THREADS];
-    int thread_ids[NUM_THREADS];
+    Thread threads[NUM_THREADS];
+    SharedMemThreadArg thread_args[NUM_THREADS];
 
-    printf("Initial shared_counter = %d\n", shared_counter);
-    printf("Expected final value (if no races) = %d\n\n", NUM_THREADS * ITERATIONS);
+    LOG_INFO("Initial shared_counter = %", FMT_INT(shared_counter));
+    LOG_INFO("Expected final value (if no races) = %", FMT_INT(NUM_THREADS * ITERATIONS));
 
     // Create threads
-    for (int i = 0; i < NUM_THREADS; i++) {
-        thread_ids[i] = i;
-        pthread_create(&threads[i], NULL, thread_func, &thread_ids[i]);
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_args[i].id = i;
+        threads[i] = thread_launch(thread_func, &thread_args[i]);
     }
 
     // Join threads
-    for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_join(threads[i], NULL);
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_join(threads[i], 0);
     }
 
     // Check shared array (should be correct - no races)
-    printf("\nShared array contents:\n");
-    int array_correct = 1;
-    for (int i = 0; i < NUM_THREADS; i++) {
-        int expected = i * 100;
-        printf("  shared_array[%d] = %d (expected %d) %s\n",
-               i, shared_array[i], expected,
-               shared_array[i] == expected ? "[OK]" : "[WRONG]");
-        if (shared_array[i] != expected) {
-            array_correct = 0;
+    LOG_INFO("Shared array contents:");
+    b32 array_correct = true;
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        i32 expected = i * 100;
+        if (shared_array[i] == expected) {
+            LOG_INFO("  shared_array[%] = % (expected %) [OK]",
+                     FMT_INT(i), FMT_INT(shared_array[i]), FMT_INT(expected));
+        } else {
+            LOG_ERROR("  shared_array[%] = % (expected %) [WRONG]",
+                      FMT_INT(i), FMT_INT(shared_array[i]), FMT_INT(expected));
+            array_correct = false;
         }
     }
 
     // Check shared counter (likely has races)
-    int expected = NUM_THREADS * ITERATIONS;
-    printf("\nShared counter = %d (expected %d)\n", shared_counter, expected);
+    i32 expected = NUM_THREADS * ITERATIONS;
+    LOG_INFO("Shared counter = % (expected %)", FMT_INT(shared_counter), FMT_INT(expected));
 
     if (shared_counter == expected) {
-        printf("  Note: Counter matches expected! (got lucky or single-core execution)\n");
+        LOG_INFO("  Note: Counter matches expected! (got lucky or single-core execution)");
     } else {
-        int lost = expected - shared_counter;
-        printf("  Lost %d increments due to race conditions (%.1f%% loss)\n",
-               lost, (lost * 100.0) / expected);
+        i32 lost = expected - shared_counter;
+        LOG_INFO("  Lost % increments due to race conditions", FMT_INT(lost));
     }
 
-    printf("\n");
     if (array_correct) {
-        printf("[PASS] Shared memory is accessible from all threads!\n");
-        printf("  - Non-overlapping writes work correctly\n");
-        printf("  - Race conditions occur with concurrent modifications\n");
-        printf("  - Use mutexes or atomics to fix races (see other demos)\n");
+        LOG_INFO("[PASS] Shared memory is accessible from all threads!");
+        LOG_INFO("  - Non-overlapping writes work correctly");
+        LOG_INFO("  - Race conditions occur with concurrent modifications");
+        LOG_INFO("  - Use mutexes or atomics to fix races (see other demos)");
     } else {
-        printf("[FAIL] Shared array was corrupted!\n");
+        LOG_ERROR("[FAIL] Shared array was corrupted!");
         return 1;
     }
 
