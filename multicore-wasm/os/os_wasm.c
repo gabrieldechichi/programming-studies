@@ -127,14 +127,11 @@ internal u32 os_wasm_stack_get_top(u32 slot_idx) {
 }
 
 // TLS slot management
-// Use compiler intrinsics to get TLS info (linker provides these as WASM globals)
-internal u32 os_wasm_get_tls_size(void) {
-  return __builtin_wasm_tls_size();
-}
+// Use compiler intrinsics to get TLS info (linker provides these as WASM
+// globals)
+internal u32 os_wasm_get_tls_size(void) { return __builtin_wasm_tls_size(); }
 
-internal u32 os_wasm_get_tls_align(void) {
-  return __builtin_wasm_tls_align();
-}
+internal u32 os_wasm_get_tls_align(void) { return __builtin_wasm_tls_align(); }
 
 internal u32 os_wasm_get_tls_region_base(void) {
   // TLS region starts right after thread stacks
@@ -157,7 +154,8 @@ internal void os_wasm_init_tls(void) {
 
   u32 tls_region_base = os_wasm_get_tls_region_base();
   for (u32 i = 0; i < MAX_THREADS; i++) {
-    os_wasm_state.tls_slots[i].tls_base = tls_region_base + (i * aligned_tls_size);
+    os_wasm_state.tls_slots[i].tls_base =
+        tls_region_base + (i * aligned_tls_size);
     os_wasm_state.tls_slots[i].in_use = 0;
   }
   os_wasm_state.tls_initialized = 1;
@@ -403,8 +401,7 @@ void *os_get_heap_base(void) {
       tls_size > 0 ? (tls_size + tls_align - 1) & ~(tls_align - 1) : 0;
   u32 tls_region_size = MAX_THREADS * aligned_tls_size;
 
-  u8 *base =
-      &__heap_base + (MAX_THREADS * THREAD_STACK_SIZE) + tls_region_size;
+  u8 *base = &__heap_base + (MAX_THREADS * THREAD_STACK_SIZE) + tls_region_size;
 #ifdef DEBUG
   // add 1MB padding on debug builds to support hot reload
   base += KB(1024);

@@ -2,6 +2,7 @@
 #define OS_H
 
 #include "lib/typedefs.h"
+#include "lib/fmt.h"
 #include "lib/thread.h"
 
 typedef enum { LOGLEVEL_INFO, LOGLEVEL_WARN, LOGLEVEL_ERROR } LogLevel;

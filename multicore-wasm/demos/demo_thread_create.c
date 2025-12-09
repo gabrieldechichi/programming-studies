@@ -1,79 +1,57 @@
 // Demo 1: Basic Thread Creation
-// Tests: pthread_create, pthread_join, passing arguments, return values
+// Tests: thread_launch, thread_join, passing arguments
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
+#include "os/os.h"
 
 #define NUM_THREADS 4
 
 typedef struct {
-    int thread_id;
-    int input_value;
+    i32 thread_id;
+    i32 input_value;
+    i32 result;
 } ThreadArg;
 
-typedef struct {
-    int thread_id;
-    int result;
-} ThreadResult;
-
-void* thread_func(void* arg) {
+void thread_func(void* arg) {
     ThreadArg* targ = (ThreadArg*)arg;
 
-    printf("Thread %d: started with input value %d\n", targ->thread_id, targ->input_value);
+    LOG_INFO("Thread %: started with input value %", FMT_INT(targ->thread_id), FMT_INT(targ->input_value));
 
-    // Allocate result on heap (caller will free)
-    ThreadResult* result = malloc(sizeof(ThreadResult));
-    result->thread_id = targ->thread_id;
-    result->result = targ->input_value * 2;
+    targ->result = targ->input_value * 2;
 
-    printf("Thread %d: computed result %d\n", targ->thread_id, result->result);
-
-    return result;
+    LOG_INFO("Thread %: computed result %", FMT_INT(targ->thread_id), FMT_INT(targ->result));
 }
 
 int demo_main(void) {
-    printf("=== Demo: Thread Create/Join ===\n\n");
+    LOG_INFO("=== Demo: Thread Create/Join ===");
 
-    pthread_t threads[NUM_THREADS];
-    ThreadArg args[NUM_THREADS];
+    Thread threads[NUM_THREADS];
+    ThreadArg thread_args[NUM_THREADS];
 
-    // Create threads
-    printf("Creating %d threads...\n", NUM_THREADS);
-    for (int i = 0; i < NUM_THREADS; i++) {
-        args[i].thread_id = i;
-        args[i].input_value = (i + 1) * 10;
+    LOG_INFO("Creating % threads...", FMT_INT(NUM_THREADS));
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_args[i].thread_id = i;
+        thread_args[i].input_value = (i + 1) * 10;
+        thread_args[i].result = 0;
 
-        int ret = pthread_create(&threads[i], NULL, thread_func, &args[i]);
-        if (ret != 0) {
-            printf("ERROR: pthread_create failed for thread %d (error %d)\n", i, ret);
-            return 1;
-        }
+        threads[i] = thread_launch(thread_func, &thread_args[i]);
     }
 
-    // Join threads and collect results
-    printf("\nJoining threads and collecting results...\n");
-    int total = 0;
-    for (int i = 0; i < NUM_THREADS; i++) {
-        ThreadResult* result;
-        int ret = pthread_join(threads[i], (void**)&result);
-        if (ret != 0) {
-            printf("ERROR: pthread_join failed for thread %d (error %d)\n", i, ret);
-            return 1;
-        }
+    LOG_INFO("Joining threads and collecting results...");
+    i32 total = 0;
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_join(threads[i], 0);
 
-        printf("Main: Thread %d returned result %d\n", result->thread_id, result->result);
-        total += result->result;
-        free(result);
+        LOG_INFO("Main: Thread % returned result %", FMT_INT(thread_args[i].thread_id), FMT_INT(thread_args[i].result));
+        total += thread_args[i].result;
     }
 
-    printf("\nTotal sum of all results: %d\n", total);
-    printf("Expected: %d\n", (10 + 20 + 30 + 40) * 2);
+    LOG_INFO("Total sum of all results: %", FMT_INT(total));
+    LOG_INFO("Expected: %", FMT_INT((10 + 20 + 30 + 40) * 2));
 
     if (total == 200) {
-        printf("\n[PASS] Thread create/join works correctly!\n");
+        LOG_INFO("[PASS] Thread create/join works correctly!");
     } else {
-        printf("\n[FAIL] Unexpected result!\n");
+        LOG_ERROR("[FAIL] Unexpected result!");
         return 1;
     }
 
