@@ -400,8 +400,8 @@ void os_barrier_release(Barrier b) {
 // Algorithm (based on Ulrich Drepper's "Futexes Are Tricky"):
 // Lock:
 //   1. Fast path: CAS 0 -> 1, if success we have the lock
-//   2. If already locked, set state to 2 (mark waiters) and wait
-//   3. On wake, retry from step 1 but always set to 2
+//   2. Spin briefly for short critical sections
+//   3. Mark waiters (state = 2) and sleep via futex
 // Unlock:
 //   1. Atomically set state to 0
 //   2. If old state was 2 (had waiters), wake one thread
@@ -409,6 +409,7 @@ void os_barrier_release(Barrier b) {
 #define MUTEX_UNLOCKED 0
 #define MUTEX_LOCKED 1
 #define MUTEX_LOCKED_WITH_WAITERS 2
+#define MUTEX_SPIN_COUNT 100
 
 // Atomic compare-and-swap: if *p == expected, set *p = desired, return old value
 force_inline i32 atomic_cas_i32(i32 *p, i32 expected, i32 desired) {
@@ -420,6 +421,11 @@ force_inline i32 atomic_cas_i32(i32 *p, i32 expected, i32 desired) {
 // Atomic exchange: set *p = val, return old value
 force_inline i32 atomic_swap_i32(i32 *p, i32 val) {
   return __c11_atomic_exchange((_Atomic i32 *)p, val, __ATOMIC_SEQ_CST);
+}
+
+// Atomic load
+force_inline i32 atomic_load_i32(i32 *p) {
+  return __c11_atomic_load((_Atomic i32 *)p, __ATOMIC_SEQ_CST);
 }
 
 Mutex os_mutex_alloc(void) {
@@ -451,25 +457,27 @@ void os_mutex_take(Mutex m) {
   OsWasmEntity *entity = (OsWasmEntity *)m.v[0];
   MutexSlot *slot = &os_wasm_state.mutex_slots[entity->mutex.slot_id];
 
-  // Fast path: try to acquire uncontended lock
-  i32 state = atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED);
-  if (state == MUTEX_UNLOCKED) {
+  // Fast path: try to acquire uncontended lock (CAS 0 -> 1)
+  if (atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED) == MUTEX_UNLOCKED) {
     return; // Got the lock
   }
 
-  // Slow path: lock is held, need to wait
-  do {
-    // If state is LOCKED (not LOCKED_WITH_WAITERS), set it to LOCKED_WITH_WAITERS
-    // This tells the unlock path that it needs to wake someone
-    if (state == MUTEX_LOCKED_WITH_WAITERS ||
-        atomic_cas_i32(&slot->state, MUTEX_LOCKED, MUTEX_LOCKED_WITH_WAITERS) != MUTEX_UNLOCKED) {
-      // Wait until state changes from LOCKED_WITH_WAITERS
-      // timeout = -1 means wait indefinitely
-      __builtin_wasm_memory_atomic_wait32(&slot->state, MUTEX_LOCKED_WITH_WAITERS, -1);
+  // Spin loop: good for short critical sections, avoids expensive futex syscall
+  for (i32 i = 0; i < MUTEX_SPIN_COUNT; i++) {
+    i32 state = atomic_load_i32(&slot->state);
+    if (state == MUTEX_UNLOCKED &&
+        atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED) == MUTEX_UNLOCKED) {
+      return; // Got the lock while spinning
     }
-    // Try to acquire, but set to LOCKED_WITH_WAITERS since there may be other waiters
-    state = atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED_WITH_WAITERS);
-  } while (state != MUTEX_UNLOCKED);
+  }
+
+  // Slow path: mark waiters and sleep
+  // Use swap instead of CAS - simpler and we need state=2 anyway
+  while (atomic_swap_i32(&slot->state, MUTEX_LOCKED_WITH_WAITERS) != MUTEX_UNLOCKED) {
+    // Wait until state changes from LOCKED_WITH_WAITERS
+    // timeout = -1 means wait indefinitely
+    __builtin_wasm_memory_atomic_wait32(&slot->state, MUTEX_LOCKED_WITH_WAITERS, -1);
+  }
 }
 
 void os_mutex_drop(Mutex m) {
