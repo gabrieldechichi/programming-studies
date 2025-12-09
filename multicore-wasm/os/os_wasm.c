@@ -126,6 +126,7 @@ BarrierSlot *get_barrier_data_ptr(void) { return os_wasm_state.barrier_slots; }
 
 // JS imports
 WASM_IMPORT(js_log) extern void js_log(const char *str, int len);
+WASM_IMPORT(js_get_core_count) extern u32 js_get_core_count(void);
 WASM_IMPORT(js_thread_spawn)
 extern int js_thread_spawn(void *func, void *arg, u32 stack_top);
 WASM_IMPORT(js_thread_join) extern void js_thread_join(int thread_id);
@@ -256,10 +257,7 @@ void os_thread_set_name(Thread t, const char *name) {
   // No-op: Web Workers don't have a standard way to set thread names
 }
 
-i32 os_get_processor_count(void) {
-  return 8;
-  // todo: js
-}
+i32 os_get_processor_count(void) { return js_get_core_count(); }
 
 // Barriers
 Barrier os_barrier_alloc(u32 count) {

@@ -38,7 +38,6 @@ function barrierWait(barrierId: number): void {
     }
 }
 
-
 self.onmessage = async (e) => {
     const { cmd } = e.data;
 
@@ -88,6 +87,9 @@ self.onmessage = async (e) => {
                     const message = readString(ptr, len);
                     const fileName = readString(fileNamePtr, fileNameLen);
                     console.error(`${fileName}:${lineNumber}: ${message}`);
+                },
+                js_get_core_count: () => {
+                    return OS_CORES;
                 },
                 // Workers can't spawn threads (for now)
                 js_thread_spawn: () => {

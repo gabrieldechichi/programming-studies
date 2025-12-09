@@ -27,7 +27,8 @@ interface WorkerInfo {
 }
 const workerPool: WorkerInfo[] = [];
 const hardwareCores = navigator.hardwareConcurrency;
-const POOL_SIZE = hardwareCores < 8 ? 16 : hardwareCores + 4;
+const OS_CORES = hardwareCores < 8 ? 16 : hardwareCores;
+const POOL_SIZE = OS_CORES + 4;
 
 // Preload worker pool
 async function preloadWorker(): Promise<WorkerInfo> {
@@ -141,6 +142,9 @@ const imports = {
             const message = readString(ptr, len);
             const fileName = readString(fileNamePtr, fileNameLen);
             console.error(`${fileName}:${lineNumber}: ${message}`);
+        },
+        js_get_core_count: () => {
+            return OS_CORES;
         },
         js_thread_spawn: (
             funcPtr: number,
