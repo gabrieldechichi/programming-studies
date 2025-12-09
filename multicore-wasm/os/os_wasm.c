@@ -8,6 +8,7 @@ typedef enum {
   OS_WASM_ENTITY_THREAD,
   OS_WASM_ENTITY_BARRIER,
   OS_WASM_ENTITY_MUTEX,
+  OS_WASM_ENTITY_RWMUTEX,
   OS_WASM_ENTITY_CONDVAR,
   OS_WASM_ENTITY_SEMAPHORE,
 } OsWasmEntityKind;
@@ -28,6 +29,9 @@ struct OsWasmEntity {
     struct {
       u32 slot_id; // index into mutex_slots
     } mutex;
+    struct {
+      u32 slot_id; // index into rwmutex_slots
+    } rwmutex;
     struct {
       u32 slot_id; // index into condvar_slots
     } condvar;
@@ -67,10 +71,25 @@ typedef struct {
   i32 waiters;  // atomic: waiter count
 } SemaphoreSlot;
 
+// RWMutex slot - futex-based reader-writer lock (musl pattern)
+// lock: 0 = unlocked, 1..0x7ffffffe = N readers, 0x7fffffff = writer holds
+//       bit 31 (0x80000000) = waiters flag
+// waiters: count of waiting threads (optimization to skip wake when 0)
+#define RWLOCK_UNLOCKED 0
+#define RWLOCK_WRITER 0x7FFFFFFF
+#define RWLOCK_MAX_READERS 0x7FFFFFFE
+#define RWLOCK_WAITER_FLAG 0x80000000
+#define RWLOCK_SPIN_COUNT 100
+typedef struct {
+  i32 lock;     // atomic: reader count | writer flag | waiter flag
+  i32 waiters;  // atomic: waiter count
+} RWMutexSlot;
+
 // Global state
 #define MAX_THREADS 32
 #define MAX_BARRIERS 4
 #define MAX_MUTEXES 32
+#define MAX_RWMUTEXES 32
 #define MAX_CONDVARS 32
 #define MAX_SEMAPHORES 32
 #define OS_WASM_ENTITY_POOL_SIZE 64
@@ -92,6 +111,7 @@ typedef struct {
   i32 thread_flags[MAX_THREADS]; // one i32 per thread for JS Atomics
   BarrierSlot barrier_slots[MAX_BARRIERS];
   MutexSlot mutex_slots[MAX_MUTEXES];
+  RWMutexSlot rwmutex_slots[MAX_RWMUTEXES];
   CondVarSlot condvar_slots[MAX_CONDVARS];
   SemaphoreSlot semaphore_slots[MAX_SEMAPHORES];
   OsWasmEntity entities[OS_WASM_ENTITY_POOL_SIZE];
@@ -99,6 +119,7 @@ typedef struct {
   u32 next_entity_idx;
   u32 next_barrier_slot;
   u32 next_mutex_slot;
+  u32 next_rwmutex_slot;
   u32 next_condvar_slot;
   u32 next_semaphore_slot;
   ThreadStackSlot stack_slots[MAX_THREADS];
@@ -718,6 +739,160 @@ void os_semaphore_drop(Semaphore s) {
   // If there were waiters (old value had waiter flag or was 0), wake one
   if ((val & SEM_WAITER_FLAG) || atomic_load_i32(&slot->waiters) > 0) {
     __builtin_wasm_memory_atomic_notify(&slot->count, 1);
+  }
+}
+
+// RWMutex implementation - futex-based reader-writer lock (musl-style)
+// Fast path: single CAS for uncontended case
+// Slow path: spin briefly, then futex_wait
+
+RWMutex os_rw_mutex_alloc(void) {
+  RWMutex result = {0};
+  OsWasmEntity *entity = os_wasm_entity_alloc(OS_WASM_ENTITY_RWMUTEX);
+  if (!entity)
+    return result;
+
+  u32 slot_id = os_wasm_state.next_rwmutex_slot++;
+  entity->rwmutex.slot_id = slot_id;
+
+  os_wasm_state.rwmutex_slots[slot_id].lock = RWLOCK_UNLOCKED;
+  os_wasm_state.rwmutex_slots[slot_id].waiters = 0;
+
+  result.v[0] = (u64)entity;
+  return result;
+}
+
+void os_rw_mutex_release(RWMutex m) {
+  if (m.v[0] == 0)
+    return;
+  OsWasmEntity *entity = (OsWasmEntity *)m.v[0];
+  os_wasm_entity_release(entity);
+}
+
+// tryrdlock: non-blocking read lock acquire
+// Returns 1 on success, 0 if writer holds lock
+internal b32 os_rw_mutex_tryrdlock(RWMutexSlot *slot) {
+  i32 val, cnt;
+  do {
+    val = atomic_load_i32(&slot->lock);
+    cnt = val & RWLOCK_WRITER; // mask off waiter flag
+    if (cnt == RWLOCK_WRITER) return 0;  // writer holds lock
+    if (cnt == RWLOCK_MAX_READERS) return 0;  // too many readers (overflow)
+  } while (atomic_cas_i32(&slot->lock, val, val + 1) != val);
+  return 1;
+}
+
+// trywrlock: non-blocking write lock acquire
+// Returns 1 on success, 0 if any readers or writer hold lock
+internal b32 os_rw_mutex_trywrlock(RWMutexSlot *slot) {
+  if (atomic_cas_i32(&slot->lock, RWLOCK_UNLOCKED, RWLOCK_WRITER) == RWLOCK_UNLOCKED) {
+    return 1;
+  }
+  return 0;
+}
+
+void os_rw_mutex_take_r(RWMutex m) {
+  if (m.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)m.v[0];
+  RWMutexSlot *slot = &os_wasm_state.rwmutex_slots[entity->rwmutex.slot_id];
+
+  // Fast path: try non-blocking acquire
+  if (os_rw_mutex_tryrdlock(slot))
+    return;
+
+  // Spin briefly - good for short critical sections
+  for (i32 i = 0; i < RWLOCK_SPIN_COUNT; i++) {
+    i32 val = atomic_load_i32(&slot->lock);
+    if ((val & RWLOCK_WRITER) != RWLOCK_WRITER && os_rw_mutex_tryrdlock(slot))
+      return;
+  }
+
+  // Slow path: register as waiter and sleep
+  while (!os_rw_mutex_tryrdlock(slot)) {
+    i32 val = atomic_load_i32(&slot->lock);
+    // Only wait if writer holds lock (cnt == 0x7fffffff)
+    if ((val & RWLOCK_WRITER) != RWLOCK_WRITER)
+      continue;
+
+    // Set waiter flag and register
+    i32 t = val | RWLOCK_WAITER_FLAG;
+    __c11_atomic_fetch_add((_Atomic i32 *)&slot->waiters, 1, __ATOMIC_SEQ_CST);
+    atomic_cas_i32(&slot->lock, val, t);
+    __builtin_wasm_memory_atomic_wait32(&slot->lock, t, -1);
+    __c11_atomic_fetch_sub((_Atomic i32 *)&slot->waiters, 1, __ATOMIC_SEQ_CST);
+  }
+}
+
+void os_rw_mutex_drop_r(RWMutex m) {
+  if (m.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)m.v[0];
+  RWMutexSlot *slot = &os_wasm_state.rwmutex_slots[entity->rwmutex.slot_id];
+
+  // Decrement reader count
+  i32 val, cnt, new_val;
+  do {
+    val = atomic_load_i32(&slot->lock);
+    cnt = val & RWLOCK_WRITER;
+    // If last reader (cnt==1) or writer releasing (cnt==0x7fffffff), set to 0
+    new_val = (cnt == RWLOCK_WRITER || cnt == 1) ? 0 : val - 1;
+  } while (atomic_cas_i32(&slot->lock, val, new_val) != val);
+
+  // Wake waiters if lock is now free and there are waiters
+  if (new_val == 0 && (atomic_load_i32(&slot->waiters) > 0 || (val & RWLOCK_WAITER_FLAG))) {
+    // Wake all - both readers and writers may be waiting
+    __builtin_wasm_memory_atomic_notify(&slot->lock, 0x7FFFFFFF);
+  }
+}
+
+void os_rw_mutex_take_w(RWMutex m) {
+  if (m.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)m.v[0];
+  RWMutexSlot *slot = &os_wasm_state.rwmutex_slots[entity->rwmutex.slot_id];
+
+  // Fast path: try non-blocking acquire
+  if (os_rw_mutex_trywrlock(slot))
+    return;
+
+  // Spin briefly - good for short critical sections
+  for (i32 i = 0; i < RWLOCK_SPIN_COUNT; i++) {
+    if (atomic_load_i32(&slot->lock) == RWLOCK_UNLOCKED && os_rw_mutex_trywrlock(slot))
+      return;
+  }
+
+  // Slow path: register as waiter and sleep
+  while (!os_rw_mutex_trywrlock(slot)) {
+    i32 val = atomic_load_i32(&slot->lock);
+    if (val == RWLOCK_UNLOCKED)
+      continue;
+
+    // Set waiter flag and register
+    i32 t = val | RWLOCK_WAITER_FLAG;
+    __c11_atomic_fetch_add((_Atomic i32 *)&slot->waiters, 1, __ATOMIC_SEQ_CST);
+    atomic_cas_i32(&slot->lock, val, t);
+    __builtin_wasm_memory_atomic_wait32(&slot->lock, t, -1);
+    __c11_atomic_fetch_sub((_Atomic i32 *)&slot->waiters, 1, __ATOMIC_SEQ_CST);
+  }
+}
+
+void os_rw_mutex_drop_w(RWMutex m) {
+  if (m.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)m.v[0];
+  RWMutexSlot *slot = &os_wasm_state.rwmutex_slots[entity->rwmutex.slot_id];
+
+  // Release write lock - set to unlocked
+  __c11_atomic_store((_Atomic i32 *)&slot->lock, RWLOCK_UNLOCKED, __ATOMIC_SEQ_CST);
+
+  // Wake all waiters - readers can proceed in parallel
+  if (atomic_load_i32(&slot->waiters) > 0) {
+    __builtin_wasm_memory_atomic_notify(&slot->lock, 0x7FFFFFFF);
   }
 }
 

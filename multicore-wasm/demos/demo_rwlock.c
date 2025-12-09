@@ -1,34 +1,32 @@
 // Demo 9: Read-Write Lock
-// Tests: pthread_rwlock_t - multiple readers OR single writer
+// Tests: RWMutex - multiple readers OR single writer
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
+#include "os/os.h"
 
 #define NUM_READERS 4
 #define NUM_WRITERS 2
 #define READ_ITERATIONS 10
 #define WRITE_ITERATIONS 5
 
-static pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
-static pthread_mutex_t stats_mutex = PTHREAD_MUTEX_INITIALIZER;
+static RWMutex rwlock;
+static Mutex stats_mutex;
 
-static int shared_data = 0;
-static int active_readers = 0;
-static int active_writers = 0;
-static int max_concurrent_readers = 0;
-static int reader_while_writer = 0;  // Should stay 0
-static int writer_while_reader = 0;  // Should stay 0
-static int writer_while_writer = 0;  // Should stay 0
+static i32 shared_data = 0;
+static i32 active_readers = 0;
+static i32 active_writers = 0;
+static i32 max_concurrent_readers = 0;
+static i32 reader_while_writer = 0;  // Should stay 0
+static i32 writer_while_reader = 0;  // Should stay 0
+static i32 writer_while_writer = 0;  // Should stay 0
 
-void* reader_func(void* arg) {
-    int id = *(int*)arg;
+void reader_func(void* arg) {
+    i32 id = *(i32*)arg;
 
-    for (int i = 0; i < READ_ITERATIONS; i++) {
-        pthread_rwlock_rdlock(&rwlock);
+    for (i32 i = 0; i < READ_ITERATIONS; i++) {
+        rw_mutex_take_r(rwlock);
 
         // Track stats
-        pthread_mutex_lock(&stats_mutex);
+        mutex_take(stats_mutex);
         active_readers++;
         if (active_readers > max_concurrent_readers) {
             max_concurrent_readers = active_readers;
@@ -36,36 +34,34 @@ void* reader_func(void* arg) {
         if (active_writers > 0) {
             reader_while_writer++;
         }
-        int readers = active_readers;
-        int writers = active_writers;
-        pthread_mutex_unlock(&stats_mutex);
+        i32 readers = active_readers;
+        i32 writers = active_writers;
+        mutex_drop(stats_mutex);
 
         // Read shared data
-        int value = shared_data;
-        printf("Reader %d: read value %d (readers=%d, writers=%d)\n",
-               id, value, readers, writers);
+        i32 value = shared_data;
+        LOG_INFO("Reader %: read value % (readers=%, writers=%)",
+                 FMT_INT(id), FMT_INT(value), FMT_INT(readers), FMT_INT(writers));
 
         // Simulate read work
-        for (volatile int j = 0; j < 1000; j++) {}
+        for (volatile i32 j = 0; j < 1000; j++) {}
 
-        pthread_mutex_lock(&stats_mutex);
+        mutex_take(stats_mutex);
         active_readers--;
-        pthread_mutex_unlock(&stats_mutex);
+        mutex_drop(stats_mutex);
 
-        pthread_rwlock_unlock(&rwlock);
+        rw_mutex_drop_r(rwlock);
     }
-
-    return NULL;
 }
 
-void* writer_func(void* arg) {
-    int id = *(int*)arg;
+void writer_func(void* arg) {
+    i32 id = *(i32*)arg;
 
-    for (int i = 0; i < WRITE_ITERATIONS; i++) {
-        pthread_rwlock_wrlock(&rwlock);
+    for (i32 i = 0; i < WRITE_ITERATIONS; i++) {
+        rw_mutex_take_w(rwlock);
 
         // Track stats
-        pthread_mutex_lock(&stats_mutex);
+        mutex_take(stats_mutex);
         active_writers++;
         if (active_readers > 0) {
             writer_while_reader++;
@@ -73,91 +69,93 @@ void* writer_func(void* arg) {
         if (active_writers > 1) {
             writer_while_writer++;
         }
-        int readers = active_readers;
-        int writers = active_writers;
-        pthread_mutex_unlock(&stats_mutex);
+        i32 readers = active_readers;
+        i32 writers = active_writers;
+        mutex_drop(stats_mutex);
 
         // Write shared data
         shared_data++;
-        printf("Writer %d: wrote value %d (readers=%d, writers=%d)\n",
-               id, shared_data, readers, writers);
+        LOG_INFO("Writer %: wrote value % (readers=%, writers=%)",
+                 FMT_INT(id), FMT_INT(shared_data), FMT_INT(readers), FMT_INT(writers));
 
         // Simulate write work
-        for (volatile int j = 0; j < 2000; j++) {}
+        for (volatile i32 j = 0; j < 2000; j++) {}
 
-        pthread_mutex_lock(&stats_mutex);
+        mutex_take(stats_mutex);
         active_writers--;
-        pthread_mutex_unlock(&stats_mutex);
+        mutex_drop(stats_mutex);
 
-        pthread_rwlock_unlock(&rwlock);
+        rw_mutex_drop_w(rwlock);
     }
-
-    return NULL;
 }
 
 int demo_main(void) {
-    printf("=== Demo: Read-Write Lock ===\n\n");
+    LOG_INFO("=== Demo: Read-Write Lock ===");
 
-    printf("Testing rwlock with:\n");
-    printf("  %d readers x %d iterations\n", NUM_READERS, READ_ITERATIONS);
-    printf("  %d writers x %d iterations\n\n", NUM_WRITERS, WRITE_ITERATIONS);
+    LOG_INFO("Testing rwlock with:");
+    LOG_INFO("  % readers x % iterations", FMT_INT(NUM_READERS), FMT_INT(READ_ITERATIONS));
+    LOG_INFO("  % writers x % iterations", FMT_INT(NUM_WRITERS), FMT_INT(WRITE_ITERATIONS));
 
-    pthread_t readers[NUM_READERS];
-    pthread_t writers[NUM_WRITERS];
-    int reader_ids[NUM_READERS];
-    int writer_ids[NUM_WRITERS];
+    // Initialize locks
+    rwlock = rw_mutex_alloc();
+    stats_mutex = mutex_alloc();
+
+    Thread reader_threads[NUM_READERS];
+    Thread writer_threads[NUM_WRITERS];
+    i32 reader_ids[NUM_READERS];
+    i32 writer_ids[NUM_WRITERS];
 
     // Create readers
-    for (int i = 0; i < NUM_READERS; i++) {
+    for (i32 i = 0; i < NUM_READERS; i++) {
         reader_ids[i] = i;
-        pthread_create(&readers[i], NULL, reader_func, &reader_ids[i]);
+        reader_threads[i] = thread_launch(reader_func, &reader_ids[i]);
     }
 
     // Create writers
-    for (int i = 0; i < NUM_WRITERS; i++) {
+    for (i32 i = 0; i < NUM_WRITERS; i++) {
         writer_ids[i] = i;
-        pthread_create(&writers[i], NULL, writer_func, &writer_ids[i]);
+        writer_threads[i] = thread_launch(writer_func, &writer_ids[i]);
     }
 
     // Join all
-    for (int i = 0; i < NUM_READERS; i++) {
-        pthread_join(readers[i], NULL);
+    for (i32 i = 0; i < NUM_READERS; i++) {
+        thread_join(reader_threads[i], 0);
     }
-    for (int i = 0; i < NUM_WRITERS; i++) {
-        pthread_join(writers[i], NULL);
+    for (i32 i = 0; i < NUM_WRITERS; i++) {
+        thread_join(writer_threads[i], 0);
     }
 
     // Results
-    int expected_writes = NUM_WRITERS * WRITE_ITERATIONS;
-    printf("\nResults:\n");
-    printf("  Final shared_data: %d (expected %d)\n", shared_data, expected_writes);
-    printf("  Max concurrent readers: %d\n", max_concurrent_readers);
-    printf("  Violations:\n");
-    printf("    Reader while writer active: %d (should be 0)\n", reader_while_writer);
-    printf("    Writer while reader active: %d (should be 0)\n", writer_while_reader);
-    printf("    Writer while writer active: %d (should be 0)\n", writer_while_writer);
+    i32 expected_writes = NUM_WRITERS * WRITE_ITERATIONS;
+    LOG_INFO("Results:");
+    LOG_INFO("  Final shared_data: % (expected %)", FMT_INT(shared_data), FMT_INT(expected_writes));
+    LOG_INFO("  Max concurrent readers: %", FMT_INT(max_concurrent_readers));
+    LOG_INFO("  Violations:");
+    LOG_INFO("    Reader while writer active: % (should be 0)", FMT_INT(reader_while_writer));
+    LOG_INFO("    Writer while reader active: % (should be 0)", FMT_INT(writer_while_reader));
+    LOG_INFO("    Writer while writer active: % (should be 0)", FMT_INT(writer_while_writer));
 
-    int pass = 1;
+    i32 pass = 1;
     if (shared_data != expected_writes) {
-        printf("\n[FAIL] Wrong final value!\n");
+        LOG_ERROR("[FAIL] Wrong final value!");
         pass = 0;
     }
     if (reader_while_writer > 0 || writer_while_reader > 0 || writer_while_writer > 0) {
-        printf("\n[FAIL] Lock violations detected!\n");
+        LOG_ERROR("[FAIL] Lock violations detected!");
         pass = 0;
     }
 
     if (pass) {
-        printf("\n[PASS] Read-write lock works correctly!\n");
-        printf("  - Multiple readers can read concurrently (max observed: %d)\n",
-               max_concurrent_readers);
-        printf("  - Writers have exclusive access\n");
-        printf("  - No reader/writer conflicts\n");
+        LOG_INFO("[PASS] Read-write lock works correctly!");
+        LOG_INFO("  - Multiple readers can read concurrently (max observed: %)",
+                 FMT_INT(max_concurrent_readers));
+        LOG_INFO("  - Writers have exclusive access");
+        LOG_INFO("  - No reader/writer conflicts");
     }
 
     // Cleanup
-    pthread_rwlock_destroy(&rwlock);
-    pthread_mutex_destroy(&stats_mutex);
+    rw_mutex_release(rwlock);
+    mutex_release(stats_mutex);
 
     return pass ? 0 : 1;
 }
