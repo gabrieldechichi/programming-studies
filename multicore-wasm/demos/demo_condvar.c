@@ -1,9 +1,7 @@
 // Demo 6: Condition Variable
-// Tests: pthread_cond_t - wait/signal/broadcast pattern (producer-consumer)
+// Tests: cond_var_wait/signal/broadcast pattern (producer-consumer)
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
+#include "os/os.h"
 
 #define BUFFER_SIZE 5
 #define NUM_ITEMS 20
@@ -11,104 +9,102 @@
 #define NUM_CONSUMERS 2
 
 typedef struct {
-    int buffer[BUFFER_SIZE];
-    int count;
-    int in_idx;
-    int out_idx;
-    pthread_mutex_t mutex;
-    pthread_cond_t not_full;
-    pthread_cond_t not_empty;
-    int done;  // Signal producers are done
-    int produced_count;
-    int consumed_count;
+    i32 buffer[BUFFER_SIZE];
+    i32 count;
+    i32 in_idx;
+    i32 out_idx;
+    Mutex mutex;
+    CondVar not_full;
+    CondVar not_empty;
+    i32 done;  // Signal producers are done
+    i32 produced_count;
+    i32 consumed_count;
 } SharedQueue;
 
 static SharedQueue queue;
 
-void* producer(void* arg) {
-    int id = *(int*)arg;
+void producer(void* arg) {
+    i32 id = *(i32*)arg;
 
     while (1) {
-        pthread_mutex_lock(&queue.mutex);
+        mutex_take(queue.mutex);
 
         // Check if we've produced enough
         if (queue.produced_count >= NUM_ITEMS) {
-            pthread_mutex_unlock(&queue.mutex);
+            mutex_drop(queue.mutex);
             break;
         }
 
         // Wait while buffer is full
         while (queue.count == BUFFER_SIZE && queue.produced_count < NUM_ITEMS) {
-            printf("Producer %d: buffer full, waiting...\n", id);
-            pthread_cond_wait(&queue.not_full, &queue.mutex);
+            LOG_INFO("Producer %: buffer full, waiting...", FMT_INT(id));
+            cond_var_wait(queue.not_full, queue.mutex, 0);
         }
 
         // Recheck after waking
         if (queue.produced_count >= NUM_ITEMS) {
-            pthread_mutex_unlock(&queue.mutex);
+            mutex_drop(queue.mutex);
             break;
         }
 
         // Produce item
-        int item = queue.produced_count + 1;
+        i32 item = queue.produced_count + 1;
         queue.buffer[queue.in_idx] = item;
         queue.in_idx = (queue.in_idx + 1) % BUFFER_SIZE;
         queue.count++;
         queue.produced_count++;
-        printf("Producer %d: produced item %d (buffer count=%d)\n", id, item, queue.count);
+        LOG_INFO("Producer %: produced item % (buffer count=%)", FMT_INT(id), FMT_INT(item), FMT_INT(queue.count));
 
         // Signal consumers
-        pthread_cond_signal(&queue.not_empty);
-        pthread_mutex_unlock(&queue.mutex);
+        cond_var_signal(queue.not_empty);
+        mutex_drop(queue.mutex);
     }
 
-    printf("Producer %d: finished\n", id);
-    return NULL;
+    LOG_INFO("Producer %: finished", FMT_INT(id));
 }
 
-void* consumer(void* arg) {
-    int id = *(int*)arg;
-    int consumed = 0;
+void consumer(void* arg) {
+    i32 id = *(i32*)arg;
+    i32 consumed = 0;
 
     while (1) {
-        pthread_mutex_lock(&queue.mutex);
+        mutex_take(queue.mutex);
 
         // Wait while buffer is empty (and producers not done)
         while (queue.count == 0 && queue.consumed_count < NUM_ITEMS) {
-            printf("Consumer %d: buffer empty, waiting...\n", id);
-            pthread_cond_wait(&queue.not_empty, &queue.mutex);
+            LOG_INFO("Consumer %: buffer empty, waiting...", FMT_INT(id));
+            cond_var_wait(queue.not_empty, queue.mutex, 0);
         }
 
         // Check if we're done
         if (queue.consumed_count >= NUM_ITEMS) {
-            pthread_mutex_unlock(&queue.mutex);
+            mutex_drop(queue.mutex);
             break;
         }
 
         // Consume item
-        int item = queue.buffer[queue.out_idx];
+        i32 item = queue.buffer[queue.out_idx];
         queue.out_idx = (queue.out_idx + 1) % BUFFER_SIZE;
         queue.count--;
         queue.consumed_count++;
         consumed++;
-        printf("Consumer %d: consumed item %d (buffer count=%d)\n", id, item, queue.count);
+        LOG_INFO("Consumer %: consumed item % (buffer count=%)", FMT_INT(id), FMT_INT(item), FMT_INT(queue.count));
 
         // Signal producers
-        pthread_cond_signal(&queue.not_full);
-        pthread_mutex_unlock(&queue.mutex);
+        cond_var_signal(queue.not_full);
+        mutex_drop(queue.mutex);
     }
 
-    printf("Consumer %d: finished (consumed %d items)\n", id, consumed);
-    return NULL;
+    LOG_INFO("Consumer %: finished (consumed % items)", FMT_INT(id), FMT_INT(consumed));
 }
 
 int demo_main(void) {
-    printf("=== Demo: Condition Variable ===\n\n");
+    LOG_INFO("=== Demo: Condition Variable ===");
 
-    printf("Producer-Consumer with:\n");
-    printf("  Buffer size: %d\n", BUFFER_SIZE);
-    printf("  Items to produce: %d\n", NUM_ITEMS);
-    printf("  Producers: %d, Consumers: %d\n\n", NUM_PRODUCERS, NUM_CONSUMERS);
+    LOG_INFO("Producer-Consumer with:");
+    LOG_INFO("  Buffer size: %", FMT_INT(BUFFER_SIZE));
+    LOG_INFO("  Items to produce: %", FMT_INT(NUM_ITEMS));
+    LOG_INFO("  Producers: %, Consumers: %", FMT_INT(NUM_PRODUCERS), FMT_INT(NUM_CONSUMERS));
 
     // Initialize queue
     queue.count = 0;
@@ -117,63 +113,63 @@ int demo_main(void) {
     queue.done = 0;
     queue.produced_count = 0;
     queue.consumed_count = 0;
-    pthread_mutex_init(&queue.mutex, NULL);
-    pthread_cond_init(&queue.not_full, NULL);
-    pthread_cond_init(&queue.not_empty, NULL);
+    queue.mutex = mutex_alloc();
+    queue.not_full = cond_var_alloc();
+    queue.not_empty = cond_var_alloc();
 
-    pthread_t producers[NUM_PRODUCERS];
-    pthread_t consumers[NUM_CONSUMERS];
-    int producer_ids[NUM_PRODUCERS];
-    int consumer_ids[NUM_CONSUMERS];
+    Thread producers[NUM_PRODUCERS];
+    Thread consumers[NUM_CONSUMERS];
+    i32 producer_ids[NUM_PRODUCERS];
+    i32 consumer_ids[NUM_CONSUMERS];
 
     // Create consumers first (they'll wait for items)
-    for (int i = 0; i < NUM_CONSUMERS; i++) {
+    for (i32 i = 0; i < NUM_CONSUMERS; i++) {
         consumer_ids[i] = i;
-        pthread_create(&consumers[i], NULL, consumer, &consumer_ids[i]);
+        consumers[i] = thread_launch(consumer, &consumer_ids[i]);
     }
 
     // Create producers
-    for (int i = 0; i < NUM_PRODUCERS; i++) {
+    for (i32 i = 0; i < NUM_PRODUCERS; i++) {
         producer_ids[i] = i;
-        pthread_create(&producers[i], NULL, producer, &producer_ids[i]);
+        producers[i] = thread_launch(producer, &producer_ids[i]);
     }
 
     // Join producers
-    for (int i = 0; i < NUM_PRODUCERS; i++) {
-        pthread_join(producers[i], NULL);
+    for (i32 i = 0; i < NUM_PRODUCERS; i++) {
+        thread_join(producers[i], 0);
     }
 
     // Wake up any waiting consumers (broadcast that we're done)
-    pthread_mutex_lock(&queue.mutex);
+    mutex_take(queue.mutex);
     queue.done = 1;
-    pthread_cond_broadcast(&queue.not_empty);
-    pthread_mutex_unlock(&queue.mutex);
+    cond_var_broadcast(queue.not_empty);
+    mutex_drop(queue.mutex);
 
     // Join consumers
-    for (int i = 0; i < NUM_CONSUMERS; i++) {
-        pthread_join(consumers[i], NULL);
+    for (i32 i = 0; i < NUM_CONSUMERS; i++) {
+        thread_join(consumers[i], 0);
     }
 
     // Verify
-    printf("\nResults:\n");
-    printf("  Produced: %d items\n", queue.produced_count);
-    printf("  Consumed: %d items\n", queue.consumed_count);
-    printf("  Buffer remaining: %d items\n", queue.count);
+    LOG_INFO("Results:");
+    LOG_INFO("  Produced: % items", FMT_INT(queue.produced_count));
+    LOG_INFO("  Consumed: % items", FMT_INT(queue.consumed_count));
+    LOG_INFO("  Buffer remaining: % items", FMT_INT(queue.count));
 
     if (queue.produced_count == NUM_ITEMS && queue.consumed_count == NUM_ITEMS && queue.count == 0) {
-        printf("\n[PASS] Condition variables work correctly!\n");
-        printf("  - Producers waited when buffer was full\n");
-        printf("  - Consumers waited when buffer was empty\n");
-        printf("  - All items produced and consumed\n");
+        LOG_INFO("[PASS] Condition variables work correctly!");
+        LOG_INFO("  - Producers waited when buffer was full");
+        LOG_INFO("  - Consumers waited when buffer was empty");
+        LOG_INFO("  - All items produced and consumed");
     } else {
-        printf("\n[FAIL] Mismatch in produced/consumed counts!\n");
+        LOG_ERROR("[FAIL] Mismatch in produced/consumed counts!");
         return 1;
     }
 
     // Cleanup
-    pthread_mutex_destroy(&queue.mutex);
-    pthread_cond_destroy(&queue.not_full);
-    pthread_cond_destroy(&queue.not_empty);
+    mutex_release(queue.mutex);
+    cond_var_release(queue.not_full);
+    cond_var_release(queue.not_empty);
 
     return 0;
 }

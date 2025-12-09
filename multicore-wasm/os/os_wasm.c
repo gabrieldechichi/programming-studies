@@ -8,6 +8,7 @@ typedef enum {
   OS_WASM_ENTITY_THREAD,
   OS_WASM_ENTITY_BARRIER,
   OS_WASM_ENTITY_MUTEX,
+  OS_WASM_ENTITY_CONDVAR,
 } OsWasmEntityKind;
 
 typedef struct OsWasmEntity OsWasmEntity;
@@ -26,6 +27,9 @@ struct OsWasmEntity {
     struct {
       u32 slot_id; // index into mutex_slots
     } mutex;
+    struct {
+      u32 slot_id; // index into condvar_slots
+    } condvar;
   };
 };
 
@@ -42,10 +46,18 @@ typedef struct {
   i32 state;  // accessed atomically via __c11_atomic_* functions
 } MutexSlot;
 
+// CondVar slot - sequence-based condition variable
+// Waiters capture seq before sleeping, signal/broadcast increment it
+typedef struct {
+  i32 seq;      // sequence number, incremented on signal/broadcast
+  i32 waiters;  // count of waiting threads (optimization to skip wake)
+} CondVarSlot;
+
 // Global state
 #define MAX_THREADS 32
 #define MAX_BARRIERS 4
 #define MAX_MUTEXES 32
+#define MAX_CONDVARS 32
 #define OS_WASM_ENTITY_POOL_SIZE 64
 #define THREAD_STACK_SIZE (64 * 1024) // 64KB per thread stack
 
@@ -65,11 +77,13 @@ typedef struct {
   i32 thread_flags[MAX_THREADS]; // one i32 per thread for JS Atomics
   BarrierSlot barrier_slots[MAX_BARRIERS];
   MutexSlot mutex_slots[MAX_MUTEXES];
+  CondVarSlot condvar_slots[MAX_CONDVARS];
   OsWasmEntity entities[OS_WASM_ENTITY_POOL_SIZE];
   OsWasmEntity *entity_free;
   u32 next_entity_idx;
   u32 next_barrier_slot;
   u32 next_mutex_slot;
+  u32 next_condvar_slot;
   ThreadStackSlot stack_slots[MAX_THREADS];
   b32 stacks_initialized;
   ThreadTlsSlot tls_slots[MAX_THREADS];
@@ -493,6 +507,91 @@ void os_mutex_drop(Mutex m) {
   // If there were waiters, wake one up
   if (old_state == MUTEX_LOCKED_WITH_WAITERS) {
     __builtin_wasm_memory_atomic_notify(&slot->state, 1);
+  }
+}
+
+// CondVar implementation using sequence-based futex pattern
+// Based on musl's "shared" condvar mode - simple and correct for WASM
+
+CondVar os_cond_var_alloc(void) {
+  CondVar result = {0};
+  OsWasmEntity *entity = os_wasm_entity_alloc(OS_WASM_ENTITY_CONDVAR);
+  if (!entity)
+    return result;
+
+  u32 slot_id = os_wasm_state.next_condvar_slot++;
+  entity->condvar.slot_id = slot_id;
+
+  os_wasm_state.condvar_slots[slot_id].seq = 0;
+  os_wasm_state.condvar_slots[slot_id].waiters = 0;
+
+  result.v[0] = (u64)entity;
+  return result;
+}
+
+void os_cond_var_release(CondVar cv) {
+  if (cv.v[0] == 0)
+    return;
+  OsWasmEntity *entity = (OsWasmEntity *)cv.v[0];
+  os_wasm_entity_release(entity);
+}
+
+b32 os_cond_var_wait(CondVar cv, Mutex m, u64 timeout_us) {
+  if (cv.v[0] == 0 || m.v[0] == 0)
+    return 0;
+
+  OsWasmEntity *cv_entity = (OsWasmEntity *)cv.v[0];
+  CondVarSlot *slot = &os_wasm_state.condvar_slots[cv_entity->condvar.slot_id];
+
+  // Increment waiter count
+  __c11_atomic_fetch_add((_Atomic i32 *)&slot->waiters, 1, __ATOMIC_SEQ_CST);
+
+  // Capture current sequence before releasing mutex
+  i32 seq = atomic_load_i32(&slot->seq);
+
+  // Release the mutex (this is the atomic "unlock and sleep" part)
+  os_mutex_drop(m);
+
+  // Wait until seq changes (signal/broadcast increments it)
+  // timeout_us: 0 = infinite wait, >0 = timeout in microseconds
+  i64 timeout_ns = (timeout_us == 0) ? -1 : (i64)(timeout_us * 1000);
+  __builtin_wasm_memory_atomic_wait32(&slot->seq, seq, timeout_ns);
+
+  // Decrement waiter count
+  __c11_atomic_fetch_sub((_Atomic i32 *)&slot->waiters, 1, __ATOMIC_SEQ_CST);
+
+  // Re-acquire the mutex before returning
+  os_mutex_take(m);
+
+  return 1;
+}
+
+void os_cond_var_signal(CondVar cv) {
+  if (cv.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)cv.v[0];
+  CondVarSlot *slot = &os_wasm_state.condvar_slots[entity->condvar.slot_id];
+
+  // Only wake if there are waiters (optimization)
+  if (atomic_load_i32(&slot->waiters) > 0) {
+    __c11_atomic_fetch_add((_Atomic i32 *)&slot->seq, 1, __ATOMIC_SEQ_CST);
+    __builtin_wasm_memory_atomic_notify(&slot->seq, 1);
+  }
+}
+
+void os_cond_var_broadcast(CondVar cv) {
+  if (cv.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)cv.v[0];
+  CondVarSlot *slot = &os_wasm_state.condvar_slots[entity->condvar.slot_id];
+
+  // Only wake if there are waiters (optimization)
+  if (atomic_load_i32(&slot->waiters) > 0) {
+    __c11_atomic_fetch_add((_Atomic i32 *)&slot->seq, 1, __ATOMIC_SEQ_CST);
+    // Wake all waiters (use large number, WASM doesn't have INT_MAX issues here)
+    __builtin_wasm_memory_atomic_notify(&slot->seq, 0x7FFFFFFF);
   }
 }
 
