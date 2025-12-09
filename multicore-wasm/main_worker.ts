@@ -75,25 +75,7 @@ let nextThreadId = 1;
 let threadFlagsBase = 0; // byte offset of thread_flags array
 let barrierDataBase = 0; // byte offset of barrier_data array
 
-// TLS (Thread Local Storage) support
-let tlsSize = 0;
-let tlsAlign = 0;
-let tlsAllocBase = 0; // Base address for TLS allocations
-let tlsAllocOffset = 0; // Current offset into TLS region
-
-// Allocate TLS memory for a thread
-function allocateTlsMemory(): number {
-    if (tlsSize === 0) return 0; // No TLS needed
-
-    // Align the offset
-    const alignMask = tlsAlign - 1;
-    tlsAllocOffset = (tlsAllocOffset + alignMask) & ~alignMask;
-
-    const tlsBase = tlsAllocBase + tlsAllocOffset;
-    tlsAllocOffset += tlsSize;
-
-    return tlsBase;
-}
+// TLS (Thread Local Storage) support - managed by C side
 
 // Barrier wait implementation using Atomics
 function barrierWait(barrierId: number): void {
@@ -170,6 +152,7 @@ const imports = {
             funcPtr: number,
             argPtr: number,
             stackTop: number,
+            tlsBase: number,
         ): number => {
             // Get a ready worker from pool
             const info = workerPool.find((w) => w.ready);
@@ -187,11 +170,8 @@ const imports = {
             const flags = new Int32Array(memory.buffer);
             Atomics.store(flags, flagIndex, 0);
 
-            // Allocate TLS memory for this thread
-            const tlsBase = allocateTlsMemory();
-
             // Send run command - worker is already loaded
-            // stackTop comes from C (allocated by os_thread_launch)
+            // stackTop and tlsBase come from C (allocated by os_thread_launch)
             info.worker.postMessage({
                 cmd: "run",
                 funcPtr,
@@ -240,22 +220,13 @@ const get_barrier_data_ptr = instance.exports.get_barrier_data_ptr as () => numb
 threadFlagsBase = get_thread_flags_ptr();
 barrierDataBase = get_barrier_data_ptr();
 
-// Get TLS info from exports
+// Initialize TLS for main worker (uses slot 0, managed by C side)
 const __tls_size = instance.exports.__tls_size as WebAssembly.Global;
-const __tls_align = instance.exports.__tls_align as WebAssembly.Global;
-tlsSize = __tls_size.value as number;
-tlsAlign = __tls_align.value as number;
-
-// Set up TLS allocation region (after heap base + some offset)
-const os_get_heap_base = instance.exports.os_get_heap_base as () => number;
-// TLS region starts after a 32MB offset from heap base to avoid conflicts
-tlsAllocBase = os_get_heap_base() + 32 * 1024 * 1024;
-tlsAllocOffset = 0;
-
-// Initialize TLS for main worker
-const __wasm_init_tls = instance.exports.__wasm_init_tls as (ptr: number) => void;
+const tlsSize = __tls_size.value as number;
 if (tlsSize > 0) {
-    const mainTlsBase = allocateTlsMemory();
+    const get_tls_slot_base = instance.exports.get_tls_slot_base as (slot: number) => number;
+    const __wasm_init_tls = instance.exports.__wasm_init_tls as (ptr: number) => void;
+    const mainTlsBase = get_tls_slot_base(0); // Main worker uses slot 0
     __wasm_init_tls(mainTlsBase);
 }
 

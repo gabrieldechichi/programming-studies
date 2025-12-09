@@ -17,6 +17,7 @@ struct OsWasmEntity {
     struct {
       i32 js_thread_id;
       u32 stack_slot_idx; // index into stack_slots
+      u32 tls_slot_idx;   // index into tls_slots
     } thread;
     struct {
       u32 slot_id; // index into barrier_slots
@@ -43,6 +44,12 @@ typedef struct {
   u32 stack_top; // top of stack (stack grows down from here)
 } ThreadStackSlot;
 
+// TLS slot for thread - tracks if in use and its base address
+typedef struct {
+  b32 in_use;
+  u32 tls_base; // base address of this thread's TLS block
+} ThreadTlsSlot;
+
 typedef struct {
   i32 thread_flags[MAX_THREADS]; // one i32 per thread for JS Atomics
   BarrierSlot barrier_slots[MAX_BARRIERS];
@@ -52,6 +59,8 @@ typedef struct {
   u32 next_barrier_slot;
   ThreadStackSlot stack_slots[MAX_THREADS];
   b32 stacks_initialized;
+  ThreadTlsSlot tls_slots[MAX_THREADS];
+  b32 tls_initialized;
 } OsWasmState;
 
 global OsWasmState os_wasm_state = {0};
@@ -117,6 +126,73 @@ internal u32 os_wasm_stack_get_top(u32 slot_idx) {
   return os_wasm_state.stack_slots[slot_idx].stack_top;
 }
 
+// TLS slot management
+// Use compiler intrinsics to get TLS info (linker provides these as WASM globals)
+internal u32 os_wasm_get_tls_size(void) {
+  return __builtin_wasm_tls_size();
+}
+
+internal u32 os_wasm_get_tls_align(void) {
+  return __builtin_wasm_tls_align();
+}
+
+internal u32 os_wasm_get_tls_region_base(void) {
+  // TLS region starts right after thread stacks
+  return (u32)(uintptr)&__heap_base + (MAX_THREADS * THREAD_STACK_SIZE);
+}
+
+internal void os_wasm_init_tls(void) {
+  if (os_wasm_state.tls_initialized)
+    return;
+
+  u32 tls_size = os_wasm_get_tls_size();
+  u32 tls_align = os_wasm_get_tls_align();
+  if (tls_size == 0) {
+    os_wasm_state.tls_initialized = 1;
+    return;
+  }
+
+  // Calculate aligned TLS block size
+  u32 aligned_tls_size = (tls_size + tls_align - 1) & ~(tls_align - 1);
+
+  u32 tls_region_base = os_wasm_get_tls_region_base();
+  for (u32 i = 0; i < MAX_THREADS; i++) {
+    os_wasm_state.tls_slots[i].tls_base = tls_region_base + (i * aligned_tls_size);
+    os_wasm_state.tls_slots[i].in_use = 0;
+  }
+  os_wasm_state.tls_initialized = 1;
+}
+
+internal i32 os_wasm_tls_alloc(void) {
+  os_wasm_init_tls();
+  for (u32 i = 0; i < MAX_THREADS; i++) {
+    if (!os_wasm_state.tls_slots[i].in_use) {
+      os_wasm_state.tls_slots[i].in_use = 1;
+      return (i32)i;
+    }
+  }
+  return -1; // no free slots
+}
+
+internal void os_wasm_tls_free(u32 slot_idx) {
+  if (slot_idx < MAX_THREADS) {
+    os_wasm_state.tls_slots[slot_idx].in_use = 0;
+  }
+}
+
+internal u32 os_wasm_tls_get_base(u32 slot_idx) {
+  return os_wasm_state.tls_slots[slot_idx].tls_base;
+}
+
+// Export TLS info to JS
+WASM_EXPORT(get_tls_slot_base)
+u32 get_tls_slot_base(u32 slot_idx) {
+  os_wasm_init_tls();
+  if (slot_idx >= MAX_THREADS)
+    return 0;
+  return os_wasm_state.tls_slots[slot_idx].tls_base;
+}
+
 // Getter functions to export addresses to JS
 WASM_EXPORT(get_thread_flags_ptr)
 i32 *get_thread_flags_ptr(void) { return os_wasm_state.thread_flags; }
@@ -128,7 +204,7 @@ BarrierSlot *get_barrier_data_ptr(void) { return os_wasm_state.barrier_slots; }
 WASM_IMPORT(js_log) extern void js_log(const char *str, int len);
 WASM_IMPORT(js_get_core_count) extern u32 js_get_core_count(void);
 WASM_IMPORT(js_thread_spawn)
-extern int js_thread_spawn(void *func, void *arg, u32 stack_top);
+extern int js_thread_spawn(void *func, void *arg, u32 stack_top, u32 tls_base);
 WASM_IMPORT(js_thread_join) extern void js_thread_join(int thread_id);
 WASM_IMPORT(js_barrier_wait) extern void js_barrier_wait(u32 barrier_id);
 
@@ -227,9 +303,20 @@ Thread os_thread_launch(ThreadFunc fn, void *arg) {
     return result;
   }
 
+  // Allocate a TLS slot for this thread
+  i32 tls_slot = os_wasm_tls_alloc();
+  if (tls_slot < 0) {
+    os_wasm_stack_free((u32)stack_slot);
+    os_wasm_entity_release(entity);
+    return result;
+  }
+
   entity->thread.stack_slot_idx = (u32)stack_slot;
+  entity->thread.tls_slot_idx = (u32)tls_slot;
   u32 stack_top = os_wasm_stack_get_top((u32)stack_slot);
-  entity->thread.js_thread_id = js_thread_spawn((void *)fn, arg, stack_top);
+  u32 tls_base = os_wasm_tls_get_base((u32)tls_slot);
+  entity->thread.js_thread_id =
+      js_thread_spawn((void *)fn, arg, stack_top, tls_base);
   result.v[0] = (u64)entity;
   return result;
 }
@@ -242,6 +329,7 @@ b32 os_thread_join(Thread t, u64 timeout_us) {
   OsWasmEntity *entity = (OsWasmEntity *)t.v[0];
   js_thread_join(entity->thread.js_thread_id);
   os_wasm_stack_free(entity->thread.stack_slot_idx);
+  os_wasm_tls_free(entity->thread.tls_slot_idx);
   os_wasm_entity_release(entity);
   return 1;
 }
@@ -304,8 +392,19 @@ void set_stack_pointer(u32 sp) {
 
 WASM_EXPORT(os_get_heap_base)
 void *os_get_heap_base(void) {
-  // Heap starts after reserved thread stack space
-  u8 *base = &__heap_base + (MAX_THREADS * THREAD_STACK_SIZE);
+  // Memory layout after __heap_base:
+  // [Thread Stacks: MAX_THREADS * THREAD_STACK_SIZE]
+  // [TLS Region: MAX_THREADS * aligned_tls_size]
+  // [Application Heap starts here]
+
+  u32 tls_size = os_wasm_get_tls_size();
+  u32 tls_align = os_wasm_get_tls_align();
+  u32 aligned_tls_size =
+      tls_size > 0 ? (tls_size + tls_align - 1) & ~(tls_align - 1) : 0;
+  u32 tls_region_size = MAX_THREADS * aligned_tls_size;
+
+  u8 *base =
+      &__heap_base + (MAX_THREADS * THREAD_STACK_SIZE) + tls_region_size;
 #ifdef DEBUG
   // add 1MB padding on debug builds to support hot reload
   base += KB(1024);
