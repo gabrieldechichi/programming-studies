@@ -3,9 +3,6 @@
 #include "lib/thread_context.h"
 #include "os/os.h"
 #include "thread.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 typedef struct {
   ThreadContext *ctx;
@@ -19,12 +16,13 @@ internal void _mcr_entrypoint_internal(void *arg) {
   ctx->func();
 }
 
-void mcr_run(u8 thread_count, size_t temp_arena_size, MCREntrypointFunc func) {
-  Thread *threads = (Thread *)os_allocate_memory(thread_count * sizeof(Thread));
+void mcr_run(u8 thread_count, size_t temp_arena_size, MCREntrypointFunc func,
+             ArenaAllocator *arena) {
+  Thread *threads = ARENA_ALLOC_ARRAY(arena, Thread, thread_count);
   ThreadContext *thread_ctx_arr =
-      (ThreadContext *)os_allocate_memory(thread_count * sizeof(ThreadContext));
-  MCREntrypointFnData *entrypoints = (MCREntrypointFnData *)os_allocate_memory(
-      thread_count * sizeof(MCREntrypointFnData));
+      ARENA_ALLOC_ARRAY(arena, ThreadContext, thread_count);
+  MCREntrypointFnData *entrypoints =
+      ARENA_ALLOC_ARRAY(arena, MCREntrypointFnData, thread_count);
   Barrier barrier = barrier_alloc(thread_count);
 
   u64 broadcast_memory = 0;
@@ -34,8 +32,8 @@ void mcr_run(u8 thread_count, size_t temp_arena_size, MCREntrypointFunc func) {
         .thread_count = thread_count,
         .barrier = &barrier,
         .broadcast_memory = &broadcast_memory,
-        .temp_arena = arena_from_buffer(os_allocate_memory(temp_arena_size),
-                                        temp_arena_size),
+        .temp_arena = arena_from_buffer(
+            ARENA_ALLOC_ARRAY(arena, u8, temp_arena_size), temp_arena_size),
     };
     entrypoints[i] =
         (MCREntrypointFnData){.ctx = &thread_ctx_arr[i], .func = func};
@@ -153,7 +151,9 @@ MCRTaskHandle _mcr_queue_append(MCRTaskQueue *queue, MCRTaskFunc fn, void *data,
                               ? "WRITE"
                               : "READ"),
                   FMT_UINT(next_mcr_id), FMT_UINT(other_mcr_idx));
+#ifndef WASM
               exit(1);
+#endif
             }
           }
         }

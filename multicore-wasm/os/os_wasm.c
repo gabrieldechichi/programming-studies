@@ -174,7 +174,6 @@ void assert_log(u8 log_level, const char *fmt, const FmtArgs *args,
   os_log(log_level, fmt, args, file_name, line_number);
 }
 
-
 // Print string followed by integer
 void print_int(const char *prefix, i32 value) {
   char buffer[128];
@@ -246,8 +245,19 @@ b32 os_thread_join(Thread t, u64 timeout_us) {
   return 1;
 }
 
+void os_thread_detach(Thread t) {
+  (void)t;
+  print("os_thread_detach: not implemented");
+}
+
+void os_thread_set_name(Thread t, const char *name) {
+  (void)t;
+  (void)name;
+  // No-op: Web Workers don't have a standard way to set thread names
+}
+
 i32 os_get_processor_count(void) {
-  return 1;
+  return 8;
   // todo: js
 }
 

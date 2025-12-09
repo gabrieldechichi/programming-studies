@@ -1,6 +1,7 @@
 #ifndef H_MULTICORE_RUNTIME
 #define H_MULTICORE_RUNTIME
 #include "lib/typedefs.h"
+#include "lib/memory.h"
 #include "thread.h"
 #include "thread_context.h"
 
@@ -77,6 +78,7 @@ MCRTaskHandle _mcr_queue_append(MCRTaskQueue *queue, MCRTaskFunc fn, void *data,
 
 void mcr_queue_process(MCRTaskQueue *queue);
 
-void mcr_run(u8 thread_count, size_t temp_arena_size, MCREntrypointFunc func);
+void mcr_run(u8 thread_count, size_t temp_arena_size, MCREntrypointFunc func,
+             ArenaAllocator *arena);
 
 #endif

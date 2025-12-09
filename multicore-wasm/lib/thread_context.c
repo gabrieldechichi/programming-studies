@@ -1,7 +1,6 @@
 #include "thread_context.h"
-#include <string.h>
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(WASM)
 // Windows doesn't have unistd.h
 #else
 #include <unistd.h>
@@ -10,11 +9,7 @@
 thread_static ThreadContext *tctx_thread_local;
 
 i8 os_core_count() {
-#ifdef _WIN32
   return (i8)os_get_processor_count();
-#else
-  return (i8)sysconf(_SC_NPROCESSORS_ONLN);
-#endif
 }
 
 b32 is_main_thread() {
