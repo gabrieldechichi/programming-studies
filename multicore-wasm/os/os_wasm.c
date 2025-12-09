@@ -158,6 +158,8 @@ internal void os_wasm_init_tls(void) {
         tls_region_base + (i * aligned_tls_size);
     os_wasm_state.tls_slots[i].in_use = 0;
   }
+  // Reserve slot 0 for main thread (initialized by JS before spawning workers)
+  os_wasm_state.tls_slots[0].in_use = 1;
   os_wasm_state.tls_initialized = 1;
 }
 

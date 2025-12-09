@@ -1,95 +1,94 @@
 // Demo 2: Thread Local Storage
 // Tests: thread_local / _Thread_local variables - each thread has its own copy
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
+#include "os/os.h"
 
 #define NUM_THREADS 4
 #define ITERATIONS 1000
 
 // Thread-local variable - each thread gets its own copy
-thread_local int tls_counter = 0;
-thread_local int tls_thread_id = -1;
+__thread i32 tls_counter = 0;
+__thread i32 tls_thread_id = -1;
 
-// Shared variable for comparison
-int shared_counter = 0;
+typedef struct {
+    i32 id;
+    b32 failed;
+} TlsThreadArg;
 
-void* thread_func(void* arg) {
-    int id = *(int*)arg;
+void thread_func(void* arg) {
+    TlsThreadArg* targ = (TlsThreadArg*)arg;
+    i32 id = targ->id;
     tls_thread_id = id;
 
-    printf("Thread %d: TLS counter initial value = %d\n", id, tls_counter);
+    LOG_INFO("Thread %: TLS counter initial value = %", FMT_INT(id), FMT_INT(tls_counter));
 
     // Increment thread-local counter
-    for (int i = 0; i < ITERATIONS; i++) {
+    for (i32 i = 0; i < ITERATIONS; i++) {
         tls_counter++;
     }
 
-    printf("Thread %d: TLS counter final value = %d (expected %d)\n",
-           id, tls_counter, ITERATIONS);
+    LOG_INFO("Thread %: TLS counter final value = % (expected %)",
+             FMT_INT(id), FMT_INT(tls_counter), FMT_INT(ITERATIONS));
 
     // Verify TLS isolation
     if (tls_counter != ITERATIONS) {
-        printf("Thread %d: [FAIL] TLS counter corrupted!\n", id);
-        return (void*)1;
+        LOG_ERROR("Thread %: [FAIL] TLS counter corrupted!", FMT_INT(id));
+        targ->failed = true;
+        return;
     }
 
     if (tls_thread_id != id) {
-        printf("Thread %d: [FAIL] TLS thread_id corrupted! Got %d\n", id, tls_thread_id);
-        return (void*)1;
+        LOG_ERROR("Thread %: [FAIL] TLS thread_id corrupted! Got %", FMT_INT(id), FMT_INT(tls_thread_id));
+        targ->failed = true;
+        return;
     }
 
-    return (void*)0;
+    targ->failed = false;
 }
 
 int demo_main(void) {
-    printf("=== Demo: Thread Local Storage ===\n\n");
+    LOG_INFO("=== Demo: Thread Local Storage ===");
 
-    pthread_t threads[NUM_THREADS];
-    int thread_ids[NUM_THREADS];
+    Thread threads[NUM_THREADS];
+    TlsThreadArg thread_args[NUM_THREADS];
 
     // Verify main thread TLS
     tls_counter = 999;
     tls_thread_id = -999;
-    printf("Main: Set TLS counter to %d, thread_id to %d\n", tls_counter, tls_thread_id);
+    LOG_INFO("Main: Set TLS counter to %, thread_id to %", FMT_INT(tls_counter), FMT_INT(tls_thread_id));
 
     // Create threads
-    printf("\nCreating %d threads...\n", NUM_THREADS);
-    for (int i = 0; i < NUM_THREADS; i++) {
-        thread_ids[i] = i;
-        int ret = pthread_create(&threads[i], NULL, thread_func, &thread_ids[i]);
-        if (ret != 0) {
-            printf("ERROR: pthread_create failed (error %d)\n", ret);
-            return 1;
-        }
+    LOG_INFO("Creating % threads...", FMT_INT(NUM_THREADS));
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_args[i].id = i;
+        thread_args[i].failed = false;
+        threads[i] = thread_launch(thread_func, &thread_args[i]);
     }
 
     // Join threads
-    int failures = 0;
-    for (int i = 0; i < NUM_THREADS; i++) {
-        void* result;
-        pthread_join(threads[i], &result);
-        if ((intptr_t)result != 0) {
+    i32 failures = 0;
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_join(threads[i], 0);
+        if (thread_args[i].failed) {
             failures++;
         }
     }
 
     // Verify main thread TLS wasn't affected
-    printf("\nMain: TLS counter = %d (expected 999)\n", tls_counter);
-    printf("Main: TLS thread_id = %d (expected -999)\n", tls_thread_id);
+    LOG_INFO("Main: TLS counter = % (expected 999)", FMT_INT(tls_counter));
+    LOG_INFO("Main: TLS thread_id = % (expected -999)", FMT_INT(tls_thread_id));
 
     if (tls_counter != 999 || tls_thread_id != -999) {
-        printf("\n[FAIL] Main thread TLS was corrupted by worker threads!\n");
+        LOG_ERROR("[FAIL] Main thread TLS was corrupted by worker threads!");
         return 1;
     }
 
     if (failures == 0) {
-        printf("\n[PASS] Thread Local Storage works correctly!\n");
-        printf("  - Each thread had isolated TLS variables\n");
-        printf("  - Main thread TLS was not affected\n");
+        LOG_INFO("[PASS] Thread Local Storage works correctly!");
+        LOG_INFO("  - Each thread had isolated TLS variables");
+        LOG_INFO("  - Main thread TLS was not affected");
     } else {
-        printf("\n[FAIL] %d threads had TLS issues!\n", failures);
+        LOG_ERROR("[FAIL] % threads had TLS issues!", FMT_INT(failures));
         return 1;
     }
 
