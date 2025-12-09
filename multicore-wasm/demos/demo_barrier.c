@@ -1,98 +1,87 @@
 // Demo 5: Barrier
-// Tests: pthread_barrier_t - synchronize N threads at a rendezvous point
+// Tests: Barrier - synchronize N threads at a rendezvous point
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
+#include "os/os.h"
 
 #define NUM_THREADS 4
 #define NUM_PHASES 3
 
-static pthread_barrier_t barrier;
-static int phase_results[NUM_PHASES][NUM_THREADS] = {0};
+static Barrier barrier;
+static i32 phase_results[NUM_PHASES][NUM_THREADS] = {0};
 
-void* thread_func(void* arg) {
-    int id = *(int*)arg;
+typedef struct {
+    i32 id;
+} BarrierThreadArg;
 
-    for (int phase = 0; phase < NUM_PHASES; phase++) {
+void thread_func(void* arg) {
+    BarrierThreadArg* targ = (BarrierThreadArg*)arg;
+    i32 id = targ->id;
+
+    for (i32 phase = 0; phase < NUM_PHASES; phase++) {
         // Do some "work" for this phase
         phase_results[phase][id] = (phase + 1) * (id + 1);
-        printf("Thread %d: completed phase %d (result=%d)\n",
-               id, phase, phase_results[phase][id]);
+        LOG_INFO("Thread %: completed phase % (result=%)",
+                 FMT_INT(id), FMT_INT(phase), FMT_INT(phase_results[phase][id]));
 
         // Wait for all threads to complete this phase
-        int ret = pthread_barrier_wait(&barrier);
+        barrier_wait(barrier);
 
-        // One thread gets PTHREAD_BARRIER_SERIAL_THREAD, others get 0
-        if (ret == PTHREAD_BARRIER_SERIAL_THREAD) {
-            printf("--- Thread %d: all threads reached barrier (phase %d complete) ---\n",
-                   id, phase);
-        } else if (ret != 0) {
-            printf("Thread %d: ERROR - barrier_wait returned %d\n", id, ret);
+        // Log after barrier (only first thread to show phase complete)
+        if (id == 0) {
+            LOG_INFO("--- All threads reached barrier (phase % complete) ---", FMT_INT(phase));
         }
+        barrier_wait(barrier);  // Sync again so message prints before next phase starts
     }
-
-    return NULL;
 }
 
 int demo_main(void) {
-    printf("=== Demo: Barrier ===\n\n");
+    LOG_INFO("=== Demo: Barrier ===");
 
-    printf("%d threads will synchronize at barriers through %d phases\n\n",
-           NUM_THREADS, NUM_PHASES);
+    LOG_INFO("% threads will synchronize at barriers through % phases",
+             FMT_INT(NUM_THREADS), FMT_INT(NUM_PHASES));
 
     // Initialize barrier for NUM_THREADS
-    int ret = pthread_barrier_init(&barrier, NULL, NUM_THREADS);
-    if (ret != 0) {
-        printf("ERROR: pthread_barrier_init failed (error %d)\n", ret);
-        return 1;
-    }
+    barrier = barrier_alloc(NUM_THREADS);
 
-    pthread_t threads[NUM_THREADS];
-    int thread_ids[NUM_THREADS];
+    Thread threads[NUM_THREADS];
+    BarrierThreadArg thread_args[NUM_THREADS];
 
     // Create threads
-    for (int i = 0; i < NUM_THREADS; i++) {
-        thread_ids[i] = i;
-        ret = pthread_create(&threads[i], NULL, thread_func, &thread_ids[i]);
-        if (ret != 0) {
-            printf("ERROR: pthread_create failed (error %d)\n", ret);
-            return 1;
-        }
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_args[i].id = i;
+        threads[i] = thread_launch(thread_func, &thread_args[i]);
     }
 
     // Join threads
-    for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_join(threads[i], NULL);
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_join(threads[i], 0);
     }
 
     // Verify all phase results
-    printf("\nVerifying phase results...\n");
-    int errors = 0;
-    for (int phase = 0; phase < NUM_PHASES; phase++) {
-        printf("Phase %d: ", phase);
-        for (int t = 0; t < NUM_THREADS; t++) {
-            int expected = (phase + 1) * (t + 1);
-            int got = phase_results[phase][t];
-            printf("[%d]=%d ", t, got);
+    LOG_INFO("Verifying phase results...");
+    i32 errors = 0;
+    for (i32 phase = 0; phase < NUM_PHASES; phase++) {
+        for (i32 t = 0; t < NUM_THREADS; t++) {
+            i32 expected = (phase + 1) * (t + 1);
+            i32 got = phase_results[phase][t];
+            LOG_INFO("Phase % [%]=% (expected %)", FMT_INT(phase), FMT_INT(t), FMT_INT(got), FMT_INT(expected));
             if (got != expected) {
                 errors++;
             }
         }
-        printf("\n");
     }
 
     if (errors == 0) {
-        printf("\n[PASS] Barrier synchronization works correctly!\n");
-        printf("  - All threads waited for each other at each phase\n");
-        printf("  - Results from all phases are correct\n");
+        LOG_INFO("[PASS] Barrier synchronization works correctly!");
+        LOG_INFO("  - All threads waited for each other at each phase");
+        LOG_INFO("  - Results from all phases are correct");
     } else {
-        printf("\n[FAIL] %d errors in phase results!\n", errors);
+        LOG_ERROR("[FAIL] % errors in phase results!", FMT_INT(errors));
         return 1;
     }
 
     // Cleanup
-    pthread_barrier_destroy(&barrier);
+    barrier_release(barrier);
 
     return 0;
 }
