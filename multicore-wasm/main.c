@@ -14,8 +14,8 @@
 // #include "demos/demo_mutex.c"        // 4. Mutex lock/unlock
 // #include "demos/demo_barrier.c"      // 5. Barrier synchronization
 // #include "demos/demo_condvar.c"      // 6. Condition variables
-#include "demos/demo_atomics.c"      // 7. Atomic operations
-// #include "demos/demo_semaphore.c"    // 8. Counting semaphore
+// #include "demos/demo_atomics.c"      // 7. Atomic operations
+#include "demos/demo_semaphore.c"    // 8. Counting semaphore
 // #include "demos/demo_rwlock.c"       // 9. Read-write lock
 // #include "demos/demo_detach.c"       // 10. Thread detach
 // #include "demos/demo_thread_attr.c"  // 11. Thread attributes

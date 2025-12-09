@@ -9,6 +9,7 @@ typedef enum {
   OS_WASM_ENTITY_BARRIER,
   OS_WASM_ENTITY_MUTEX,
   OS_WASM_ENTITY_CONDVAR,
+  OS_WASM_ENTITY_SEMAPHORE,
 } OsWasmEntityKind;
 
 typedef struct OsWasmEntity OsWasmEntity;
@@ -30,6 +31,9 @@ struct OsWasmEntity {
     struct {
       u32 slot_id; // index into condvar_slots
     } condvar;
+    struct {
+      u32 slot_id; // index into semaphore_slots
+    } semaphore;
   };
 };
 
@@ -53,11 +57,22 @@ typedef struct {
   i32 waiters;  // count of waiting threads (optimization to skip wake)
 } CondVarSlot;
 
+// Semaphore slot - futex-based counting semaphore (musl pattern)
+// count: low 31 bits = semaphore value, high bit (0x80000000) = "has waiters" flag
+// waiters: number of threads waiting (optimization to skip wake when 0)
+#define SEM_VALUE_MAX 0x7FFFFFFF
+#define SEM_WAITER_FLAG 0x80000000
+typedef struct {
+  i32 count;    // atomic: value | waiter_flag
+  i32 waiters;  // atomic: waiter count
+} SemaphoreSlot;
+
 // Global state
 #define MAX_THREADS 32
 #define MAX_BARRIERS 4
 #define MAX_MUTEXES 32
 #define MAX_CONDVARS 32
+#define MAX_SEMAPHORES 32
 #define OS_WASM_ENTITY_POOL_SIZE 64
 #define THREAD_STACK_SIZE (64 * 1024) // 64KB per thread stack
 
@@ -78,12 +93,14 @@ typedef struct {
   BarrierSlot barrier_slots[MAX_BARRIERS];
   MutexSlot mutex_slots[MAX_MUTEXES];
   CondVarSlot condvar_slots[MAX_CONDVARS];
+  SemaphoreSlot semaphore_slots[MAX_SEMAPHORES];
   OsWasmEntity entities[OS_WASM_ENTITY_POOL_SIZE];
   OsWasmEntity *entity_free;
   u32 next_entity_idx;
   u32 next_barrier_slot;
   u32 next_mutex_slot;
   u32 next_condvar_slot;
+  u32 next_semaphore_slot;
   ThreadStackSlot stack_slots[MAX_THREADS];
   b32 stacks_initialized;
   ThreadTlsSlot tls_slots[MAX_THREADS];
@@ -592,6 +609,115 @@ void os_cond_var_broadcast(CondVar cv) {
     __c11_atomic_fetch_add((_Atomic i32 *)&slot->seq, 1, __ATOMIC_SEQ_CST);
     // Wake all waiters (use large number, WASM doesn't have INT_MAX issues here)
     __builtin_wasm_memory_atomic_notify(&slot->seq, 0x7FFFFFFF);
+  }
+}
+
+// Semaphore implementation - futex-based counting semaphore (musl pattern)
+// Fast path: single atomic CAS for uncontended case
+// Slow path: spin briefly, then futex_wait
+
+#define SEM_SPIN_COUNT 100
+
+Semaphore os_semaphore_alloc(i32 initial_count) {
+  Semaphore result = {0};
+  OsWasmEntity *entity = os_wasm_entity_alloc(OS_WASM_ENTITY_SEMAPHORE);
+  if (!entity)
+    return result;
+
+  u32 slot_id = os_wasm_state.next_semaphore_slot++;
+  entity->semaphore.slot_id = slot_id;
+
+  os_wasm_state.semaphore_slots[slot_id].count = initial_count;
+  os_wasm_state.semaphore_slots[slot_id].waiters = 0;
+
+  result.v[0] = (u64)entity;
+  return result;
+}
+
+void os_semaphore_release(Semaphore s) {
+  if (s.v[0] == 0)
+    return;
+  OsWasmEntity *entity = (OsWasmEntity *)s.v[0];
+  os_wasm_entity_release(entity);
+}
+
+// sem_trywait: non-blocking decrement
+// Returns 1 on success (acquired), 0 if would block
+internal b32 os_semaphore_trywait(SemaphoreSlot *slot) {
+  i32 val;
+  while ((val = atomic_load_i32(&slot->count)) & SEM_VALUE_MAX) {
+    // count > 0, try to decrement
+    if (atomic_cas_i32(&slot->count, val, val - 1) == val) {
+      return 1; // acquired
+    }
+  }
+  return 0; // would block
+}
+
+void os_semaphore_take(Semaphore s) {
+  if (s.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)s.v[0];
+  SemaphoreSlot *slot = &os_wasm_state.semaphore_slots[entity->semaphore.slot_id];
+
+  // Fast path: try non-blocking acquire
+  if (os_semaphore_trywait(slot))
+    return;
+
+  // Spin briefly - good for short critical sections
+  for (i32 i = 0; i < SEM_SPIN_COUNT; i++) {
+    if ((atomic_load_i32(&slot->count) & SEM_VALUE_MAX) && os_semaphore_trywait(slot))
+      return;
+  }
+
+  // Slow path: register as waiter and sleep
+  for (;;) {
+    // Increment waiter count
+    __c11_atomic_fetch_add((_Atomic i32 *)&slot->waiters, 1, __ATOMIC_SEQ_CST);
+
+    // Set the "has waiters" flag via CAS(0, 0x80000000)
+    atomic_cas_i32(&slot->count, 0, SEM_WAITER_FLAG);
+
+    // Wait until count changes from the "waiters only" state
+    i32 current = atomic_load_i32(&slot->count);
+    if (!(current & SEM_VALUE_MAX)) {
+      // count == 0 (only waiter flag may be set), sleep
+      __builtin_wasm_memory_atomic_wait32(&slot->count, current, -1);
+    }
+
+    // Decrement waiter count
+    __c11_atomic_fetch_sub((_Atomic i32 *)&slot->waiters, 1, __ATOMIC_SEQ_CST);
+
+    // Try to acquire again
+    if (os_semaphore_trywait(slot))
+      return;
+  }
+}
+
+void os_semaphore_drop(Semaphore s) {
+  if (s.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)s.v[0];
+  SemaphoreSlot *slot = &os_wasm_state.semaphore_slots[entity->semaphore.slot_id];
+
+  // Atomically increment count
+  i32 val, new_val;
+  do {
+    val = atomic_load_i32(&slot->count);
+    new_val = (val & SEM_VALUE_MAX) + 1;
+    // Clear waiter flag if only one waiter left
+    if (atomic_load_i32(&slot->waiters) <= 1) {
+      new_val &= ~SEM_WAITER_FLAG;
+    } else {
+      new_val |= (val & SEM_WAITER_FLAG); // preserve waiter flag
+    }
+  } while (atomic_cas_i32(&slot->count, val, new_val) != val);
+
+  // If there were waiters (old value had waiter flag or was 0), wake one
+  if ((val & SEM_WAITER_FLAG) || atomic_load_i32(&slot->waiters) > 0) {
+    __builtin_wasm_memory_atomic_notify(&slot->count, 1);
   }
 }
 
