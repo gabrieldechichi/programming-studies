@@ -7,6 +7,7 @@ typedef enum {
   OS_WASM_ENTITY_NULL,
   OS_WASM_ENTITY_THREAD,
   OS_WASM_ENTITY_BARRIER,
+  OS_WASM_ENTITY_MUTEX,
 } OsWasmEntityKind;
 
 typedef struct OsWasmEntity OsWasmEntity;
@@ -22,6 +23,9 @@ struct OsWasmEntity {
     struct {
       u32 slot_id; // index into barrier_slots
     } barrier;
+    struct {
+      u32 slot_id; // index into mutex_slots
+    } mutex;
   };
 };
 
@@ -32,9 +36,16 @@ typedef struct {
   i32 arrived;    // atomic counter of threads that have arrived
 } BarrierSlot;
 
+// Mutex slot - single i32 for futex-based locking
+// State: 0 = unlocked, 1 = locked (no waiters), 2 = locked (with waiters)
+typedef struct {
+  i32 state;  // accessed atomically via __c11_atomic_* functions
+} MutexSlot;
+
 // Global state
 #define MAX_THREADS 32
 #define MAX_BARRIERS 4
+#define MAX_MUTEXES 32
 #define OS_WASM_ENTITY_POOL_SIZE 64
 #define THREAD_STACK_SIZE (64 * 1024) // 64KB per thread stack
 
@@ -53,10 +64,12 @@ typedef struct {
 typedef struct {
   i32 thread_flags[MAX_THREADS]; // one i32 per thread for JS Atomics
   BarrierSlot barrier_slots[MAX_BARRIERS];
+  MutexSlot mutex_slots[MAX_MUTEXES];
   OsWasmEntity entities[OS_WASM_ENTITY_POOL_SIZE];
   OsWasmEntity *entity_free;
   u32 next_entity_idx;
   u32 next_barrier_slot;
+  u32 next_mutex_slot;
   ThreadStackSlot stack_slots[MAX_THREADS];
   b32 stacks_initialized;
   ThreadTlsSlot tls_slots[MAX_THREADS];
@@ -379,6 +392,100 @@ void os_barrier_release(Barrier b) {
     return;
   OsWasmEntity *entity = (OsWasmEntity *)b.v[0];
   os_wasm_entity_release(entity);
+}
+
+// Mutex implementation using futex-style locking
+// State: 0 = unlocked, 1 = locked (no waiters), 2 = locked (with waiters)
+//
+// Algorithm (based on Ulrich Drepper's "Futexes Are Tricky"):
+// Lock:
+//   1. Fast path: CAS 0 -> 1, if success we have the lock
+//   2. If already locked, set state to 2 (mark waiters) and wait
+//   3. On wake, retry from step 1 but always set to 2
+// Unlock:
+//   1. Atomically set state to 0
+//   2. If old state was 2 (had waiters), wake one thread
+
+#define MUTEX_UNLOCKED 0
+#define MUTEX_LOCKED 1
+#define MUTEX_LOCKED_WITH_WAITERS 2
+
+// Atomic compare-and-swap: if *p == expected, set *p = desired, return old value
+force_inline i32 atomic_cas_i32(i32 *p, i32 expected, i32 desired) {
+  __c11_atomic_compare_exchange_strong((_Atomic i32 *)p, &expected, desired,
+                                       __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+  return expected;
+}
+
+// Atomic exchange: set *p = val, return old value
+force_inline i32 atomic_swap_i32(i32 *p, i32 val) {
+  return __c11_atomic_exchange((_Atomic i32 *)p, val, __ATOMIC_SEQ_CST);
+}
+
+Mutex os_mutex_alloc(void) {
+  Mutex result = {0};
+  OsWasmEntity *entity = os_wasm_entity_alloc(OS_WASM_ENTITY_MUTEX);
+  if (!entity)
+    return result;
+
+  u32 slot_id = os_wasm_state.next_mutex_slot++;
+  entity->mutex.slot_id = slot_id;
+
+  os_wasm_state.mutex_slots[slot_id].state = MUTEX_UNLOCKED;
+
+  result.v[0] = (u64)entity;
+  return result;
+}
+
+void os_mutex_release(Mutex m) {
+  if (m.v[0] == 0)
+    return;
+  OsWasmEntity *entity = (OsWasmEntity *)m.v[0];
+  os_wasm_entity_release(entity);
+}
+
+void os_mutex_take(Mutex m) {
+  if (m.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)m.v[0];
+  MutexSlot *slot = &os_wasm_state.mutex_slots[entity->mutex.slot_id];
+
+  // Fast path: try to acquire uncontended lock
+  i32 state = atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED);
+  if (state == MUTEX_UNLOCKED) {
+    return; // Got the lock
+  }
+
+  // Slow path: lock is held, need to wait
+  do {
+    // If state is LOCKED (not LOCKED_WITH_WAITERS), set it to LOCKED_WITH_WAITERS
+    // This tells the unlock path that it needs to wake someone
+    if (state == MUTEX_LOCKED_WITH_WAITERS ||
+        atomic_cas_i32(&slot->state, MUTEX_LOCKED, MUTEX_LOCKED_WITH_WAITERS) != MUTEX_UNLOCKED) {
+      // Wait until state changes from LOCKED_WITH_WAITERS
+      // timeout = -1 means wait indefinitely
+      __builtin_wasm_memory_atomic_wait32(&slot->state, MUTEX_LOCKED_WITH_WAITERS, -1);
+    }
+    // Try to acquire, but set to LOCKED_WITH_WAITERS since there may be other waiters
+    state = atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED_WITH_WAITERS);
+  } while (state != MUTEX_UNLOCKED);
+}
+
+void os_mutex_drop(Mutex m) {
+  if (m.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)m.v[0];
+  MutexSlot *slot = &os_wasm_state.mutex_slots[entity->mutex.slot_id];
+
+  // Atomically release the lock
+  i32 old_state = atomic_swap_i32(&slot->state, MUTEX_UNLOCKED);
+
+  // If there were waiters, wake one up
+  if (old_state == MUTEX_LOCKED_WITH_WAITERS) {
+    __builtin_wasm_memory_atomic_notify(&slot->state, 1);
+  }
 }
 
 // Set the __stack_pointer global - used by workers to set their own stack

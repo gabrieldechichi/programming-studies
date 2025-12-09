@@ -1,81 +1,84 @@
 // Demo 4: Mutex
-// Tests: pthread_mutex_t - lock/unlock, protecting shared counter
+// Tests: mutex_take/mutex_drop - protecting shared counter
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
+#include "os/os.h"
 
 #define NUM_THREADS 4
 #define ITERATIONS 10000
 
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-static int protected_counter = 0;
-static int unprotected_counter = 0;
+typedef struct {
+    i32 id;
+    Mutex *mutex;
+    i32 *protected_counter;
+    i32 *unprotected_counter;
+} ThreadArg;
 
-void* thread_func(void* arg) {
-    int id = *(int*)arg;
+void thread_func(void* arg) {
+    ThreadArg *targ = (ThreadArg *)arg;
 
-    for (int i = 0; i < ITERATIONS; i++) {
+    for (i32 i = 0; i < ITERATIONS; i++) {
         // Protected increment (with mutex)
-        pthread_mutex_lock(&mutex);
-        protected_counter++;
-        pthread_mutex_unlock(&mutex);
+        mutex_take(*targ->mutex);
+        (*targ->protected_counter)++;
+        mutex_drop(*targ->mutex);
 
         // Unprotected increment (for comparison)
-        unprotected_counter++;
+        (*targ->unprotected_counter)++;
     }
 
-    printf("Thread %d: completed %d iterations\n", id, ITERATIONS);
-    return NULL;
+    LOG_INFO("Thread %: completed % iterations", FMT_INT(targ->id), FMT_INT(ITERATIONS));
 }
 
 int demo_main(void) {
-    printf("=== Demo: Mutex ===\n\n");
+    LOG_INFO("=== Demo: Mutex ===");
 
-    pthread_t threads[NUM_THREADS];
-    int thread_ids[NUM_THREADS];
+    Mutex mutex = mutex_alloc();
+    i32 protected_counter = 0;
+    i32 unprotected_counter = 0;
 
-    int expected = NUM_THREADS * ITERATIONS;
-    printf("Each of %d threads will increment counters %d times\n", NUM_THREADS, ITERATIONS);
-    printf("Expected final value: %d\n\n", expected);
+    Thread threads[NUM_THREADS];
+    ThreadArg thread_args[NUM_THREADS];
+
+    i32 expected = NUM_THREADS * ITERATIONS;
+    LOG_INFO("Each of % threads will increment counters % times", FMT_INT(NUM_THREADS), FMT_INT(ITERATIONS));
+    LOG_INFO("Expected final value: %", FMT_INT(expected));
 
     // Create threads
-    for (int i = 0; i < NUM_THREADS; i++) {
-        thread_ids[i] = i;
-        int ret = pthread_create(&threads[i], NULL, thread_func, &thread_ids[i]);
-        if (ret != 0) {
-            printf("ERROR: pthread_create failed (error %d)\n", ret);
-            return 1;
-        }
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_args[i].id = i;
+        thread_args[i].mutex = &mutex;
+        thread_args[i].protected_counter = &protected_counter;
+        thread_args[i].unprotected_counter = &unprotected_counter;
+        threads[i] = thread_launch(thread_func, &thread_args[i]);
     }
 
     // Join threads
-    for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_join(threads[i], NULL);
+    for (i32 i = 0; i < NUM_THREADS; i++) {
+        thread_join(threads[i], 0);
     }
 
     // Results
-    printf("\nResults:\n");
-    printf("  Protected counter:   %d (expected %d)\n", protected_counter, expected);
-    printf("  Unprotected counter: %d (expected %d)\n", unprotected_counter, expected);
+    LOG_INFO("Results:");
+    LOG_INFO("  Protected counter:   % (expected %)", FMT_INT(protected_counter), FMT_INT(expected));
+    LOG_INFO("  Unprotected counter: % (expected %)", FMT_INT(unprotected_counter), FMT_INT(expected));
 
     if (protected_counter != expected) {
-        printf("\n[FAIL] Mutex did not protect the counter!\n");
+        LOG_ERROR("[FAIL] Mutex did not protect the counter!");
+        mutex_release(mutex);
         return 1;
     }
 
     if (unprotected_counter == expected) {
-        printf("\n  Note: Unprotected counter also correct (single-core or lucky timing)\n");
+        LOG_INFO("  Note: Unprotected counter also correct (got lucky or single-core)");
     } else {
-        int lost = expected - unprotected_counter;
-        printf("\n  Unprotected counter lost %d increments (%.1f%% loss)\n",
-               lost, (lost * 100.0) / expected);
+        i32 lost = expected - unprotected_counter;
+        LOG_INFO("  Unprotected counter lost % increments", FMT_INT(lost));
     }
 
-    printf("\n[PASS] Mutex correctly protects shared data!\n");
+    LOG_INFO("[PASS] Mutex correctly protects shared data!");
 
     // Cleanup
-    pthread_mutex_destroy(&mutex);
+    mutex_release(mutex);
 
     return 0;
 }
