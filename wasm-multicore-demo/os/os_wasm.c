@@ -42,10 +42,12 @@ struct OsWasmEntity {
 };
 
 // Barrier slot - contiguous memory for JS Atomics access
+// Uses a two-phase protocol to prevent fast threads from racing ahead
 typedef struct {
-  i32 count;      // number of threads that must arrive
-  i32 generation; // toggles 0/1 to handle barrier reuse
-  i32 arrived;    // atomic counter of threads that have arrived
+  i32 count;      // number of threads that must arrive (immutable after init)
+  i32 generation; // toggles 0/1 each barrier completion
+  i32 arrived;    // threads that have arrived this phase
+  i32 leaving;    // threads still leaving (count -> 0), must hit 0 before next use
 } BarrierSlot;
 
 // Mutex slot - single i32 for futex-based locking
@@ -511,6 +513,7 @@ Barrier os_barrier_alloc(u32 count) {
       .count = (i32)count,
       .generation = 0,
       .arrived = 0,
+      .leaving = 0,  // 0 means no threads are leaving, safe to enter
   };
 
   result.v[0] = (u64)entity;
@@ -1012,6 +1015,7 @@ void *os_get_heap_base(void) {
 
   u8 *base = &__heap_base + (MAX_THREADS * THREAD_STACK_SIZE) + tls_region_size;
 #ifdef DEBUG
+  //note: this might hide bugs, maybe only do it if #ifdef HOT_RELOAD
   // add 1MB padding on debug builds to support hot reload
   base += KB(1024);
 #endif

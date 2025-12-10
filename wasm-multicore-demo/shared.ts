@@ -15,26 +15,48 @@ export function barrierWait(
     barrierId: number,
 ): void {
     const i32 = new Int32Array(memory.buffer);
-    // Barrier layout: [count, generation, arrived] - 3 i32s per barrier
-    const baseIndex = barrierDataBase / 4 + barrierId * 3;
+    // Barrier layout: [count, generation, arrived, leaving] - 4 i32s per barrier
+    const baseIndex = barrierDataBase / 4 + barrierId * 4;
     const countIndex = baseIndex + 0;
     const genIndex = baseIndex + 1;
     const arrivedIndex = baseIndex + 2;
+    const leavingIndex = baseIndex + 3;
 
     const count = Atomics.load(i32, countIndex);
+
+    // Phase 0: Wait for previous barrier to fully drain (leaving == 0)
+    while (Atomics.load(i32, leavingIndex) !== 0) {
+        Atomics.wait(i32, leavingIndex, Atomics.load(i32, leavingIndex));
+    }
+
+    // Capture generation BEFORE incrementing arrived
     const myGen = Atomics.load(i32, genIndex);
 
-    // Atomically increment arrived count
+    // Phase 1: Arrival - increment arrived count
     const arrived = Atomics.add(i32, arrivedIndex, 1) + 1;
 
     if (arrived === count) {
-        // Last thread: reset arrived, flip generation, wake everyone
+        // Last thread to arrive:
+        // - Reset arrived for next barrier use
+        // - Set leaving = count (all threads need to exit)
+        // - Flip generation to release waiters
         Atomics.store(i32, arrivedIndex, 0);
+        Atomics.store(i32, leavingIndex, count);
         Atomics.store(i32, genIndex, 1 - myGen);
+        // Wake all threads waiting on generation
         Atomics.notify(i32, genIndex);
     } else {
         // Wait for generation to change
-        Atomics.wait(i32, genIndex, myGen);
+        while (Atomics.load(i32, genIndex) === myGen) {
+            Atomics.wait(i32, genIndex, myGen);
+        }
+    }
+
+    // Phase 2: Exit - decrement leaving count
+    const stillLeaving = Atomics.sub(i32, leavingIndex, 1) - 1;
+    if (stillLeaving === 0) {
+        // Last thread to leave: wake anyone waiting to enter next barrier
+        Atomics.notify(i32, leavingIndex);
     }
 }
 
