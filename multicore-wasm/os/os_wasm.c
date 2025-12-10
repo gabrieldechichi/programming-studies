@@ -85,6 +85,19 @@ typedef struct {
   i32 waiters;  // atomic: waiter count
 } RWMutexSlot;
 
+// Thread detach state constants (emscripten-style)
+#define DT_JOINABLE 0
+#define DT_DETACHED 1
+#define DT_EXITING 2
+#define DT_EXITED 3
+
+// Thread slot - tracks detach state and resource indices for cleanup
+typedef struct {
+  i32 detach_state;   // atomic: DT_JOINABLE, DT_DETACHED, DT_EXITING, DT_EXITED
+  u32 stack_slot_idx; // index into stack_slots (for cleanup)
+  u32 tls_slot_idx;   // index into tls_slots (for cleanup)
+} ThreadSlot;
+
 // Global state
 #define MAX_THREADS 32
 #define MAX_BARRIERS 4
@@ -114,6 +127,7 @@ typedef struct {
   RWMutexSlot rwmutex_slots[MAX_RWMUTEXES];
   CondVarSlot condvar_slots[MAX_CONDVARS];
   SemaphoreSlot semaphore_slots[MAX_SEMAPHORES];
+  ThreadSlot thread_slots[MAX_THREADS]; // detach state + resource indices
   OsWasmEntity entities[OS_WASM_ENTITY_POOL_SIZE];
   OsWasmEntity *entity_free;
   u32 next_entity_idx;
@@ -271,6 +285,7 @@ WASM_IMPORT(js_get_core_count) extern u32 js_get_core_count(void);
 WASM_IMPORT(js_thread_spawn)
 extern int js_thread_spawn(void *func, void *arg, u32 stack_top, u32 tls_base);
 WASM_IMPORT(js_thread_join) extern void js_thread_join(int thread_id);
+WASM_IMPORT(js_thread_cleanup) extern void js_thread_cleanup(int thread_id);
 WASM_IMPORT(js_barrier_wait) extern void js_barrier_wait(u32 barrier_id);
 
 WASM_IMPORT(_os_log_info)
@@ -282,6 +297,14 @@ void _os_log_warn(const char *message, int length, const char *file_name,
 WASM_IMPORT(_os_log_error)
 void _os_log_error(const char *message, int length, const char *file_name,
                    int file_name_len, int line_num);
+
+// Atomic helpers (needed for thread detach)
+// Atomic compare-and-swap: if *p == expected, set *p = desired, return old value
+force_inline i32 atomic_cas_i32(i32 *p, i32 expected, i32 desired) {
+  __c11_atomic_compare_exchange_strong((_Atomic i32 *)p, &expected, desired,
+                                       __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+  return expected;
+}
 
 // Simple print - just logs the string, no format parsing
 void print(const char *str) {
@@ -380,8 +403,17 @@ Thread os_thread_launch(ThreadFunc fn, void *arg) {
   entity->thread.tls_slot_idx = (u32)tls_slot;
   u32 stack_top = os_wasm_stack_get_top((u32)stack_slot);
   u32 tls_base = os_wasm_tls_get_base((u32)tls_slot);
-  entity->thread.js_thread_id =
-      js_thread_spawn((void *)fn, arg, stack_top, tls_base);
+  i32 thread_id = js_thread_spawn((void *)fn, arg, stack_top, tls_base);
+  entity->thread.js_thread_id = thread_id;
+
+  // Store slot indices in thread_slots for detach/exit cleanup
+  if (thread_id >= 0 && thread_id < MAX_THREADS) {
+    ThreadSlot *slot = &os_wasm_state.thread_slots[thread_id];
+    slot->stack_slot_idx = (u32)stack_slot;
+    slot->tls_slot_idx = (u32)tls_slot;
+    __c11_atomic_store((_Atomic i32 *)&slot->detach_state, DT_JOINABLE, __ATOMIC_SEQ_CST);
+  }
+
   result.v[0] = (u64)entity;
   return result;
 }
@@ -400,8 +432,57 @@ b32 os_thread_join(Thread t, u64 timeout_us) {
 }
 
 void os_thread_detach(Thread t) {
-  (void)t;
-  print("os_thread_detach: not implemented");
+  if (t.v[0] == 0)
+    return;
+
+  OsWasmEntity *entity = (OsWasmEntity *)t.v[0];
+  i32 thread_id = entity->thread.js_thread_id;
+
+  if (thread_id < 0 || thread_id >= MAX_THREADS) {
+    os_wasm_entity_release(entity);
+    return;
+  }
+
+  ThreadSlot *slot = &os_wasm_state.thread_slots[thread_id];
+
+  // Try CAS: JOINABLE -> DETACHED
+  i32 old_state = atomic_cas_i32(&slot->detach_state, DT_JOINABLE, DT_DETACHED);
+
+  if (old_state != DT_JOINABLE) {
+    // Thread already exiting/exited - cleanup via join path
+    js_thread_join(thread_id);
+    os_wasm_stack_free(slot->stack_slot_idx);
+    os_wasm_tls_free(slot->tls_slot_idx);
+    js_thread_cleanup(thread_id);
+  }
+  // else: thread will cleanup itself when it exits
+
+  // Release entity - caller can no longer use this Thread handle
+  os_wasm_entity_release(entity);
+}
+
+// Called by worker when thread function completes
+// Returns 1 if detached (worker should send cleanupThread message), 0 otherwise
+WASM_EXPORT(os_thread_exit_check)
+i32 os_thread_exit_check(i32 thread_id) {
+  if (thread_id < 0 || thread_id >= MAX_THREADS)
+    return 0;
+
+  ThreadSlot *slot = &os_wasm_state.thread_slots[thread_id];
+
+  // Try CAS: JOINABLE -> EXITING
+  i32 old_state = atomic_cas_i32(&slot->detach_state, DT_JOINABLE, DT_EXITING);
+
+  if (old_state == DT_DETACHED) {
+    // Was detached - we do cleanup
+    os_wasm_stack_free(slot->stack_slot_idx);
+    os_wasm_tls_free(slot->tls_slot_idx);
+    return 1; // Tell JS to cleanup (return worker to pool)
+  }
+
+  // Was joinable - just mark as exited, joiner will cleanup
+  __c11_atomic_store((_Atomic i32 *)&slot->detach_state, DT_EXITED, __ATOMIC_SEQ_CST);
+  return 0;
 }
 
 void os_thread_set_name(Thread t, const char *name) {
@@ -462,13 +543,6 @@ void os_barrier_release(Barrier b) {
 #define MUTEX_LOCKED 1
 #define MUTEX_LOCKED_WITH_WAITERS 2
 #define MUTEX_SPIN_COUNT 100
-
-// Atomic compare-and-swap: if *p == expected, set *p = desired, return old value
-force_inline i32 atomic_cas_i32(i32 *p, i32 expected, i32 desired) {
-  __c11_atomic_compare_exchange_strong((_Atomic i32 *)p, &expected, desired,
-                                       __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
-  return expected;
-}
 
 // Atomic exchange: set *p = val, return old value
 force_inline i32 atomic_swap_i32(i32 *p, i32 val) {

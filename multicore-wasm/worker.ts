@@ -103,6 +103,10 @@ self.onmessage = async (e) => {
                 js_thread_join: () => {
                     console.error("Cannot join threads from worker");
                 },
+                js_thread_cleanup: () => {
+                    // Workers don't directly cleanup - they post a message to main_worker
+                    // This is a stub to satisfy the WASM import
+                },
                 js_barrier_wait: (barrierId: number) => {
                     barrierWait(barrierId);
                 },
@@ -146,6 +150,15 @@ self.onmessage = async (e) => {
             }
 
             fn(argPtr);
+
+            // Check detach state and do cleanup if needed
+            const os_thread_exit_check = wasmInstance.exports.os_thread_exit_check as (id: number) => number;
+            const needsCleanup = os_thread_exit_check(threadId);
+
+            if (needsCleanup) {
+                // Was detached - tell main_worker to return this worker to pool
+                self.postMessage({ cmd: "cleanupThread", threadId });
+            }
 
             // Signal completion
             const flags = new Int32Array(memory.buffer);

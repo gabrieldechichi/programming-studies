@@ -30,6 +30,20 @@ const hardwareCores = navigator.hardwareConcurrency;
 const OS_CORES = hardwareCores < 8 ? 16 : hardwareCores;
 const POOL_SIZE = OS_CORES + 4;
 
+// Helper to cleanup a thread (return worker to pool)
+function cleanupThread(threadId: number): void {
+    const thread = threads.get(threadId);
+    if (!thread) return;
+
+    // Return worker to pool
+    const poolInfo = workerPool.find((w) => w.worker === thread.worker);
+    if (poolInfo) {
+        poolInfo.ready = true;
+    }
+
+    threads.delete(threadId);
+}
+
 // Preload worker pool
 async function preloadWorker(): Promise<WorkerInfo> {
     const worker = new Worker(new URL("./worker.mjs", import.meta.url), {
@@ -42,6 +56,9 @@ async function preloadWorker(): Promise<WorkerInfo> {
             if (e.data.cmd === "loaded") {
                 const info: WorkerInfo = { worker, ready: true };
                 resolve(info);
+            } else if (e.data.cmd === "cleanupThread") {
+                // Detached thread finished - return worker to pool
+                cleanupThread(e.data.threadId);
             }
         };
 
@@ -204,6 +221,10 @@ const imports = {
             }
 
             threads.delete(threadId);
+        },
+        js_thread_cleanup: (threadId: number) => {
+            // Called from C when detach is called after thread already exited
+            cleanupThread(threadId);
         },
         js_barrier_wait: (barrierId: number) => {
             barrierWait(barrierId);

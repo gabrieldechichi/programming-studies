@@ -1,114 +1,107 @@
 // Demo 10: Thread Detach
-// Tests: pthread_detach - fire-and-forget threads that clean up automatically
+// Tests: thread_detach - fire-and-forget threads that clean up automatically
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <stdatomic.h>
-
-#ifdef WASM
-#include <emscripten/threading.h>
-#define sleep_ms(ms) emscripten_sleep(ms)
-#else
-#include <unistd.h>
-#define sleep_ms(ms) usleep((ms) * 1000)
-#endif
+#include "os/os.h"
+#include "lib/thread_context.h"
 
 #define NUM_DETACHED 4
 
-static atomic_int completed_count = 0;
-static atomic_int started_count = 0;
+static i32 completed_count = 0;
+static i32 started_count = 0;
 
-void* detached_thread_func(void* arg) {
-    int id = *(int*)arg;
-    free(arg);  // We own this memory, free it
+typedef struct {
+    i32 id;
+} DetachedThreadArg;
 
-    atomic_fetch_add(&started_count, 1);
-    printf("Detached thread %d: started\n", id);
+// Static args array - threads read their id, no malloc needed
+static DetachedThreadArg detached_args[NUM_DETACHED];
+
+void detached_thread_func(void* arg) {
+    DetachedThreadArg* targ = (DetachedThreadArg*)arg;
+    i32 id = targ->id;
+
+    ins_atomic_u32_inc_eval((u32*)&started_count);
+    LOG_INFO("Detached thread %: started", FMT_INT(id));
 
     // Simulate some work
-    for (volatile int i = 0; i < 100000; i++) {}
+    for (volatile i32 i = 0; i < 100000; i++) {}
 
-    printf("Detached thread %d: finishing\n", id);
-    atomic_fetch_add(&completed_count, 1);
+    LOG_INFO("Detached thread %: finishing", FMT_INT(id));
+    ins_atomic_u32_inc_eval((u32*)&completed_count);
 
     // Thread exits and resources are automatically cleaned up
-    return NULL;
 }
 
-void* joinable_thread_func(void* arg) {
-    int id = *(int*)arg;
+typedef struct {
+    i32 id;
+    i32 result;
+} JoinableThreadArg;
 
-    printf("Joinable thread %d: started\n", id);
+void joinable_thread_func(void* arg) {
+    JoinableThreadArg* targ = (JoinableThreadArg*)arg;
+
+    LOG_INFO("Joinable thread %: started", FMT_INT(targ->id));
 
     // Simulate work
-    for (volatile int i = 0; i < 50000; i++) {}
+    for (volatile i32 i = 0; i < 50000; i++) {}
 
-    printf("Joinable thread %d: finishing\n", id);
-
-    return (void*)(intptr_t)(id * 10);  // Return a value
+    targ->result = targ->id * 10;
+    LOG_INFO("Joinable thread %: finishing", FMT_INT(targ->id));
 }
 
 int demo_main(void) {
-    printf("=== Demo: Thread Detach ===\n\n");
+    LOG_INFO("=== Demo: Thread Detach ===");
 
     // Test 1: Detach after creation
-    printf("Test 1: pthread_detach after pthread_create\n");
-    for (int i = 0; i < NUM_DETACHED; i++) {
-        pthread_t thread;
-        int* id = malloc(sizeof(int));  // Allocate ID (thread will free it)
-        *id = i;
+    LOG_INFO("Test 1: thread_detach after thread_launch");
+    for (i32 i = 0; i < NUM_DETACHED; i++) {
+        detached_args[i].id = i;
 
-        int ret = pthread_create(&thread, NULL, detached_thread_func, id);
-        if (ret != 0) {
-            printf("ERROR: pthread_create failed (error %d)\n", ret);
-            free(id);
+        Thread t = thread_launch(detached_thread_func, &detached_args[i]);
+        if (t.v[0] == 0) {
+            LOG_ERROR("ERROR: thread_launch failed for thread %", FMT_INT(i));
             return 1;
         }
 
         // Detach the thread - we won't join it
-        ret = pthread_detach(thread);
-        if (ret != 0) {
-            printf("ERROR: pthread_detach failed (error %d)\n", ret);
-            return 1;
-        }
-        printf("Main: detached thread %d\n", i);
+        thread_detach(t);
+        LOG_INFO("Main: detached thread %", FMT_INT(i));
     }
 
     // Test 2: Joinable thread for comparison
-    printf("\nTest 2: Regular joinable thread\n");
-    pthread_t joinable;
-    int joinable_id = 99;
-    pthread_create(&joinable, NULL, joinable_thread_func, &joinable_id);
+    LOG_INFO("Test 2: Regular joinable thread");
+    JoinableThreadArg joinable_arg = { .id = 99, .result = 0 };
+    Thread joinable = thread_launch(joinable_thread_func, &joinable_arg);
 
-    void* result;
-    pthread_join(joinable, &result);
-    printf("Main: joined thread %d, got result %ld\n", joinable_id, (long)(intptr_t)result);
+    thread_join(joinable, 0);
+    LOG_INFO("Main: joined thread %, got result %", FMT_INT(joinable_arg.id), FMT_INT(joinable_arg.result));
 
-    // Wait for detached threads to complete
-    printf("\nWaiting for detached threads to complete...\n");
-    int wait_count = 0;
-    while (atomic_load(&completed_count) < NUM_DETACHED && wait_count < 100) {
-        sleep_ms(10);
-        wait_count++;
+    // Wait for detached threads to complete (spin-wait since we don't have sleep)
+    LOG_INFO("Waiting for detached threads to complete...");
+    i32 wait_iterations = 0;
+    i32 max_iterations = 10000000; // Spin for a while
+    while (ins_atomic_load_acquire((i32*)&completed_count) < NUM_DETACHED && wait_iterations < max_iterations) {
+        // Spin wait
+        for (volatile i32 j = 0; j < 100; j++) {}
+        wait_iterations++;
     }
 
     // Results
-    int started = atomic_load(&started_count);
-    int completed = atomic_load(&completed_count);
+    i32 started = ins_atomic_load_acquire((i32*)&started_count);
+    i32 completed = ins_atomic_load_acquire((i32*)&completed_count);
 
-    printf("\nResults:\n");
-    printf("  Detached threads started:   %d / %d\n", started, NUM_DETACHED);
-    printf("  Detached threads completed: %d / %d\n", completed, NUM_DETACHED);
+    LOG_INFO("Results:");
+    LOG_INFO("  Detached threads started:   % / %", FMT_INT(started), FMT_INT(NUM_DETACHED));
+    LOG_INFO("  Detached threads completed: % / %", FMT_INT(completed), FMT_INT(NUM_DETACHED));
 
     if (completed == NUM_DETACHED) {
-        printf("\n[PASS] Thread detach works correctly!\n");
-        printf("  - Detached threads ran independently\n");
-        printf("  - No join was needed (or possible)\n");
-        printf("  - Resources cleaned up automatically\n");
+        LOG_INFO("[PASS] Thread detach works correctly!");
+        LOG_INFO("  - Detached threads ran independently");
+        LOG_INFO("  - No join was needed (or possible)");
+        LOG_INFO("  - Resources cleaned up automatically");
     } else {
-        printf("\n[WARN] Not all detached threads completed in time\n");
-        printf("  This might be OK - detached threads run asynchronously\n");
+        LOG_WARN("[WARN] Not all detached threads completed in time");
+        LOG_WARN("  This might be OK - detached threads run asynchronously");
     }
 
     return 0;

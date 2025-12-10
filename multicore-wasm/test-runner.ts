@@ -23,8 +23,8 @@ const DEMOS = [
     // "demo_condvar.c",
     // "demo_atomics.c",
     // "demo_semaphore.c",
-    "demo_rwlock.c",
-    // "demo_detach.c",
+    // "demo_rwlock.c",
+    "demo_detach.c",
     // "demo_thread_attr.c",
     // "demo_once.c",
 ];
