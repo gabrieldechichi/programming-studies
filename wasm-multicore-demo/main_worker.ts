@@ -1,7 +1,7 @@
 // Main worker - runs WASM main() and can use Atomics.wait
 
 import { OS_CORES, barrierWait, createLogImports } from "./shared.ts";
-import { createRenderer, renderFrame, Renderer } from "./renderer.ts";
+import { createRenderer, createGpuImports, Renderer } from "./renderer.ts";
 
 // Renderer state - initialized when we receive canvas from main thread
 let renderer: Renderer | null = null;
@@ -111,6 +111,7 @@ const imports = {
     env: {
         memory,
         ...createLogImports(memory),
+        ...createGpuImports(memory),
         js_thread_spawn: (
             funcPtr: number,
             argPtr: number,
@@ -205,22 +206,24 @@ for (const info of workerPool) {
     });
 }
 
-const wasm_main = instance.exports.wasm_main as () => number;
-const result = wasm_main();
-
-// Initialize renderer after WASM setup
+// Initialize renderer BEFORE wasm_main so GPU is ready
 const canvas = await canvasReady;
 renderer = await createRenderer(canvas);
 console.log("[Main Worker] WebGPU renderer initialized");
 
-// Render loop
-function frame() {
-    if (renderer) {
-        renderFrame(renderer);
+const wasm_main = instance.exports.wasm_main as () => number;
+const wasm_frame = instance.exports.wasm_frame as (() => void) | undefined;
+
+const result = wasm_main();
+
+// Render loop - call WASM frame function if it exists
+if (wasm_frame) {
+    function frame() {
+        wasm_frame!();
+        requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
 
 // Notify main thread
 self.postMessage({ type: "done", result });

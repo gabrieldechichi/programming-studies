@@ -1,9 +1,17 @@
 CC = clang
-CFLAGS = --target=wasm32 -nostdlib -O0 -I. -DWASM -matomics -mbulk-memory
+CFLAGS = --target=wasm32-wasi-threads \
+		 --sysroot ./wasi-sdk/win32/share/wasi-sysroot -msimd128 \
+		 -O0 -I. -DWASM -matomics -mbulk-memory 
+    
 # --shared-memory requires --max-memory (shared memory can't grow)
 # --export-table needed for indirect function calls (function pointers) from JS
 # --export TLS symbols for thread-local storage support
-LDFLAGS = -Wl,--no-entry -Wl,--export-table -Wl,--import-memory -Wl,--shared-memory -Wl,--max-memory=4294967296 -Wl,--allow-undefined -Wl,--export=__wasm_init_tls -Wl,--export=__tls_size -Wl,--export=__tls_align
+LDFLAGS = -Wl,--no-entry -Wl,--export-table -Wl,--import-memory \
+		  -Wl,--shared-memory -Wl,--max-memory=4294967296 \
+		  -Wl,--allow-undefined -Wl,--export=__wasm_init_tls \
+		  -Wl,--export=__tls_size -Wl,--export=__tls_align \
+		  --sysroot ./wasi-sdk/win32/share/wasi-sysroot \
+		  -resource-dir ./wasi-sdk/win32/lib/clang/21
 
 SRC = main.c
 OUT_DIR = out

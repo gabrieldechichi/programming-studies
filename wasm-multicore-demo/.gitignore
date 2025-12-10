@@ -1,3 +1,4 @@
 out
 *.wasm
 node_modules
+wasi-sdk/
