@@ -51,24 +51,24 @@ typedef struct {
 // Mutex slot - single i32 for futex-based locking
 // State: 0 = unlocked, 1 = locked (no waiters), 2 = locked (with waiters)
 typedef struct {
-  i32 state;  // accessed atomically via __c11_atomic_* functions
+  i32 state; // accessed atomically via __c11_atomic_* functions
 } MutexSlot;
 
 // CondVar slot - sequence-based condition variable
 // Waiters capture seq before sleeping, signal/broadcast increment it
 typedef struct {
-  i32 seq;      // sequence number, incremented on signal/broadcast
-  i32 waiters;  // count of waiting threads (optimization to skip wake)
+  i32 seq;     // sequence number, incremented on signal/broadcast
+  i32 waiters; // count of waiting threads (optimization to skip wake)
 } CondVarSlot;
 
 // Semaphore slot - futex-based counting semaphore (musl pattern)
-// count: low 31 bits = semaphore value, high bit (0x80000000) = "has waiters" flag
-// waiters: number of threads waiting (optimization to skip wake when 0)
+// count: low 31 bits = semaphore value, high bit (0x80000000) = "has waiters"
+// flag waiters: number of threads waiting (optimization to skip wake when 0)
 #define SEM_VALUE_MAX 0x7FFFFFFF
 #define SEM_WAITER_FLAG 0x80000000
 typedef struct {
-  i32 count;    // atomic: value | waiter_flag
-  i32 waiters;  // atomic: waiter count
+  i32 count;   // atomic: value | waiter_flag
+  i32 waiters; // atomic: waiter count
 } SemaphoreSlot;
 
 // RWMutex slot - futex-based reader-writer lock (musl pattern)
@@ -81,8 +81,8 @@ typedef struct {
 #define RWLOCK_WAITER_FLAG 0x80000000
 #define RWLOCK_SPIN_COUNT 100
 typedef struct {
-  i32 lock;     // atomic: reader count | writer flag | waiter flag
-  i32 waiters;  // atomic: waiter count
+  i32 lock;    // atomic: reader count | writer flag | waiter flag
+  i32 waiters; // atomic: waiter count
 } RWMutexSlot;
 
 // Thread detach state constants (emscripten-style)
@@ -299,7 +299,8 @@ void _os_log_error(const char *message, int length, const char *file_name,
                    int file_name_len, int line_num);
 
 // Atomic helpers (needed for thread detach)
-// Atomic compare-and-swap: if *p == expected, set *p = desired, return old value
+// Atomic compare-and-swap: if *p == expected, set *p = desired, return old
+// value
 force_inline i32 atomic_cas_i32(i32 *p, i32 expected, i32 desired) {
   __c11_atomic_compare_exchange_strong((_Atomic i32 *)p, &expected, desired,
                                        __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
@@ -411,7 +412,8 @@ Thread os_thread_launch(ThreadFunc fn, void *arg) {
     ThreadSlot *slot = &os_wasm_state.thread_slots[thread_id];
     slot->stack_slot_idx = (u32)stack_slot;
     slot->tls_slot_idx = (u32)tls_slot;
-    __c11_atomic_store((_Atomic i32 *)&slot->detach_state, DT_JOINABLE, __ATOMIC_SEQ_CST);
+    __c11_atomic_store((_Atomic i32 *)&slot->detach_state, DT_JOINABLE,
+                       __ATOMIC_SEQ_CST);
   }
 
   result.v[0] = (u64)entity;
@@ -481,13 +483,15 @@ i32 os_thread_exit_check(i32 thread_id) {
   }
 
   // Was joinable - just mark as exited, joiner will cleanup
-  __c11_atomic_store((_Atomic i32 *)&slot->detach_state, DT_EXITED, __ATOMIC_SEQ_CST);
+  __c11_atomic_store((_Atomic i32 *)&slot->detach_state, DT_EXITED,
+                     __ATOMIC_SEQ_CST);
   return 0;
 }
 
 void os_thread_set_name(Thread t, const char *name) {
   (void)t;
   (void)name;
+  LOG_WARN("setting thread name on wasm is not supported");
   // No-op: Web Workers don't have a standard way to set thread names
 }
 
@@ -584,7 +588,8 @@ void os_mutex_take(Mutex m) {
   MutexSlot *slot = &os_wasm_state.mutex_slots[entity->mutex.slot_id];
 
   // Fast path: try to acquire uncontended lock (CAS 0 -> 1)
-  if (atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED) == MUTEX_UNLOCKED) {
+  if (atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED) ==
+      MUTEX_UNLOCKED) {
     return; // Got the lock
   }
 
@@ -592,17 +597,20 @@ void os_mutex_take(Mutex m) {
   for (i32 i = 0; i < MUTEX_SPIN_COUNT; i++) {
     i32 state = atomic_load_i32(&slot->state);
     if (state == MUTEX_UNLOCKED &&
-        atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED) == MUTEX_UNLOCKED) {
+        atomic_cas_i32(&slot->state, MUTEX_UNLOCKED, MUTEX_LOCKED) ==
+            MUTEX_UNLOCKED) {
       return; // Got the lock while spinning
     }
   }
 
   // Slow path: mark waiters and sleep
   // Use swap instead of CAS - simpler and we need state=2 anyway
-  while (atomic_swap_i32(&slot->state, MUTEX_LOCKED_WITH_WAITERS) != MUTEX_UNLOCKED) {
+  while (atomic_swap_i32(&slot->state, MUTEX_LOCKED_WITH_WAITERS) !=
+         MUTEX_UNLOCKED) {
     // Wait until state changes from LOCKED_WITH_WAITERS
     // timeout = -1 means wait indefinitely
-    __builtin_wasm_memory_atomic_wait32(&slot->state, MUTEX_LOCKED_WITH_WAITERS, -1);
+    __builtin_wasm_memory_atomic_wait32(&slot->state, MUTEX_LOCKED_WITH_WAITERS,
+                                        -1);
   }
 }
 
@@ -702,7 +710,8 @@ void os_cond_var_broadcast(CondVar cv) {
   // Only wake if there are waiters (optimization)
   if (atomic_load_i32(&slot->waiters) > 0) {
     __c11_atomic_fetch_add((_Atomic i32 *)&slot->seq, 1, __ATOMIC_SEQ_CST);
-    // Wake all waiters (use large number, WASM doesn't have INT_MAX issues here)
+    // Wake all waiters (use large number, WASM doesn't have INT_MAX issues
+    // here)
     __builtin_wasm_memory_atomic_notify(&slot->seq, 0x7FFFFFFF);
   }
 }
@@ -754,7 +763,8 @@ void os_semaphore_take(Semaphore s) {
     return;
 
   OsWasmEntity *entity = (OsWasmEntity *)s.v[0];
-  SemaphoreSlot *slot = &os_wasm_state.semaphore_slots[entity->semaphore.slot_id];
+  SemaphoreSlot *slot =
+      &os_wasm_state.semaphore_slots[entity->semaphore.slot_id];
 
   // Fast path: try non-blocking acquire
   if (os_semaphore_trywait(slot))
@@ -762,7 +772,8 @@ void os_semaphore_take(Semaphore s) {
 
   // Spin briefly - good for short critical sections
   for (i32 i = 0; i < SEM_SPIN_COUNT; i++) {
-    if ((atomic_load_i32(&slot->count) & SEM_VALUE_MAX) && os_semaphore_trywait(slot))
+    if ((atomic_load_i32(&slot->count) & SEM_VALUE_MAX) &&
+        os_semaphore_trywait(slot))
       return;
   }
 
@@ -795,7 +806,8 @@ void os_semaphore_drop(Semaphore s) {
     return;
 
   OsWasmEntity *entity = (OsWasmEntity *)s.v[0];
-  SemaphoreSlot *slot = &os_wasm_state.semaphore_slots[entity->semaphore.slot_id];
+  SemaphoreSlot *slot =
+      &os_wasm_state.semaphore_slots[entity->semaphore.slot_id];
 
   // Atomically increment count
   i32 val, new_val;
@@ -850,8 +862,10 @@ internal b32 os_rw_mutex_tryrdlock(RWMutexSlot *slot) {
   do {
     val = atomic_load_i32(&slot->lock);
     cnt = val & RWLOCK_WRITER; // mask off waiter flag
-    if (cnt == RWLOCK_WRITER) return 0;  // writer holds lock
-    if (cnt == RWLOCK_MAX_READERS) return 0;  // too many readers (overflow)
+    if (cnt == RWLOCK_WRITER)
+      return 0; // writer holds lock
+    if (cnt == RWLOCK_MAX_READERS)
+      return 0; // too many readers (overflow)
   } while (atomic_cas_i32(&slot->lock, val, val + 1) != val);
   return 1;
 }
@@ -859,7 +873,8 @@ internal b32 os_rw_mutex_tryrdlock(RWMutexSlot *slot) {
 // trywrlock: non-blocking write lock acquire
 // Returns 1 on success, 0 if any readers or writer hold lock
 internal b32 os_rw_mutex_trywrlock(RWMutexSlot *slot) {
-  if (atomic_cas_i32(&slot->lock, RWLOCK_UNLOCKED, RWLOCK_WRITER) == RWLOCK_UNLOCKED) {
+  if (atomic_cas_i32(&slot->lock, RWLOCK_UNLOCKED, RWLOCK_WRITER) ==
+      RWLOCK_UNLOCKED) {
     return 1;
   }
   return 0;
@@ -916,7 +931,8 @@ void os_rw_mutex_drop_r(RWMutex m) {
   } while (atomic_cas_i32(&slot->lock, val, new_val) != val);
 
   // Wake waiters if lock is now free and there are waiters
-  if (new_val == 0 && (atomic_load_i32(&slot->waiters) > 0 || (val & RWLOCK_WAITER_FLAG))) {
+  if (new_val == 0 &&
+      (atomic_load_i32(&slot->waiters) > 0 || (val & RWLOCK_WAITER_FLAG))) {
     // Wake all - both readers and writers may be waiting
     __builtin_wasm_memory_atomic_notify(&slot->lock, 0x7FFFFFFF);
   }
@@ -935,7 +951,8 @@ void os_rw_mutex_take_w(RWMutex m) {
 
   // Spin briefly - good for short critical sections
   for (i32 i = 0; i < RWLOCK_SPIN_COUNT; i++) {
-    if (atomic_load_i32(&slot->lock) == RWLOCK_UNLOCKED && os_rw_mutex_trywrlock(slot))
+    if (atomic_load_i32(&slot->lock) == RWLOCK_UNLOCKED &&
+        os_rw_mutex_trywrlock(slot))
       return;
   }
 
@@ -962,7 +979,8 @@ void os_rw_mutex_drop_w(RWMutex m) {
   RWMutexSlot *slot = &os_wasm_state.rwmutex_slots[entity->rwmutex.slot_id];
 
   // Release write lock - set to unlocked
-  __c11_atomic_store((_Atomic i32 *)&slot->lock, RWLOCK_UNLOCKED, __ATOMIC_SEQ_CST);
+  __c11_atomic_store((_Atomic i32 *)&slot->lock, RWLOCK_UNLOCKED,
+                     __ATOMIC_SEQ_CST);
 
   // Wake all waiters - readers can proceed in parallel
   if (atomic_load_i32(&slot->waiters) > 0) {

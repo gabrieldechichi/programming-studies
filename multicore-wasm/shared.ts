@@ -1,0 +1,109 @@
+// Shared utilities for WASM threading
+
+export const hardwareCores = navigator.hardwareConcurrency;
+export const OS_CORES = hardwareCores < 8 ? 16 : hardwareCores;
+
+export function readString(memory: WebAssembly.Memory, ptr: number, len: number): string {
+    const bytes = new Uint8Array(memory.buffer, ptr, len);
+    const copy = new Uint8Array(bytes);
+    return new TextDecoder().decode(copy);
+}
+
+export function barrierWait(
+    memory: WebAssembly.Memory,
+    barrierDataBase: number,
+    barrierId: number,
+): void {
+    const i32 = new Int32Array(memory.buffer);
+    // Barrier layout: [count, generation, arrived] - 3 i32s per barrier
+    const baseIndex = barrierDataBase / 4 + barrierId * 3;
+    const countIndex = baseIndex + 0;
+    const genIndex = baseIndex + 1;
+    const arrivedIndex = baseIndex + 2;
+
+    const count = Atomics.load(i32, countIndex);
+    const myGen = Atomics.load(i32, genIndex);
+
+    // Atomically increment arrived count
+    const arrived = Atomics.add(i32, arrivedIndex, 1) + 1;
+
+    if (arrived === count) {
+        // Last thread: reset arrived, flip generation, wake everyone
+        Atomics.store(i32, arrivedIndex, 0);
+        Atomics.store(i32, genIndex, 1 - myGen);
+        Atomics.notify(i32, genIndex);
+    } else {
+        // Wait for generation to change
+        Atomics.wait(i32, genIndex, myGen);
+    }
+}
+
+export interface LogImports {
+    js_log: (ptr: number, len: number) => void;
+    _os_log_info: (
+        ptr: number,
+        len: number,
+        fileNamePtr: number,
+        fileNameLen: number,
+        lineNumber: number,
+    ) => void;
+    _os_log_warn: (
+        ptr: number,
+        len: number,
+        fileNamePtr: number,
+        fileNameLen: number,
+        lineNumber: number,
+    ) => void;
+    _os_log_error: (
+        ptr: number,
+        len: number,
+        fileNamePtr: number,
+        fileNameLen: number,
+        lineNumber: number,
+    ) => void;
+    js_get_core_count: () => number;
+}
+
+export function createLogImports(memory: WebAssembly.Memory, prefix?: string): LogImports {
+    const logPrefix = prefix ? `[${prefix}] ` : "";
+    return {
+        js_log: (ptr: number, len: number) => {
+            const str = readString(memory, ptr, len);
+            console.log(`${logPrefix}${str}`);
+        },
+        _os_log_info: (
+            ptr: number,
+            len: number,
+            fileNamePtr: number,
+            fileNameLen: number,
+            lineNumber: number,
+        ) => {
+            const message = readString(memory, ptr, len);
+            const fileName = readString(memory, fileNamePtr, fileNameLen);
+            console.log(`${fileName}:${lineNumber}: ${message}`);
+        },
+        _os_log_warn: (
+            ptr: number,
+            len: number,
+            fileNamePtr: number,
+            fileNameLen: number,
+            lineNumber: number,
+        ) => {
+            const message = readString(memory, ptr, len);
+            const fileName = readString(memory, fileNamePtr, fileNameLen);
+            console.warn(`${fileName}:${lineNumber}: ${message}`);
+        },
+        _os_log_error: (
+            ptr: number,
+            len: number,
+            fileNamePtr: number,
+            fileNameLen: number,
+            lineNumber: number,
+        ) => {
+            const message = readString(memory, ptr, len);
+            const fileName = readString(memory, fileNamePtr, fileNameLen);
+            console.error(`${fileName}:${lineNumber}: ${message}`);
+        },
+        js_get_core_count: () => OS_CORES,
+    };
+}

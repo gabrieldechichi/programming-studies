@@ -1,18 +1,13 @@
 // Main worker - runs WASM main() and can use Atomics.wait
 
+import { OS_CORES, barrierWait, createLogImports } from "./shared.ts";
+
 // Shared memory (4GB max)
 const memory = new WebAssembly.Memory({
-    initial: 65536,      // 16MB initial
-    maximum: 65536,    // 4GB max (65536 * 64KB)
+    initial: 65536, // 16MB initial
+    maximum: 65536, // 4GB max (65536 * 64KB)
     shared: true,
 });
-
-// Helper to read a string from WASM memory
-function readString(ptr: number, len: number): string {
-    const bytes = new Uint8Array(memory.buffer, ptr, len);
-    const copy = new Uint8Array(bytes);
-    return new TextDecoder().decode(copy);
-}
 
 // Load and compile WASM once
 const wasmUrl = new URL("./wasm.wasm", import.meta.url);
@@ -26,8 +21,6 @@ interface WorkerInfo {
     ready: boolean;
 }
 const workerPool: WorkerInfo[] = [];
-const hardwareCores = navigator.hardwareConcurrency;
-const OS_CORES = hardwareCores < 8 ? 16 : hardwareCores;
 const POOL_SIZE = OS_CORES + 4;
 
 // Helper to cleanup a thread (return worker to pool)
@@ -94,77 +87,12 @@ let barrierDataBase = 0; // byte offset of barrier_data array
 
 // TLS (Thread Local Storage) support - managed by C side
 
-// Barrier wait implementation using Atomics
-function barrierWait(barrierId: number): void {
-    const i32 = new Int32Array(memory.buffer);
-    // Barrier layout: [count, generation, arrived] - 3 i32s per barrier
-    const baseIndex = (barrierDataBase / 4) + barrierId * 3;
-    const countIndex = baseIndex + 0;
-    const genIndex = baseIndex + 1;
-    const arrivedIndex = baseIndex + 2;
-
-    const count = Atomics.load(i32, countIndex);
-    const myGen = Atomics.load(i32, genIndex);
-
-    // Atomically increment arrived count
-    const arrived = Atomics.add(i32, arrivedIndex, 1) + 1;
-
-    if (arrived === count) {
-        // Last thread: reset arrived, flip generation, wake everyone
-        Atomics.store(i32, arrivedIndex, 0);
-        Atomics.store(i32, genIndex, 1 - myGen);
-        Atomics.notify(i32, genIndex);
-    } else {
-        // Wait for generation to change
-        Atomics.wait(i32, genIndex, myGen);
-    }
-}
-
 // Imports for WASM - js_barrier_wait needs access to barrierDataBase which is set later,
 // but the function closes over the variable so it will use the updated value
 const imports = {
     env: {
         memory,
-        js_log: (ptr: number, len: number) => {
-            const str = readString(ptr, len);
-            console.log(str);
-        },
-        _os_log_info: (
-            ptr: number,
-            len: number,
-            fileNamePtr: number,
-            fileNameLen: number,
-            lineNumber: number,
-        ): void => {
-            const message = readString(ptr, len);
-            const fileName = readString(fileNamePtr, fileNameLen);
-            console.log(`${fileName}:${lineNumber}: ${message}`);
-        },
-        _os_log_warn: (
-            ptr: number,
-            len: number,
-            fileNamePtr: number,
-            fileNameLen: number,
-            lineNumber: number,
-        ): void => {
-            const message = readString(ptr, len);
-            const fileName = readString(fileNamePtr, fileNameLen);
-            console.warn(`${fileName}:${lineNumber}: ${message}`);
-        },
-        _os_log_error: (
-            ptr: number,
-            len: number,
-            fileNamePtr: number,
-            fileNameLen: number,
-            lineNumber: number,
-        ): void => {
-            const message = readString(ptr, len);
-            const fileName = readString(fileNamePtr, fileNameLen);
-            console.error(`${fileName}:${lineNumber}: ${message}`);
-        },
-        js_get_core_count: () => {
-            return OS_CORES;
-        },
+        ...createLogImports(memory),
         js_thread_spawn: (
             funcPtr: number,
             argPtr: number,
@@ -227,7 +155,7 @@ const imports = {
             cleanupThread(threadId);
         },
         js_barrier_wait: (barrierId: number) => {
-            barrierWait(barrierId);
+            barrierWait(memory, barrierDataBase, barrierId);
         },
     },
 };
