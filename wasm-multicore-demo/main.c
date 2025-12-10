@@ -9,6 +9,7 @@
 #include "lib/multicore_runtime.c"
 #include "gpu.c"
 #include "lib/math.h"
+#include <threads.h>
 
 // WGSL Shaders as C strings
 static const char *cube_vs =
@@ -102,30 +103,91 @@ static f32 rotation = 0.0f;
 
 // Threading state
 static Barrier frame_barrier;
+thread_local u32 frame_count = 0;
+
+// Main thread context (for wasm_frame caller)
+static ThreadContext main_thread_ctx;
 
 // Worker thread data
 typedef struct {
   ThreadContext *ctx;
 } WorkerData;
 
+void do_render(void);
+
+void do_frame_work(void) {
+  // All threads do parallel work here
+  frame_count++;
+  if (frame_count % 100 == 0) {
+    u8 idx = tctx_current()->thread_idx;
+    LOG_INFO("Thread % frame %", FMT_UINT(idx), FMT_UINT(frame_count));
+  }
+
+  // Only main thread renders
+  if (is_main_thread()) {
+    do_render();
+  }
+}
+
+void do_render(void) {
+  rotation += 0.01f;
+
+  // Build MVP matrix
+  mat4 model, view, proj, mvp;
+
+  // Model: rotate around Y and X axes
+  mat4_identity(model);
+  glm_rotate(model, rotation, (vec3){0, 1, 0});
+  glm_rotate(model, rotation * 0.7f, (vec3){1, 0, 0});
+
+  // View: camera at (0, 0, 5) looking at origin
+  glm_lookat((vec3){0, 0, 5}, (vec3){0, 0, 0}, (vec3){0, 1, 0}, view);
+
+  // Projection: perspective
+  glm_perspective(RAD(45.0f), 16.0f / 9.0f, 0.1f, 100.0f, proj);
+
+  // MVP = proj * view * model
+  mat4 tmp;
+  mat4_mul(proj, view, tmp);
+  mat4_mul(tmp, model, mvp);
+
+  // Update uniform buffer
+  gpu_update_buffer(ubuf, mvp, sizeof(mvp));
+
+  // Render
+  gpu_begin_pass(&(GpuPassDesc){
+      .clear_color = {0.1f, 0.1f, 0.15f, 1.0f},
+      .clear_depth = 1.0f,
+  });
+
+  gpu_apply_pipeline(pipeline);
+
+  gpu_apply_bindings(&(GpuBindings){
+      .vertex_buffers = {vbuf},
+      .vertex_buffer_count = 1,
+      .index_buffer = ibuf,
+      .index_format = GPU_INDEX_FORMAT_U16,
+      .uniform_buffer = ubuf,
+  });
+
+  gpu_draw_indexed(36, 1);
+
+  gpu_end_pass();
+  gpu_commit();
+}
+
 void worker_loop(void *arg) {
   WorkerData *data = (WorkerData *)arg;
   tctx_set_current(data->ctx);
 
-  u32 iterations = 0;
-
   for (;;) {
-    // Wait for frame start signal
+    // Wait for frame start
     barrier_wait(frame_barrier);
 
-    // Do parallel work here
-    iterations++;
-    if (iterations % 100 == 0) {
-      u8 idx = tctx_current()->thread_idx;
-      LOG_INFO("Worker % iteration %", FMT_UINT(idx), FMT_UINT(iterations));
-    }
+    // All threads do parallel work
+    do_frame_work();
 
-    // Signal work complete
+    // Wait for all work to complete
     barrier_wait(frame_barrier);
   }
 }
@@ -181,29 +243,42 @@ int wasm_main(void) {
       .depth_write = true,
   });
 
-  u8 NUM_THREADS = os_get_processor_count();
-
-  // Setup threading
-  LOG_INFO("Spawning % worker threads...", FMT_UINT(NUM_THREADS));
-
   // Setup arena allocator from heap
   u8 *heap = os_get_heap_base();
   ArenaAllocator arena = arena_from_buffer(heap, MB(16));
 
-  // Allocate thread resources
-  Thread *threads = ARENA_ALLOC_ARRAY(&arena, Thread, NUM_THREADS);
+  // Total threads = main thread (0) + worker threads (1..N)
+  u8 NUM_WORKERS = os_get_processor_count();
+  u8 TOTAL_THREADS = NUM_WORKERS + 1;
+
+  // Setup threading
+  LOG_INFO("Spawning % worker threads (% total)...", FMT_UINT(NUM_WORKERS),
+           FMT_UINT(TOTAL_THREADS));
+
+  // Allocate thread resources (for workers only, main uses static)
+  Thread *threads = ARENA_ALLOC_ARRAY(&arena, Thread, NUM_WORKERS);
   ThreadContext *thread_contexts =
-      ARENA_ALLOC_ARRAY(&arena, ThreadContext, NUM_THREADS);
-  WorkerData *worker_data = ARENA_ALLOC_ARRAY(&arena, WorkerData, NUM_THREADS);
+      ARENA_ALLOC_ARRAY(&arena, ThreadContext, NUM_WORKERS);
+  WorkerData *worker_data = ARENA_ALLOC_ARRAY(&arena, WorkerData, NUM_WORKERS);
 
-  // Create barrier for NUM_THREADS workers + 1 main thread
-  frame_barrier = barrier_alloc(NUM_THREADS + 1);
+  // Create barrier for all threads
+  frame_barrier = barrier_alloc(TOTAL_THREADS);
 
-  // Spawn worker threads
-  for (u8 i = 0; i < NUM_THREADS; i++) {
+  // Setup main thread context (thread 0)
+  main_thread_ctx = (ThreadContext){
+      .thread_idx = 0,
+      .thread_count = TOTAL_THREADS,
+      .barrier = &frame_barrier,
+      .temp_arena =
+          arena_from_buffer(ARENA_ALLOC_ARRAY(&arena, u8, KB(64)), KB(64)),
+  };
+  tctx_set_current(&main_thread_ctx);
+
+  // Spawn worker threads (indices 1..N)
+  for (u8 i = 0; i < NUM_WORKERS; i++) {
     thread_contexts[i] = (ThreadContext){
-        .thread_idx = i,
-        .thread_count = NUM_THREADS,
+        .thread_idx = i + 1, // Workers are 1..N, main is 0
+        .thread_count = TOTAL_THREADS,
         .barrier = &frame_barrier,
         .temp_arena =
             arena_from_buffer(ARENA_ALLOC_ARRAY(&arena, u8, KB(64)), KB(64)),
@@ -218,57 +293,12 @@ int wasm_main(void) {
 
 WASM_EXPORT(wasm_frame)
 void wasm_frame(void) {
-  // Signal workers to start frame work
+  // Sync with workers - start frame
   barrier_wait(frame_barrier);
 
-  // Workers are doing parallel work...
+  // All threads do parallel work (main thread too)
+  do_frame_work();
 
-  // Wait for workers to finish
+  // Sync with workers - end frame work
   barrier_wait(frame_barrier);
-
-  // Now safe to render
-  rotation += 0.01f;
-
-  // Build MVP matrix
-  mat4 model, view, proj, mvp;
-
-  // Model: rotate around Y and X axes
-  mat4_identity(model);
-  glm_rotate(model, rotation, (vec3){0, 1, 0});
-  glm_rotate(model, rotation * 0.7f, (vec3){1, 0, 0});
-
-  // View: camera at (0, 0, 5) looking at origin
-  glm_lookat((vec3){0, 0, 5}, (vec3){0, 0, 0}, (vec3){0, 1, 0}, view);
-
-  // Projection: perspective
-  glm_perspective(RAD(45.0f), 16.0f / 9.0f, 0.1f, 100.0f, proj);
-
-  // MVP = proj * view * model
-  mat4 tmp;
-  mat4_mul(proj, view, tmp);
-  mat4_mul(tmp, model, mvp);
-
-  // Update uniform buffer
-  gpu_update_buffer(ubuf, mvp, sizeof(mvp));
-
-  // Render
-  gpu_begin_pass(&(GpuPassDesc){
-      .clear_color = {0.1f, 0.1f, 0.15f, 1.0f},
-      .clear_depth = 1.0f,
-  });
-
-  gpu_apply_pipeline(pipeline);
-
-  gpu_apply_bindings(&(GpuBindings){
-      .vertex_buffers = {vbuf},
-      .vertex_buffer_count = 1,
-      .index_buffer = ibuf,
-      .index_format = GPU_INDEX_FORMAT_U16,
-      .uniform_buffer = ubuf,
-  });
-
-  gpu_draw_indexed(36, 1);
-
-  gpu_end_pass();
-  gpu_commit();
 }
