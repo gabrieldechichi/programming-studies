@@ -1,0 +1,1178 @@
+
+ ▐▛███▜▌   Claude Code v2.0.62
+▝▜█████▛▘  Opus 4.5 · Claude Max
+  ▘▘ ▝▝    D:\dev\gabrieldechichi\programming-studies\multicore-wasm
+
+> /clear 
+  ⎿  (no content)
+
+> read main.ts, main_worker.ts and worker.ts 
+
+● Search(pattern: "**/{main.ts,main_worker.ts,worker.ts}")
+  ⎿  Found 3 files (ctrl+o to expand)
+
+● Read(main.ts)
+  ⎿  Read 18 lines
+
+● Read(main_worker.ts)
+  ⎿  Read 267 lines
+
+● Read(worker.ts)
+  ⎿  Read 176 lines
+
+● Here are the three files:
+
+  main.ts (18 lines)
+
+  Entry point that spawns a single web worker (main_worker.mjs) to run the
+  WASM main(). This indirection allows the main worker to use Atomics.wait
+  for thread joins (which blocks, and can't be done on the main browser
+  thread).
+
+  main_worker.ts (267 lines)
+
+  The orchestrator that:
+  - Creates a 16MB shared WebAssembly.Memory
+  - Preloads a worker pool (cores + 4 workers)
+  - Provides WASM imports including js_thread_spawn, js_thread_join,
+  js_barrier_wait, and logging functions
+  - Manages thread lifecycle with threads Map and threadFlagsBase for
+  completion signaling
+  - Implements barrier synchronization using Atomics (generation-based
+  algorithm)
+  - Handles TLS initialization for slot 0 (main worker)
+
+  worker.ts (176 lines)
+
+  Pool workers that:
+  - Receive WASM module via load command and instantiate it
+  - Execute functions via run command with custom stack (set_stack_pointer)
+  and TLS (__wasm_init_tls)
+  - Call functions through the indirect function table
+  - Signal completion via Atomics (flagIndex)
+  - Support detached threads (notify main_worker to cleanup via
+  cleanupThread message)
+  - Have stub implementations for spawn/join (workers can't spawn threads
+  currently)
+
+  The architecture uses shared memory with Atomics for synchronization
+  between the main worker and thread pool workers.
+
+> there is some repetition on the import functions right (i.e js_log, 
+_os_log_info, and so on)? can them be shared? 
+
+● Yes, there's significant duplication. Both files share:
+
+  1. readString helper
+  2. barrierWait function
+  3. OS_CORES calculation
+  4. Log imports (js_log, _os_log_info, _os_log_warn, _os_log_error)
+  5. js_get_core_count, js_barrier_wait
+
+  You could extract these to a shared module:
+
+  // shared.ts
+  export const hardwareCores = navigator.hardwareConcurrency;
+  export const OS_CORES = hardwareCores < 8 ? 16 : hardwareCores;
+
+  export function readString(memory: WebAssembly.Memory, ptr: number, len: 
+  number): string {
+      const bytes = new Uint8Array(memory.buffer, ptr, len);
+      const copy = new Uint8Array(bytes);
+      return new TextDecoder().decode(copy);
+  }
+
+  export function barrierWait(memory: WebAssembly.Memory, barrierDataBase: 
+  number, barrierId: number): void {
+      // ... same implementation
+  }
+
+  export function createLogImports(memory: WebAssembly.Memory) {
+      return {
+          js_log: (ptr: number, len: number) => {
+              console.log(readString(memory, ptr, len));
+          },
+          _os_log_info: (ptr: number, len: number, filePtr: number, fileLen:
+   number, line: number) => {
+              console.log(`${readString(memory, filePtr, fileLen)}:${line}: 
+  ${readString(memory, ptr, len)}`);
+          },
+          // ... _os_log_warn, _os_log_error
+          js_get_core_count: () => OS_CORES,
+      };
+  }
+
+  Then both files import from shared.ts and merge with their specific
+  imports.
+
+  Want me to implement this refactor?
+
+> yeah 
+
+● Write(shared.ts)
+  ⎿  Wrote 1 lines to shared.ts                                            
+     // Shared utilities for WASM threading
+     export const hardwareCores = navigator.hardwareConcurrency;
+     export const OS_CORES = hardwareCores < 8 ? 16 : hardwareCores;
+     export function readString(memory: WebAssembly.Memory, ptr: number, 
+     len: number): string {
+         const bytes = new Uint8Array(memory.buffer, ptr, len);
+         const copy = new Uint8Array(bytes);
+         return new TextDecoder().decode(copy);
+     }
+
+● Write(main_worker.ts)
+  ⎿  Updated main_worker.ts with 194 additions and 266 removals          
+         1 -  // Main worker - runs WASM main() and can use Atomics.wait
+         2 -  
+         3 -  // Shared memory (4GB max)
+         4 -  const memory = new WebAssembly.Memory({
+         5 -      initial: 65536,      // 16MB initial
+         6 -      maximum: 65536,    // 4GB max (65536 * 64KB)
+         7 -      shared: true,
+         8 -  });
+         9 -  
+        10 -  // Helper to read a string from WASM memory
+        11 -  function readString(ptr: number, len: number): string {
+        12 -      const bytes = new Uint8Array(memory.buffer, ptr, len);
+        13 -      const copy = new Uint8Array(bytes);
+        14 -      return new TextDecoder().decode(copy);
+        15 -  }
+        16 -  
+        17 -  // Load and compile WASM once
+        18 -  const wasmUrl = new URL("./wasm.wasm", import.meta.url);
+        19 -  const wasmResponse = await fetch(wasmUrl);
+        20 -  const wasmBytes = await wasmResponse.arrayBuffer();
+        21 -  const wasmModule = await WebAssembly.compile(wasmBytes);
+        22 -  
+        23 -  // Worker pool - preloaded and ready
+        24 -  interface WorkerInfo {
+        25 -      worker: Worker;
+        26 -      ready: boolean;
+        27 -  }
+        28 -  const workerPool: WorkerInfo[] = [];
+        29 -  const hardwareCores = navigator.hardwareConcurrency;
+        30 -  const OS_CORES = hardwareCores < 8 ? 16 : hardwareCores;
+        31 -  const POOL_SIZE = OS_CORES + 4;
+        32 -  
+        33 -  // Helper to cleanup a thread (return worker to pool)
+        34 -  function cleanupThread(threadId: number): void {
+        35 -      const thread = threads.get(threadId);
+        36 -      if (!thread) return;
+        37 -  
+        38 -      // Return worker to pool
+        39 -      const poolInfo = workerPool.find((w) => w.worker === 
+           - thread.worker);
+        40 -      if (poolInfo) {
+        41 -          poolInfo.ready = true;
+        42 -      }
+        43 -  
+        44 -      threads.delete(threadId);
+        45 -  }
+        46 -  
+        47 -  // Preload worker pool
+        48 -  async function preloadWorker(index: number): 
+           - Promise<WorkerInfo> {
+        49 -      const worker = new Worker(new URL("./worker.mjs", 
+           - import.meta.url), {
+        50 -          type: "module",
+        51 -          name: `Thread ${index}`,
+        52 -      });
+        53 -  
+        54 -      return new Promise((resolve) => {
+        55 -          worker.onmessage = (e) => {
+        56 -              if (e.data.cmd === "loaded") {
+        57 -                  const info: WorkerInfo = { worker, ready: 
+           - true };
+        58 -                  resolve(info);
+        59 -              } else if (e.data.cmd === "cleanupThread") {
+        60 -                  // Detached thread finished - return worker
+           -  to pool
+        61 -                  cleanupThread(e.data.threadId);
+        62 -              }
+        63 -          };
+        64 -  
+        65 -          worker.onerror = (e) => {
+        66 -              console.error("[Main] Worker preload error:", 
+           - e);
+        67 -          };
+        68 -  
+        69 -          worker.postMessage({
+        70 -              cmd: "load",
+        71 -              wasmModule,
+        72 -              memory,
+        73 -          });
+        74 -      });
+        75 -  }
+        76 -  
+        77 -  // Preload all workers before running main
+        78 -  for (let i = 0; i < POOL_SIZE; i++) {
+        79 -      const info = await preloadWorker(i);
+        80 -      workerPool.push(info);
+        81 -  }
+        82 -  
+        83 -  // Thread tracking
+        84 -  interface ThreadInfo {
+        85 -      worker: Worker;
+        86 -      flagIndex: number; // index into Int32Array (not byte 
+           - offset)
+        87 -  }
+        88 -  const threads = new Map<number, ThreadInfo>();
+        89 -  let nextThreadId = 1;
+        90 -  
+        91 -  // These will be set after WASM instantiation from exported
+           -  globals
+        92 -  let threadFlagsBase = 0; // byte offset of thread_flags 
+           - array
+        93 -  let barrierDataBase = 0; // byte offset of barrier_data 
+           - array
+        94 -  
+        95 -  // TLS (Thread Local Storage) support - managed by C side
+        96 -  
+        97 -  // Barrier wait implementation using Atomics
+        98 -  function barrierWait(barrierId: number): void {
+        99 -      const i32 = new Int32Array(memory.buffer);
+       100 -      // Barrier layout: [count, generation, arrived] - 3 
+           - i32s per barrier
+       101 -      const baseIndex = (barrierDataBase / 4) + barrierId * 
+           - 3;
+       102 -      const countIndex = baseIndex + 0;
+       103 -      const genIndex = baseIndex + 1;
+       104 -      const arrivedIndex = baseIndex + 2;
+       105 -  
+       106 -      const count = Atomics.load(i32, countIndex);
+       107 -      const myGen = Atomics.load(i32, genIndex);
+       108 -  
+       109 -      // Atomically increment arrived count
+       110 -      const arrived = Atomics.add(i32, arrivedIndex, 1) + 1;
+       111 -  
+       112 -      if (arrived === count) {
+       113 -          // Last thread: reset arrived, flip generation, 
+           - wake everyone
+       114 -          Atomics.store(i32, arrivedIndex, 0);
+       115 -          Atomics.store(i32, genIndex, 1 - myGen);
+       116 -          Atomics.notify(i32, genIndex);
+       117 -      } else {
+       118 -          // Wait for generation to change
+       119 -          Atomics.wait(i32, genIndex, myGen);
+       120 -      }
+       121 -  }
+       122 -  
+       123 -  // Imports for WASM - js_barrier_wait needs access to 
+           - barrierDataBase which is set later,
+       124 -  // but the function closes over the variable so it will use
+           -  the updated value
+       125 -  const imports = {
+       126 -      env: {
+       127 -          memory,
+       128 -          js_log: (ptr: number, len: number) => {
+       129 -              const str = readString(ptr, len);
+       130 -              console.log(str);
+       131 -          },
+       132 -          _os_log_info: (
+       133 -              ptr: number,
+       134 -              len: number,
+       135 -              fileNamePtr: number,
+       136 -              fileNameLen: number,
+       137 -              lineNumber: number,
+       138 -          ): void => {
+       139 -              const message = readString(ptr, len);
+       140 -              const fileName = readString(fileNamePtr, 
+           - fileNameLen);
+       141 -              console.log(`${fileName}:${lineNumber}: 
+           - ${message}`);
+       142 -          },
+       143 -          _os_log_warn: (
+       144 -              ptr: number,
+       145 -              len: number,
+       146 -              fileNamePtr: number,
+       147 -              fileNameLen: number,
+       148 -              lineNumber: number,
+       149 -          ): void => {
+       150 -              const message = readString(ptr, len);
+       151 -              const fileName = readString(fileNamePtr, 
+           - fileNameLen);
+       152 -              console.warn(`${fileName}:${lineNumber}: 
+           - ${message}`);
+       153 -          },
+       154 -          _os_log_error: (
+       155 -              ptr: number,
+       156 -              len: number,
+       157 -              fileNamePtr: number,
+       158 -              fileNameLen: number,
+       159 -              lineNumber: number,
+       160 -          ): void => {
+       161 -              const message = readString(ptr, len);
+       162 -              const fileName = readString(fileNamePtr, 
+           - fileNameLen);
+       163 -              console.error(`${fileName}:${lineNumber}: 
+           - ${message}`);
+       164 -          },
+       165 -          js_get_core_count: () => {
+       166 -              return OS_CORES;
+       167 -          },
+       168 -          js_thread_spawn: (
+       169 -              funcPtr: number,
+       170 -              argPtr: number,
+       171 -              stackTop: number,
+       172 -              tlsBase: number,
+       173 -          ): number => {
+       174 -              // Get a ready worker from pool
+       175 -              const info = workerPool.find((w) => w.ready);
+       176 -              if (!info) {
+       177 -                  console.error("No available workers in 
+           - pool!");
+       178 -                  return -1;
+       179 -              }
+       180 -              info.ready = false;
+       181 -  
+       182 -              const threadId = nextThreadId++;
+       183 -              // Use exported thread_flags array - each 
+           - thread gets one i32 slot
+       184 -              const flagIndex = threadFlagsBase / 4 + 
+           - threadId;
+       185 -  
+       186 -              // Initialize done flag to 0
+       187 -              const flags = new Int32Array(memory.buffer);
+       188 -              Atomics.store(flags, flagIndex, 0);
+       189 -  
+       190 -              // Send run command - worker is already loaded
+       191 -              // stackTop and tlsBase come from C (allocated 
+           - by os_thread_launch)
+       192 -              info.worker.postMessage({
+       193 -                  cmd: "run",
+       194 -                  funcPtr,
+       195 -                  argPtr,
+       196 -                  threadId,
+       197 -                  flagIndex,
+       198 -                  barrierDataBase,
+       199 -                  stackTop,
+       200 -                  tlsBase,
+       201 -              });
+       202 -  
+       203 -              threads.set(threadId, { worker: info.worker, 
+           - flagIndex });
+       204 -              return threadId;
+       205 -          },
+       206 -          js_thread_join: (threadId: number) => {
+       207 -              const thread = threads.get(threadId);
+       208 -              if (!thread) return;
+       209 -  
+       210 -              const flags = new Int32Array(memory.buffer);
+       211 -  
+       212 -              // Wait for thread to complete
+       213 -              while (Atomics.load(flags, thread.flagIndex) 
+           - === 0) {
+       214 -                  Atomics.wait(flags, thread.flagIndex, 0);
+       215 -              }
+       216 -  
+       217 -              // Return worker to pool
+       218 -              const poolInfo = workerPool.find((w) => 
+           - w.worker === thread.worker);
+       219 -              if (poolInfo) {
+       220 -                  poolInfo.ready = true;
+       221 -              }
+       222 -  
+       223 -              threads.delete(threadId);
+       224 -          },
+       225 -          js_thread_cleanup: (threadId: number) => {
+       226 -              // Called from C when detach is called after 
+           - thread already exited
+       227 -              cleanupThread(threadId);
+       228 -          },
+       229 -          js_barrier_wait: (barrierId: number) => {
+       230 -              barrierWait(barrierId);
+       231 -          },
+       232 -      },
+       233 -  };
+       234 -  
+       235 -  // Instantiate and run
+       236 -  const instance = await WebAssembly.instantiate(wasmModule, 
+           - imports);
+       237 -  
+       238 -  // Get addresses for thread sync data via getter functions
+       239 -  const get_thread_flags_ptr = 
+           - instance.exports.get_thread_flags_ptr as () => number;
+       240 -  const get_barrier_data_ptr = 
+           - instance.exports.get_barrier_data_ptr as () => number;
+       241 -  threadFlagsBase = get_thread_flags_ptr();
+       242 -  barrierDataBase = get_barrier_data_ptr();
+       243 -  
+       244 -  // Initialize TLS for main worker (uses slot 0, managed by 
+           - C side)
+       245 -  const __tls_size = instance.exports.__tls_size as 
+           - WebAssembly.Global;
+       246 -  const tlsSize = __tls_size.value as number;
+       247 -  if (tlsSize > 0) {
+       248 -      const get_tls_slot_base = 
+           - instance.exports.get_tls_slot_base as (slot: number) => 
+           - number;
+       249 -      const __wasm_init_tls = 
+           - instance.exports.__wasm_init_tls as (ptr: number) => void;
+       250 -      const mainTlsBase = get_tls_slot_base(0); // Main 
+           - worker uses slot 0
+       251 -      __wasm_init_tls(mainTlsBase);
+       252 -  }
+       253 -  
+       254 -  // Send barrier base and TLS info to all workers so they 
+           - can do barrier_wait
+       255 -  for (const info of workerPool) {
+       256 -      info.worker.postMessage({
+       257 -          cmd: "set_barrier_base",
+       258 -          barrierDataBase,
+       259 -      });
+       260 -  }
+       261 -  
+       262 -  const wasm_main = instance.exports.wasm_main as () => 
+           - number;
+       263 -  const result = wasm_main();
+       264 -  
+       265 -  // Notify main thread
+       266 -  self.postMessage({ type: "done", result });
+         1 +  // Main worker - runs WASM main() and can use Atomics.wait
+         2 +  
+         3 +  import { OS_CORES, barrierWait, createLogImports } from 
+           + "./shared.ts";
+         4 +  
+         5 +  // Shared memory (4GB max)
+         6 +  const memory = new WebAssembly.Memory({
+         7 +      initial: 65536, // 16MB initial
+         8 +      maximum: 65536, // 4GB max (65536 * 64KB)
+         9 +      shared: true,
+        10 +  });
+        11 +  
+        12 +  // Load and compile WASM once
+        13 +  const wasmUrl = new URL("./wasm.wasm", import.meta.url);
+        14 +  const wasmResponse = await fetch(wasmUrl);
+        15 +  const wasmBytes = await wasmResponse.arrayBuffer();
+        16 +  const wasmModule = await WebAssembly.compile(wasmBytes);
+        17 +  
+        18 +  // Worker pool - preloaded and ready
+        19 +  interface WorkerInfo {
+        20 +      worker: Worker;
+        21 +      ready: boolean;
+        22 +  }
+        23 +  const workerPool: WorkerInfo[] = [];
+        24 +  const POOL_SIZE = OS_CORES + 4;
+        25 +  
+        26 +  // Helper to cleanup a thread (return worker to pool)
+        27 +  function cleanupThread(threadId: number): void {
+        28 +      const thread = threads.get(threadId);
+        29 +      if (!thread) return;
+        30 +  
+        31 +      // Return worker to pool
+        32 +      const poolInfo = workerPool.find((w) => w.worker === 
+           + thread.worker);
+        33 +      if (poolInfo) {
+        34 +          poolInfo.ready = true;
+        35 +      }
+        36 +  
+        37 +      threads.delete(threadId);
+        38 +  }
+        39 +  
+        40 +  // Preload worker pool
+        41 +  async function preloadWorker(index: number): 
+           + Promise<WorkerInfo> {
+        42 +      const worker = new Worker(new URL("./worker.mjs", 
+           + import.meta.url), {
+        43 +          type: "module",
+        44 +          name: `Thread ${index}`,
+        45 +      });
+        46 +  
+        47 +      return new Promise((resolve) => {
+        48 +          worker.onmessage = (e) => {
+        49 +              if (e.data.cmd === "loaded") {
+        50 +                  const info: WorkerInfo = { worker, ready: 
+           + true };
+        51 +                  resolve(info);
+        52 +              } else if (e.data.cmd === "cleanupThread") {
+        53 +                  // Detached thread finished - return worker
+           +  to pool
+        54 +                  cleanupThread(e.data.threadId);
+        55 +              }
+        56 +          };
+        57 +  
+        58 +          worker.onerror = (e) => {
+        59 +              console.error("[Main] Worker preload error:", 
+           + e);
+        60 +          };
+        61 +  
+        62 +          worker.postMessage({
+        63 +              cmd: "load",
+        64 +              wasmModule,
+        65 +              memory,
+        66 +          });
+        67 +      });
+        68 +  }
+        69 +  
+        70 +  // Preload all workers before running main
+        71 +  for (let i = 0; i < POOL_SIZE; i++) {
+        72 +      const info = await preloadWorker(i);
+        73 +      workerPool.push(info);
+        74 +  }
+        75 +  
+        76 +  // Thread tracking
+        77 +  interface ThreadInfo {
+        78 +      worker: Worker;
+        79 +      flagIndex: number; // index into Int32Array (not byte 
+           + offset)
+        80 +  }
+        81 +  const threads = new Map<number, ThreadInfo>();
+        82 +  let nextThreadId = 1;
+        83 +  
+        84 +  // These will be set after WASM instantiation from exported
+           +  globals
+        85 +  let threadFlagsBase = 0; // byte offset of thread_flags 
+           + array
+        86 +  let barrierDataBase = 0; // byte offset of barrier_data 
+           + array
+        87 +  
+        88 +  // TLS (Thread Local Storage) support - managed by C side
+        89 +  
+        90 +  // Imports for WASM - js_barrier_wait needs access to 
+           + barrierDataBase which is set later,
+        91 +  // but the function closes over the variable so it will use
+           +  the updated value
+        92 +  const imports = {
+        93 +      env: {
+        94 +          memory,
+        95 +          ...createLogImports(memory),
+        96 +          js_thread_spawn: (
+        97 +              funcPtr: number,
+        98 +              argPtr: number,
+        99 +              stackTop: number,
+       100 +              tlsBase: number,
+       101 +          ): number => {
+       102 +              // Get a ready worker from pool
+       103 +              const info = workerPool.find((w) => w.ready);
+       104 +              if (!info) {
+       105 +                  console.error("No available workers in 
+           + pool!");
+       106 +                  return -1;
+       107 +              }
+       108 +              info.ready = false;
+       109 +  
+       110 +              const threadId = nextThreadId++;
+       111 +              // Use exported thread_flags array - each 
+           + thread gets one i32 slot
+       112 +              const flagIndex = threadFlagsBase / 4 + 
+           + threadId;
+       113 +  
+       114 +              // Initialize done flag to 0
+       115 +              const flags = new Int32Array(memory.buffer);
+       116 +              Atomics.store(flags, flagIndex, 0);
+       117 +  
+       118 +              // Send run command - worker is already loaded
+       119 +              // stackTop and tlsBase come from C (allocated 
+           + by os_thread_launch)
+       120 +              info.worker.postMessage({
+       121 +                  cmd: "run",
+       122 +                  funcPtr,
+       123 +                  argPtr,
+       124 +                  threadId,
+       125 +                  flagIndex,
+       126 +                  barrierDataBase,
+       127 +                  stackTop,
+       128 +                  tlsBase,
+       129 +              });
+       130 +  
+       131 +              threads.set(threadId, { worker: info.worker, 
+           + flagIndex });
+       132 +              return threadId;
+       133 +          },
+       134 +          js_thread_join: (threadId: number) => {
+       135 +              const thread = threads.get(threadId);
+       136 +              if (!thread) return;
+       137 +  
+       138 +              const flags = new Int32Array(memory.buffer);
+       139 +  
+       140 +              // Wait for thread to complete
+       141 +              while (Atomics.load(flags, thread.flagIndex) 
+           + === 0) {
+       142 +                  Atomics.wait(flags, thread.flagIndex, 0);
+       143 +              }
+       144 +  
+       145 +              // Return worker to pool
+       146 +              const poolInfo = workerPool.find((w) => 
+           + w.worker === thread.worker);
+       147 +              if (poolInfo) {
+       148 +                  poolInfo.ready = true;
+       149 +              }
+       150 +  
+       151 +              threads.delete(threadId);
+       152 +          },
+       153 +          js_thread_cleanup: (threadId: number) => {
+       154 +              // Called from C when detach is called after 
+           + thread already exited
+       155 +              cleanupThread(threadId);
+       156 +          },
+       157 +          js_barrier_wait: (barrierId: number) => {
+       158 +              barrierWait(memory, barrierDataBase, 
+           + barrierId);
+       159 +          },
+       160 +      },
+       161 +  };
+       162 +  
+       163 +  // Instantiate and run
+       164 +  const instance = await WebAssembly.instantiate(wasmModule, 
+           + imports);
+       165 +  
+       166 +  // Get addresses for thread sync data via getter functions
+       167 +  const get_thread_flags_ptr = 
+           + instance.exports.get_thread_flags_ptr as () => number;
+       168 +  const get_barrier_data_ptr = 
+           + instance.exports.get_barrier_data_ptr as () => number;
+       169 +  threadFlagsBase = get_thread_flags_ptr();
+       170 +  barrierDataBase = get_barrier_data_ptr();
+       171 +  
+       172 +  // Initialize TLS for main worker (uses slot 0, managed by 
+           + C side)
+       173 +  const __tls_size = instance.exports.__tls_size as 
+           + WebAssembly.Global;
+       174 +  const tlsSize = __tls_size.value as number;
+       175 +  if (tlsSize > 0) {
+       176 +      const get_tls_slot_base = 
+           + instance.exports.get_tls_slot_base as (slot: number) => 
+           + number;
+       177 +      const __wasm_init_tls = 
+           + instance.exports.__wasm_init_tls as (ptr: number) => void;
+       178 +      const mainTlsBase = get_tls_slot_base(0); // Main 
+           + worker uses slot 0
+       179 +      __wasm_init_tls(mainTlsBase);
+       180 +  }
+       181 +  
+       182 +  // Send barrier base and TLS info to all workers so they 
+           + can do barrier_wait
+       183 +  for (const info of workerPool) {
+       184 +      info.worker.postMessage({
+       185 +          cmd: "set_barrier_base",
+       186 +          barrierDataBase,
+       187 +      });
+       188 +  }
+       189 +  
+       190 +  const wasm_main = instance.exports.wasm_main as () => 
+           + number;
+       191 +  const result = wasm_main();
+       192 +  
+       193 +  // Notify main thread
+       194 +  self.postMessage({ type: "done", result });
+
+● Write(worker.ts)
+  ⎿  Updated worker.ts with 101 additions and 175 removals               
+         1 -  // Worker thread - receives WASM module and executes 
+           -  functions
+         2 -  
+         3 -  // State set during 'load' phase
+         4 -  let wasmInstance: WebAssembly.Instance;
+         5 -  let memory: WebAssembly.Memory;
+         6 -  let barrierDataBase = 0;
+         7 -  
+         8 -  // Worker pool size (must match main_worker.ts)
+         9 -  const hardwareCores = navigator.hardwareConcurrency;
+        10 -  const OS_CORES = hardwareCores < 8 ? 16 : hardwareCores;
+        11 -  
+        12 -  // Helper to read a string from WASM memory
+        13 -  function readString(ptr: number, len: number): string {
+        14 -      const bytes = new Uint8Array(memory.buffer, ptr, len);
+        15 -      const copy = new Uint8Array(bytes);
+        16 -      return new TextDecoder().decode(copy);
+        17 -  }
+        18 -  
+        19 -  // Barrier wait implementation using Atomics (same as 
+           - main_worker)
+        20 -  function barrierWait(barrierId: number): void {
+        21 -      const i32 = new Int32Array(memory.buffer);
+        22 -      // Barrier layout: [count, generation, arrived] - 3 
+           - i32s per barrier
+        23 -      const baseIndex = (barrierDataBase / 4) + barrierId * 
+           - 3;
+        24 -      const countIndex = baseIndex + 0;
+        25 -      const genIndex = baseIndex + 1;
+        26 -      const arrivedIndex = baseIndex + 2;
+        27 -  
+        28 -      const count = Atomics.load(i32, countIndex);
+        29 -      const myGen = Atomics.load(i32, genIndex);
+        30 -  
+        31 -      // Atomically increment arrived count
+        32 -      const arrived = Atomics.add(i32, arrivedIndex, 1) + 1;
+        33 -  
+        34 -      if (arrived === count) {
+        35 -          // Last thread: reset arrived, flip generation, 
+           - wake everyone
+        36 -          Atomics.store(i32, arrivedIndex, 0);
+        37 -          Atomics.store(i32, genIndex, 1 - myGen);
+        38 -          Atomics.notify(i32, genIndex);
+        39 -      } else {
+        40 -          // Wait for generation to change
+        41 -          Atomics.wait(i32, genIndex, myGen);
+        42 -      }
+        43 -  }
+        44 -  
+        45 -  self.onmessage = async (e) => {
+        46 -      const { cmd } = e.data;
+        47 -  
+        48 -      if (cmd === "load") {
+        49 -          // Phase 1: Receive module and memory, instantiate 
+           - WASM
+        50 -          memory = e.data.memory;
+        51 -          const wasmModule = e.data.wasmModule as 
+           - WebAssembly.Module;
+        52 -  
+        53 -          const imports = {
+        54 -              env: {
+        55 -                  memory,
+        56 -                  js_log: (ptr: number, len: number) => {
+        57 -                      const str = readString(ptr, len);
+        58 -                      console.log(`[Thread] ${str}`);
+        59 -                  },
+        60 -  
+        61 -                  _os_log_info: (
+        62 -                      ptr: number,
+        63 -                      len: number,
+        64 -                      fileNamePtr: number,
+        65 -                      fileNameLen: number,
+        66 -                      lineNumber: number,
+        67 -                  ): void => {
+        68 -                      const message = readString(ptr, len);
+        69 -                      const fileName = 
+           - readString(fileNamePtr, fileNameLen);
+        70 -                      console.log(`${fileName}:${lineNumber}:
+           -  ${message}`);
+        71 -                  },
+        72 -  
+        73 -                  _os_log_warn: (
+        74 -                      ptr: number,
+        75 -                      len: number,
+        76 -                      fileNamePtr: number,
+        77 -                      fileNameLen: number,
+        78 -                      lineNumber: number,
+        79 -                  ): void => {
+        80 -                      const message = readString(ptr, len);
+        81 -                      const fileName = 
+           - readString(fileNamePtr, fileNameLen);
+        82 -                      
+           - console.warn(`${fileName}:${lineNumber}: ${message}`);
+        83 -                  },
+        84 -                  _os_log_error: (
+        85 -                      ptr: number,
+        86 -                      len: number,
+        87 -                      fileNamePtr: number,
+        88 -                      fileNameLen: number,
+        89 -                      lineNumber: number,
+        90 -                  ): void => {
+        91 -                      const message = readString(ptr, len);
+        92 -                      const fileName = 
+           - readString(fileNamePtr, fileNameLen);
+        93 -                      
+           - console.error(`${fileName}:${lineNumber}: ${message}`);
+        94 -                  },
+        95 -                  js_get_core_count: () => {
+        96 -                      return OS_CORES;
+        97 -                  },
+        98 -                  // Workers can't spawn threads (for now)
+        99 -                  js_thread_spawn: () => {
+       100 -                      console.error("Cannot spawn threads 
+           - from worker");
+       101 -                      return -1;
+       102 -                  },
+       103 -                  js_thread_join: () => {
+       104 -                      console.error("Cannot join threads from
+           -  worker");
+       105 -                  },
+       106 -                  js_thread_cleanup: () => {
+       107 -                      // Workers don't directly cleanup - 
+           - they post a message to main_worker
+       108 -                      // This is a stub to satisfy the WASM 
+           - import
+       109 -                  },
+       110 -                  js_barrier_wait: (barrierId: number) => {
+       111 -                      barrierWait(barrierId);
+       112 -                  },
+       113 -              },
+       114 -          };
+       115 -  
+       116 -          try {
+       117 -              // Note: WebAssembly.instantiate with a Module 
+           - returns Instance directly
+       118 -              wasmInstance = await 
+           - WebAssembly.instantiate(wasmModule, imports);
+       119 -              self.postMessage({ cmd: "loaded" });
+       120 -          } catch (err) {
+       121 -              console.error("[Worker] Failed to instantiate 
+           - WASM:", err);
+       122 -          }
+       123 -      } else if (cmd === "set_barrier_base") {
+       124 -          // Update barrier base address
+       125 -          barrierDataBase = e.data.barrierDataBase;
+       126 -      } else if (cmd === "run") {
+       127 -          // Phase 2: Execute the function
+       128 -          const { funcPtr, argPtr, threadId, flagIndex, 
+           - stackTop, tlsBase } = e.data;
+       129 -          // Update barrier base if provided with run command
+       130 -          if (e.data.barrierDataBase !== undefined) {
+       131 -              barrierDataBase = e.data.barrierDataBase;
+       132 -          }
+       133 -  
+       134 -          try {
+       135 -              // Set this worker's stack pointer to its 
+           - dedicated stack region
+       136 -              const set_stack_pointer = 
+           - wasmInstance.exports.set_stack_pointer as (sp: number) => 
+           - void;
+       137 -              set_stack_pointer(stackTop);
+       138 -  
+       139 -              // Initialize TLS for this worker
+       140 -              if (tlsBase !== undefined && tlsBase !== 0) {
+       141 -                  const __wasm_init_tls = 
+           - wasmInstance.exports.__wasm_init_tls as (ptr: number) => 
+           - void;
+       142 -                  __wasm_init_tls(tlsBase);
+       143 -              }
+       144 -  
+       145 -              const table = 
+           - wasmInstance.exports.__indirect_function_table as 
+           - WebAssembly.Table;
+       146 -              const fn = table.get(funcPtr) as (arg: number) 
+           - => void;
+       147 -  
+       148 -              if (!fn) {
+       149 -                  throw new Error(`Function at index 
+           - ${funcPtr} is null`);
+       150 -              }
+       151 -  
+       152 -              fn(argPtr);
+       153 -  
+       154 -              // Check detach state and do cleanup if needed
+       155 -              const os_thread_exit_check = 
+           - wasmInstance.exports.os_thread_exit_check as (id: number) =>
+           -  number;
+       156 -              const needsCleanup = 
+           - os_thread_exit_check(threadId);
+       157 -  
+       158 -              if (needsCleanup) {
+       159 -                  // Was detached - tell main_worker to 
+           - return this worker to pool
+       160 -                  self.postMessage({ cmd: "cleanupThread", 
+           - threadId });
+       161 -              }
+       162 -  
+       163 -              // Signal completion
+       164 -              const flags = new Int32Array(memory.buffer);
+       165 -              Atomics.store(flags, flagIndex, 1);
+       166 -              Atomics.notify(flags, flagIndex);
+       167 -          } catch (err) {
+       168 -              console.error(`[Thread ${threadId}] Error:`, 
+           - err);
+       169 -              // Signal completion with error
+       170 -              const flags = new Int32Array(memory.buffer);
+       171 -              Atomics.store(flags, flagIndex, -1);
+       172 -              Atomics.notify(flags, flagIndex);
+       173 -          }
+       174 -      }
+       175 -  };
+         1 +  // Worker thread - receives WASM module and executes 
+           +  functions
+         2 +  
+         3 +  import { OS_CORES, barrierWait, createLogImports } from 
+           + "./shared.ts";
+         4 +  
+         5 +  // State set during 'load' phase
+         6 +  let wasmInstance: WebAssembly.Instance;
+         7 +  let memory: WebAssembly.Memory;
+         8 +  let barrierDataBase = 0;
+         9 +  
+        10 +  self.onmessage = async (e) => {
+        11 +      const { cmd } = e.data;
+        12 +  
+        13 +      if (cmd === "load") {
+        14 +          // Phase 1: Receive module and memory, instantiate 
+           + WASM
+        15 +          memory = e.data.memory;
+        16 +          const wasmModule = e.data.wasmModule as 
+           + WebAssembly.Module;
+        17 +  
+        18 +          const imports = {
+        19 +              env: {
+        20 +                  memory,
+        21 +                  ...createLogImports(memory, "Thread"),
+        22 +                  // Workers can't spawn threads (for now)
+        23 +                  js_thread_spawn: () => {
+        24 +                      console.error("Cannot spawn threads 
+           + from worker");
+        25 +                      return -1;
+        26 +                  },
+        27 +                  js_thread_join: () => {
+        28 +                      console.error("Cannot join threads from
+           +  worker");
+        29 +                  },
+        30 +                  js_thread_cleanup: () => {
+        31 +                      // Workers don't directly cleanup - 
+           + they post a message to main_worker
+        32 +                      // This is a stub to satisfy the WASM 
+           + import
+        33 +                  },
+        34 +                  js_barrier_wait: (barrierId: number) => {
+        35 +                      barrierWait(memory, barrierDataBase, 
+           + barrierId);
+        36 +                  },
+        37 +              },
+        38 +          };
+        39 +  
+        40 +          try {
+        41 +              // Note: WebAssembly.instantiate with a Module 
+           + returns Instance directly
+        42 +              wasmInstance = await 
+           + WebAssembly.instantiate(wasmModule, imports);
+        43 +              self.postMessage({ cmd: "loaded" });
+        44 +          } catch (err) {
+        45 +              console.error("[Worker] Failed to instantiate 
+           + WASM:", err);
+        46 +          }
+        47 +      } else if (cmd === "set_barrier_base") {
+        48 +          // Update barrier base address
+        49 +          barrierDataBase = e.data.barrierDataBase;
+        50 +      } else if (cmd === "run") {
+        51 +          // Phase 2: Execute the function
+        52 +          const { funcPtr, argPtr, threadId, flagIndex, 
+           + stackTop, tlsBase } = e.data;
+        53 +          // Update barrier base if provided with run command
+        54 +          if (e.data.barrierDataBase !== undefined) {
+        55 +              barrierDataBase = e.data.barrierDataBase;
+        56 +          }
+        57 +  
+        58 +          try {
+        59 +              // Set this worker's stack pointer to its 
+           + dedicated stack region
+        60 +              const set_stack_pointer = 
+           + wasmInstance.exports.set_stack_pointer as (sp: number) => 
+           + void;
+        61 +              set_stack_pointer(stackTop);
+        62 +  
+        63 +              // Initialize TLS for this worker
+        64 +              if (tlsBase !== undefined && tlsBase !== 0) {
+        65 +                  const __wasm_init_tls = 
+           + wasmInstance.exports.__wasm_init_tls as (ptr: number) => 
+           + void;
+        66 +                  __wasm_init_tls(tlsBase);
+        67 +              }
+        68 +  
+        69 +              const table = 
+           + wasmInstance.exports.__indirect_function_table as 
+           + WebAssembly.Table;
+        70 +              const fn = table.get(funcPtr) as (arg: number) 
+           + => void;
+        71 +  
+        72 +              if (!fn) {
+        73 +                  throw new Error(`Function at index 
+           + ${funcPtr} is null`);
+        74 +              }
+        75 +  
+        76 +              fn(argPtr);
+        77 +  
+        78 +              // Check detach state and do cleanup if needed
+        79 +              const os_thread_exit_check = 
+           + wasmInstance.exports.os_thread_exit_check as (
+        80 +                  id: number,
+        81 +              ) => number;
+        82 +              const needsCleanup = 
+           + os_thread_exit_check(threadId);
+        83 +  
+        84 +              if (needsCleanup) {
+        85 +                  // Was detached - tell main_worker to 
+           + return this worker to pool
+        86 +                  self.postMessage({ cmd: "cleanupThread", 
+           + threadId });
+        87 +              }
+        88 +  
+        89 +              // Signal completion
+        90 +              const flags = new Int32Array(memory.buffer);
+        91 +              Atomics.store(flags, flagIndex, 1);
+        92 +              Atomics.notify(flags, flagIndex);
+        93 +          } catch (err) {
+        94 +              console.error(`[Thread ${threadId}] Error:`, 
+           + err);
+        95 +              // Signal completion with error
+        96 +              const flags = new Int32Array(memory.buffer);
+        97 +              Atomics.store(flags, flagIndex, -1);
+        98 +              Atomics.notify(flags, flagIndex);
+        99 +          }
+       100 +      }
+       101 +  };
+
+● Update(worker.ts)
+  ⎿  Updated worker.ts with 1 addition and 1 removal                    
+       1    // Worker thread - receives WASM module and executes 
+           functions
+       2    
+       3 -  import { OS_CORES, 
+         -  barrierWait, createLogImports } from "./shared.ts";
+       3 +  import { barrierWait, createLogImports } from "./shared.ts";
+       4    
+       5    // State set during 'load' phase
+       6    let wasmInstance: WebAssembly.Instance;
+
+● Done. Created shared.ts with:
+  - OS_CORES constant
+  - readString() helper
+  - barrierWait() function
+  - createLogImports() factory that returns all log imports
+
+  Line count changes:
+  - main_worker.ts: 267 → 194 lines (-73)
+  - worker.ts: 176 → 101 lines (-75)
+  - shared.ts: 94 lines (new)
+
+  Net reduction: ~54 lines, plus the duplication is eliminated.
+
+> I need an impressive demo to demonstrate my engine multi-threaded features
+ against Unity, which is 10x slower. What do you suggest? has to be visual. 
+Social media viral. 
+
+● Great question! Here are my top suggestions ranked by viral potential:
+
+  1. N-Body Galaxy Simulation (Top Pick)
+
+  - 100K+ stars with real gravitational attraction
+  - Watch galaxies form, collide, spiral arms emerge
+  - Why it works: Mesmerizing, clearly compute-heavy (O(n²)), easy metric
+  ("100K bodies at 60fps vs Unity's 10K")
+  - Side-by-side: Your engine smooth, Unity stuttering
+
+  2. Massive Boids Flocking
+
+  - 50K+ fish/birds with emergent behavior
+  - Add a predator that causes panic waves
+  - Why it works: Beautiful patterns, interactive, easy to understand
+  - Mouse controls predator position
+
+  3. Interactive Particle Fluid
+
+  - 1M+ particles with SPH-lite physics
+  - Mouse creates attractors/repulsors
+  - Why it works: Satisfying, interactive, "1 million particles" is
+  headline-worthy
+
+  4. Real-time Path Tracing
+
+  - Ray trace a scene with global illumination
+  - Show convergence in real-time
+  - Why it works: "Real-time ray tracing in the browser" is
+  attention-grabbing
+
+  ---
+  My recommendation: N-Body Galaxy
+
+  Reasons:
+  - Most visually stunning (space is inherently beautiful)
+  - Clearest threading win (each body vs all others = perfect parallelism)
+  - Simple to explain: "every star pulls on every other star"
+  - Hypnotic watch factor (people will loop it)
+
+  Format for social media:
+  - Split screen: left = your engine (smooth), right = Unity (choppy)
+  - Counter showing body count + FPS
+  - Ramp up bodies until Unity dies, yours keeps going
+
+  Want me to implement it?
+
+> I'm looking for something that can only be achieved in the CPU. Is this 
+the case of the N-Body problem? or would compute shaders be much faster for 
+this? 
+
+● You're right to question this. N-body is embarrassingly parallel - compute
+   shaders would demolish CPU performance for this. Same with particles,
+  boids, and most "lots of independent things" demos.
+
+  Tasks where CPU genuinely wins:
+
+  | Task                                    | Why GPU Struggles
+                                    |
+  |-----------------------------------------|-------------------------------
+  ----------------------------------|
+  | Pathfinding (A)                         | Irregular memory access,
+  priority queues, variable-length paths |
+  | Tree/graph traversal                    | Recursive, pointer-chasing,
+  unpredictable branching             |
+  | Complex physics constraints             | Sequential impulse solvers,
+  dependency chains                   |
+  | AI decision trees / behavior trees      | Heavy branching, state
+  machines                                 |
+  | Procedural generation with dependencies | Each step depends on previous
+                                    |
+  | Collision detection (BVH)               | Tree traversal, dynamic
+  updates                                 |
+
+  ---
+  My revised recommendation: Massive Crowd Pathfinding
+
+  The demo:
+  - 10K-50K agents navigating a maze/city
+  - Dynamic obstacles (walls appearing/disappearing)
+  - Agents recalculate paths in real-time
+  - Mouse draws obstacles, crowds react instantly
+
+  Why it's perfect:
+  - A* is fundamentally CPU-bound (priority queues, irregular access)
+  - GPUs cannot do this efficiently - it's not a "just use compute shaders"
+  situation
+  - Visually impressive (swarms flowing around obstacles)
+  - Real game use case (RTS, city builders, crowd sims)
+  - Easy headline: "50K AI agents pathfinding at 60fps in browser"
+
+  Unity comparison:
+  Unity's NavMesh struggles past ~1K agents. You could show 10-50x more
+  agents.
+
+  ---
+  Runner up: Ragdoll Physics Chaos
+  - 1000+ ragdolls falling/colliding
+  - Sequential impulse solver is inherently serial per constraint island
+  - Parallelize across independent islands
+
+  Want me to implement the crowd pathfinding demo?
+
+> anything with zombies? 
+
+● Yes! Zombies + pathfinding is a perfect combo:
+
+  "Zombie Horde Survival"
+
+  The scene:
+  - 50K+ zombies pathfinding toward survivors/player
+  - Player/mouse controls a survivor
+  - Zombies flow around obstacles, through doorways, pile up at chokepoints
+  - Dynamic barricades (click to place/destroy walls)
+  - Optional: infection spread (survivors turn into zombies)
+
+  Viral elements:
+  - "50,000 zombies chasing you at 60fps"
+  - World War Z vibes (massive hordes flowing like water)
+  - Interactive - viewers want to try it themselves
+  - Tension/drama built-in
+
+  Visual style options:
+
+  | Style                             | Effort | Impact          |
+  |-----------------------------------|--------|-----------------|
+  | Top-down (like Vampire Survivors) | Low    | Good            |
+  | Isometric (like Project Zomboid)  | Medium | Great           |
+  | Simple 3D (like World War Z)      | High   | Viral potential |
+
+  CPU-bound because:
+  - A* / Flow field pathfinding for each zombie
+  - Collision avoidance between zombies
+  - AI state machines (idle, chase, attack, pile-up)
+  - Dynamic navmesh updates when barricades change
+
+  Headline comparison:
+  "Unity: 2,000 zombies, 30fps"
+  "My engine: 50,000 zombies, 60fps"
+
+  ---
+  Top-down would be fastest to implement while still being impressive. Think
+   Vampire Survivors meets World War Z.
+
+  Want me to build it?
+
+
+
