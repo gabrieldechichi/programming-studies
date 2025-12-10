@@ -16,6 +16,9 @@ const shaders: (GPUShaderModule | null)[] = [];
 const pipelines: (GPURenderPipeline | null)[] = [];
 const pipelineBindGroupLayouts: (GPUBindGroupLayout | null)[] = [];
 
+// Per-pipeline bind groups for dynamic uniforms (created once, reused with different offsets)
+const pipelineUniformBindGroups: Map<string, GPUBindGroup> = new Map();
+
 // Current frame state
 let currentEncoder: GPUCommandEncoder | null = null;
 let currentPass: GPURenderPassEncoder | null = null;
@@ -196,13 +199,16 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 });
             }
 
-            // Create bind group layout for uniforms
+            // Create bind group layout for uniforms with dynamic offset
             const bindGroupLayout = renderer.device.createBindGroupLayout({
                 entries: [
                     {
                         binding: 0,
                         visibility: GPUShaderStage.VERTEX,
-                        buffer: { type: "uniform" },
+                        buffer: {
+                            type: "uniform",
+                            hasDynamicOffset: true,  // Enable dynamic offsets
+                        },
                     },
                 ],
             });
@@ -352,6 +358,75 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             renderer.device.queue.submit([currentEncoder.finish()]);
             currentEncoder = null;
             currentPipelineIdx = -1;
+        },
+
+        js_gpu_upload_uniforms: (bufIdx: number, dataPtr: number, size: number) => {
+            if (!renderer) return;
+            const buffer = buffers[bufIdx];
+            if (!buffer) return;
+
+            const src = new Uint8Array(memory.buffer, dataPtr, size);
+            renderer.device.queue.writeBuffer(buffer, 0, src);
+        },
+
+        js_gpu_apply_bindings_dynamic: (bindingsPtr: number, uniformBufIdx: number, uniformOffset: number) => {
+            if (!currentPass || !renderer) return;
+
+            // Read bindings from memory
+            // Format: [vb_count, vb0_idx, vb1_idx, vb2_idx, vb3_idx, ib_idx, ib_format]
+            const data = new Uint32Array(memory.buffer, bindingsPtr, 4 + 3);
+            const vbCount = data[0];
+
+            // Set vertex buffers
+            for (let i = 0; i < vbCount; i++) {
+                const bufIdx = data[1 + i];
+                const buffer = buffers[bufIdx];
+                if (buffer) {
+                    currentPass.setVertexBuffer(i, buffer);
+                }
+            }
+
+            // Set index buffer
+            const ibIdx = data[5];
+            const ibFormat = data[6];
+            const indexBuffer = buffers[ibIdx];
+            if (indexBuffer) {
+                currentPass.setIndexBuffer(indexBuffer, INDEX_FORMATS[ibFormat]);
+            }
+
+            // Get or create bind group for this pipeline + uniform buffer combo
+            if (currentPipelineIdx >= 0) {
+                const bindGroupLayout = pipelineBindGroupLayouts[currentPipelineIdx];
+                const uniformBuffer = buffers[uniformBufIdx];
+
+                if (bindGroupLayout && uniformBuffer) {
+                    // Create bind group key
+                    const key = `${currentPipelineIdx}-${uniformBufIdx}`;
+
+                    // Get or create bind group (created once per pipeline+buffer combo)
+                    let bindGroup = pipelineUniformBindGroups.get(key);
+                    if (!bindGroup) {
+                        bindGroup = renderer.device.createBindGroup({
+                            layout: bindGroupLayout,
+                            entries: [
+                                {
+                                    binding: 0,
+                                    resource: {
+                                        buffer: uniformBuffer,
+                                        // Note: size is the max uniform size we'll use
+                                        // WebGPU requires this for dynamic offset buffers
+                                        size: 256,  // Aligned uniform size
+                                    },
+                                },
+                            ],
+                        });
+                        pipelineUniformBindGroups.set(key, bindGroup);
+                    }
+
+                    // Set bind group with dynamic offset
+                    currentPass.setBindGroup(0, bindGroup, [uniformOffset]);
+                }
+            }
         },
     };
 }

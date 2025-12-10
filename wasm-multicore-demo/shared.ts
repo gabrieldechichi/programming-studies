@@ -25,8 +25,10 @@ export function barrierWait(
     const count = Atomics.load(i32, countIndex);
 
     // Phase 0: Wait for previous barrier to fully drain (leaving == 0)
-    while (Atomics.load(i32, leavingIndex) !== 0) {
-        Atomics.wait(i32, leavingIndex, Atomics.load(i32, leavingIndex));
+    // Use single load to avoid race between condition check and wait argument
+    let leaving: number;
+    while ((leaving = Atomics.load(i32, leavingIndex)) !== 0) {
+        Atomics.wait(i32, leavingIndex, leaving);
     }
 
     // Capture generation BEFORE incrementing arrived

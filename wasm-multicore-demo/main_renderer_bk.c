@@ -12,7 +12,7 @@
 #include "gpu.c"
 #include "lib/math.h"
 
-#define NUM_CUBES 1024
+#define NUM_CUBES 64
 
 typedef struct {
   vec3 position;
@@ -35,6 +35,8 @@ typedef struct {
 // =============================================================================
 
 void app_update_and_render(void) {
+  LOG_INFO("Thread %: update and render start",
+           FMT_UINT(tctx_current()->thread_idx));
   // Each thread processes a range of cubes
   Range_u64 range = lane_range(NUM_CUBES);
 
@@ -59,8 +61,12 @@ void app_update_and_render(void) {
     // Submit draw command (lock-free)
     // TODO: add all cmds pre thread, then append instead (less need for atomic
     // adds, less race condition between threads)
+    LOG_INFO("Thread % draw mesh", FMT_UINT(tctx_current()->thread_idx));
     renderer_draw_mesh(model);
   }
+
+  LOG_INFO("Thread %: update and render done (drew % cubes)",
+           FMT_UINT(tctx_current()->thread_idx), FMT_UINT((range.max - range.min)));
 }
 
 void worker_loop(void *arg) {
@@ -75,6 +81,10 @@ void worker_loop(void *arg) {
     app_update_and_render();
 
     // Barrier 2: Wait for all threads to finish work
+    lane_sync();
+
+    // Barrier 3: Wait for main thread to call renderer_end_frame()
+    // This prevents workers from racing ahead to the next frame
     lane_sync();
   }
 }
@@ -160,6 +170,7 @@ int wasm_main(void) {
 
 WASM_EXPORT(wasm_frame)
 void wasm_frame(void) {
+  LOG_INFO("Main thread: frame start");
   // Update time
   g_time += 0.016f; // ~60fps
 
@@ -176,14 +187,20 @@ void wasm_frame(void) {
   // Sync with workers - start parallel work
   lane_sync();
 
+  LOG_INFO("Main thread: update and render called");
   // All threads process their cube range
   app_update_and_render();
 
   // Sync with workers - wait for all to finish
   lane_sync();
+  LOG_INFO("Main thread: update and render - all threads done");
 
   // End frame (main thread processes cmd queue, issues GPU calls)
   if (is_main_thread()) {
     renderer_end_frame();
   }
+  LOG_INFO("Main thread: renderer_end_frame done");
+
+  lane_sync();
+  LOG_INFO("Main thread: end frame lane sync done");
 }
