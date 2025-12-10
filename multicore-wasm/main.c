@@ -18,8 +18,6 @@
 // #include "demos/demo_semaphore.c"    // 8. Counting semaphore
 // #include "demos/demo_rwlock.c"       // 9. Read-write lock
 #include "demos/demo_detach.c"       // 10. Thread detach
-// #include "demos/demo_thread_attr.c"  // 11. Thread attributes
-// #include "demos/demo_once.c"         // 12. pthread_once
 
 WASM_EXPORT(wasm_main)
 int wasm_main(void) { return demo_main(); }

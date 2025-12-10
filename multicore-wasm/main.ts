@@ -3,6 +3,7 @@
 
 const worker = new Worker(new URL("./main_worker.mjs", import.meta.url), {
     type: "module",
+    name: "Main Thread",
 });
 
 worker.onmessage = (e) => {

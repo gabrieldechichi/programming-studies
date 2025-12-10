@@ -45,10 +45,10 @@ function cleanupThread(threadId: number): void {
 }
 
 // Preload worker pool
-async function preloadWorker(): Promise<WorkerInfo> {
+async function preloadWorker(index: number): Promise<WorkerInfo> {
     const worker = new Worker(new URL("./worker.mjs", import.meta.url), {
         type: "module",
-        name: "wasm-thread",
+        name: `Thread ${index}`,
     });
 
     return new Promise((resolve) => {
@@ -76,7 +76,7 @@ async function preloadWorker(): Promise<WorkerInfo> {
 
 // Preload all workers before running main
 for (let i = 0; i < POOL_SIZE; i++) {
-    const info = await preloadWorker();
+    const info = await preloadWorker(i);
     workerPool.push(info);
 }
 
