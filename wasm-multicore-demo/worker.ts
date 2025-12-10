@@ -1,6 +1,6 @@
 // Worker thread - receives WASM module and executes functions
 
-import { barrierWait, createLogImports } from "./shared.ts";
+import { barrierWait, createLogImports, createWasiImports } from "./shared.ts";
 import { createGpuImports } from "./renderer.ts";
 
 // State set during 'load' phase
@@ -37,6 +37,7 @@ self.onmessage = async (e) => {
                     barrierWait(memory, barrierDataBase, barrierId);
                 },
             },
+            wasi_snapshot_preview1: createWasiImports(),
         };
 
         try {

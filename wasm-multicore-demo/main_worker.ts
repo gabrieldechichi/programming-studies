@@ -1,6 +1,6 @@
 // Main worker - runs WASM main() and can use Atomics.wait
 
-import { OS_CORES, barrierWait, createLogImports } from "./shared.ts";
+import { OS_CORES, barrierWait, createLogImports, createWasiImports } from "./shared.ts";
 import { createRenderer, createGpuImports, Renderer } from "./renderer.ts";
 
 // Renderer state - initialized when we receive canvas from main thread
@@ -177,6 +177,7 @@ const imports = {
             barrierWait(memory, barrierDataBase, barrierId);
         },
     },
+    wasi_snapshot_preview1: createWasiImports(),
 };
 
 // Instantiate and run

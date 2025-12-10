@@ -64,6 +64,21 @@ export interface LogImports {
     js_get_core_count: () => number;
 }
 
+// WASI stubs - minimal implementations for wasi-threads libc
+export function createWasiImports() {
+    return {
+        args_get: () => 0,
+        args_sizes_get: (argc_ptr: number, argv_buf_size_ptr: number) => {
+            // No args - set both to 0
+            return 0;
+        },
+        proc_exit: (code: number) => {
+            console.log(`[WASI] proc_exit(${code})`);
+        },
+        sched_yield: () => 0,
+    };
+}
+
 export function createLogImports(memory: WebAssembly.Memory, prefix?: string): LogImports {
     const logPrefix = prefix ? `[${prefix}] ` : "";
     return {

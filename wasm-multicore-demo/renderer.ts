@@ -1,5 +1,7 @@
 // WebGPU Renderer - separate from thread management
 
+import { readString } from "./shared.ts";
+
 export interface Renderer {
     device: GPUDevice;
     context: GPUCanvasContext;
@@ -74,12 +76,6 @@ export async function createRenderer(canvas: OffscreenCanvas): Promise<Renderer>
     };
 
     return renderer;
-}
-
-// Helper to read string from WASM memory
-function readString(memory: WebAssembly.Memory, ptr: number, len: number): string {
-    const bytes = new Uint8Array(memory.buffer, ptr, len);
-    return new TextDecoder().decode(bytes);
 }
 
 // Vertex format mapping
