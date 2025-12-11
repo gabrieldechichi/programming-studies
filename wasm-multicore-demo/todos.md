@@ -1,0 +1,6 @@
+- [ ] Fix uniform bindings broken
+- [ ] Improve Shader and Pipeline creation (complete descs)
+- [ ] Fix multiple gpu bindings
+- [ ] Instancing renderer
+- [ ] Fix handle stuff
+- [ ] Check js for optimizations
