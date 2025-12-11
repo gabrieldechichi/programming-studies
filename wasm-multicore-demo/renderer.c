@@ -70,10 +70,10 @@ typedef struct {
 global RendererState g_renderer;
 
 void renderer_init(ArenaAllocator *arena, u8 thread_count) {
-  gpu_init();
-
   // Initialize mesh storage
   Allocator alloc = make_arena_allocator(arena);
+
+  gpu_init(&alloc);
   g_renderer.meshes = ha_init(GpuMesh, &alloc, MAX_MESHES);
 
   // Initialize dynamic uniform buffer

@@ -3,31 +3,32 @@
 #include "os/os.h"
 
 // JS imports - these are implemented in renderer.ts
+// Note: make functions receive idx from C (C manages handles, JS just stores at given index)
 WASM_IMPORT(js_gpu_init)
 void js_gpu_init(void);
 
 WASM_IMPORT(js_gpu_make_buffer)
-u32 js_gpu_make_buffer(u32 type, u32 size, void *data);
+void js_gpu_make_buffer(u32 idx, u32 type, u32 size, void *data);
 
 WASM_IMPORT(js_gpu_update_buffer)
-void js_gpu_update_buffer(u32 handle_idx, void *data, u32 size);
+void js_gpu_update_buffer(u32 idx, void *data, u32 size);
 
 WASM_IMPORT(js_gpu_destroy_buffer)
-void js_gpu_destroy_buffer(u32 handle_idx);
+void js_gpu_destroy_buffer(u32 idx);
 
 WASM_IMPORT(js_gpu_make_shader)
-u32 js_gpu_make_shader(const char *vs_code, u32 vs_len, const char *fs_code,
-                       u32 fs_len);
+void js_gpu_make_shader(u32 idx, const char *vs_code, u32 vs_len,
+                        const char *fs_code, u32 fs_len);
 
 WASM_IMPORT(js_gpu_destroy_shader)
-void js_gpu_destroy_shader(u32 handle_idx);
+void js_gpu_destroy_shader(u32 idx);
 
 WASM_IMPORT(js_gpu_make_pipeline)
-u32 js_gpu_make_pipeline(u32 shader_idx, void *vertex_layout, u32 primitive,
-                         u32 depth_test, u32 depth_write);
+void js_gpu_make_pipeline(u32 idx, u32 shader_idx, void *vertex_layout,
+                          u32 primitive, u32 depth_test, u32 depth_write);
 
 WASM_IMPORT(js_gpu_destroy_pipeline)
-void js_gpu_destroy_pipeline(u32 handle_idx);
+void js_gpu_destroy_pipeline(u32 idx);
 
 WASM_IMPORT(js_gpu_begin_pass)
 void js_gpu_begin_pass(f32 r, f32 g, f32 b, f32 a, f32 depth);
@@ -54,40 +55,58 @@ WASM_IMPORT(js_gpu_apply_bindings_dynamic)
 void js_gpu_apply_bindings_dynamic(void *bindings_data, u32 uniform_buf_idx,
                                    u32 uniform_offset);
 
-// TODO: handle management is completely wrong, needs fixing, need to make sure
-// it's synchronized with js
-local_persist u32 next_buffer_gen = 1;
-local_persist u32 next_shader_gen = 1;
-local_persist u32 next_pipeline_gen = 1;
+// Global GPU state - C manages handles, JS uses indices provided by C
+local_persist GpuState gpu_state;
 
-void gpu_init(void) { js_gpu_init(); }
+#define GPU_INITIAL_BUFFER_CAPACITY 64
+#define GPU_INITIAL_SHADER_CAPACITY 16
+#define GPU_INITIAL_PIPELINE_CAPACITY 16
+
+void gpu_init(Allocator *allocator) {
+    gpu_state.buffers = ha_init(GpuBufferSlot, allocator, GPU_INITIAL_BUFFER_CAPACITY);
+    gpu_state.shaders = ha_init(GpuShaderSlot, allocator, GPU_INITIAL_SHADER_CAPACITY);
+    gpu_state.pipelines = ha_init(GpuPipelineSlot, allocator, GPU_INITIAL_PIPELINE_CAPACITY);
+    js_gpu_init();
+}
 
 GpuBuffer gpu_make_buffer(GpuBufferDesc *desc) {
-  u32 idx = js_gpu_make_buffer(desc->type, desc->size, desc->data);
-  return (GpuBuffer){.idx = idx, .gen = next_buffer_gen++};
+  GpuBufferSlot slot = {0};
+  GpuBuffer handle = ha_add(GpuBufferSlot, &gpu_state.buffers, slot);
+  js_gpu_make_buffer(handle.idx, desc->type, desc->size, desc->data);
+  return handle;
 }
 
 void gpu_update_buffer(GpuBuffer buf, void *data, u32 size) {
+  if (!ha_is_valid(GpuBufferSlot, &gpu_state.buffers, buf)) return;
   js_gpu_update_buffer(buf.idx, data, size);
 }
 
-void gpu_destroy_buffer(GpuBuffer buf) { js_gpu_destroy_buffer(buf.idx); }
-
-GpuShader gpu_make_shader(GpuShaderDesc *desc) {
-  // todo: can add proper reflection here
-  u32 vs_len = str_len(desc->vs_code);
-  u32 fs_len = str_len(desc->fs_code);
-
-  u32 idx = js_gpu_make_shader(desc->vs_code, vs_len, desc->fs_code, fs_len);
-  return (GpuShader){.idx = idx, .gen = next_shader_gen++};
+void gpu_destroy_buffer(GpuBuffer buf) {
+  if (!ha_is_valid(GpuBufferSlot, &gpu_state.buffers, buf)) return;
+  js_gpu_destroy_buffer(buf.idx);
+  ha_remove(GpuBufferSlot, &gpu_state.buffers, buf);
 }
 
-// todo: also no handle management here
-void gpu_destroy_shader(GpuShader shd) { js_gpu_destroy_shader(shd.idx); }
+GpuShader gpu_make_shader(GpuShaderDesc *desc) {
+  GpuShaderSlot slot = {0};
+  GpuShader handle = ha_add(GpuShaderSlot, &gpu_state.shaders, slot);
+
+  u32 vs_len = str_len(desc->vs_code);
+  u32 fs_len = str_len(desc->fs_code);
+  js_gpu_make_shader(handle.idx, desc->vs_code, vs_len, desc->fs_code, fs_len);
+  return handle;
+}
+
+void gpu_destroy_shader(GpuShader shd) {
+  if (!ha_is_valid(GpuShaderSlot, &gpu_state.shaders, shd)) return;
+  js_gpu_destroy_shader(shd.idx);
+  ha_remove(GpuShaderSlot, &gpu_state.shaders, shd);
+}
 
 GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
-  // todo: vertex layout could be a struct, only needs to be opaque on the js
-  // side
+  GpuPipelineSlot slot = {0};
+  GpuPipeline handle = ha_add(GpuPipelineSlot, &gpu_state.pipelines, slot);
+
   // Pack vertex layout into a flat buffer for JS
   // Format: [stride, attr_count, (format, offset, location) * attr_count]
   u32 layout_data[2 + GPU_MAX_VERTEX_ATTRS * 3];
@@ -99,13 +118,16 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
     layout_data[2 + i * 3 + 2] = desc->vertex_layout.attrs[i].shader_location;
   }
 
-  u32 idx = js_gpu_make_pipeline(desc->shader.idx, layout_data, desc->primitive,
-                                 desc->depth_test, desc->depth_write);
-  return (GpuPipeline){.idx = idx, .gen = next_pipeline_gen++};
+  js_gpu_make_pipeline(handle.idx, desc->shader.idx, layout_data,
+                       desc->primitive, desc->depth_test, desc->depth_write);
+  return handle;
 }
 
-//todo: no handle management here
-void gpu_destroy_pipeline(GpuPipeline pip) { js_gpu_destroy_pipeline(pip.idx); }
+void gpu_destroy_pipeline(GpuPipeline pip) {
+  if (!ha_is_valid(GpuPipelineSlot, &gpu_state.pipelines, pip)) return;
+  js_gpu_destroy_pipeline(pip.idx);
+  ha_remove(GpuPipelineSlot, &gpu_state.pipelines, pip);
+}
 
 void gpu_begin_pass(GpuPassDesc *desc) {
   js_gpu_begin_pass(desc->clear_color.r, desc->clear_color.g,

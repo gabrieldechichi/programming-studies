@@ -105,8 +105,8 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             console.log("[GPU] Initialized");
         },
 
-        js_gpu_make_buffer: (type: number, size: number, dataPtr: number): number => {
-            if (!renderer) return -1;
+        js_gpu_make_buffer: (idx: number, type: number, size: number, dataPtr: number): void => {
+            if (!renderer) return;
 
             const usage = type === 0 ? GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
                         : type === 1 ? GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
@@ -125,9 +125,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 buffer.unmap();
             }
 
-            const idx = buffers.length;
-            buffers.push(buffer);
-            return idx;
+            buffers[idx] = buffer;
         },
 
         js_gpu_update_buffer: (handleIdx: number, dataPtr: number, size: number) => {
@@ -147,8 +145,8 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             }
         },
 
-        js_gpu_make_shader: (vsPtr: number, vsLen: number, fsPtr: number, fsLen: number): number => {
-            if (!renderer) return -1;
+        js_gpu_make_shader: (idx: number, vsPtr: number, vsLen: number, fsPtr: number, fsLen: number): void => {
+            if (!renderer) return;
 
             //todo: use WasmMemory
             //todo: separate readString multi-threaded vs single threaded
@@ -162,9 +160,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 code: combinedCode,
             });
 
-            const idx = shaders.length;
-            shaders.push(module);
-            return idx;
+            shaders[idx] = module;
         },
 
         js_gpu_destroy_shader: (handleIdx: number) => {
@@ -173,16 +169,17 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         },
 
         js_gpu_make_pipeline: (
+            idx: number,
             shaderIdx: number,
             layoutPtr: number,
             primitive: number,
             depthTest: number,
             depthWrite: number
-        ): number => {
-            if (!renderer) return -1;
+        ): void => {
+            if (!renderer) return;
 
             const shaderModule = shaders[shaderIdx];
-            if (!shaderModule) return -1;
+            if (!shaderModule) return;
 
             // Read vertex layout from memory
             const layoutData = new Uint32Array(memory.buffer, layoutPtr, 2 + 8 * 3);
@@ -251,10 +248,8 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                     : undefined,
             });
 
-            const idx = pipelines.length;
-            pipelines.push(pipeline);
-            pipelineBindGroupLayouts.push(bindGroupLayout);
-            return idx;
+            pipelines[idx] = pipeline;
+            pipelineBindGroupLayouts[idx] = bindGroupLayout;
         },
 
         js_gpu_destroy_pipeline: (handleIdx: number) => {

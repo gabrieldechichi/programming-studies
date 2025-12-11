@@ -12,14 +12,28 @@
 //todo: query at runtime
 #define GPU_UNIFORM_ALIGNMENT 256  // WebGPU minUniformBufferOffsetAlignment
 
+// Resource slot types (stored in handle arrays, actual GPU data lives in JS)
+typedef struct { u8 _unused; } GpuBufferSlot;
+typedef struct { u8 _unused; } GpuShaderSlot;
+typedef struct { u8 _unused; } GpuPipelineSlot;
+
+HANDLE_ARRAY_DEFINE(GpuBufferSlot);
+HANDLE_ARRAY_DEFINE(GpuShaderSlot);
+HANDLE_ARRAY_DEFINE(GpuPipelineSlot);
+
 // Resource handles
-// todo: typed handle
-// todo: no typedef, wrap in a struct
 typedef Handle GpuBuffer;
 typedef Handle GpuShader;
 typedef Handle GpuPipeline;
 
 #define GPU_INVALID_HANDLE INVALID_HANDLE
+
+// Global GPU state
+typedef struct {
+    HandleArray_GpuBufferSlot buffers;
+    HandleArray_GpuShaderSlot shaders;
+    HandleArray_GpuPipelineSlot pipelines;
+} GpuState;
 
 // Enums
 typedef enum {
@@ -115,7 +129,7 @@ TYPED_HANDLE_DEFINE(GpuMesh);   // -> Mesh_Handle
 HANDLE_ARRAY_DEFINE(GpuMesh);   // -> HandleArray_Mesh
 
 // API Functions
-void gpu_init(void);
+void gpu_init(Allocator *allocator);
 
 GpuBuffer gpu_make_buffer(GpuBufferDesc *desc);
 void gpu_update_buffer(GpuBuffer buf, void *data, u32 size);
