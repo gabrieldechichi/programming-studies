@@ -10,7 +10,9 @@
 #include "lib/thread_context.c"
 #include "lib/multicore_runtime.c"
 #include "gpu.c"
+#include "lib/handle.c"
 #include "lib/math.h"
+#include "cube.h"
 
 #define NUM_CUBES 1024
 
@@ -22,6 +24,7 @@ typedef struct {
 global CubeData cubes[NUM_CUBES];
 
 global f32 g_time = 0.0f;
+global Mesh_Handle g_cube_mesh;
 
 global Barrier frame_barrier;
 global ThreadContext main_thread_ctx;
@@ -57,9 +60,7 @@ void app_update_and_render(void) {
     glm_scale_uni(model, 0.3f);
 
     // Submit draw command (lock-free)
-    // TODO: add all cmds pre thread, then append instead (less need for atomic
-    // adds, less race condition between threads)
-    renderer_draw_mesh(model);
+    renderer_draw_mesh(g_cube_mesh, model);
   }
 }
 
@@ -140,6 +141,16 @@ int wasm_main(void) {
 
   // Initialize renderer (needs thread context for thread_count)
   renderer_init(&arena);
+
+  // Upload cube mesh
+  g_cube_mesh = renderer_upload_mesh(&(MeshDesc){
+      .vertices = cube_vertices,
+      .vertex_size = sizeof(cube_vertices),
+      .indices = cube_indices,
+      .index_size = sizeof(cube_indices),
+      .index_count = CUBE_INDEX_COUNT,
+      .index_format = GPU_INDEX_FORMAT_U16,
+  });
 
   // Spawn worker threads (indices 1..N-1)
   for (u8 i = 1; i < NUM_WORKERS; i++) {

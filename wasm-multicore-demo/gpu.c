@@ -205,55 +205,6 @@ void gpu_apply_bindings_dynamic(GpuBindings *bindings, GpuBuffer uniform_buf,
 // High-level Renderer State
 // =============================================================================
 
-// Vertex structure for cube: position (vec3) + color (vec4)
-typedef struct {
-  f32 x, y, z;
-  f32 r, g, b, a;
-} CubeVertex;
-
-// Cube mesh data (shared by all cubes)
-static CubeVertex cube_vertices[] = {
-    // Front face (red)
-    {-1, -1, 1, 1, 0, 0, 1},
-    {1, -1, 1, 1, 0, 0, 1},
-    {1, 1, 1, 1, 0, 0, 1},
-    {-1, 1, 1, 1, 0, 0, 1},
-    // Back face (green)
-    {-1, -1, -1, 0, 1, 0, 1},
-    {-1, 1, -1, 0, 1, 0, 1},
-    {1, 1, -1, 0, 1, 0, 1},
-    {1, -1, -1, 0, 1, 0, 1},
-    // Top face (blue)
-    {-1, 1, -1, 0, 0, 1, 1},
-    {-1, 1, 1, 0, 0, 1, 1},
-    {1, 1, 1, 0, 0, 1, 1},
-    {1, 1, -1, 0, 0, 1, 1},
-    // Bottom face (yellow)
-    {-1, -1, -1, 1, 1, 0, 1},
-    {1, -1, -1, 1, 1, 0, 1},
-    {1, -1, 1, 1, 1, 0, 1},
-    {-1, -1, 1, 1, 1, 0, 1},
-    // Right face (magenta)
-    {1, -1, -1, 1, 0, 1, 1},
-    {1, 1, -1, 1, 0, 1, 1},
-    {1, 1, 1, 1, 0, 1, 1},
-    {1, -1, 1, 1, 0, 1, 1},
-    // Left face (cyan)
-    {-1, -1, -1, 0, 1, 1, 1},
-    {-1, -1, 1, 0, 1, 1, 1},
-    {-1, 1, 1, 0, 1, 1, 1},
-    {-1, 1, -1, 0, 1, 1, 1},
-};
-
-static u16 cube_indices[] = {
-    0,  1,  2,  0,  2,  3,  // front
-    4,  5,  6,  4,  6,  7,  // back
-    8,  9,  10, 8,  10, 11, // top
-    12, 13, 14, 12, 14, 15, // bottom
-    16, 17, 18, 16, 18, 19, // right
-    20, 21, 22, 20, 22, 23, // left
-};
-
 // WGSL Shaders
 static const char *cube_vs =
     "struct Uniforms {\n"
@@ -286,15 +237,17 @@ static const char *cube_fs =
     "}\n";
 
 #define MAX_RENDER_CMDS 1024
+#define MAX_MESHES 64
 
 typedef struct {
-  // GPU resources
-  GpuBuffer vbuf;
-  GpuBuffer ibuf;
+  // Mesh storage
+  HandleArray_Mesh meshes;
+
+  // GPU resources (shader/pipeline)
   GpuShader shader;
   GpuPipeline pipeline;
 
-  // Dynamic uniform buffer (replaces old single ubuf)
+  // Dynamic uniform buffer
   GpuUniformBuffer uniforms;
 
   // Per-frame state
@@ -309,25 +262,21 @@ typedef struct {
 
 global RendererState g_renderer;
 
+// Vertex layout constants (position vec3 + color vec4)
+#define VERTEX_STRIDE 28        // 7 floats * 4 bytes
+#define VERTEX_COLOR_OFFSET 12  // 3 floats * 4 bytes
+
 void renderer_init(void *arena_ptr) {
   ArenaAllocator *arena = (ArenaAllocator *)arena_ptr;
 
-  // Create GPU resources
-  g_renderer.vbuf = gpu_make_buffer(&(GpuBufferDesc){
-      .type = GPU_BUFFER_VERTEX,
-      .size = sizeof(cube_vertices),
-      .data = cube_vertices,
-  });
+  // Initialize mesh storage
+  Allocator alloc = make_arena_allocator(arena);
+  g_renderer.meshes = ha_init(Mesh, &alloc, MAX_MESHES);
 
-  g_renderer.ibuf = gpu_make_buffer(&(GpuBufferDesc){
-      .type = GPU_BUFFER_INDEX,
-      .size = sizeof(cube_indices),
-      .data = cube_indices,
-  });
-
-  // Initialize dynamic uniform buffer (allocates from arena)
+  // Initialize dynamic uniform buffer
   gpu_uniform_init(&g_renderer.uniforms, arena, GPU_UNIFORM_BUFFER_SIZE);
 
+  // Create shader and pipeline (fixed vertex format: position + color)
   g_renderer.shader = gpu_make_shader(&(GpuShaderDesc){
       .vs_code = cube_vs,
       .fs_code = cube_fs,
@@ -337,11 +286,11 @@ void renderer_init(void *arena_ptr) {
       .shader = g_renderer.shader,
       .vertex_layout =
           {
-              .stride = sizeof(CubeVertex),
+              .stride = VERTEX_STRIDE,
               .attrs =
                   {
-                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
-                      {GPU_VERTEX_FORMAT_FLOAT4, offsetof(CubeVertex, r), 1},
+                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},                    // position
+                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 1},  // color
                   },
               .attr_count = 2,
           },
@@ -365,6 +314,31 @@ void renderer_init(void *arena_ptr) {
   }
 }
 
+Mesh_Handle renderer_upload_mesh(MeshDesc *desc) {
+  // Create GPU buffers
+  GpuBuffer vbuf = gpu_make_buffer(&(GpuBufferDesc){
+      .type = GPU_BUFFER_VERTEX,
+      .size = desc->vertex_size,
+      .data = desc->vertices,
+  });
+
+  GpuBuffer ibuf = gpu_make_buffer(&(GpuBufferDesc){
+      .type = GPU_BUFFER_INDEX,
+      .size = desc->index_size,
+      .data = desc->indices,
+  });
+
+  // Create mesh and add to storage
+  Mesh mesh = {
+      .vbuf = vbuf,
+      .ibuf = ibuf,
+      .index_count = desc->index_count,
+      .index_format = desc->index_format,
+  };
+
+  return ha_add(Mesh, &g_renderer.meshes, mesh);
+}
+
 void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   // Store view/proj for MVP computation
   memcpy(g_renderer.view, view, sizeof(mat4));
@@ -386,9 +360,10 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   });
 }
 
-void renderer_draw_mesh(mat4 model_matrix) {
+void renderer_draw_mesh(Mesh_Handle mesh, mat4 model_matrix) {
   RenderCmd cmd = {
       .type = RENDER_CMD_DRAW_MESH,
+      .draw_mesh.mesh = mesh,
   };
   memcpy(cmd.draw_mesh.model_matrix, model_matrix, sizeof(mat4));
 
@@ -409,6 +384,10 @@ void renderer_end_frame(void) {
       RenderCmd *cmd = &cmds->items[i];
 
       if (cmd->type == RENDER_CMD_DRAW_MESH) {
+        // Look up mesh from handle
+        Mesh *mesh = ha_get(Mesh, &g_renderer.meshes, cmd->draw_mesh.mesh);
+        if (!mesh) continue;
+
         // Compute MVP = view_proj * model
         mat4 mvp;
         mat4_mul(g_renderer.view_proj, cmd->draw_mesh.model_matrix, mvp);
@@ -420,14 +399,14 @@ void renderer_end_frame(void) {
         // Apply bindings with dynamic uniform offset
         gpu_apply_bindings_dynamic(
             &(GpuBindings){
-                .vertex_buffers = {g_renderer.vbuf},
+                .vertex_buffers = {mesh->vbuf},
                 .vertex_buffer_count = 1,
-                .index_buffer = g_renderer.ibuf,
-                .index_format = GPU_INDEX_FORMAT_U16,
+                .index_buffer = mesh->ibuf,
+                .index_format = mesh->index_format,
             },
             g_renderer.uniforms.gpu_buf, uniform_offset);
 
-        gpu_draw_indexed(36, 1);
+        gpu_draw_indexed(mesh->index_count, 1);
       }
     }
   }
