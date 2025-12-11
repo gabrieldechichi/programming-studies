@@ -41,7 +41,10 @@ typedef struct {
     GpuUniformBlockDesc uniform_blocks[GPU_MAX_UNIFORMBLOCK_SLOTS];
     u32 uniform_block_count;
 } GpuShaderSlot;
-typedef struct { u8 _unused; } GpuPipelineSlot;
+typedef struct {
+    GpuShader shader;
+    u32 uniform_block_count;  // cached from shader
+} GpuPipelineSlot;
 
 HANDLE_ARRAY_DEFINE(GpuBufferSlot);
 HANDLE_ARRAY_DEFINE(GpuShaderSlot);

@@ -199,13 +199,17 @@ void gpu_destroy_shader(GpuShader shd) {
 }
 
 GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
-  GpuPipelineSlot slot = {0};
-  GpuPipeline handle = ha_add(GpuPipelineSlot, &gpu_state.pipelines, slot);
-
   // Get shader's uniform block info
   GpuShaderSlot *shader_slot =
       ha_get(GpuShaderSlot, &gpu_state.shaders, desc->shader);
   assert(shader_slot != NULL);
+
+  // Create pipeline slot with shader reference and cached UB count
+  GpuPipelineSlot slot = {
+      .shader = desc->shader,
+      .uniform_block_count = shader_slot->uniform_block_count,
+  };
+  GpuPipeline handle = ha_add(GpuPipelineSlot, &gpu_state.pipelines, slot);
 
   // Prepare vertex attribute arrays
   u32 attr_formats[GPU_MAX_VERTEX_ATTRS];
@@ -267,15 +271,10 @@ void gpu_apply_uniforms(u32 slot, void *data, u32 size) {
 }
 
 void gpu_apply_bindings(GpuBindings *bindings) {
-  // Get current pipeline's shader to know uniform block count
   assert(!handle_equals(gpu_state.current_pipeline, INVALID_HANDLE));
   GpuPipelineSlot *pip_slot =
       ha_get(GpuPipelineSlot, &gpu_state.pipelines, gpu_state.current_pipeline);
   assert(pip_slot != NULL);
-
-  // We need the shader to get ub_count - but pipeline slot doesn't store
-  // shader. For now, pass all 4 slots (JS will use what it needs based on
-  // pipeline's bind group layout)
 
   // Extract vertex buffer indices
   u32 vb_indices[GPU_MAX_VERTEX_BUFFERS];
@@ -286,7 +285,7 @@ void gpu_apply_bindings(GpuBindings *bindings) {
   js_gpu_apply_bindings(bindings->vertex_buffer_count, vb_indices,
                         bindings->index_buffer.idx, bindings->index_format,
                         gpu_state.uniforms.gpu_buf.idx,
-                        GPU_MAX_UNIFORMBLOCK_SLOTS, gpu_state.uniform_offsets);
+                        pip_slot->uniform_block_count, gpu_state.uniform_offsets);
 }
 
 void gpu_draw(u32 vertex_count, u32 instance_count) {
