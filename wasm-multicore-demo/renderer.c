@@ -1,4 +1,6 @@
 #include "renderer.h"
+#include "gpu.h"
+#include "lib/handle.h"
 #include "lib/thread_context.h"
 
 // =============================================================================
@@ -37,19 +39,18 @@ static const char *default_fs =
 
 #define MAX_RENDER_CMDS 1024
 #define MAX_MESHES 64
+#define MAX_MATERIALS 64
 
-//todo: fix hardcoded vertex format
-// Vertex layout constants (position vec3 + color vec4)
+// todo: fix hardcoded vertex format
+//  Vertex layout constants (position vec3 + color vec4)
 #define VERTEX_STRIDE 28       // 7 floats * 4 bytes
 #define VERTEX_COLOR_OFFSET 12 // 3 floats * 4 bytes
 
 typedef struct {
   HandleArray_GpuMesh meshes;
+  HandleArray_Material materials;
 
-  //todo: fix hardcoded single shader
-  GpuShader shader;
-  //todo: fix hardcoded single pipeline
-  GpuPipeline pipeline;
+  Material_Handle temp_material;
 
   // Per-frame state
   // todo: move to camera uniforms, send to shader
@@ -59,7 +60,7 @@ typedef struct {
 
   // Per-thread command queues (no atomics needed)
   u8 thread_count;
-  //todo: maybe pass thread_count on renderer_init?
+  // todo: maybe pass thread_count on renderer_init?
   DynArray(RenderCmd) thread_cmds[32]; // MAX_THREADS
 } RendererState;
 
@@ -70,21 +71,21 @@ void renderer_init(ArenaAllocator *arena, u8 thread_count) {
 
   gpu_init(arena, GPU_UNIFORM_BUFFER_SIZE);
   g_renderer.meshes = ha_init(GpuMesh, &alloc, MAX_MESHES);
+  g_renderer.materials = ha_init(Material, &alloc, MAX_MATERIALS);
 
-  //todo: shader and pipeline dynamic creation
-  // Create shader with uniform block description
-  g_renderer.shader = gpu_make_shader(&(GpuShaderDesc){
-      .vs_code = default_vs,
-      .fs_code = default_fs,
-      .uniform_blocks =
-          {
-              {.stage = GPU_STAGE_VERTEX, .size = sizeof(mat4), .binding = 0},
+  g_renderer.temp_material = renderer_create_material(&(MaterialDesc){
+      .shader_desc =
+          (GpuShaderDesc){
+              .vs_code = default_vs,
+              .fs_code = default_fs,
+              .uniform_blocks =
+                  {
+                      {.stage = GPU_STAGE_VERTEX,
+                       .size = sizeof(mat4),
+                       .binding = 0},
+                  },
+              .uniform_block_count = 1,
           },
-      .uniform_block_count = 1,
-  });
-
-  g_renderer.pipeline = gpu_make_pipeline(&(GpuPipelineDesc){
-      .shader = g_renderer.shader,
       .vertex_layout =
           {
               .stride = VERTEX_STRIDE,
@@ -141,6 +142,20 @@ GpuMesh_Handle renderer_upload_mesh(MeshDesc *desc) {
   return ha_add(Mesh, &g_renderer.meshes, mesh);
 }
 
+Material_Handle renderer_create_material(MaterialDesc *desc) {
+  Material material = {0};
+  // todo: check if shader exists first
+  material.shader = gpu_make_shader(&desc->shader_desc);
+  material.pipeline = gpu_make_pipeline(&(GpuPipelineDesc){
+      .shader = material.shader,
+      .vertex_layout = desc->vertex_layout,
+      .primitive = desc->primitive,
+      .depth_test = desc->depth_test,
+      .depth_write = desc->depth_write,
+  });
+  return ha_add(Material, &g_renderer.materials, material);
+}
+
 // todo: separate call for camera uniforms
 void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   debug_assert_msg(
@@ -181,7 +196,9 @@ void renderer_end_frame(void) {
       is_main_thread(),
       "renderer_end_frame can only be called from the main thread");
 
-  gpu_apply_pipeline(g_renderer.pipeline);
+  Material* material = ha_get(Material, &g_renderer.materials, g_renderer.temp_material);
+  assert(material);
+  gpu_apply_pipeline(material->pipeline);
 
   // Process commands from all threads
   for (u8 t = 0; t < g_renderer.thread_count; t++) {
@@ -217,5 +234,5 @@ void renderer_end_frame(void) {
   }
 
   gpu_end_pass();
-  gpu_commit();  // Flushes uniforms internally before submit
+  gpu_commit(); // Flushes uniforms internally before submit
 }

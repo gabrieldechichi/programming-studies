@@ -1,5 +1,5 @@
 - [x] Fix handle stuff
-- [ ] Fix uniform bindings broken
+- [x] Fix uniform bindings broken
 - [ ] Improve Shader and Pipeline creation (complete descs)
 - [ ] Fix multiple gpu bindings
 - [ ] Instancing renderer
