@@ -9,9 +9,12 @@
 
 // Uniform buffer constants
 #define GPU_UNIFORM_BUFFER_SIZE MB(1)
+//todo: query at runtime
 #define GPU_UNIFORM_ALIGNMENT 256  // WebGPU minUniformBufferOffsetAlignment
 
 // Resource handles
+// todo: typed handle
+// todo: no typedef, wrap in a struct
 typedef Handle GpuBuffer;
 typedef Handle GpuShader;
 typedef Handle GpuPipeline;
@@ -71,6 +74,7 @@ typedef struct {
     GpuShader shader;
     GpuVertexLayout vertex_layout;
     GpuPrimitiveTopology primitive;
+    //todo: use flags here
     b32 depth_test;
     b32 depth_write;
 } GpuPipelineDesc;
@@ -85,6 +89,7 @@ typedef struct {
     GpuBuffer uniform_buffer;
 } GpuBindings;
 
+//todo: unions?
 typedef struct {
     f32 r, g, b, a;
 } GpuColor;
@@ -94,7 +99,6 @@ typedef struct {
     f32 clear_depth;
 } GpuPassDesc;
 
-// Dynamic uniform buffer for batched rendering
 typedef struct {
     ArenaAllocator arena;  // CPU-side staging (256-aligned base, reset each frame)
     GpuBuffer gpu_buf;     // GPU-side buffer
@@ -116,7 +120,6 @@ void gpu_destroy_pipeline(GpuPipeline pip);
 // Rendering (per-frame) - low level
 void gpu_begin_pass(GpuPassDesc *desc);
 void gpu_apply_pipeline(GpuPipeline pip);
-void gpu_apply_bindings(GpuBindings *bindings);
 void gpu_draw(u32 vertex_count, u32 instance_count);
 void gpu_draw_indexed(u32 index_count, u32 instance_count);
 void gpu_end_pass(void);

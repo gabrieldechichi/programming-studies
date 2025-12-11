@@ -150,6 +150,8 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         js_gpu_make_shader: (vsPtr: number, vsLen: number, fsPtr: number, fsLen: number): number => {
             if (!renderer) return -1;
 
+            //todo: use WasmMemory
+            //todo: separate readString multi-threaded vs single threaded
             const vsCode = readString(memory, vsPtr, vsLen);
             const fsCode = readString(memory, fsPtr, fsLen);
 
@@ -187,6 +189,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             const stride = layoutData[0];
             const attrCount = layoutData[1];
 
+            //todo: this magic number parsing is terrible, needs fixing
             const attributes: GPUVertexAttribute[] = [];
             for (let i = 0; i < attrCount; i++) {
                 const format = layoutData[2 + i * 3 + 0];
@@ -200,6 +203,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             }
 
             // Create bind group layout for uniforms with dynamic offset
+            // todo: needs better vertex description, more flexible
             const bindGroupLayout = renderer.device.createBindGroupLayout({
                 entries: [
                     {
@@ -261,8 +265,10 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         js_gpu_begin_pass: (r: number, g: number, b: number, a: number, depth: number) => {
             if (!renderer) return;
 
+            //todo: cache command encoder??
             currentEncoder = renderer.device.createCommandEncoder();
 
+            //todo: cache view
             const textureView = renderer.context.getCurrentTexture().createView();
 
             currentPass = currentEncoder.beginRenderPass({
@@ -284,57 +290,13 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         },
 
         js_gpu_apply_pipeline: (handleIdx: number) => {
+            //todo: error if currentPass not valid
             if (!currentPass) return;
             const pipeline = pipelines[handleIdx];
             if (!pipeline) return;
 
             currentPass.setPipeline(pipeline);
             currentPipelineIdx = handleIdx;
-        },
-
-        js_gpu_apply_bindings: (bindingsPtr: number) => {
-            if (!currentPass || !renderer) return;
-
-            // Read bindings from memory
-            // Format: [vb_count, vb0_idx, vb1_idx, vb2_idx, vb3_idx, ib_idx, ib_format, ub_idx]
-            const data = new Uint32Array(memory.buffer, bindingsPtr, 4 + 4);
-            const vbCount = data[0];
-
-            // Set vertex buffers
-            for (let i = 0; i < vbCount; i++) {
-                const bufIdx = data[1 + i];
-                const buffer = buffers[bufIdx];
-                if (buffer) {
-                    currentPass.setVertexBuffer(i, buffer);
-                }
-            }
-
-            // Set index buffer
-            const ibIdx = data[5];
-            const ibFormat = data[6];
-            const indexBuffer = buffers[ibIdx];
-            if (indexBuffer) {
-                currentPass.setIndexBuffer(indexBuffer, INDEX_FORMATS[ibFormat]);
-            }
-
-            // Create and set bind group for uniform buffer
-            const ubIdx = data[7];
-            const uniformBuffer = buffers[ubIdx];
-            if (uniformBuffer && currentPipelineIdx >= 0) {
-                const bindGroupLayout = pipelineBindGroupLayouts[currentPipelineIdx];
-                if (bindGroupLayout) {
-                    const bindGroup = renderer.device.createBindGroup({
-                        layout: bindGroupLayout,
-                        entries: [
-                            {
-                                binding: 0,
-                                resource: { buffer: uniformBuffer },
-                            },
-                        ],
-                    });
-                    currentPass.setBindGroup(0, bindGroup);
-                }
-            }
         },
 
         js_gpu_draw: (vertexCount: number, instanceCount: number) => {
@@ -354,6 +316,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         },
 
         js_gpu_commit: () => {
+            //todo: can I use the same encoder for all cmds and commit at the end?
             if (!currentEncoder || !renderer) return;
             renderer.device.queue.submit([currentEncoder.finish()]);
             currentEncoder = null;
@@ -369,6 +332,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             renderer.device.queue.writeBuffer(buffer, 0, src);
         },
 
+        //todo: stop with the magic number parsing
         js_gpu_apply_bindings_dynamic: (bindingsPtr: number, uniformBufIdx: number, uniformOffset: number) => {
             if (!currentPass || !renderer) return;
 

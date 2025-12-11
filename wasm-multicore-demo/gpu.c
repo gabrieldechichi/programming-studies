@@ -1,4 +1,5 @@
 #include "gpu.h"
+#include "lib/string.h"
 #include "os/os.h"
 
 // JS imports - these are implemented in renderer.ts
@@ -34,9 +35,6 @@ void js_gpu_begin_pass(f32 r, f32 g, f32 b, f32 a, f32 depth);
 WASM_IMPORT(js_gpu_apply_pipeline)
 void js_gpu_apply_pipeline(u32 handle_idx);
 
-WASM_IMPORT(js_gpu_apply_bindings)
-void js_gpu_apply_bindings(void *bindings_data);
-
 WASM_IMPORT(js_gpu_draw)
 void js_gpu_draw(u32 vertex_count, u32 instance_count);
 
@@ -53,9 +51,11 @@ WASM_IMPORT(js_gpu_upload_uniforms)
 void js_gpu_upload_uniforms(u32 buf_idx, void *data, u32 size);
 
 WASM_IMPORT(js_gpu_apply_bindings_dynamic)
-void js_gpu_apply_bindings_dynamic(void *bindings_data, u32 uniform_buf_idx, u32 uniform_offset);
+void js_gpu_apply_bindings_dynamic(void *bindings_data, u32 uniform_buf_idx,
+                                   u32 uniform_offset);
 
-// Simple handle generation (JS side manages actual resources)
+// TODO: handle management is completely wrong, needs fixing, need to make sure
+// it's synchronized with js
 local_persist u32 next_buffer_gen = 1;
 local_persist u32 next_shader_gen = 1;
 local_persist u32 next_pipeline_gen = 1;
@@ -74,21 +74,20 @@ void gpu_update_buffer(GpuBuffer buf, void *data, u32 size) {
 void gpu_destroy_buffer(GpuBuffer buf) { js_gpu_destroy_buffer(buf.idx); }
 
 GpuShader gpu_make_shader(GpuShaderDesc *desc) {
-  // Calculate string lengths
-  u32 vs_len = 0;
-  u32 fs_len = 0;
-  for (const char *p = desc->vs_code; *p; p++)
-    vs_len++;
-  for (const char *p = desc->fs_code; *p; p++)
-    fs_len++;
+  // todo: can add proper reflection here
+  u32 vs_len = str_len(desc->vs_code);
+  u32 fs_len = str_len(desc->fs_code);
 
   u32 idx = js_gpu_make_shader(desc->vs_code, vs_len, desc->fs_code, fs_len);
   return (GpuShader){.idx = idx, .gen = next_shader_gen++};
 }
 
+// todo: also no handle management here
 void gpu_destroy_shader(GpuShader shd) { js_gpu_destroy_shader(shd.idx); }
 
 GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
+  // todo: vertex layout could be a struct, only needs to be opaque on the js
+  // side
   // Pack vertex layout into a flat buffer for JS
   // Format: [stride, attr_count, (format, offset, location) * attr_count]
   u32 layout_data[2 + GPU_MAX_VERTEX_ATTRS * 3];
@@ -105,6 +104,7 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
   return (GpuPipeline){.idx = idx, .gen = next_pipeline_gen++};
 }
 
+//todo: no handle management here
 void gpu_destroy_pipeline(GpuPipeline pip) { js_gpu_destroy_pipeline(pip.idx); }
 
 void gpu_begin_pass(GpuPassDesc *desc) {
@@ -114,22 +114,6 @@ void gpu_begin_pass(GpuPassDesc *desc) {
 }
 
 void gpu_apply_pipeline(GpuPipeline pip) { js_gpu_apply_pipeline(pip.idx); }
-
-void gpu_apply_bindings(GpuBindings *bindings) {
-  // Pack bindings into flat buffer for JS
-  // Format: [vb_count, vb0_idx, vb1_idx, ..., ib_idx, ib_format, ub_idx]
-  u32 bindings_data[GPU_MAX_VERTEX_BUFFERS + 4];
-  bindings_data[0] = bindings->vertex_buffer_count;
-  for (u32 i = 0; i < bindings->vertex_buffer_count; i++) {
-    bindings_data[1 + i] = bindings->vertex_buffers[i].idx;
-  }
-  u32 offset = 1 + GPU_MAX_VERTEX_BUFFERS;
-  bindings_data[offset + 0] = bindings->index_buffer.idx;
-  bindings_data[offset + 1] = bindings->index_format;
-  bindings_data[offset + 2] = bindings->uniform_buffer.idx;
-
-  js_gpu_apply_bindings(bindings_data);
-}
 
 void gpu_draw(u32 vertex_count, u32 instance_count) {
   js_gpu_draw(vertex_count, instance_count);
@@ -147,9 +131,11 @@ void gpu_commit(void) { js_gpu_commit(); }
 // Dynamic Uniform Buffer
 // =============================================================================
 
-void gpu_uniform_init(GpuUniformBuffer *ub, ArenaAllocator *parent_arena, u32 size) {
+void gpu_uniform_init(GpuUniformBuffer *ub, ArenaAllocator *parent_arena,
+                      u32 size) {
   // Allocate staging buffer with 256-byte alignment
-  u8 *staging = (u8 *)arena_alloc_align(parent_arena, size, GPU_UNIFORM_ALIGNMENT);
+  u8 *staging =
+      (u8 *)arena_alloc_align(parent_arena, size, GPU_UNIFORM_ALIGNMENT);
 
   // Create sub-arena from aligned buffer
   ub->arena = arena_from_buffer(staging, size);
@@ -179,12 +165,14 @@ u32 gpu_uniform_alloc(GpuUniformBuffer *ub, void *data, u32 size) {
 void gpu_uniform_flush(GpuUniformBuffer *ub) {
   if (ub->arena.offset > 0) {
     // Single upload of all uniforms to GPU
-    js_gpu_upload_uniforms(ub->gpu_buf.idx, ub->arena.buffer, (u32)ub->arena.offset);
+    js_gpu_upload_uniforms(ub->gpu_buf.idx, ub->arena.buffer,
+                           (u32)ub->arena.offset);
   }
 }
 
 void gpu_uniform_reset(GpuUniformBuffer *ub) { arena_reset(&ub->arena); }
 
+//todo: stop with the magic number parsing
 void gpu_apply_bindings_dynamic(GpuBindings *bindings, GpuBuffer uniform_buf,
                                 u32 uniform_offset) {
   // Pack bindings into flat buffer for JS

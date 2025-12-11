@@ -200,6 +200,7 @@ void renderer_end_frame(void) {
         mat4_mul(g_renderer.view_proj, cmd->draw_mesh.model_matrix, mvp);
 
         // Allocate uniform slot, get offset into staging buffer
+        //todo: what the fuck is this function for
         u32 uniform_offset =
             gpu_uniform_alloc(&g_renderer.uniforms, mvp, sizeof(mat4));
 
