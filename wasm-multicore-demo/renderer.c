@@ -1,0 +1,227 @@
+#include "renderer.h"
+#include "lib/thread_context.h"
+
+// =============================================================================
+// Shaders (WGSL)
+// =============================================================================
+
+static const char *default_vs =
+    "struct Uniforms {\n"
+    "    mvp: mat4x4<f32>,\n"
+    "};\n"
+    "@group(0) @binding(0) var<uniform> uniforms: Uniforms;\n"
+    "\n"
+    "struct VertexInput {\n"
+    "    @location(0) position: vec3<f32>,\n"
+    "    @location(1) color: vec4<f32>,\n"
+    "};\n"
+    "\n"
+    "struct VertexOutput {\n"
+    "    @builtin(position) position: vec4<f32>,\n"
+    "    @location(0) color: vec4<f32>,\n"
+    "};\n"
+    "\n"
+    "@vertex\n"
+    "fn vs_main(in: VertexInput) -> VertexOutput {\n"
+    "    var out: VertexOutput;\n"
+    "    out.position = uniforms.mvp * vec4<f32>(in.position, 1.0);\n"
+    "    out.color = in.color;\n"
+    "    return out;\n"
+    "}\n";
+
+static const char *default_fs =
+    "@fragment\n"
+    "fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {\n"
+    "    return color;\n"
+    "}\n";
+
+// =============================================================================
+// Renderer State
+// =============================================================================
+
+#define MAX_RENDER_CMDS 1024
+#define MAX_MESHES 64
+
+// Vertex layout constants (position vec3 + color vec4)
+#define VERTEX_STRIDE 28        // 7 floats * 4 bytes
+#define VERTEX_COLOR_OFFSET 12  // 3 floats * 4 bytes
+
+typedef struct {
+  // Mesh storage
+  HandleArray_Mesh meshes;
+
+  // GPU resources (shader/pipeline)
+  GpuShader shader;
+  GpuPipeline pipeline;
+
+  // Dynamic uniform buffer
+  GpuUniformBuffer uniforms;
+
+  // Per-frame state
+  mat4 view;
+  mat4 proj;
+  mat4 view_proj;
+
+  // Per-thread command queues (no atomics needed)
+  u8 thread_count;
+  DynArray(RenderCmd) thread_cmds[32];  // MAX_THREADS
+} RendererState;
+
+global RendererState g_renderer;
+
+// =============================================================================
+// Implementation
+// =============================================================================
+
+void renderer_init(void *arena_ptr) {
+  ArenaAllocator *arena = (ArenaAllocator *)arena_ptr;
+
+  // Initialize mesh storage
+  Allocator alloc = make_arena_allocator(arena);
+  g_renderer.meshes = ha_init(Mesh, &alloc, MAX_MESHES);
+
+  // Initialize dynamic uniform buffer
+  gpu_uniform_init(&g_renderer.uniforms, arena, GPU_UNIFORM_BUFFER_SIZE);
+
+  // Create shader and pipeline (fixed vertex format: position + color)
+  g_renderer.shader = gpu_make_shader(&(GpuShaderDesc){
+      .vs_code = default_vs,
+      .fs_code = default_fs,
+  });
+
+  g_renderer.pipeline = gpu_make_pipeline(&(GpuPipelineDesc){
+      .shader = g_renderer.shader,
+      .vertex_layout =
+          {
+              .stride = VERTEX_STRIDE,
+              .attrs =
+                  {
+                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},                    // position
+                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 1},  // color
+                  },
+              .attr_count = 2,
+          },
+      .primitive = GPU_PRIMITIVE_TRIANGLES,
+      .depth_test = true,
+      .depth_write = true,
+  });
+
+  // Get thread count from current context
+  g_renderer.thread_count = tctx_current()->thread_count;
+  assert_msg(g_renderer.thread_count > 0, "Thread count can't be zero");
+
+  // Allocate command arrays for each thread
+  u32 cmds_per_thread = MAX_RENDER_CMDS / g_renderer.thread_count;
+  for (u8 i = 0; i < g_renderer.thread_count; i++) {
+    g_renderer.thread_cmds[i] = (RenderCmd_DynArray){
+        .len = 0,
+        .cap = cmds_per_thread,
+        .items = ARENA_ALLOC_ARRAY(arena, RenderCmd, cmds_per_thread),
+    };
+  }
+}
+
+Mesh_Handle renderer_upload_mesh(MeshDesc *desc) {
+  // Create GPU buffers
+  GpuBuffer vbuf = gpu_make_buffer(&(GpuBufferDesc){
+      .type = GPU_BUFFER_VERTEX,
+      .size = desc->vertex_size,
+      .data = desc->vertices,
+  });
+
+  GpuBuffer ibuf = gpu_make_buffer(&(GpuBufferDesc){
+      .type = GPU_BUFFER_INDEX,
+      .size = desc->index_size,
+      .data = desc->indices,
+  });
+
+  // Create mesh and add to storage
+  Mesh mesh = {
+      .vbuf = vbuf,
+      .ibuf = ibuf,
+      .index_count = desc->index_count,
+      .index_format = desc->index_format,
+  };
+
+  return ha_add(Mesh, &g_renderer.meshes, mesh);
+}
+
+void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
+  // Store view/proj for MVP computation
+  memcpy(g_renderer.view, view, sizeof(mat4));
+  memcpy(g_renderer.proj, proj, sizeof(mat4));
+  mat4_mul(proj, view, g_renderer.view_proj);
+
+  // Reset all thread command arrays
+  for (u8 i = 0; i < g_renderer.thread_count; i++) {
+    g_renderer.thread_cmds[i].len = 0;
+  }
+
+  // Reset uniform buffer for new frame
+  gpu_uniform_reset(&g_renderer.uniforms);
+
+  // Begin GPU pass
+  gpu_begin_pass(&(GpuPassDesc){
+      .clear_color = clear_color,
+      .clear_depth = 1.0f,
+  });
+}
+
+void renderer_draw_mesh(Mesh_Handle mesh, mat4 model_matrix) {
+  RenderCmd cmd = {
+      .type = RENDER_CMD_DRAW_MESH,
+      .draw_mesh.mesh = mesh,
+  };
+  memcpy(cmd.draw_mesh.model_matrix, model_matrix, sizeof(mat4));
+
+  // Append to current thread's command array (no atomic!)
+  u8 tid = tctx_current()->thread_idx;
+  arr_append(g_renderer.thread_cmds[tid], cmd);
+}
+
+void renderer_end_frame(void) {
+  // Apply pipeline once
+  gpu_apply_pipeline(g_renderer.pipeline);
+
+  // Process commands from all threads
+  for (u8 t = 0; t < g_renderer.thread_count; t++) {
+    DynArray(RenderCmd) *cmds = &g_renderer.thread_cmds[t];
+
+    for (u32 i = 0; i < cmds->len; i++) {
+      RenderCmd *cmd = &cmds->items[i];
+
+      if (cmd->type == RENDER_CMD_DRAW_MESH) {
+        // Look up mesh from handle
+        Mesh *mesh = ha_get(Mesh, &g_renderer.meshes, cmd->draw_mesh.mesh);
+        if (!mesh) continue;
+
+        // Compute MVP = view_proj * model
+        mat4 mvp;
+        mat4_mul(g_renderer.view_proj, cmd->draw_mesh.model_matrix, mvp);
+
+        // Allocate uniform slot, get offset into staging buffer
+        u32 uniform_offset =
+            gpu_uniform_alloc(&g_renderer.uniforms, mvp, sizeof(mat4));
+
+        // Apply bindings with dynamic uniform offset
+        gpu_apply_bindings_dynamic(
+            &(GpuBindings){
+                .vertex_buffers = {mesh->vbuf},
+                .vertex_buffer_count = 1,
+                .index_buffer = mesh->ibuf,
+                .index_format = mesh->index_format,
+            },
+            g_renderer.uniforms.gpu_buf, uniform_offset);
+
+        gpu_draw_indexed(mesh->index_count, 1);
+      }
+    }
+  }
+
+  gpu_end_pass();
+
+  // Single upload of all uniforms to GPU
+  gpu_uniform_flush(&g_renderer.uniforms);
+
+  gpu_commit();
+}

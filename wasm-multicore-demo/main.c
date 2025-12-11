@@ -10,6 +10,7 @@
 #include "lib/thread_context.c"
 #include "lib/multicore_runtime.c"
 #include "gpu.c"
+#include "renderer.c"
 #include "lib/handle.c"
 #include "lib/math.h"
 #include "cube.h"
