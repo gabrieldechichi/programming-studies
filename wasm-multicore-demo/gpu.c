@@ -24,8 +24,10 @@ WASM_IMPORT(js_gpu_destroy_shader)
 void js_gpu_destroy_shader(u32 idx);
 
 WASM_IMPORT(js_gpu_make_pipeline)
-void js_gpu_make_pipeline(u32 idx, u32 shader_idx, void *vertex_layout,
-                          u32 primitive, u32 depth_test, u32 depth_write);
+void js_gpu_make_pipeline(u32 idx, u32 shader_idx, u32 stride, u32 attr_count,
+                          u32 *attr_formats, u32 *attr_offsets,
+                          u32 *attr_locations, u32 primitive, u32 depth_test,
+                          u32 depth_write);
 
 WASM_IMPORT(js_gpu_destroy_pipeline)
 void js_gpu_destroy_pipeline(u32 idx);
@@ -52,7 +54,8 @@ WASM_IMPORT(js_gpu_upload_uniforms)
 void js_gpu_upload_uniforms(u32 buf_idx, void *data, u32 size);
 
 WASM_IMPORT(js_gpu_apply_bindings_dynamic)
-void js_gpu_apply_bindings_dynamic(void *bindings_data, u32 uniform_buf_idx,
+void js_gpu_apply_bindings_dynamic(u32 vb_count, u32 *vb_indices, u32 ib_idx,
+                                   u32 ib_format, u32 uniform_buf_idx,
                                    u32 uniform_offset);
 
 // Global GPU state - C manages handles, JS uses indices provided by C
@@ -107,19 +110,19 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
   GpuPipelineSlot slot = {0};
   GpuPipeline handle = ha_add(GpuPipelineSlot, &gpu_state.pipelines, slot);
 
-  // Pack vertex layout into a flat buffer for JS
-  // Format: [stride, attr_count, (format, offset, location) * attr_count]
-  u32 layout_data[2 + GPU_MAX_VERTEX_ATTRS * 3];
-  layout_data[0] = desc->vertex_layout.stride;
-  layout_data[1] = desc->vertex_layout.attr_count;
+  u32 attr_formats[GPU_MAX_VERTEX_ATTRS];
+  u32 attr_offsets[GPU_MAX_VERTEX_ATTRS];
+  u32 attr_locations[GPU_MAX_VERTEX_ATTRS];
   for (u32 i = 0; i < desc->vertex_layout.attr_count; i++) {
-    layout_data[2 + i * 3 + 0] = desc->vertex_layout.attrs[i].format;
-    layout_data[2 + i * 3 + 1] = desc->vertex_layout.attrs[i].offset;
-    layout_data[2 + i * 3 + 2] = desc->vertex_layout.attrs[i].shader_location;
+    attr_formats[i] = desc->vertex_layout.attrs[i].format;
+    attr_offsets[i] = desc->vertex_layout.attrs[i].offset;
+    attr_locations[i] = desc->vertex_layout.attrs[i].shader_location;
   }
 
-  js_gpu_make_pipeline(handle.idx, desc->shader.idx, layout_data,
-                       desc->primitive, desc->depth_test, desc->depth_write);
+  js_gpu_make_pipeline(handle.idx, desc->shader.idx, desc->vertex_layout.stride,
+                       desc->vertex_layout.attr_count, attr_formats,
+                       attr_offsets, attr_locations, desc->primitive,
+                       desc->depth_test, desc->depth_write);
   return handle;
 }
 
@@ -194,19 +197,16 @@ void gpu_uniform_flush(GpuUniformBuffer *ub) {
 
 void gpu_uniform_reset(GpuUniformBuffer *ub) { arena_reset(&ub->arena); }
 
-//todo: stop with the magic number parsing
 void gpu_apply_bindings_dynamic(GpuBindings *bindings, GpuBuffer uniform_buf,
                                 u32 uniform_offset) {
-  // Pack bindings into flat buffer for JS
-  // Format: [vb_count, vb0_idx, vb1_idx, vb2_idx, vb3_idx, ib_idx, ib_format]
-  u32 bindings_data[GPU_MAX_VERTEX_BUFFERS + 3];
-  bindings_data[0] = bindings->vertex_buffer_count;
+  // Extract vertex buffer indices into flat array
+  u32 vb_indices[GPU_MAX_VERTEX_BUFFERS];
   for (u32 i = 0; i < bindings->vertex_buffer_count; i++) {
-    bindings_data[1 + i] = bindings->vertex_buffers[i].idx;
+    vb_indices[i] = bindings->vertex_buffers[i].idx;
   }
-  u32 offset = 1 + GPU_MAX_VERTEX_BUFFERS;
-  bindings_data[offset + 0] = bindings->index_buffer.idx;
-  bindings_data[offset + 1] = bindings->index_format;
 
-  js_gpu_apply_bindings_dynamic(bindings_data, uniform_buf.idx, uniform_offset);
+  js_gpu_apply_bindings_dynamic(bindings->vertex_buffer_count, vb_indices,
+                                bindings->index_buffer.idx,
+                                bindings->index_format, uniform_buf.idx,
+                                uniform_offset);
 }

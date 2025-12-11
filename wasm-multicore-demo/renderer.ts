@@ -171,7 +171,11 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         js_gpu_make_pipeline: (
             idx: number,
             shaderIdx: number,
-            layoutPtr: number,
+            stride: number,
+            attrCount: number,
+            attrFormatsPtr: number,
+            attrOffsetsPtr: number,
+            attrLocationsPtr: number,
             primitive: number,
             depthTest: number,
             depthWrite: number
@@ -181,21 +185,17 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             const shaderModule = shaders[shaderIdx];
             if (!shaderModule) return;
 
-            // Read vertex layout from memory
-            const layoutData = new Uint32Array(memory.buffer, layoutPtr, 2 + 8 * 3);
-            const stride = layoutData[0];
-            const attrCount = layoutData[1];
+            // Read vertex attribute arrays directly from memory
+            const attrFormats = new Uint32Array(memory.buffer, attrFormatsPtr, attrCount);
+            const attrOffsets = new Uint32Array(memory.buffer, attrOffsetsPtr, attrCount);
+            const attrLocations = new Uint32Array(memory.buffer, attrLocationsPtr, attrCount);
 
-            //todo: this magic number parsing is terrible, needs fixing
             const attributes: GPUVertexAttribute[] = [];
             for (let i = 0; i < attrCount; i++) {
-                const format = layoutData[2 + i * 3 + 0];
-                const offset = layoutData[2 + i * 3 + 1];
-                const location = layoutData[2 + i * 3 + 2];
                 attributes.push({
-                    format: VERTEX_FORMATS[format],
-                    offset,
-                    shaderLocation: location,
+                    format: VERTEX_FORMATS[attrFormats[i]],
+                    offset: attrOffsets[i],
+                    shaderLocation: attrLocations[i],
                 });
             }
 
@@ -327,27 +327,28 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             renderer.device.queue.writeBuffer(buffer, 0, src);
         },
 
-        //todo: stop with the magic number parsing
-        js_gpu_apply_bindings_dynamic: (bindingsPtr: number, uniformBufIdx: number, uniformOffset: number) => {
+        js_gpu_apply_bindings_dynamic: (
+            vbCount: number,
+            vbIndicesPtr: number,
+            ibIdx: number,
+            ibFormat: number,
+            uniformBufIdx: number,
+            uniformOffset: number
+        ) => {
             if (!currentPass || !renderer) return;
 
-            // Read bindings from memory
-            // Format: [vb_count, vb0_idx, vb1_idx, vb2_idx, vb3_idx, ib_idx, ib_format]
-            const data = new Uint32Array(memory.buffer, bindingsPtr, 4 + 3);
-            const vbCount = data[0];
+            // Read vertex buffer indices from memory
+            const vbIndices = new Uint32Array(memory.buffer, vbIndicesPtr, vbCount);
 
             // Set vertex buffers
             for (let i = 0; i < vbCount; i++) {
-                const bufIdx = data[1 + i];
-                const buffer = buffers[bufIdx];
+                const buffer = buffers[vbIndices[i]];
                 if (buffer) {
                     currentPass.setVertexBuffer(i, buffer);
                 }
             }
 
             // Set index buffer
-            const ibIdx = data[5];
-            const ibFormat = data[6];
             const indexBuffer = buffers[ibIdx];
             if (indexBuffer) {
                 currentPass.setIndexBuffer(indexBuffer, INDEX_FORMATS[ibFormat]);
