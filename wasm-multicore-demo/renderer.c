@@ -3,39 +3,6 @@
 #include "lib/handle.h"
 #include "lib/thread_context.h"
 
-// =============================================================================
-// Shaders (WGSL)
-// =============================================================================
-
-static const char *default_vs =
-    "struct Uniforms {\n"
-    "    mvp: mat4x4<f32>,\n"
-    "};\n"
-    "@group(0) @binding(0) var<uniform> uniforms: Uniforms;\n"
-    "\n"
-    "struct VertexInput {\n"
-    "    @location(0) position: vec3<f32>,\n"
-    "    @location(1) color: vec4<f32>,\n"
-    "};\n"
-    "\n"
-    "struct VertexOutput {\n"
-    "    @builtin(position) position: vec4<f32>,\n"
-    "    @location(0) color: vec4<f32>,\n"
-    "};\n"
-    "\n"
-    "@vertex\n"
-    "fn vs_main(in: VertexInput) -> VertexOutput {\n"
-    "    var out: VertexOutput;\n"
-    "    out.position = uniforms.mvp * vec4<f32>(in.position, 1.0);\n"
-    "    out.color = in.color;\n"
-    "    return out;\n"
-    "}\n";
-
-static const char *default_fs =
-    "@fragment\n"
-    "fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {\n"
-    "    return color;\n"
-    "}\n";
 
 #define MAX_RENDER_CMDS 1024
 #define MAX_MESHES 64
@@ -49,8 +16,6 @@ static const char *default_fs =
 typedef struct {
   HandleArray_GpuMesh meshes;
   HandleArray_Material materials;
-
-  Material_Handle temp_material;
 
   // Per-frame state
   // todo: move to camera uniforms, send to shader
@@ -72,35 +37,6 @@ void renderer_init(ArenaAllocator *arena, u8 thread_count) {
   gpu_init(arena, GPU_UNIFORM_BUFFER_SIZE);
   g_renderer.meshes = ha_init(GpuMesh, &alloc, MAX_MESHES);
   g_renderer.materials = ha_init(Material, &alloc, MAX_MATERIALS);
-
-  g_renderer.temp_material = renderer_create_material(&(MaterialDesc){
-      .shader_desc =
-          (GpuShaderDesc){
-              .vs_code = default_vs,
-              .fs_code = default_fs,
-              .uniform_blocks =
-                  {
-                      {.stage = GPU_STAGE_VERTEX,
-                       .size = sizeof(mat4),
-                       .binding = 0},
-                  },
-              .uniform_block_count = 1,
-          },
-      .vertex_layout =
-          {
-              .stride = VERTEX_STRIDE,
-              .attrs =
-                  {
-                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0}, // position
-                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET,
-                       1}, // color
-                  },
-              .attr_count = 2,
-          },
-      .primitive = GPU_PRIMITIVE_TRIANGLES,
-      .depth_test = true,
-      .depth_write = true,
-  });
 
   // Get thread count from current context
   g_renderer.thread_count = thread_count;
@@ -179,10 +115,12 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   });
 }
 
-void renderer_draw_mesh(GpuMesh_Handle mesh, mat4 model_matrix) {
+void renderer_draw_mesh(GpuMesh_Handle mesh, Material_Handle material,
+                        mat4 model_matrix) {
   RenderCmd cmd = {
       .type = RENDER_CMD_DRAW_MESH,
       .draw_mesh.mesh = mesh,
+      .draw_mesh.material = material,
   };
   memcpy(cmd.draw_mesh.model_matrix, model_matrix, sizeof(mat4));
 
@@ -196,10 +134,7 @@ void renderer_end_frame(void) {
       is_main_thread(),
       "renderer_end_frame can only be called from the main thread");
 
-  Material* material = ha_get(Material, &g_renderer.materials, g_renderer.temp_material);
-  assert(material);
-  gpu_apply_pipeline(material->pipeline);
-
+  Material *last_applied_material = NULL;
   // Process commands from all threads
   for (u8 t = 0; t < g_renderer.thread_count; t++) {
     DynArray(RenderCmd) *cmds = &g_renderer.thread_cmds[t];
@@ -212,6 +147,14 @@ void renderer_end_frame(void) {
             ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh.mesh);
         if (!mesh)
           continue;
+
+        Material *material =
+            ha_get(Material, &g_renderer.materials, cmd->draw_mesh.material);
+        assert(material);
+        if (material != last_applied_material) {
+          gpu_apply_pipeline(material->pipeline);
+          last_applied_material = material;
+        }
 
         // Compute MVP = view_proj * model
         mat4 mvp;

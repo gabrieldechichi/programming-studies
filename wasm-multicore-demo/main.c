@@ -14,8 +14,39 @@
 #include "lib/handle.c"
 #include "lib/math.h"
 #include "cube.h"
+#include "renderer.h"
 
 #define NUM_CUBES 1024
+
+static const char *default_vs =
+    "struct Uniforms {\n"
+    "    mvp: mat4x4<f32>,\n"
+    "};\n"
+    "@group(0) @binding(0) var<uniform> uniforms: Uniforms;\n"
+    "\n"
+    "struct VertexInput {\n"
+    "    @location(0) position: vec3<f32>,\n"
+    "    @location(1) color: vec4<f32>,\n"
+    "};\n"
+    "\n"
+    "struct VertexOutput {\n"
+    "    @builtin(position) position: vec4<f32>,\n"
+    "    @location(0) color: vec4<f32>,\n"
+    "};\n"
+    "\n"
+    "@vertex\n"
+    "fn vs_main(in: VertexInput) -> VertexOutput {\n"
+    "    var out: VertexOutput;\n"
+    "    out.position = uniforms.mvp * vec4<f32>(in.position, 1.0);\n"
+    "    out.color = in.color;\n"
+    "    return out;\n"
+    "}\n";
+
+static const char *default_fs =
+    "@fragment\n"
+    "fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {\n"
+    "    return color;\n"
+    "}\n";
 
 typedef struct {
   vec3 position;
@@ -26,6 +57,7 @@ global CubeData cubes[NUM_CUBES];
 
 global f32 g_time = 0.0f;
 global GpuMesh_Handle g_cube_mesh;
+global Material_Handle g_cube_material;
 
 global Barrier frame_barrier;
 global ThreadContext main_thread_ctx;
@@ -61,7 +93,7 @@ void app_update_and_render(void) {
     glm_scale_uni(model, 0.3f);
 
     // Submit draw command (lock-free)
-    renderer_draw_mesh(g_cube_mesh, model);
+    renderer_draw_mesh(g_cube_mesh, g_cube_material, model);
   }
 }
 
@@ -151,6 +183,36 @@ int wasm_main(void) {
       .index_count = CUBE_INDEX_COUNT,
       .index_format = GPU_INDEX_FORMAT_U16,
   });
+
+  g_cube_material = renderer_create_material(&(MaterialDesc){
+      .shader_desc =
+          (GpuShaderDesc){
+              .vs_code = default_vs,
+              .fs_code = default_fs,
+              .uniform_blocks =
+                  {
+                      {.stage = GPU_STAGE_VERTEX,
+                       .size = sizeof(mat4),
+                       .binding = 0},
+                  },
+              .uniform_block_count = 1,
+          },
+      .vertex_layout =
+          {
+              .stride = VERTEX_STRIDE,
+              .attrs =
+                  {
+                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0}, // position
+                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET,
+                       1}, // color
+                  },
+              .attr_count = 2,
+          },
+      .primitive = GPU_PRIMITIVE_TRIANGLES,
+      .depth_test = true,
+      .depth_write = true,
+  });
+
 
   // Spawn worker threads (indices 1..N-1)
   for (u8 i = 1; i < NUM_WORKERS; i++) {
