@@ -11,15 +11,7 @@
 #define GPU_UNIFORM_BUFFER_SIZE MB(1)
 //todo: query at runtime
 #define GPU_UNIFORM_ALIGNMENT 256  // WebGPU minUniformBufferOffsetAlignment
-
-// Resource slot types (stored in handle arrays, actual GPU data lives in JS)
-typedef struct { u8 _unused; } GpuBufferSlot;
-typedef struct { u8 _unused; } GpuShaderSlot;
-typedef struct { u8 _unused; } GpuPipelineSlot;
-
-HANDLE_ARRAY_DEFINE(GpuBufferSlot);
-HANDLE_ARRAY_DEFINE(GpuShaderSlot);
-HANDLE_ARRAY_DEFINE(GpuPipelineSlot);
+#define GPU_MAX_UNIFORMBLOCK_SLOTS 4
 
 // Resource handles
 typedef Handle GpuBuffer;
@@ -28,12 +20,32 @@ typedef Handle GpuPipeline;
 
 #define GPU_INVALID_HANDLE INVALID_HANDLE
 
-// Global GPU state
+// Shader stage visibility for uniform blocks
+typedef enum {
+    GPU_STAGE_NONE = 0,
+    GPU_STAGE_VERTEX = 1,
+    GPU_STAGE_FRAGMENT = 2,
+    GPU_STAGE_VERTEX_FRAGMENT = 3,
+} GpuShaderStage;
+
+// Uniform block description (part of shader)
 typedef struct {
-    HandleArray_GpuBufferSlot buffers;
-    HandleArray_GpuShaderSlot shaders;
-    HandleArray_GpuPipelineSlot pipelines;
-} GpuState;
+    GpuShaderStage stage;  // which shader stage(s) can access this
+    u32 size;              // size of uniform struct
+    u32 binding;           // WGSL @binding(n)
+} GpuUniformBlockDesc;
+
+// Resource slot types (stored in handle arrays, actual GPU data lives in JS)
+typedef struct { u8 _unused; } GpuBufferSlot;
+typedef struct {
+    GpuUniformBlockDesc uniform_blocks[GPU_MAX_UNIFORMBLOCK_SLOTS];
+    u32 uniform_block_count;
+} GpuShaderSlot;
+typedef struct { u8 _unused; } GpuPipelineSlot;
+
+HANDLE_ARRAY_DEFINE(GpuBufferSlot);
+HANDLE_ARRAY_DEFINE(GpuShaderSlot);
+HANDLE_ARRAY_DEFINE(GpuPipelineSlot);
 
 // Enums
 typedef enum {
@@ -68,6 +80,8 @@ typedef struct {
 typedef struct {
     const char *vs_code;  // WGSL source
     const char *fs_code;  // WGSL source
+    GpuUniformBlockDesc uniform_blocks[GPU_MAX_UNIFORMBLOCK_SLOTS];
+    u32 uniform_block_count;
 } GpuShaderDesc;
 
 typedef struct {
@@ -100,7 +114,6 @@ typedef struct {
     u32 vertex_buffer_count;
     GpuBuffer index_buffer;
     GpuIndexFormat index_format;
-    GpuBuffer uniform_buffer;
 } GpuBindings;
 
 //todo: unions?
@@ -114,11 +127,6 @@ typedef struct {
 } GpuPassDesc;
 
 typedef struct {
-    ArenaAllocator arena;  // CPU-side staging (256-aligned base, reset each frame)
-    GpuBuffer gpu_buf;     // GPU-side buffer
-} GpuUniformBuffer;
-
-typedef struct {
     GpuBuffer vbuf;
     GpuBuffer ibuf;
     u32 index_count;
@@ -129,7 +137,7 @@ TYPED_HANDLE_DEFINE(GpuMesh);   // -> Mesh_Handle
 HANDLE_ARRAY_DEFINE(GpuMesh);   // -> HandleArray_Mesh
 
 // API Functions
-void gpu_init(Allocator *allocator);
+void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size);
 
 GpuBuffer gpu_make_buffer(GpuBufferDesc *desc);
 void gpu_update_buffer(GpuBuffer buf, void *data, u32 size);
@@ -141,21 +149,14 @@ void gpu_destroy_shader(GpuShader shd);
 GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc);
 void gpu_destroy_pipeline(GpuPipeline pip);
 
-// Rendering (per-frame) - low level
+// Rendering (per-frame)
 void gpu_begin_pass(GpuPassDesc *desc);
 void gpu_apply_pipeline(GpuPipeline pip);
+void gpu_apply_uniforms(u32 slot, void *data, u32 size);
+void gpu_apply_bindings(GpuBindings *bindings);
 void gpu_draw(u32 vertex_count, u32 instance_count);
 void gpu_draw_indexed(u32 index_count, u32 instance_count);
 void gpu_end_pass(void);
 void gpu_commit(void);
-
-// Dynamic uniform buffer API
-void gpu_uniform_init(GpuUniformBuffer *ub, ArenaAllocator *parent_arena, u32 size);
-u32 gpu_uniform_alloc(GpuUniformBuffer *ub, void *data, u32 size);
-void gpu_uniform_flush(GpuUniformBuffer *ub);
-void gpu_uniform_reset(GpuUniformBuffer *ub);
-
-// Apply bindings with dynamic uniform offset
-void gpu_apply_bindings_dynamic(GpuBindings *bindings, GpuBuffer uniform_buf, u32 uniform_offset);
 
 #endif

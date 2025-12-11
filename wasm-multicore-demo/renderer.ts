@@ -16,6 +16,9 @@ const shaders: (GPUShaderModule | null)[] = [];
 const pipelines: (GPURenderPipeline | null)[] = [];
 const pipelineBindGroupLayouts: (GPUBindGroupLayout | null)[] = [];
 
+// Per-pipeline uniform block info (sizes needed for bind group creation)
+const pipelineUbInfo: { count: number; sizes: number[] }[] = [];
+
 // Per-pipeline bind groups for dynamic uniforms (created once, reused with different offsets)
 const pipelineUniformBindGroups: Map<string, GPUBindGroup> = new Map();
 
@@ -23,19 +26,6 @@ const pipelineUniformBindGroups: Map<string, GPUBindGroup> = new Map();
 let currentEncoder: GPUCommandEncoder | null = null;
 let currentPass: GPURenderPassEncoder | null = null;
 let currentPipelineIdx: number = -1;
-let currentBindings: {
-    vertexBuffers: (GPUBuffer | null)[];
-    indexBuffer: GPUBuffer | null;
-    indexFormat: GPUIndexFormat;
-    uniformBuffer: GPUBuffer | null;
-    bindGroup: GPUBindGroup | null;
-} = {
-    vertexBuffers: [],
-    indexBuffer: null,
-    indexFormat: "uint16",
-    uniformBuffer: null,
-    bindGroup: null,
-};
 
 let renderer: Renderer | null = null;
 
@@ -97,6 +87,17 @@ const PRIMITIVE_TOPOLOGIES: GPUPrimitiveTopology[] = [
     "triangle-list", // GPU_PRIMITIVE_TRIANGLES
     "line-list",     // GPU_PRIMITIVE_LINES
 ];
+
+// Map GpuShaderStage enum to WebGPU shader stage flags
+function stageToGPU(stage: number): GPUShaderStageFlags {
+    // GPU_STAGE_NONE = 0, GPU_STAGE_VERTEX = 1, GPU_STAGE_FRAGMENT = 2, GPU_STAGE_VERTEX_FRAGMENT = 3
+    switch (stage) {
+        case 1: return GPUShaderStage.VERTEX;
+        case 2: return GPUShaderStage.FRAGMENT;
+        case 3: return GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
+        default: return GPUShaderStage.VERTEX; // fallback
+    }
+}
 
 // Create GPU imports for WASM
 export function createGpuImports(memory: WebAssembly.Memory) {
@@ -176,6 +177,10 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             attrFormatsPtr: number,
             attrOffsetsPtr: number,
             attrLocationsPtr: number,
+            ubCount: number,
+            ubStagesPtr: number,
+            ubSizesPtr: number,
+            ubBindingsPtr: number,
             primitive: number,
             depthTest: number,
             depthWrite: number
@@ -185,7 +190,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             const shaderModule = shaders[shaderIdx];
             if (!shaderModule) return;
 
-            // Read vertex attribute arrays directly from memory
+            // Read vertex attribute arrays from memory
             const attrFormats = new Uint32Array(memory.buffer, attrFormatsPtr, attrCount);
             const attrOffsets = new Uint32Array(memory.buffer, attrOffsetsPtr, attrCount);
             const attrLocations = new Uint32Array(memory.buffer, attrLocationsPtr, attrCount);
@@ -199,19 +204,33 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 });
             }
 
-            // Create bind group layout for uniforms with dynamic offset
-            // todo: needs better vertex description, more flexible
-            const bindGroupLayout = renderer.device.createBindGroupLayout({
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.VERTEX,
-                        buffer: {
-                            type: "uniform",
-                            hasDynamicOffset: true,  // Enable dynamic offsets
-                        },
+            // Read uniform block arrays from memory
+            const ubStages = new Uint32Array(memory.buffer, ubStagesPtr, ubCount);
+            const ubSizes = new Uint32Array(memory.buffer, ubSizesPtr, ubCount);
+            const ubBindings = new Uint32Array(memory.buffer, ubBindingsPtr, ubCount);
+
+            // Store UB info for bind group creation later
+            const sizes: number[] = [];
+            for (let i = 0; i < ubCount; i++) {
+                sizes.push(ubSizes[i]);
+            }
+            pipelineUbInfo[idx] = { count: ubCount, sizes };
+
+            // Create bind group layout entries from UB descriptions
+            const layoutEntries: GPUBindGroupLayoutEntry[] = [];
+            for (let i = 0; i < ubCount; i++) {
+                layoutEntries.push({
+                    binding: ubBindings[i],
+                    visibility: stageToGPU(ubStages[i]),
+                    buffer: {
+                        type: "uniform",
+                        hasDynamicOffset: true,
                     },
-                ],
+                });
+            }
+
+            const bindGroupLayout = renderer.device.createBindGroupLayout({
+                entries: layoutEntries,
             });
 
             const pipelineLayout = renderer.device.createPipelineLayout({
@@ -255,6 +274,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         js_gpu_destroy_pipeline: (handleIdx: number) => {
             pipelines[handleIdx] = null;
             pipelineBindGroupLayouts[handleIdx] = null;
+            delete pipelineUbInfo[handleIdx];
         },
 
         js_gpu_begin_pass: (r: number, g: number, b: number, a: number, depth: number) => {
@@ -327,13 +347,14 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             renderer.device.queue.writeBuffer(buffer, 0, src);
         },
 
-        js_gpu_apply_bindings_dynamic: (
+        js_gpu_apply_bindings: (
             vbCount: number,
             vbIndicesPtr: number,
             ibIdx: number,
             ibFormat: number,
             uniformBufIdx: number,
-            uniformOffset: number
+            ubCount: number,
+            ubOffsetsPtr: number
         ) => {
             if (!currentPass || !renderer) return;
 
@@ -358,33 +379,44 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             if (currentPipelineIdx >= 0) {
                 const bindGroupLayout = pipelineBindGroupLayouts[currentPipelineIdx];
                 const uniformBuffer = buffers[uniformBufIdx];
+                const ubInfo = pipelineUbInfo[currentPipelineIdx];
 
-                if (bindGroupLayout && uniformBuffer) {
+                if (bindGroupLayout && uniformBuffer && ubInfo && ubInfo.count > 0) {
                     // Create bind group key
                     const key = `${currentPipelineIdx}-${uniformBufIdx}`;
 
                     // Get or create bind group (created once per pipeline+buffer combo)
                     let bindGroup = pipelineUniformBindGroups.get(key);
                     if (!bindGroup) {
+                        // Create bind group entries for each uniform block
+                        const entries: GPUBindGroupEntry[] = [];
+                        for (let i = 0; i < ubInfo.count; i++) {
+                            entries.push({
+                                binding: i,
+                                resource: {
+                                    buffer: uniformBuffer,
+                                    // Size must be aligned to 256 for dynamic offset buffers
+                                    size: Math.max(ubInfo.sizes[i], 256),
+                                },
+                            });
+                        }
+
                         bindGroup = renderer.device.createBindGroup({
                             layout: bindGroupLayout,
-                            entries: [
-                                {
-                                    binding: 0,
-                                    resource: {
-                                        buffer: uniformBuffer,
-                                        // Note: size is the max uniform size we'll use
-                                        // WebGPU requires this for dynamic offset buffers
-                                        size: 256,  // Aligned uniform size
-                                    },
-                                },
-                            ],
+                            entries,
                         });
                         pipelineUniformBindGroups.set(key, bindGroup);
                     }
 
-                    // Set bind group with dynamic offset
-                    currentPass.setBindGroup(0, bindGroup, [uniformOffset]);
+                    // Read uniform offsets from memory (only the ones this pipeline uses)
+                    const allOffsets = new Uint32Array(memory.buffer, ubOffsetsPtr, ubCount);
+                    const dynamicOffsets: number[] = [];
+                    for (let i = 0; i < ubInfo.count; i++) {
+                        dynamicOffsets.push(allOffsets[i]);
+                    }
+
+                    // Set bind group with dynamic offsets
+                    currentPass.setBindGroup(0, bindGroup, dynamicOffsets);
                 }
             }
         },

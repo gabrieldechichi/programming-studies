@@ -1,9 +1,32 @@
 #include "gpu.h"
+#include "lib/handle.h"
 #include "lib/string.h"
 #include "os/os.h"
 
-// JS imports - these are implemented in renderer.ts
-// Note: make functions receive idx from C (C manages handles, JS just stores at given index)
+// =============================================================================
+// Internal Types
+// =============================================================================
+
+typedef struct {
+  ArenaAllocator arena;  // CPU-side staging (256-aligned base, reset each frame)
+  GpuBuffer gpu_buf;     // GPU-side buffer
+} GpuUniformBuffer;
+
+typedef struct {
+  HandleArray_GpuBufferSlot buffers;
+  HandleArray_GpuShaderSlot shaders;
+  HandleArray_GpuPipelineSlot pipelines;
+
+  // Uniform management (internal)
+  GpuUniformBuffer uniforms;
+  GpuPipeline current_pipeline;
+  u32 uniform_offsets[GPU_MAX_UNIFORMBLOCK_SLOTS];
+} GpuStateInternal;
+
+// =============================================================================
+// JS Imports - implemented in renderer.ts
+// =============================================================================
+
 WASM_IMPORT(js_gpu_init)
 void js_gpu_init(void);
 
@@ -23,11 +46,13 @@ void js_gpu_make_shader(u32 idx, const char *vs_code, u32 vs_len,
 WASM_IMPORT(js_gpu_destroy_shader)
 void js_gpu_destroy_shader(u32 idx);
 
+// Pipeline creation now includes uniform block layout info
 WASM_IMPORT(js_gpu_make_pipeline)
 void js_gpu_make_pipeline(u32 idx, u32 shader_idx, u32 stride, u32 attr_count,
                           u32 *attr_formats, u32 *attr_offsets,
-                          u32 *attr_locations, u32 primitive, u32 depth_test,
-                          u32 depth_write);
+                          u32 *attr_locations, u32 ub_count, u32 *ub_stages,
+                          u32 *ub_sizes, u32 *ub_bindings, u32 primitive,
+                          u32 depth_test, u32 depth_write);
 
 WASM_IMPORT(js_gpu_destroy_pipeline)
 void js_gpu_destroy_pipeline(u32 idx);
@@ -53,23 +78,81 @@ void js_gpu_commit(void);
 WASM_IMPORT(js_gpu_upload_uniforms)
 void js_gpu_upload_uniforms(u32 buf_idx, void *data, u32 size);
 
-WASM_IMPORT(js_gpu_apply_bindings_dynamic)
-void js_gpu_apply_bindings_dynamic(u32 vb_count, u32 *vb_indices, u32 ib_idx,
-                                   u32 ib_format, u32 uniform_buf_idx,
-                                   u32 uniform_offset);
+// Bindings now include uniform buffer and all slot offsets
+WASM_IMPORT(js_gpu_apply_bindings)
+void js_gpu_apply_bindings(u32 vb_count, u32 *vb_indices, u32 ib_idx,
+                           u32 ib_format, u32 uniform_buf_idx, u32 ub_count,
+                           u32 *ub_offsets);
 
-// Global GPU state - C manages handles, JS uses indices provided by C
-local_persist GpuState gpu_state;
+// =============================================================================
+// Global State
+// =============================================================================
+
+local_persist GpuStateInternal gpu_state;
 
 #define GPU_INITIAL_BUFFER_CAPACITY 64
 #define GPU_INITIAL_SHADER_CAPACITY 16
 #define GPU_INITIAL_PIPELINE_CAPACITY 16
 
-void gpu_init(Allocator *allocator) {
-    gpu_state.buffers = ha_init(GpuBufferSlot, allocator, GPU_INITIAL_BUFFER_CAPACITY);
-    gpu_state.shaders = ha_init(GpuShaderSlot, allocator, GPU_INITIAL_SHADER_CAPACITY);
-    gpu_state.pipelines = ha_init(GpuPipelineSlot, allocator, GPU_INITIAL_PIPELINE_CAPACITY);
-    js_gpu_init();
+// =============================================================================
+// Internal Helpers
+// =============================================================================
+
+local_persist void uniform_buffer_init(GpuUniformBuffer *ub,
+                                       ArenaAllocator *parent_arena, u32 size) {
+  u8 *staging =
+      (u8 *)arena_alloc_align(parent_arena, size, GPU_UNIFORM_ALIGNMENT);
+  ub->arena = arena_from_buffer(staging, size);
+  ub->gpu_buf = gpu_make_buffer(&(GpuBufferDesc){
+      .type = GPU_BUFFER_UNIFORM,
+      .size = size,
+      .data = 0,
+  });
+}
+
+local_persist u32 uniform_buffer_append(GpuUniformBuffer *ub, void *data,
+                                       u32 size) {
+  void *dst = arena_alloc_align(&ub->arena, size, GPU_UNIFORM_ALIGNMENT);
+  assert(dst != NULL);  // Buffer full - increase uniform buffer size
+  u32 offset = (u32)((u8 *)dst - ub->arena.buffer);
+  memcpy(dst, data, size);
+  return offset;
+}
+
+local_persist void uniform_buffer_flush(GpuUniformBuffer *ub) {
+  if (ub->arena.offset > 0) {
+    js_gpu_upload_uniforms(ub->gpu_buf.idx, ub->arena.buffer,
+                           (u32)ub->arena.offset);
+  }
+}
+
+local_persist void uniform_buffer_reset(GpuUniformBuffer *ub) {
+  arena_reset(&ub->arena);
+}
+
+// =============================================================================
+// Public API
+// =============================================================================
+
+void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size) {
+  Allocator alloc = make_arena_allocator(arena);
+  gpu_state.buffers =
+      ha_init(GpuBufferSlot, &alloc, GPU_INITIAL_BUFFER_CAPACITY);
+  gpu_state.shaders =
+      ha_init(GpuShaderSlot, &alloc, GPU_INITIAL_SHADER_CAPACITY);
+  gpu_state.pipelines =
+      ha_init(GpuPipelineSlot, &alloc, GPU_INITIAL_PIPELINE_CAPACITY);
+
+  // Initialize internal uniform buffer
+  uniform_buffer_init(&gpu_state.uniforms, arena, uniform_buffer_size);
+
+  // Reset state
+  gpu_state.current_pipeline = GPU_INVALID_HANDLE;
+  for (u32 i = 0; i < GPU_MAX_UNIFORMBLOCK_SLOTS; i++) {
+    gpu_state.uniform_offsets[i] = 0;
+  }
+
+  js_gpu_init();
 }
 
 GpuBuffer gpu_make_buffer(GpuBufferDesc *desc) {
@@ -80,18 +163,26 @@ GpuBuffer gpu_make_buffer(GpuBufferDesc *desc) {
 }
 
 void gpu_update_buffer(GpuBuffer buf, void *data, u32 size) {
-  if (!ha_is_valid(GpuBufferSlot, &gpu_state.buffers, buf)) return;
+  if (!ha_is_valid(GpuBufferSlot, &gpu_state.buffers, buf))
+    return;
   js_gpu_update_buffer(buf.idx, data, size);
 }
 
 void gpu_destroy_buffer(GpuBuffer buf) {
-  if (!ha_is_valid(GpuBufferSlot, &gpu_state.buffers, buf)) return;
+  if (!ha_is_valid(GpuBufferSlot, &gpu_state.buffers, buf))
+    return;
   js_gpu_destroy_buffer(buf.idx);
   ha_remove(GpuBufferSlot, &gpu_state.buffers, buf);
 }
 
 GpuShader gpu_make_shader(GpuShaderDesc *desc) {
+  // Store uniform block info in the slot
   GpuShaderSlot slot = {0};
+  slot.uniform_block_count = desc->uniform_block_count;
+  for (u32 i = 0; i < desc->uniform_block_count; i++) {
+    slot.uniform_blocks[i] = desc->uniform_blocks[i];
+  }
+
   GpuShader handle = ha_add(GpuShaderSlot, &gpu_state.shaders, slot);
 
   u32 vs_len = str_len(desc->vs_code);
@@ -101,7 +192,8 @@ GpuShader gpu_make_shader(GpuShaderDesc *desc) {
 }
 
 void gpu_destroy_shader(GpuShader shd) {
-  if (!ha_is_valid(GpuShaderSlot, &gpu_state.shaders, shd)) return;
+  if (!ha_is_valid(GpuShaderSlot, &gpu_state.shaders, shd))
+    return;
   js_gpu_destroy_shader(shd.idx);
   ha_remove(GpuShaderSlot, &gpu_state.shaders, shd);
 }
@@ -110,6 +202,12 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
   GpuPipelineSlot slot = {0};
   GpuPipeline handle = ha_add(GpuPipelineSlot, &gpu_state.pipelines, slot);
 
+  // Get shader's uniform block info
+  GpuShaderSlot *shader_slot =
+      ha_get(GpuShaderSlot, &gpu_state.shaders, desc->shader);
+  assert(shader_slot != NULL);
+
+  // Prepare vertex attribute arrays
   u32 attr_formats[GPU_MAX_VERTEX_ATTRS];
   u32 attr_offsets[GPU_MAX_VERTEX_ATTRS];
   u32 attr_locations[GPU_MAX_VERTEX_ATTRS];
@@ -119,26 +217,77 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
     attr_locations[i] = desc->vertex_layout.attrs[i].shader_location;
   }
 
+  // Prepare uniform block arrays
+  u32 ub_stages[GPU_MAX_UNIFORMBLOCK_SLOTS];
+  u32 ub_sizes[GPU_MAX_UNIFORMBLOCK_SLOTS];
+  u32 ub_bindings[GPU_MAX_UNIFORMBLOCK_SLOTS];
+  for (u32 i = 0; i < shader_slot->uniform_block_count; i++) {
+    ub_stages[i] = shader_slot->uniform_blocks[i].stage;
+    ub_sizes[i] = shader_slot->uniform_blocks[i].size;
+    ub_bindings[i] = shader_slot->uniform_blocks[i].binding;
+  }
+
   js_gpu_make_pipeline(handle.idx, desc->shader.idx, desc->vertex_layout.stride,
                        desc->vertex_layout.attr_count, attr_formats,
-                       attr_offsets, attr_locations, desc->primitive,
-                       desc->depth_test, desc->depth_write);
+                       attr_offsets, attr_locations,
+                       shader_slot->uniform_block_count, ub_stages, ub_sizes,
+                       ub_bindings, desc->primitive, desc->depth_test,
+                       desc->depth_write);
   return handle;
 }
 
 void gpu_destroy_pipeline(GpuPipeline pip) {
-  if (!ha_is_valid(GpuPipelineSlot, &gpu_state.pipelines, pip)) return;
+  if (!ha_is_valid(GpuPipelineSlot, &gpu_state.pipelines, pip))
+    return;
   js_gpu_destroy_pipeline(pip.idx);
   ha_remove(GpuPipelineSlot, &gpu_state.pipelines, pip);
 }
 
 void gpu_begin_pass(GpuPassDesc *desc) {
+  // Reset uniform buffer and offsets for new frame
+  uniform_buffer_reset(&gpu_state.uniforms);
+  for (u32 i = 0; i < GPU_MAX_UNIFORMBLOCK_SLOTS; i++) {
+    gpu_state.uniform_offsets[i] = 0;
+  }
+
   js_gpu_begin_pass(desc->clear_color.r, desc->clear_color.g,
                     desc->clear_color.b, desc->clear_color.a,
                     desc->clear_depth);
 }
 
-void gpu_apply_pipeline(GpuPipeline pip) { js_gpu_apply_pipeline(pip.idx); }
+void gpu_apply_pipeline(GpuPipeline pip) {
+  gpu_state.current_pipeline = pip;
+  js_gpu_apply_pipeline(pip.idx);
+}
+
+void gpu_apply_uniforms(u32 slot, void *data, u32 size) {
+  assert(slot < GPU_MAX_UNIFORMBLOCK_SLOTS);
+  u32 offset = uniform_buffer_append(&gpu_state.uniforms, data, size);
+  gpu_state.uniform_offsets[slot] = offset;
+}
+
+void gpu_apply_bindings(GpuBindings *bindings) {
+  // Get current pipeline's shader to know uniform block count
+  assert(!handle_equals(gpu_state.current_pipeline, INVALID_HANDLE));
+  GpuPipelineSlot *pip_slot =
+      ha_get(GpuPipelineSlot, &gpu_state.pipelines, gpu_state.current_pipeline);
+  assert(pip_slot != NULL);
+
+  // We need the shader to get ub_count - but pipeline slot doesn't store
+  // shader. For now, pass all 4 slots (JS will use what it needs based on
+  // pipeline's bind group layout)
+
+  // Extract vertex buffer indices
+  u32 vb_indices[GPU_MAX_VERTEX_BUFFERS];
+  for (u32 i = 0; i < bindings->vertex_buffer_count; i++) {
+    vb_indices[i] = bindings->vertex_buffers[i].idx;
+  }
+
+  js_gpu_apply_bindings(bindings->vertex_buffer_count, vb_indices,
+                        bindings->index_buffer.idx, bindings->index_format,
+                        gpu_state.uniforms.gpu_buf.idx,
+                        GPU_MAX_UNIFORMBLOCK_SLOTS, gpu_state.uniform_offsets);
+}
 
 void gpu_draw(u32 vertex_count, u32 instance_count) {
   js_gpu_draw(vertex_count, instance_count);
@@ -150,63 +299,8 @@ void gpu_draw_indexed(u32 index_count, u32 instance_count) {
 
 void gpu_end_pass(void) { js_gpu_end_pass(); }
 
-void gpu_commit(void) { js_gpu_commit(); }
-
-// =============================================================================
-// Dynamic Uniform Buffer
-// =============================================================================
-
-void gpu_uniform_init(GpuUniformBuffer *ub, ArenaAllocator *parent_arena,
-                      u32 size) {
-  // Allocate staging buffer with 256-byte alignment
-  u8 *staging =
-      (u8 *)arena_alloc_align(parent_arena, size, GPU_UNIFORM_ALIGNMENT);
-
-  // Create sub-arena from aligned buffer
-  ub->arena = arena_from_buffer(staging, size);
-
-  // Create GPU buffer
-  ub->gpu_buf = gpu_make_buffer(&(GpuBufferDesc){
-      .type = GPU_BUFFER_UNIFORM,
-      .size = size,
-      .data = 0,
-  });
-}
-
-u32 gpu_uniform_alloc(GpuUniformBuffer *ub, void *data, u32 size) {
-  // Allocate with 256-byte alignment
-  void *dst = arena_alloc_align(&ub->arena, size, GPU_UNIFORM_ALIGNMENT);
-  assert(dst != NULL); // Buffer full - increase GPU_UNIFORM_BUFFER_SIZE
-
-  // Offset from aligned base is also aligned
-  u32 offset = (u32)((u8 *)dst - ub->arena.buffer);
-
-  // Copy data to staging buffer
-  memcpy(dst, data, size);
-
-  return offset;
-}
-
-void gpu_uniform_flush(GpuUniformBuffer *ub) {
-  if (ub->arena.offset > 0) {
-    // Single upload of all uniforms to GPU
-    js_gpu_upload_uniforms(ub->gpu_buf.idx, ub->arena.buffer,
-                           (u32)ub->arena.offset);
-  }
-}
-
-void gpu_uniform_reset(GpuUniformBuffer *ub) { arena_reset(&ub->arena); }
-
-void gpu_apply_bindings_dynamic(GpuBindings *bindings, GpuBuffer uniform_buf,
-                                u32 uniform_offset) {
-  // Extract vertex buffer indices into flat array
-  u32 vb_indices[GPU_MAX_VERTEX_BUFFERS];
-  for (u32 i = 0; i < bindings->vertex_buffer_count; i++) {
-    vb_indices[i] = bindings->vertex_buffers[i].idx;
-  }
-
-  js_gpu_apply_bindings_dynamic(bindings->vertex_buffer_count, vb_indices,
-                                bindings->index_buffer.idx,
-                                bindings->index_format, uniform_buf.idx,
-                                uniform_offset);
+void gpu_commit(void) {
+  // Flush all uniforms to GPU before submitting commands
+  uniform_buffer_flush(&gpu_state.uniforms);
+  js_gpu_commit();
 }

@@ -51,10 +51,6 @@ typedef struct {
   //todo: fix hardcoded single pipeline
   GpuPipeline pipeline;
 
-  // Dynamic uniform buffer
-  // todo: how many do we need? per pipeline? global?
-  GpuUniformBuffer uniforms;
-
   // Per-frame state
   // todo: move to camera uniforms, send to shader
   mat4 view;
@@ -70,20 +66,21 @@ typedef struct {
 global RendererState g_renderer;
 
 void renderer_init(ArenaAllocator *arena, u8 thread_count) {
-  // Initialize mesh storage
   Allocator alloc = make_arena_allocator(arena);
 
-  gpu_init(&alloc);
+  gpu_init(arena, GPU_UNIFORM_BUFFER_SIZE);
   g_renderer.meshes = ha_init(GpuMesh, &alloc, MAX_MESHES);
 
-  // Initialize dynamic uniform buffer
-  gpu_uniform_init(&g_renderer.uniforms, arena, GPU_UNIFORM_BUFFER_SIZE);
-
   //todo: shader and pipeline dynamic creation
-  // Create shader and pipeline (fixed vertex format: position + color)
+  // Create shader with uniform block description
   g_renderer.shader = gpu_make_shader(&(GpuShaderDesc){
       .vs_code = default_vs,
       .fs_code = default_fs,
+      .uniform_blocks =
+          {
+              {.stage = GPU_STAGE_VERTEX, .size = sizeof(mat4), .binding = 0},
+          },
+      .uniform_block_count = 1,
   });
 
   g_renderer.pipeline = gpu_make_pipeline(&(GpuPipelineDesc){
@@ -149,6 +146,7 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   debug_assert_msg(
       is_main_thread(),
       "renderer_begin_frame can only be called from the main thread");
+
   // Store view/proj for MVP computation
   memcpy(g_renderer.view, view, sizeof(mat4));
   memcpy(g_renderer.proj, proj, sizeof(mat4));
@@ -159,11 +157,7 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
     g_renderer.thread_cmds[i].len = 0;
   }
 
-  // Reset uniform buffer for new frame
-  gpu_uniform_reset(&g_renderer.uniforms);
-
-  // Begin GPU pass
-  // todo: ???? bad
+  // Begin GPU pass (also resets internal uniform buffer)
   gpu_begin_pass(&(GpuPassDesc){
       .clear_color = clear_color,
       .clear_depth = 1.0f,
@@ -186,7 +180,7 @@ void renderer_end_frame(void) {
   debug_assert_msg(
       is_main_thread(),
       "renderer_end_frame can only be called from the main thread");
-  // Apply pipeline once
+
   gpu_apply_pipeline(g_renderer.pipeline);
 
   // Process commands from all threads
@@ -197,7 +191,6 @@ void renderer_end_frame(void) {
       RenderCmd *cmd = &cmds->items[i];
 
       if (cmd->type == RENDER_CMD_DRAW_MESH) {
-        // Look up mesh from handle
         GpuMesh *mesh =
             ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh.mesh);
         if (!mesh)
@@ -207,20 +200,16 @@ void renderer_end_frame(void) {
         mat4 mvp;
         mat4_mul(g_renderer.view_proj, cmd->draw_mesh.model_matrix, mvp);
 
-        // Allocate uniform slot, get offset into staging buffer
-        // todo: what the fuck is this function for
-        u32 uniform_offset =
-            gpu_uniform_alloc(&g_renderer.uniforms, mvp, sizeof(mat4));
+        // Set uniform data for slot 0 (MVP matrix)
+        gpu_apply_uniforms(0, mvp, sizeof(mat4));
 
-        // Apply bindings with dynamic uniform offset
-        gpu_apply_bindings_dynamic(
-            &(GpuBindings){
-                .vertex_buffers = {mesh->vbuf},
-                .vertex_buffer_count = 1,
-                .index_buffer = mesh->ibuf,
-                .index_format = mesh->index_format,
-            },
-            g_renderer.uniforms.gpu_buf, uniform_offset);
+        // Apply vertex/index buffer bindings
+        gpu_apply_bindings(&(GpuBindings){
+            .vertex_buffers = {mesh->vbuf},
+            .vertex_buffer_count = 1,
+            .index_buffer = mesh->ibuf,
+            .index_format = mesh->index_format,
+        });
 
         gpu_draw_indexed(mesh->index_count, 1);
       }
@@ -228,9 +217,5 @@ void renderer_end_frame(void) {
   }
 
   gpu_end_pass();
-
-  // Single upload of all uniforms to GPU
-  gpu_uniform_flush(&g_renderer.uniforms);
-
-  gpu_commit();
+  gpu_commit();  // Flushes uniforms internally before submit
 }
