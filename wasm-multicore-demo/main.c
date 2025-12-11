@@ -25,7 +25,7 @@ typedef struct {
 global CubeData cubes[NUM_CUBES];
 
 global f32 g_time = 0.0f;
-global Mesh_Handle g_cube_mesh;
+global GpuMesh_Handle g_cube_mesh;
 
 global Barrier frame_barrier;
 global ThreadContext main_thread_ctx;
@@ -107,7 +107,6 @@ void init_cubes(void) {
 WASM_EXPORT(wasm_main)
 int wasm_main(void) {
   LOG_INFO("Initializing GPU...");
-  gpu_init();
 
   // Setup arena allocator from heap
   u8 *heap = os_get_heap_base();
@@ -141,7 +140,7 @@ int wasm_main(void) {
   tctx_set_current(&main_thread_ctx);
 
   // Initialize renderer (needs thread context for thread_count)
-  renderer_init(&arena);
+  renderer_init(&arena, NUM_WORKERS);
 
   // Upload cube mesh
   g_cube_mesh = renderer_upload_mesh(&(MeshDesc){

@@ -104,6 +104,16 @@ typedef struct {
     GpuBuffer gpu_buf;     // GPU-side buffer
 } GpuUniformBuffer;
 
+typedef struct {
+    GpuBuffer vbuf;
+    GpuBuffer ibuf;
+    u32 index_count;
+    GpuIndexFormat index_format;
+} GpuMesh;
+
+TYPED_HANDLE_DEFINE(GpuMesh);   // -> Mesh_Handle
+HANDLE_ARRAY_DEFINE(GpuMesh);   // -> HandleArray_Mesh
+
 // API Functions
 void gpu_init(void);
 

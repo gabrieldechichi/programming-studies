@@ -2,20 +2,7 @@
 #define H_RENDERER
 
 #include "gpu.h"
-
-// =============================================================================
-// Mesh - GPU-side vertex/index buffers
-// =============================================================================
-
-typedef struct {
-    GpuBuffer vbuf;
-    GpuBuffer ibuf;
-    u32 index_count;
-    GpuIndexFormat index_format;
-} Mesh;
-
-TYPED_HANDLE_DEFINE(Mesh);   // -> Mesh_Handle
-HANDLE_ARRAY_DEFINE(Mesh);   // -> HandleArray_Mesh
+#include "lib/memory.h"
 
 typedef struct {
     void *vertices;
@@ -26,12 +13,8 @@ typedef struct {
     GpuIndexFormat index_format;
 } MeshDesc;
 
-// =============================================================================
-// Render Commands - for multithreaded rendering
-// =============================================================================
-
 typedef struct {
-  Mesh_Handle mesh;
+  GpuMesh_Handle mesh;
   mat4 model_matrix;
 } RenderDrawMeshCmd;
 
@@ -48,23 +31,17 @@ typedef struct {
 
 arr_define(RenderCmd);
 
-// =============================================================================
-// Renderer API
-// =============================================================================
+void renderer_init(ArenaAllocator *arena, u8 thread_count);
 
-// Renderer initialization (call after gpu_init, sets up shared resources)
-void renderer_init(void *arena);
+GpuMesh_Handle renderer_upload_mesh(MeshDesc *desc);
 
-// Upload mesh to GPU, returns handle for drawing
-Mesh_Handle renderer_upload_mesh(MeshDesc *desc);
-
-// Called by main thread before parallel work begins
+// Main thread only: called before parallel work begins
 void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color);
 
-// Called by ANY thread - lock-free append to command queue
-void renderer_draw_mesh(Mesh_Handle mesh, mat4 model_matrix);
+// Thread safe, lock-free append to command queue
+void renderer_draw_mesh(GpuMesh_Handle mesh, mat4 model_matrix);
 
-// Called by main thread after parallel work completes
+// Main thread only: called after parallel work completes
 void renderer_end_frame(void);
 
 #endif

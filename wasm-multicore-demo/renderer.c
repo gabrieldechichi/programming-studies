@@ -35,54 +35,51 @@ static const char *default_fs =
     "    return color;\n"
     "}\n";
 
-// =============================================================================
-// Renderer State
-// =============================================================================
-
 #define MAX_RENDER_CMDS 1024
 #define MAX_MESHES 64
 
+//todo: fix hardcoded vertex format
 // Vertex layout constants (position vec3 + color vec4)
-#define VERTEX_STRIDE 28        // 7 floats * 4 bytes
-#define VERTEX_COLOR_OFFSET 12  // 3 floats * 4 bytes
+#define VERTEX_STRIDE 28       // 7 floats * 4 bytes
+#define VERTEX_COLOR_OFFSET 12 // 3 floats * 4 bytes
 
 typedef struct {
-  // Mesh storage
-  HandleArray_Mesh meshes;
+  HandleArray_GpuMesh meshes;
 
-  // GPU resources (shader/pipeline)
+  //todo: fix hardcoded single shader
   GpuShader shader;
+  //todo: fix hardcoded single pipeline
   GpuPipeline pipeline;
 
   // Dynamic uniform buffer
+  // todo: how many do we need? per pipeline? global?
   GpuUniformBuffer uniforms;
 
   // Per-frame state
+  // todo: move to camera uniforms, send to shader
   mat4 view;
   mat4 proj;
   mat4 view_proj;
 
   // Per-thread command queues (no atomics needed)
   u8 thread_count;
-  DynArray(RenderCmd) thread_cmds[32];  // MAX_THREADS
+  //todo: maybe pass thread_count on renderer_init?
+  DynArray(RenderCmd) thread_cmds[32]; // MAX_THREADS
 } RendererState;
 
 global RendererState g_renderer;
 
-// =============================================================================
-// Implementation
-// =============================================================================
-
-void renderer_init(void *arena_ptr) {
-  ArenaAllocator *arena = (ArenaAllocator *)arena_ptr;
+void renderer_init(ArenaAllocator *arena, u8 thread_count) {
+  gpu_init();
 
   // Initialize mesh storage
   Allocator alloc = make_arena_allocator(arena);
-  g_renderer.meshes = ha_init(Mesh, &alloc, MAX_MESHES);
+  g_renderer.meshes = ha_init(GpuMesh, &alloc, MAX_MESHES);
 
   // Initialize dynamic uniform buffer
   gpu_uniform_init(&g_renderer.uniforms, arena, GPU_UNIFORM_BUFFER_SIZE);
 
+  //todo: shader and pipeline dynamic creation
   // Create shader and pipeline (fixed vertex format: position + color)
   g_renderer.shader = gpu_make_shader(&(GpuShaderDesc){
       .vs_code = default_vs,
@@ -96,8 +93,9 @@ void renderer_init(void *arena_ptr) {
               .stride = VERTEX_STRIDE,
               .attrs =
                   {
-                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},                    // position
-                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 1},  // color
+                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0}, // position
+                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET,
+                       1}, // color
                   },
               .attr_count = 2,
           },
@@ -107,7 +105,7 @@ void renderer_init(void *arena_ptr) {
   });
 
   // Get thread count from current context
-  g_renderer.thread_count = tctx_current()->thread_count;
+  g_renderer.thread_count = thread_count;
   assert_msg(g_renderer.thread_count > 0, "Thread count can't be zero");
 
   // Allocate command arrays for each thread
@@ -121,7 +119,7 @@ void renderer_init(void *arena_ptr) {
   }
 }
 
-Mesh_Handle renderer_upload_mesh(MeshDesc *desc) {
+GpuMesh_Handle renderer_upload_mesh(MeshDesc *desc) {
   // Create GPU buffers
   GpuBuffer vbuf = gpu_make_buffer(&(GpuBufferDesc){
       .type = GPU_BUFFER_VERTEX,
@@ -136,7 +134,7 @@ Mesh_Handle renderer_upload_mesh(MeshDesc *desc) {
   });
 
   // Create mesh and add to storage
-  Mesh mesh = {
+  GpuMesh mesh = {
       .vbuf = vbuf,
       .ibuf = ibuf,
       .index_count = desc->index_count,
@@ -146,7 +144,11 @@ Mesh_Handle renderer_upload_mesh(MeshDesc *desc) {
   return ha_add(Mesh, &g_renderer.meshes, mesh);
 }
 
+// todo: separate call for camera uniforms
 void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
+  debug_assert_msg(
+      is_main_thread(),
+      "renderer_begin_frame can only be called from the main thread");
   // Store view/proj for MVP computation
   memcpy(g_renderer.view, view, sizeof(mat4));
   memcpy(g_renderer.proj, proj, sizeof(mat4));
@@ -161,13 +163,14 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   gpu_uniform_reset(&g_renderer.uniforms);
 
   // Begin GPU pass
+  // todo: ???? bad
   gpu_begin_pass(&(GpuPassDesc){
       .clear_color = clear_color,
       .clear_depth = 1.0f,
   });
 }
 
-void renderer_draw_mesh(Mesh_Handle mesh, mat4 model_matrix) {
+void renderer_draw_mesh(GpuMesh_Handle mesh, mat4 model_matrix) {
   RenderCmd cmd = {
       .type = RENDER_CMD_DRAW_MESH,
       .draw_mesh.mesh = mesh,
@@ -180,6 +183,9 @@ void renderer_draw_mesh(Mesh_Handle mesh, mat4 model_matrix) {
 }
 
 void renderer_end_frame(void) {
+  debug_assert_msg(
+      is_main_thread(),
+      "renderer_end_frame can only be called from the main thread");
   // Apply pipeline once
   gpu_apply_pipeline(g_renderer.pipeline);
 
@@ -192,15 +198,17 @@ void renderer_end_frame(void) {
 
       if (cmd->type == RENDER_CMD_DRAW_MESH) {
         // Look up mesh from handle
-        Mesh *mesh = ha_get(Mesh, &g_renderer.meshes, cmd->draw_mesh.mesh);
-        if (!mesh) continue;
+        GpuMesh *mesh =
+            ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh.mesh);
+        if (!mesh)
+          continue;
 
         // Compute MVP = view_proj * model
         mat4 mvp;
         mat4_mul(g_renderer.view_proj, cmd->draw_mesh.model_matrix, mvp);
 
         // Allocate uniform slot, get offset into staging buffer
-        //todo: what the fuck is this function for
+        // todo: what the fuck is this function for
         u32 uniform_offset =
             gpu_uniform_alloc(&g_renderer.uniforms, mvp, sizeof(mat4));
 
