@@ -302,8 +302,9 @@ typedef struct {
   mat4 proj;
   mat4 view_proj;
 
-  // Command queue (concurrent access by all threads)
-  RenderCmd_ConcurrentArray cmds;
+  // Per-thread command queues (no atomics needed)
+  u8 thread_count;
+  DynArray(RenderCmd) thread_cmds[32];  // MAX_THREADS
 } RendererState;
 
 global RendererState g_renderer;
@@ -349,12 +350,19 @@ void renderer_init(void *arena_ptr) {
       .depth_write = true,
   });
 
-  // Allocate command queue
-  g_renderer.cmds = (RenderCmd_ConcurrentArray){
-      .len_atomic = 0,
-      .cap = MAX_RENDER_CMDS,
-      .items = ARENA_ALLOC_ARRAY(arena, RenderCmd, MAX_RENDER_CMDS),
-  };
+  // Get thread count from current context
+  g_renderer.thread_count = tctx_current()->thread_count;
+  assert_msg(g_renderer.thread_count > 0, "Thread count can't be zero");
+
+  // Allocate command arrays for each thread
+  u32 cmds_per_thread = MAX_RENDER_CMDS / g_renderer.thread_count;
+  for (u8 i = 0; i < g_renderer.thread_count; i++) {
+    g_renderer.thread_cmds[i] = (RenderCmd_DynArray){
+        .len = 0,
+        .cap = cmds_per_thread,
+        .items = ARENA_ALLOC_ARRAY(arena, RenderCmd, cmds_per_thread),
+    };
+  }
 }
 
 void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
@@ -363,8 +371,10 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   memcpy(g_renderer.proj, proj, sizeof(mat4));
   mat4_mul(proj, view, g_renderer.view_proj);
 
-  // Reset command queue
-  g_renderer.cmds.len_atomic = 0;
+  // Reset all thread command arrays
+  for (u8 i = 0; i < g_renderer.thread_count; i++) {
+    g_renderer.thread_cmds[i].len = 0;
+  }
 
   // Reset uniform buffer for new frame
   gpu_uniform_reset(&g_renderer.uniforms);
@@ -381,37 +391,44 @@ void renderer_draw_mesh(mat4 model_matrix) {
       .type = RENDER_CMD_DRAW_MESH,
   };
   memcpy(cmd.draw_mesh.model_matrix, model_matrix, sizeof(mat4));
-  concurrent_arr_append(g_renderer.cmds, cmd);
+
+  // Append to current thread's command array (no atomic!)
+  u8 tid = tctx_current()->thread_idx;
+  arr_append(g_renderer.thread_cmds[tid], cmd);
 }
 
 void renderer_end_frame(void) {
   // Apply pipeline once
   gpu_apply_pipeline(g_renderer.pipeline);
 
-  // Process all commands
-  u32 cmd_count = concurrent_arr_len(g_renderer.cmds);
-  for (u32 i = 0; i < cmd_count; i++) {
-    RenderCmd *cmd = concurrent_arr_get_ptr(g_renderer.cmds, i);
+  // Process commands from all threads
+  for (u8 t = 0; t < g_renderer.thread_count; t++) {
+    DynArray(RenderCmd) *cmds = &g_renderer.thread_cmds[t];
 
-    if (cmd->type == RENDER_CMD_DRAW_MESH) {
-      // Compute MVP = view_proj * model
-      mat4 mvp;
-      mat4_mul(g_renderer.view_proj, cmd->draw_mesh.model_matrix, mvp);
+    for (u32 i = 0; i < cmds->len; i++) {
+      RenderCmd *cmd = &cmds->items[i];
 
-      // Allocate uniform slot, get offset into staging buffer
-      u32 uniform_offset = gpu_uniform_alloc(&g_renderer.uniforms, mvp, sizeof(mat4));
+      if (cmd->type == RENDER_CMD_DRAW_MESH) {
+        // Compute MVP = view_proj * model
+        mat4 mvp;
+        mat4_mul(g_renderer.view_proj, cmd->draw_mesh.model_matrix, mvp);
 
-      // Apply bindings with dynamic uniform offset
-      gpu_apply_bindings_dynamic(
-          &(GpuBindings){
-              .vertex_buffers = {g_renderer.vbuf},
-              .vertex_buffer_count = 1,
-              .index_buffer = g_renderer.ibuf,
-              .index_format = GPU_INDEX_FORMAT_U16,
-          },
-          g_renderer.uniforms.gpu_buf, uniform_offset);
+        // Allocate uniform slot, get offset into staging buffer
+        u32 uniform_offset =
+            gpu_uniform_alloc(&g_renderer.uniforms, mvp, sizeof(mat4));
 
-      gpu_draw_indexed(36, 1);
+        // Apply bindings with dynamic uniform offset
+        gpu_apply_bindings_dynamic(
+            &(GpuBindings){
+                .vertex_buffers = {g_renderer.vbuf},
+                .vertex_buffer_count = 1,
+                .index_buffer = g_renderer.ibuf,
+                .index_format = GPU_INDEX_FORMAT_U16,
+            },
+            g_renderer.uniforms.gpu_buf, uniform_offset);
+
+        gpu_draw_indexed(36, 1);
+      }
     }
   }
 

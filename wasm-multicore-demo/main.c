@@ -111,8 +111,6 @@ int wasm_main(void) {
   u8 *heap = os_get_heap_base();
   ArenaAllocator arena = arena_from_buffer(heap, MB(16));
 
-  renderer_init(&arena);
-
   // Initialize cube data
   init_cubes();
 
@@ -139,6 +137,9 @@ int wasm_main(void) {
           arena_from_buffer(ARENA_ALLOC_ARRAY(&arena, u8, KB(64)), KB(64)),
   };
   tctx_set_current(&main_thread_ctx);
+
+  // Initialize renderer (needs thread context for thread_count)
+  renderer_init(&arena);
 
   // Spawn worker threads (indices 1..N-1)
   for (u8 i = 1; i < NUM_WORKERS; i++) {

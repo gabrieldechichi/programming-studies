@@ -151,7 +151,6 @@ typedef struct {
 } RenderCmd;
 
 arr_define(RenderCmd);
-arr_define_concurrent(RenderCmd);
 
 // Renderer initialization (call after gpu_init, sets up shared resources)
 void renderer_init(void *arena);
