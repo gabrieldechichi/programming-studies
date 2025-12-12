@@ -16,17 +16,24 @@
 #include "cube.h"
 #include "renderer.h"
 
-#define NUM_CUBES 1024
+#define NUM_CUBES 100000
 
-static const char *default_vs =
+// Instanced vertex shader - reads model matrices from storage buffer
+static const char *instanced_vs =
     "struct GlobalUniforms {\n"
     "    model: mat4x4<f32>,\n"
     "    view: mat4x4<f32>,\n"
     "    proj: mat4x4<f32>,\n"
     "    view_proj: mat4x4<f32>,\n"
     "};\n"
+    "\n"
+    "struct InstanceData {\n"
+    "    model: mat4x4<f32>,\n"
+    "};\n"
+    "\n"
     "@group(0) @binding(0) var<uniform> global: GlobalUniforms;\n"
     "@group(0) @binding(1) var<uniform> color: vec4<f32>;\n"
+    "@group(1) @binding(0) var<storage, read> instances: array<InstanceData>;\n"
     "\n"
     "struct VertexInput {\n"
     "    @location(0) position: vec3<f32>,\n"
@@ -40,9 +47,10 @@ static const char *default_vs =
     "};\n"
     "\n"
     "@vertex\n"
-    "fn vs_main(in: VertexInput) -> VertexOutput {\n"
+    "fn vs_main(@builtin(instance_index) instance_idx: u32, in: VertexInput) -> VertexOutput {\n"
     "    var out: VertexOutput;\n"
-    "    let mvp = global.view_proj * global.model;\n"
+    "    let model = instances[instance_idx].model;\n"
+    "    let mvp = global.view_proj * model;\n"
     "    out.position = mvp * vec4<f32>(in.position, 1.0);\n"
     "    out.vertex_color = vec4(1.0);\n"
     "    out.material_color = color;\n"
@@ -66,6 +74,8 @@ global CubeData cubes[NUM_CUBES];
 global f32 g_time = 0.0f;
 global GpuMesh_Handle g_cube_mesh;
 global Material_Handle g_cube_material;
+global InstanceBuffer_Handle g_instance_buffer;
+global mat4 g_instance_data[NUM_CUBES];  // CPU-side instance matrices
 
 global Barrier frame_barrier;
 global ThreadContext main_thread_ctx;
@@ -85,23 +95,20 @@ void app_update_and_render(void) {
   for (u64 i = range.min; i < range.max; i++) {
     CubeData *cube = &cubes[i];
 
-    // Build model matrix for this cube
-    mat4 model;
-    mat4_identity(model);
+    // Build model matrix for this cube directly into instance data array
+    mat4 *model = &g_instance_data[i];
+    mat4_identity(*model);
 
     // Translate to cube position
-    mat4_translate(model, cube->position);
+    mat4_translate(*model, cube->position);
 
     // Rotate based on time and per-cube rotation rate
     f32 angle = g_time * cube->rotation_rate;
-    mat4_rotate(model, angle, VEC3(0, 1, 0));
-    mat4_rotate(model, angle * 0.7f, VEC3(1, 0, 0));
+    mat4_rotate(*model, angle, VEC3(0, 1, 0));
+    mat4_rotate(*model, angle * 0.7f, VEC3(1, 0, 0));
 
     // Scale down cubes a bit
-    mat4_scale_uni(model, 0.3f);
-
-    // Submit draw command (lock-free)
-    renderer_draw_mesh(g_cube_mesh, g_cube_material, model);
+    mat4_scale_uni(*model, 0.3f);
   }
 }
 
@@ -192,10 +199,17 @@ int wasm_main(void) {
       .index_format = GPU_INDEX_FORMAT_U16,
   });
 
+  // Create instance buffer for all cube model matrices
+  g_instance_buffer = renderer_create_instance_buffer(&(InstanceBufferDesc){
+      .stride = sizeof(mat4),
+      .max_instances = NUM_CUBES,
+  });
+
+  // Create instanced material with storage buffer for instance data
   g_cube_material = renderer_create_material(&(MaterialDesc){
       .shader_desc =
           (GpuShaderDesc){
-              .vs_code = default_vs,
+              .vs_code = instanced_vs,
               .fs_code = default_fs,
               .uniform_blocks =
                   {
@@ -207,6 +221,11 @@ int wasm_main(void) {
                        .binding = 1},
                   },
               .uniform_block_count = 2,
+              .storage_buffers =
+                  {
+                      {.stage = GPU_STAGE_VERTEX, .binding = 0, .readonly = true},
+                  },
+              .storage_buffer_count = 1,
           },
       .vertex_layout =
           {
@@ -268,14 +287,20 @@ void wasm_frame(void) {
   // Sync with workers - start parallel work
   lane_sync();
 
-  // All threads process their cube range
+  // All threads compute instance matrices in parallel
   app_update_and_render();
 
   // Sync with workers - wait for all to finish
   lane_sync();
 
-  // End frame (main thread processes cmd queue, issues GPU calls)
+  // Main thread: upload instance data and issue single instanced draw call
   if (is_main_thread()) {
+    // Upload all instance matrices to GPU
+    renderer_update_instance_buffer(g_instance_buffer, g_instance_data, NUM_CUBES);
+
+    // Single draw call for all cubes
+    renderer_draw_mesh_instanced(g_cube_mesh, g_cube_material, g_instance_buffer);
+
     renderer_end_frame();
   }
 }
