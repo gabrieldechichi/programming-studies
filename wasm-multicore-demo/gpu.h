@@ -12,6 +12,7 @@
 //todo: query at runtime
 #define GPU_UNIFORM_ALIGNMENT 256  // WebGPU minUniformBufferOffsetAlignment
 #define GPU_MAX_UNIFORMBLOCK_SLOTS 4
+#define GPU_MAX_STORAGE_BUFFER_SLOTS 4
 
 // Resource handles
 typedef Handle GpuBuffer;
@@ -35,15 +36,25 @@ typedef struct {
     u32 binding;           // WGSL @binding(n)
 } GpuUniformBlockDesc;
 
+// Storage buffer description (part of shader)
+typedef struct {
+    GpuShaderStage stage;  // which shader stage(s) can access this
+    u32 binding;           // WGSL @binding(n) in group(1)
+    b32 readonly;          // true for read-only storage buffers
+} GpuStorageBufferDesc;
+
 // Resource slot types (stored in handle arrays, actual GPU data lives in JS)
 typedef struct { u8 _unused; } GpuBufferSlot;
 typedef struct {
     GpuUniformBlockDesc uniform_blocks[GPU_MAX_UNIFORMBLOCK_SLOTS];
     u32 uniform_block_count;
+    GpuStorageBufferDesc storage_buffers[GPU_MAX_STORAGE_BUFFER_SLOTS];
+    u32 storage_buffer_count;
 } GpuShaderSlot;
 typedef struct {
     GpuShader shader;
-    u32 uniform_block_count;  // cached from shader
+    u32 uniform_block_count;   // cached from shader
+    u32 storage_buffer_count;  // cached from shader
 } GpuPipelineSlot;
 
 HANDLE_ARRAY_DEFINE(GpuBufferSlot);
@@ -55,6 +66,7 @@ typedef enum {
     GPU_BUFFER_VERTEX = 0,
     GPU_BUFFER_INDEX = 1,
     GPU_BUFFER_UNIFORM = 2,
+    GPU_BUFFER_STORAGE = 3,
 } GpuBufferType;
 
 typedef enum {
@@ -85,6 +97,8 @@ typedef struct {
     const char *fs_code;  // WGSL source
     GpuUniformBlockDesc uniform_blocks[GPU_MAX_UNIFORMBLOCK_SLOTS];
     u32 uniform_block_count;
+    GpuStorageBufferDesc storage_buffers[GPU_MAX_STORAGE_BUFFER_SLOTS];
+    u32 storage_buffer_count;
 } GpuShaderDesc;
 
 typedef struct {
@@ -117,6 +131,8 @@ typedef struct {
     u32 vertex_buffer_count;
     GpuBuffer index_buffer;
     GpuIndexFormat index_format;
+    GpuBuffer storage_buffers[GPU_MAX_STORAGE_BUFFER_SLOTS];
+    u32 storage_buffer_count;
 } GpuBindings;
 
 //todo: unions?

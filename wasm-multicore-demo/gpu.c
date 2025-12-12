@@ -46,13 +46,14 @@ void js_gpu_make_shader(u32 idx, const char *vs_code, u32 vs_len,
 WASM_IMPORT(js_gpu_destroy_shader)
 void js_gpu_destroy_shader(u32 idx);
 
-// Pipeline creation now includes uniform block layout info
+// Pipeline creation with flat arrays for all bind group entries
 WASM_IMPORT(js_gpu_make_pipeline)
 void js_gpu_make_pipeline(u32 idx, u32 shader_idx, u32 stride, u32 attr_count,
                           u32 *attr_formats, u32 *attr_offsets,
-                          u32 *attr_locations, u32 ub_count, u32 *ub_stages,
-                          u32 *ub_sizes, u32 *ub_bindings, u32 primitive,
-                          u32 depth_test, u32 depth_write);
+                          u32 *attr_locations,
+                          u32 ub_count, u32 *ub_stages, u32 *ub_sizes, u32 *ub_bindings,
+                          u32 sb_count, u32 *sb_stages, u32 *sb_bindings, u32 *sb_readonly,
+                          u32 primitive, u32 depth_test, u32 depth_write);
 
 WASM_IMPORT(js_gpu_destroy_pipeline)
 void js_gpu_destroy_pipeline(u32 idx);
@@ -78,11 +79,11 @@ void js_gpu_commit(void);
 WASM_IMPORT(js_gpu_upload_uniforms)
 void js_gpu_upload_uniforms(u32 buf_idx, void *data, u32 size);
 
-// Bindings now include uniform buffer and all slot offsets
+// Bindings: vertex buffers, index buffer, uniforms, and storage buffers
 WASM_IMPORT(js_gpu_apply_bindings)
 void js_gpu_apply_bindings(u32 vb_count, u32 *vb_indices, u32 ib_idx,
                            u32 ib_format, u32 uniform_buf_idx, u32 ub_count,
-                           u32 *ub_offsets);
+                           u32 *ub_offsets, u32 sb_count, u32 *sb_indices);
 
 // =============================================================================
 // Global State
@@ -176,11 +177,15 @@ void gpu_destroy_buffer(GpuBuffer buf) {
 }
 
 GpuShader gpu_make_shader(GpuShaderDesc *desc) {
-  // Store uniform block info in the slot
+  // Store uniform block and storage buffer info in the slot
   GpuShaderSlot slot = {0};
   slot.uniform_block_count = desc->uniform_block_count;
   for (u32 i = 0; i < desc->uniform_block_count; i++) {
     slot.uniform_blocks[i] = desc->uniform_blocks[i];
+  }
+  slot.storage_buffer_count = desc->storage_buffer_count;
+  for (u32 i = 0; i < desc->storage_buffer_count; i++) {
+    slot.storage_buffers[i] = desc->storage_buffers[i];
   }
 
   GpuShader handle = ha_add(GpuShaderSlot, &gpu_state.shaders, slot);
@@ -199,15 +204,16 @@ void gpu_destroy_shader(GpuShader shd) {
 }
 
 GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
-  // Get shader's uniform block info
+  // Get shader's uniform block and storage buffer info
   GpuShaderSlot *shader_slot =
       ha_get(GpuShaderSlot, &gpu_state.shaders, desc->shader);
   assert(shader_slot != NULL);
 
-  // Create pipeline slot with shader reference and cached UB count
+  // Create pipeline slot with shader reference and cached counts
   GpuPipelineSlot slot = {
       .shader = desc->shader,
       .uniform_block_count = shader_slot->uniform_block_count,
+      .storage_buffer_count = shader_slot->storage_buffer_count,
   };
   GpuPipeline handle = ha_add(GpuPipelineSlot, &gpu_state.pipelines, slot);
 
@@ -231,11 +237,24 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
     ub_bindings[i] = shader_slot->uniform_blocks[i].binding;
   }
 
+  // Prepare storage buffer arrays
+  u32 sb_stages[GPU_MAX_STORAGE_BUFFER_SLOTS];
+  u32 sb_bindings[GPU_MAX_STORAGE_BUFFER_SLOTS];
+  u32 sb_readonly[GPU_MAX_STORAGE_BUFFER_SLOTS];
+  for (u32 i = 0; i < shader_slot->storage_buffer_count; i++) {
+    sb_stages[i] = shader_slot->storage_buffers[i].stage;
+    sb_bindings[i] = shader_slot->storage_buffers[i].binding;
+    sb_readonly[i] = shader_slot->storage_buffers[i].readonly;
+  }
+
   js_gpu_make_pipeline(handle.idx, desc->shader.idx, desc->vertex_layout.stride,
                        desc->vertex_layout.attr_count, attr_formats,
                        attr_offsets, attr_locations,
                        shader_slot->uniform_block_count, ub_stages, ub_sizes,
-                       ub_bindings, desc->primitive, desc->depth_test,
+                       ub_bindings,
+                       shader_slot->storage_buffer_count, sb_stages,
+                       sb_bindings, sb_readonly,
+                       desc->primitive, desc->depth_test,
                        desc->depth_write);
   return handle;
 }
@@ -282,10 +301,17 @@ void gpu_apply_bindings(GpuBindings *bindings) {
     vb_indices[i] = bindings->vertex_buffers[i].idx;
   }
 
+  // Extract storage buffer indices
+  u32 sb_indices[GPU_MAX_STORAGE_BUFFER_SLOTS];
+  for (u32 i = 0; i < bindings->storage_buffer_count; i++) {
+    sb_indices[i] = bindings->storage_buffers[i].idx;
+  }
+
   js_gpu_apply_bindings(bindings->vertex_buffer_count, vb_indices,
                         bindings->index_buffer.idx, bindings->index_format,
                         gpu_state.uniforms.gpu_buf.idx,
-                        pip_slot->uniform_block_count, gpu_state.uniform_offsets);
+                        pip_slot->uniform_block_count, gpu_state.uniform_offsets,
+                        bindings->storage_buffer_count, sb_indices);
 }
 
 void gpu_draw(u32 vertex_count, u32 instance_count) {

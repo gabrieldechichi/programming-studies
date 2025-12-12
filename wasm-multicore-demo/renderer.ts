@@ -14,10 +14,15 @@ export interface Renderer {
 const buffers: (GPUBuffer | null)[] = [];
 const shaders: (GPUShaderModule | null)[] = [];
 const pipelines: (GPURenderPipeline | null)[] = [];
-const pipelineBindGroupLayouts: (GPUBindGroupLayout | null)[] = [];
+
+// Per-pipeline bind group layouts: [0] = uniforms (group 0), [1] = storage (group 1)
+const pipelineBindGroupLayouts: [GPUBindGroupLayout | null, GPUBindGroupLayout | null][] = [];
 
 // Per-pipeline uniform block info (sizes needed for bind group creation)
 const pipelineUbInfo: { count: number; sizes: number[] }[] = [];
+
+// Per-pipeline storage buffer info (count needed for bind group creation)
+const pipelineSbInfo: { count: number }[] = [];
 
 // Per-pipeline bind groups for dynamic uniforms (created once, reused with different offsets)
 const pipelineUniformBindGroups: Map<string, GPUBindGroup> = new Map();
@@ -109,9 +114,11 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         js_gpu_make_buffer: (idx: number, type: number, size: number, dataPtr: number): void => {
             if (!renderer) return;
 
+            // type: 0=vertex, 1=index, 2=uniform, 3=storage
             const usage = type === 0 ? GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
                         : type === 1 ? GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
-                        : GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+                        : type === 2 ? GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                        : GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
 
             const buffer = renderer.device.createBuffer({
                 size,
@@ -181,6 +188,10 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             ubStagesPtr: number,
             ubSizesPtr: number,
             ubBindingsPtr: number,
+            sbCount: number,
+            sbStagesPtr: number,
+            sbBindingsPtr: number,
+            sbReadonlyPtr: number,
             primitive: number,
             depthTest: number,
             depthWrite: number
@@ -216,10 +227,18 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             }
             pipelineUbInfo[idx] = { count: ubCount, sizes };
 
-            // Create bind group layout entries from UB descriptions
-            const layoutEntries: GPUBindGroupLayoutEntry[] = [];
+            // Read storage buffer arrays from memory
+            const sbStages = new Uint32Array(memory.buffer, sbStagesPtr, sbCount);
+            const sbBindings = new Uint32Array(memory.buffer, sbBindingsPtr, sbCount);
+            const sbReadonly = new Uint32Array(memory.buffer, sbReadonlyPtr, sbCount);
+
+            // Store SB info for bind group creation later
+            pipelineSbInfo[idx] = { count: sbCount };
+
+            // Create bind group layout for uniforms (group 0)
+            const uniformLayoutEntries: GPUBindGroupLayoutEntry[] = [];
             for (let i = 0; i < ubCount; i++) {
-                layoutEntries.push({
+                uniformLayoutEntries.push({
                     binding: ubBindings[i],
                     visibility: stageToGPU(ubStages[i]),
                     buffer: {
@@ -229,12 +248,40 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 });
             }
 
-            const bindGroupLayout = renderer.device.createBindGroupLayout({
-                entries: layoutEntries,
-            });
+            const uniformBindGroupLayout = ubCount > 0
+                ? renderer.device.createBindGroupLayout({ entries: uniformLayoutEntries })
+                : null;
+
+            // Create bind group layout for storage buffers (group 1)
+            const storageLayoutEntries: GPUBindGroupLayoutEntry[] = [];
+            for (let i = 0; i < sbCount; i++) {
+                storageLayoutEntries.push({
+                    binding: sbBindings[i],
+                    visibility: stageToGPU(sbStages[i]),
+                    buffer: {
+                        type: sbReadonly[i] ? "read-only-storage" : "storage",
+                    },
+                });
+            }
+
+            const storageBindGroupLayout = sbCount > 0
+                ? renderer.device.createBindGroupLayout({ entries: storageLayoutEntries })
+                : null;
+
+            // Build pipeline layout with available bind group layouts
+            const bindGroupLayouts: GPUBindGroupLayout[] = [];
+            if (uniformBindGroupLayout) bindGroupLayouts.push(uniformBindGroupLayout);
+            if (storageBindGroupLayout) {
+                // If we have storage but no uniforms, we need a placeholder for group 0
+                if (!uniformBindGroupLayout) {
+                    const emptyLayout = renderer.device.createBindGroupLayout({ entries: [] });
+                    bindGroupLayouts.push(emptyLayout);
+                }
+                bindGroupLayouts.push(storageBindGroupLayout);
+            }
 
             const pipelineLayout = renderer.device.createPipelineLayout({
-                bindGroupLayouts: [bindGroupLayout],
+                bindGroupLayouts: bindGroupLayouts.length > 0 ? bindGroupLayouts : undefined,
             });
 
             const pipeline = renderer.device.createRenderPipeline({
@@ -268,13 +315,14 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             });
 
             pipelines[idx] = pipeline;
-            pipelineBindGroupLayouts[idx] = bindGroupLayout;
+            pipelineBindGroupLayouts[idx] = [uniformBindGroupLayout, storageBindGroupLayout];
         },
 
         js_gpu_destroy_pipeline: (handleIdx: number) => {
             pipelines[handleIdx] = null;
-            pipelineBindGroupLayouts[handleIdx] = null;
+            pipelineBindGroupLayouts[handleIdx] = [null, null];
             delete pipelineUbInfo[handleIdx];
+            delete pipelineSbInfo[handleIdx];
         },
 
         js_gpu_begin_pass: (r: number, g: number, b: number, a: number, depth: number) => {
@@ -354,7 +402,9 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             ibFormat: number,
             uniformBufIdx: number,
             ubCount: number,
-            ubOffsetsPtr: number
+            ubOffsetsPtr: number,
+            sbCount: number,
+            sbIndicesPtr: number
         ) => {
             if (!currentPass || !renderer) return;
 
@@ -375,15 +425,17 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 currentPass.setIndexBuffer(indexBuffer, INDEX_FORMATS[ibFormat]);
             }
 
-            // Get or create bind group for this pipeline + uniform buffer combo
+            // Get or create bind groups for this pipeline
             if (currentPipelineIdx >= 0) {
-                const bindGroupLayout = pipelineBindGroupLayouts[currentPipelineIdx];
+                const layouts = pipelineBindGroupLayouts[currentPipelineIdx];
                 const uniformBuffer = buffers[uniformBufIdx];
                 const ubInfo = pipelineUbInfo[currentPipelineIdx];
+                const sbInfo = pipelineSbInfo[currentPipelineIdx];
 
-                if (bindGroupLayout && uniformBuffer && ubInfo && ubInfo.count > 0) {
+                // Bind group 0: Uniforms
+                if (layouts && layouts[0] && uniformBuffer && ubInfo && ubInfo.count > 0) {
                     // Create bind group key
-                    const key = `${currentPipelineIdx}-${uniformBufIdx}`;
+                    const key = `ub-${currentPipelineIdx}-${uniformBufIdx}`;
 
                     // Get or create bind group (created once per pipeline+buffer combo)
                     let bindGroup = pipelineUniformBindGroups.get(key);
@@ -402,7 +454,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                         }
 
                         bindGroup = renderer.device.createBindGroup({
-                            layout: bindGroupLayout,
+                            layout: layouts[0],
                             entries,
                         });
                         pipelineUniformBindGroups.set(key, bindGroup);
@@ -417,6 +469,44 @@ export function createGpuImports(memory: WebAssembly.Memory) {
 
                     // Set bind group with dynamic offsets
                     currentPass.setBindGroup(0, bindGroup, dynamicOffsets);
+                }
+
+                // Bind group 1: Storage buffers
+                if (layouts && layouts[1] && sbInfo && sbInfo.count > 0 && sbCount > 0) {
+                    // Read storage buffer indices from memory
+                    const sbIndices = new Uint32Array(memory.buffer, sbIndicesPtr, sbCount);
+
+                    // Create bind group key from storage buffer indices
+                    const key = `sb-${currentPipelineIdx}-${Array.from(sbIndices).join("-")}`;
+
+                    // Get or create bind group
+                    let bindGroup = pipelineUniformBindGroups.get(key);
+                    if (!bindGroup) {
+                        const entries: GPUBindGroupEntry[] = [];
+                        for (let i = 0; i < sbCount; i++) {
+                            const storageBuffer = buffers[sbIndices[i]];
+                            if (storageBuffer) {
+                                entries.push({
+                                    binding: i,
+                                    resource: {
+                                        buffer: storageBuffer,
+                                    },
+                                });
+                            }
+                        }
+
+                        if (entries.length > 0) {
+                            bindGroup = renderer.device.createBindGroup({
+                                layout: layouts[1],
+                                entries,
+                            });
+                            pipelineUniformBindGroups.set(key, bindGroup);
+                        }
+                    }
+
+                    if (bindGroup) {
+                        currentPass.setBindGroup(1, bindGroup);
+                    }
                 }
             }
         },
