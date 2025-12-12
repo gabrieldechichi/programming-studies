@@ -5,6 +5,14 @@
 #include "lib/handle.h"
 #include "lib/memory.h"
 
+// Standard uniforms at binding 0 for all shaders
+typedef struct {
+  mat4 model;
+  mat4 view;
+  mat4 proj;
+  mat4 view_proj;
+} GlobalUniforms;
+
 typedef struct {
   void *vertices;
   u32 vertex_size; // Total bytes of vertex data

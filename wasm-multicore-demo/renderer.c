@@ -194,12 +194,15 @@ void renderer_end_frame(void) {
           last_applied_material = material;
         }
 
-        // Compute MVP = view_proj * model
-        mat4 mvp;
-        mat4_mul(g_renderer.view_proj, cmd->draw_mesh.model_matrix, mvp);
+        // Build GlobalUniforms for this draw
+        GlobalUniforms globals;
+        memcpy(globals.model, cmd->draw_mesh.model_matrix, sizeof(mat4));
+        memcpy(globals.view, g_renderer.view, sizeof(mat4));
+        memcpy(globals.proj, g_renderer.proj, sizeof(mat4));
+        memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
 
-        // Set uniform data for slot 0 (MVP matrix)
-        gpu_apply_uniforms(0, mvp, sizeof(mat4));
+        // Set uniform data for slot 0 (GlobalUniforms)
+        gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 
         // Apply material properties
         for (u8 p = 0; p < material->property_count; p++) {

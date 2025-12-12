@@ -19,7 +19,13 @@
 #define NUM_CUBES 1024
 
 static const char *default_vs =
-    "@group(0) @binding(0) var<uniform> mvp: mat4x4<f32>;\n"
+    "struct GlobalUniforms {\n"
+    "    model: mat4x4<f32>,\n"
+    "    view: mat4x4<f32>,\n"
+    "    proj: mat4x4<f32>,\n"
+    "    view_proj: mat4x4<f32>,\n"
+    "};\n"
+    "@group(0) @binding(0) var<uniform> global: GlobalUniforms;\n"
     "@group(0) @binding(1) var<uniform> color: vec4<f32>;\n"
     "\n"
     "struct VertexInput {\n"
@@ -36,6 +42,7 @@ static const char *default_vs =
     "@vertex\n"
     "fn vs_main(in: VertexInput) -> VertexOutput {\n"
     "    var out: VertexOutput;\n"
+    "    let mvp = global.view_proj * global.model;\n"
     "    out.position = mvp * vec4<f32>(in.position, 1.0);\n"
     "    out.vertex_color = vec4(1.0);\n"
     "    out.material_color = color;\n"
@@ -83,15 +90,15 @@ void app_update_and_render(void) {
     mat4_identity(model);
 
     // Translate to cube position
-    glm_translate(model, cube->position);
+    mat4_translate(model, cube->position);
 
     // Rotate based on time and per-cube rotation rate
     f32 angle = g_time * cube->rotation_rate;
-    glm_rotate(model, angle, (vec3){0, 1, 0});
-    glm_rotate(model, angle * 0.7f, (vec3){1, 0, 0});
+    mat4_rotate(model, angle, VEC3(0, 1, 0));
+    mat4_rotate(model, angle * 0.7f, VEC3(1, 0, 0));
 
     // Scale down cubes a bit
-    glm_scale_uni(model, 0.3f);
+    mat4_scale_uni(model, 0.3f);
 
     // Submit draw command (lock-free)
     renderer_draw_mesh(g_cube_mesh, g_cube_material, model);
@@ -193,7 +200,7 @@ int wasm_main(void) {
               .uniform_blocks =
                   {
                       {.stage = GPU_STAGE_VERTEX,
-                       .size = sizeof(mat4),
+                       .size = sizeof(GlobalUniforms),
                        .binding = 0},
                       {.stage = GPU_STAGE_VERTEX,
                        .size = sizeof(vec4),
@@ -250,8 +257,8 @@ void wasm_frame(void) {
 
   // Setup view and projection (main thread only, before barrier)
   mat4 view, proj;
-  glm_lookat((vec3){0, 15, 25}, (vec3){0, 0, 0}, (vec3){0, 1, 0}, view);
-  glm_perspective(RAD(45.0f), 16.0f / 9.0f, 0.1f, 100.0f, proj);
+  mat4_lookat(VEC3(0, 15, 25), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
+  mat4_perspective(RAD(45.0f), 16.0f / 9.0f, 0.1f, 100.0f, proj);
 
   // Begin frame (clears, sets view/proj, resets cmd queue)
   if (is_main_thread()) {

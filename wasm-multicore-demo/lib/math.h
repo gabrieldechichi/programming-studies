@@ -161,9 +161,25 @@ force_inline void quat_add_shortest_path(quaternion a, quaternion b,
 
 force_inline void mat4_identity(mat4 mat) { glm_mat4_identity(mat); }
 force_inline void mat4_mul(mat4 m1, mat4 m2, mat4 dest) {
-
   glm_mat4_mul(m1, m2, dest);
 }
+
+force_inline void mat4_lookat(vec3 eye, vec3 center, vec3 up, _out_ mat4 dest) {
+  glm_lookat(eye, center, up, dest);
+}
+
+force_inline void mat4_perspective(f32 fovy, f32 aspect, f32 near, f32 far,
+                                   _out_ mat4 dest) {
+  glm_perspective(fovy, aspect, near, far, dest);
+}
+
+force_inline void mat4_translate(mat4 mat, vec3 v) { glm_translate(mat, v); }
+
+force_inline void mat4_rotate(mat4 mat, f32 angle, vec3 axis) {
+  glm_rotate(mat, angle, axis);
+}
+
+force_inline void mat4_scale_uni(mat4 mat, f32 s) { glm_scale_uni(mat, s); }
 
 force_inline void mat4_get_translation(mat4 mat, _out_ vec3 translation) {
   // todo: simd?
