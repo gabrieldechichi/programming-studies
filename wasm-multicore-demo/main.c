@@ -19,33 +19,34 @@
 #define NUM_CUBES 1024
 
 static const char *default_vs =
-    "struct Uniforms {\n"
-    "    mvp: mat4x4<f32>,\n"
-    "};\n"
-    "@group(0) @binding(0) var<uniform> uniforms: Uniforms;\n"
+    "@group(0) @binding(0) var<uniform> mvp: mat4x4<f32>;\n"
+    "@group(0) @binding(1) var<uniform> color: vec4<f32>;\n"
     "\n"
     "struct VertexInput {\n"
     "    @location(0) position: vec3<f32>,\n"
-    "    @location(1) color: vec4<f32>,\n"
+    "    @location(1) vertex_color: vec4<f32>,\n"
     "};\n"
     "\n"
     "struct VertexOutput {\n"
     "    @builtin(position) position: vec4<f32>,\n"
-    "    @location(0) color: vec4<f32>,\n"
+    "    @location(0) vertex_color: vec4<f32>,\n"
+    "    @location(1) material_color: vec4<f32>,\n"
     "};\n"
     "\n"
     "@vertex\n"
     "fn vs_main(in: VertexInput) -> VertexOutput {\n"
     "    var out: VertexOutput;\n"
-    "    out.position = uniforms.mvp * vec4<f32>(in.position, 1.0);\n"
-    "    out.color = in.color;\n"
+    "    out.position = mvp * vec4<f32>(in.position, 1.0);\n"
+    "    out.vertex_color = vec4(1.0);\n"
+    "    out.material_color = color;\n"
     "    return out;\n"
     "}\n";
 
 static const char *default_fs =
     "@fragment\n"
-    "fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {\n"
-    "    return color;\n"
+    "fn fs_main(@location(0) vertex_color: vec4<f32>, @location(1) material_color: vec4<f32>) "
+    "-> @location(0) vec4<f32> {\n"
+    "    return vertex_color * material_color;\n"
     "}\n";
 
 typedef struct {
@@ -194,8 +195,11 @@ int wasm_main(void) {
                       {.stage = GPU_STAGE_VERTEX,
                        .size = sizeof(mat4),
                        .binding = 0},
+                      {.stage = GPU_STAGE_VERTEX,
+                       .size = sizeof(vec4),
+                       .binding = 1},
                   },
-              .uniform_block_count = 1,
+              .uniform_block_count = 2,
           },
       .vertex_layout =
           {
@@ -211,8 +215,15 @@ int wasm_main(void) {
       .primitive = GPU_PRIMITIVE_TRIANGLES,
       .depth_test = true,
       .depth_write = true,
+      .properties =
+          {
+              {.name = "color", .type = MAT_PROP_VEC4, .binding = 1},
+          },
+      .property_count = 1,
   });
 
+  // Set material color to red
+  material_set_vec4(g_cube_material, "color", (vec4){1.0f, 0.0f, 0.0f, 1.0f});
 
   // Spawn worker threads (indices 1..N-1)
   for (u8 i = 1; i < NUM_WORKERS; i++) {
@@ -244,7 +255,7 @@ void wasm_frame(void) {
 
   // Begin frame (clears, sets view/proj, resets cmd queue)
   if (is_main_thread()) {
-    renderer_begin_frame(view, proj, (GpuColor){0.05f, 0.05f, 0.08f, 1.0f});
+    renderer_begin_frame(view, proj, (GpuColor){0.95f, 0.85f, 0.98f, 1.0f});
   }
 
   // Sync with workers - start parallel work

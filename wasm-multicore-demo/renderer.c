@@ -1,8 +1,8 @@
 #include "renderer.h"
 #include "gpu.h"
 #include "lib/handle.h"
+#include "lib/hash.h"
 #include "lib/thread_context.h"
-
 
 #define MAX_RENDER_CMDS 1024
 #define MAX_MESHES 64
@@ -89,7 +89,45 @@ Material_Handle renderer_create_material(MaterialDesc *desc) {
       .depth_test = desc->depth_test,
       .depth_write = desc->depth_write,
   });
+
+  // Cache property slots
+  material.property_count = desc->property_count;
+  for (u8 i = 0; i < desc->property_count; i++) {
+    MaterialPropertyDesc *p = &desc->properties[i];
+    material.properties[i] = (MaterialProperty){
+        .name_hash = fnv1a_hash(p->name),
+        .binding = p->binding,
+        .type = p->type,
+    };
+  }
+
   return ha_add(Material, &g_renderer.materials, material);
+}
+
+static MaterialProperty *find_property(Material *mat, const char *name) {
+  u32 hash = fnv1a_hash(name);
+  for (u8 i = 0; i < mat->property_count; i++) {
+    if (mat->properties[i].name_hash == hash) {
+      return &mat->properties[i];
+    }
+  }
+  return NULL;
+}
+
+void material_set_float(Material_Handle handle, const char *name, f32 value) {
+  Material *mat = ha_get(Material, &g_renderer.materials, handle);
+  if (!mat) return;
+  MaterialProperty *prop = find_property(mat, name);
+  if (!prop || prop->type != MAT_PROP_FLOAT) return;
+  prop->f = value;
+}
+
+void material_set_vec4(Material_Handle handle, const char *name, vec4 value) {
+  Material *mat = ha_get(Material, &g_renderer.materials, handle);
+  if (!mat) return;
+  MaterialProperty *prop = find_property(mat, name);
+  if (!prop || prop->type != MAT_PROP_VEC4) return;
+  glm_vec4_copy(value, prop->v4);
 }
 
 // todo: separate call for camera uniforms
@@ -162,6 +200,22 @@ void renderer_end_frame(void) {
 
         // Set uniform data for slot 0 (MVP matrix)
         gpu_apply_uniforms(0, mvp, sizeof(mat4));
+
+        // Apply material properties
+        for (u8 p = 0; p < material->property_count; p++) {
+          MaterialProperty *prop = &material->properties[p];
+          void *data;
+          u32 size;
+          switch (prop->type) {
+            case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
+            case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
+            case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
+            case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
+            case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
+            default: continue;
+          }
+          gpu_apply_uniforms(prop->binding, data, size);
+        }
 
         // Apply vertex/index buffer bindings
         gpu_apply_bindings(&(GpuBindings){
