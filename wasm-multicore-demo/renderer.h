@@ -77,20 +77,43 @@ typedef struct {
 TYPED_HANDLE_DEFINE(Material);
 HANDLE_ARRAY_DEFINE(Material);
 
+// Instance buffer for instanced rendering via storage buffers
+typedef struct {
+  u32 stride;          // Bytes per instance
+  u32 max_instances;   // Capacity
+} InstanceBufferDesc;
+
+typedef struct {
+  GpuBuffer buffer;
+  u32 stride;
+  u32 max_instances;
+  u32 instance_count;  // Current count, set by update
+} InstanceBuffer;
+TYPED_HANDLE_DEFINE(InstanceBuffer);
+HANDLE_ARRAY_DEFINE(InstanceBuffer);
+
 typedef struct {
   GpuMesh_Handle mesh;
   Material_Handle material;
   mat4 model_matrix;
 } RenderDrawMeshCmd;
 
+typedef struct {
+  GpuMesh_Handle mesh;
+  Material_Handle material;
+  InstanceBuffer_Handle instances;
+} RenderDrawMeshInstancedCmd;
+
 typedef enum {
   RENDER_CMD_DRAW_MESH,
+  RENDER_CMD_DRAW_MESH_INSTANCED,
 } RenderCmdType;
 
 typedef struct {
   RenderCmdType type;
   union {
     RenderDrawMeshCmd draw_mesh;
+    RenderDrawMeshInstancedCmd draw_mesh_instanced;
   };
 } RenderCmd;
 
@@ -102,6 +125,10 @@ GpuMesh_Handle renderer_upload_mesh(MeshDesc *desc);
 
 Material_Handle renderer_create_material(MaterialDesc *desc);
 
+// Instance buffer API (main thread only for create/update)
+InstanceBuffer_Handle renderer_create_instance_buffer(InstanceBufferDesc *desc);
+void renderer_update_instance_buffer(InstanceBuffer_Handle handle, void *data, u32 instance_count);
+
 // Material property setters
 void material_set_float(Material_Handle mat, const char *name, f32 value);
 void material_set_vec4(Material_Handle mat, const char *name, vec4 value);
@@ -111,6 +138,7 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color);
 
 // Thread safe, lock-free append to command queue
 void renderer_draw_mesh(GpuMesh_Handle mesh, Material_Handle material, mat4 model_matrix);
+void renderer_draw_mesh_instanced(GpuMesh_Handle mesh, Material_Handle material, InstanceBuffer_Handle instances);
 
 // Main thread only: called after parallel work completes
 void renderer_end_frame(void);

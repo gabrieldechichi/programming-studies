@@ -7,6 +7,7 @@
 #define MAX_RENDER_CMDS 1024
 #define MAX_MESHES 64
 #define MAX_MATERIALS 64
+#define MAX_INSTANCE_BUFFERS 16
 
 // todo: fix hardcoded vertex format
 //  Vertex layout constants (position vec3 + color vec4)
@@ -16,6 +17,7 @@
 typedef struct {
   HandleArray_GpuMesh meshes;
   HandleArray_Material materials;
+  HandleArray_InstanceBuffer instance_buffers;
 
   // Per-frame state
   // todo: move to camera uniforms, send to shader
@@ -37,6 +39,7 @@ void renderer_init(ArenaAllocator *arena, u8 thread_count) {
   gpu_init(arena, GPU_UNIFORM_BUFFER_SIZE);
   g_renderer.meshes = ha_init(GpuMesh, &alloc, MAX_MESHES);
   g_renderer.materials = ha_init(Material, &alloc, MAX_MATERIALS);
+  g_renderer.instance_buffers = ha_init(InstanceBuffer, &alloc, MAX_INSTANCE_BUFFERS);
 
   // Get thread count from current context
   g_renderer.thread_count = thread_count;
@@ -130,6 +133,37 @@ void material_set_vec4(Material_Handle handle, const char *name, vec4 value) {
   glm_vec4_copy(value, prop->v4);
 }
 
+InstanceBuffer_Handle renderer_create_instance_buffer(InstanceBufferDesc *desc) {
+  u32 size = desc->stride * desc->max_instances;
+  GpuBuffer buf = gpu_make_buffer(&(GpuBufferDesc){
+      .type = GPU_BUFFER_STORAGE,
+      .size = size,
+      .data = NULL,
+  });
+
+  InstanceBuffer ib = {
+      .buffer = buf,
+      .stride = desc->stride,
+      .max_instances = desc->max_instances,
+      .instance_count = 0,
+  };
+
+  return ha_add(InstanceBuffer, &g_renderer.instance_buffers, ib);
+}
+
+void renderer_update_instance_buffer(InstanceBuffer_Handle handle, void *data,
+                                     u32 instance_count) {
+  InstanceBuffer *ib =
+      ha_get(InstanceBuffer, &g_renderer.instance_buffers, handle);
+  if (!ib) return;
+
+  assert(instance_count <= ib->max_instances);
+  ib->instance_count = instance_count;
+
+  u32 size = ib->stride * instance_count;
+  gpu_update_buffer(ib->buffer, data, size);
+}
+
 // todo: separate call for camera uniforms
 void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   debug_assert_msg(
@@ -167,6 +201,22 @@ void renderer_draw_mesh(GpuMesh_Handle mesh, Material_Handle material,
   arr_append(g_renderer.thread_cmds[tid], cmd);
 }
 
+void renderer_draw_mesh_instanced(GpuMesh_Handle mesh, Material_Handle material,
+                                  InstanceBuffer_Handle instances) {
+  RenderCmd cmd = {
+      .type = RENDER_CMD_DRAW_MESH_INSTANCED,
+      .draw_mesh_instanced = {
+          .mesh = mesh,
+          .material = material,
+          .instances = instances,
+      },
+  };
+
+  // Append to current thread's command array (no atomic!)
+  u8 tid = tctx_current()->thread_idx;
+  arr_append(g_renderer.thread_cmds[tid], cmd);
+}
+
 void renderer_end_frame(void) {
   debug_assert_msg(
       is_main_thread(),
@@ -180,7 +230,8 @@ void renderer_end_frame(void) {
     for (u32 i = 0; i < cmds->len; i++) {
       RenderCmd *cmd = &cmds->items[i];
 
-      if (cmd->type == RENDER_CMD_DRAW_MESH) {
+      switch (cmd->type) {
+      case RENDER_CMD_DRAW_MESH: {
         GpuMesh *mesh =
             ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh.mesh);
         if (!mesh)
@@ -229,6 +280,67 @@ void renderer_end_frame(void) {
         });
 
         gpu_draw_indexed(mesh->index_count, 1);
+        break;
+      }
+
+      case RENDER_CMD_DRAW_MESH_INSTANCED: {
+        GpuMesh *mesh =
+            ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh_instanced.mesh);
+        if (!mesh)
+          continue;
+
+        Material *material = ha_get(Material, &g_renderer.materials,
+                                    cmd->draw_mesh_instanced.material);
+        assert(material);
+
+        InstanceBuffer *ib = ha_get(InstanceBuffer, &g_renderer.instance_buffers,
+                                    cmd->draw_mesh_instanced.instances);
+        if (!ib || ib->instance_count == 0)
+          continue;
+
+        if (material != last_applied_material) {
+          gpu_apply_pipeline(material->pipeline);
+          last_applied_material = material;
+        }
+
+        // Build GlobalUniforms (model matrix unused for instanced - shader reads from storage)
+        GlobalUniforms globals;
+        mat4_identity(globals.model);
+        memcpy(globals.view, g_renderer.view, sizeof(mat4));
+        memcpy(globals.proj, g_renderer.proj, sizeof(mat4));
+        memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
+
+        gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
+
+        // Apply material properties
+        for (u8 p = 0; p < material->property_count; p++) {
+          MaterialProperty *prop = &material->properties[p];
+          void *data;
+          u32 size;
+          switch (prop->type) {
+            case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
+            case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
+            case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
+            case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
+            case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
+            default: continue;
+          }
+          gpu_apply_uniforms(prop->binding, data, size);
+        }
+
+        // Apply vertex/index buffer bindings with storage buffer for instance data
+        gpu_apply_bindings(&(GpuBindings){
+            .vertex_buffers = {mesh->vbuf},
+            .vertex_buffer_count = 1,
+            .index_buffer = mesh->ibuf,
+            .index_format = mesh->index_format,
+            .storage_buffers = {ib->buffer},
+            .storage_buffer_count = 1,
+        });
+
+        gpu_draw_indexed(mesh->index_count, ib->instance_count);
+        break;
+      }
       }
     }
   }
