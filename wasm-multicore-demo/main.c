@@ -18,6 +18,8 @@
 #include "lib/random.c"
 #include "cube.h"
 #include "renderer.h"
+#include "input.h"
+#include "input.c"
 
 typedef struct {
   f32 dt;
@@ -26,9 +28,13 @@ typedef struct {
   f32 canvas_height;
   f32 dpr;
 
+  AppInputEvents input_events;
+
   u8 *heap;
   size_t heap_size;
 } AppMemory;
+
+global InputSystem g_input;
 
 // todo: fix hardcoded vertex format
 //  Vertex layout constants (position vec3 + normal vec3 + color vec4)
@@ -410,6 +416,9 @@ int wasm_main(AppMemory *memory) {
   PCG32_State rng = pcg32_new(12345, 1);
   init_cubes(&rng);
 
+  // Initialize input system
+  g_input = input_init();
+
   // Total threads = main thread (0) + worker threads (1..N)
   u8 NUM_WORKERS = os_get_processor_count();
 
@@ -528,6 +537,9 @@ void wasm_frame(AppMemory *memory) {
   f32 canvas_width = memory->canvas_width;
   f32 canvas_height = memory->canvas_height;
 
+  // Update input state from events written by JS
+  input_update(&g_input, &memory->input_events, total_time);
+
   g_time = total_time;
 
   // Cap dt to prevent spiral of death (e.g., if tab was backgrounded)
@@ -589,4 +601,7 @@ void wasm_frame(AppMemory *memory) {
                                  g_instance_buffer);
     renderer_end_frame();
   }
+
+  // Clear per-frame input flags
+  input_end_frame(&g_input);
 }

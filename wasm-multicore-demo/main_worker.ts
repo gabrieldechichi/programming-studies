@@ -16,6 +16,34 @@ canvasReady = new Promise((resolve) => {
 // Current DPR (updated on resize)
 let currentDpr = 1;
 
+// Input event types (must match C enum)
+const InputEventType = {
+    INPUT_EVENT_KEYDOWN: 0,
+    INPUT_EVENT_KEYUP: 1,
+    INPUT_EVENT_TOUCH_START: 2,
+    INPUT_EVENT_TOUCH_END: 3,
+    INPUT_EVENT_TOUCH_MOVE: 4,
+    INPUT_EVENT_SCROLL: 5,
+} as const;
+
+// Input event buffer (accumulated between frames)
+interface GameInputEvent {
+    type: number;
+    keyType?: number;
+    touchId?: number;
+    touchX?: number;
+    touchY?: number;
+    scrollDeltaX?: number;
+    scrollDeltaY?: number;
+}
+
+const MAX_INPUT_EVENTS = 20;
+const inputBuffer = {
+    mouseX: 0,
+    mouseY: 0,
+    events: [] as GameInputEvent[],
+};
+
 // Listen for messages from main thread
 self.addEventListener("message", (e) => {
     if (e.data.type === "init" && e.data.canvas) {
@@ -32,6 +60,15 @@ self.addEventListener("message", (e) => {
             currentDpr = e.data.dpr ?? currentDpr;
             // Recreate depth texture to match new canvas size
             resizeRenderer(e.data.width, e.data.height);
+        }
+    } else if (e.data.type === "input") {
+        // Accumulate input events from main thread
+        inputBuffer.mouseX = e.data.mouseX;
+        inputBuffer.mouseY = e.data.mouseY;
+        for (const event of e.data.events) {
+            if (inputBuffer.events.length < MAX_INPUT_EVENTS) {
+                inputBuffer.events.push(event);
+            }
         }
     }
 });
@@ -238,22 +275,33 @@ const wasm_frame = instance.exports.wasm_frame as ((memory: number) => void) | u
 
 const heap = (instance.exports.os_get_heap_base as () => number)();
 
-// AppMemory struct layout (28 bytes):
-// offset 0:  dt (f32)
-// offset 4:  total_time (f32)
-// offset 8:  canvas_width (f32)
-// offset 12: canvas_height (f32)
-// offset 16: dpr (f32)
-// offset 20: heap pointer (u32)
-// offset 24: heap_size (u32)
-const APP_MEMORY_SIZE = 28;
+// AppMemory struct layout (360 bytes):
+// offset 0:   dt (f32)
+// offset 4:   total_time (f32)
+// offset 8:   canvas_width (f32)
+// offset 12:  canvas_height (f32)
+// offset 16:  dpr (f32)
+// offset 20:  input_events.mouse_x (f32)
+// offset 24:  input_events.mouse_y (f32)
+// offset 28:  input_events.len (u32)
+// offset 32:  input_events.events[0..19] (320 bytes = 20 * 16)
+// offset 352: heap pointer (u32)
+// offset 356: heap_size (u32)
+const APP_MEMORY_SIZE = 360;
 const TOTAL_HEAP_SIZE = 16 * 1024 * 1024; // 16MB (matches MB(16) in C)
+
+// Offsets for input events
+const INPUT_MOUSE_X_OFFSET = 20;
+const INPUT_MOUSE_Y_OFFSET = 24;
+const INPUT_LEN_OFFSET = 28;
+const INPUT_EVENTS_OFFSET = 32;
+const INPUT_EVENT_SIZE = 16; // Each AppInputEvent is 16 bytes
 
 // Initialize AppMemory struct - set heap and heap_size fields
 {
     const view = new DataView(memory.buffer);
-    view.setUint32(heap + 20, heap + APP_MEMORY_SIZE, true); // heap pointer
-    view.setUint32(heap + 24, TOTAL_HEAP_SIZE - APP_MEMORY_SIZE, true); // heap_size
+    view.setUint32(heap + 352, heap + APP_MEMORY_SIZE, true); // heap pointer
+    view.setUint32(heap + 356, TOTAL_HEAP_SIZE - APP_MEMORY_SIZE, true); // heap_size
 }
 
 const result = wasm_main(heap);
@@ -312,6 +360,38 @@ if (wasm_frame) {
         view.setFloat32(heap + 8, canvas.width, true);    // canvas_width
         view.setFloat32(heap + 12, canvas.height, true);  // canvas_height
         view.setFloat32(heap + 16, currentDpr, true);     // dpr
+
+        // Write input events to AppMemory struct
+        view.setFloat32(heap + INPUT_MOUSE_X_OFFSET, inputBuffer.mouseX, true);
+        view.setFloat32(heap + INPUT_MOUSE_Y_OFFSET, inputBuffer.mouseY, true);
+        view.setUint32(heap + INPUT_LEN_OFFSET, inputBuffer.events.length, true);
+
+        // Write each input event (16 bytes each)
+        for (let i = 0; i < inputBuffer.events.length && i < MAX_INPUT_EVENTS; i++) {
+            const event = inputBuffer.events[i];
+            const eventOffset = heap + INPUT_EVENTS_OFFSET + i * INPUT_EVENT_SIZE;
+
+            view.setUint32(eventOffset + 0, event.type, true); // type
+
+            if (event.type === InputEventType.INPUT_EVENT_KEYDOWN ||
+                event.type === InputEventType.INPUT_EVENT_KEYUP) {
+                view.setUint32(eventOffset + 4, event.keyType ?? 0, true); // key.type
+                // bytes 8-15 are padding
+            } else if (event.type === InputEventType.INPUT_EVENT_TOUCH_START ||
+                       event.type === InputEventType.INPUT_EVENT_TOUCH_END ||
+                       event.type === InputEventType.INPUT_EVENT_TOUCH_MOVE) {
+                view.setUint32(eventOffset + 4, event.touchId ?? 0, true);  // touch.id
+                view.setFloat32(eventOffset + 8, event.touchX ?? 0, true);  // touch.x
+                view.setFloat32(eventOffset + 12, event.touchY ?? 0, true); // touch.y
+            } else if (event.type === InputEventType.INPUT_EVENT_SCROLL) {
+                view.setFloat32(eventOffset + 4, event.scrollDeltaX ?? 0, true);  // scroll.delta_x
+                view.setFloat32(eventOffset + 8, event.scrollDeltaY ?? 0, true);  // scroll.delta_y
+                // bytes 12-15 are padding
+            }
+        }
+
+        // Clear input buffer after writing
+        inputBuffer.events = [];
 
         // Call WASM frame with pointer to AppMemory struct
         wasm_frame!(heap);
