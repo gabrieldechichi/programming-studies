@@ -282,7 +282,6 @@ WASM_EXPORT(get_barrier_data_ptr)
 BarrierSlot *get_barrier_data_ptr(void) { return os_wasm_state.barrier_slots; }
 
 // JS imports
-WASM_IMPORT(js_log) extern void js_log(const char *str, int len);
 WASM_IMPORT(js_get_core_count) extern u32 js_get_core_count(void);
 WASM_IMPORT(js_thread_spawn)
 extern int js_thread_spawn(void *func, void *arg, u32 stack_top, u32 tls_base);
@@ -309,14 +308,6 @@ force_inline i32 atomic_cas_i32(i32 *p, i32 expected, i32 desired) {
   return expected;
 }
 
-// Simple print - just logs the string, no format parsing
-void print(const char *str) {
-  int len = 0;
-  while (str[len])
-    len++;
-  js_log(str, len);
-}
-
 void os_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
             const char *file_name, uint32 line_number) {
   char buffer[1024 * 8];
@@ -340,44 +331,6 @@ void os_log(LogLevel log_level, const char *fmt, const FmtArgs *args,
 void assert_log(u8 log_level, const char *fmt, const FmtArgs *args,
                 const char *file_name, uint32 line_number) {
   os_log(log_level, fmt, args, file_name, line_number);
-}
-
-// Print string followed by integer
-void print_int(const char *prefix, i32 value) {
-  char buffer[128];
-  int pos = 0;
-
-  // Copy prefix
-  while (prefix[pos] && pos < 100) {
-    buffer[pos] = prefix[pos];
-    pos++;
-  }
-
-  // Convert integer to string
-  if (value == 0) {
-    buffer[pos++] = '0';
-  } else {
-    b32 negative = value < 0;
-    if (negative)
-      value = -value;
-
-    char digits[16];
-    int digit_count = 0;
-    while (value > 0) {
-      digits[digit_count++] = '0' + (value % 10);
-      value /= 10;
-    }
-
-    if (negative)
-      buffer[pos++] = '-';
-
-    // Reverse digits into buffer
-    while (digit_count > 0) {
-      buffer[pos++] = digits[--digit_count];
-    }
-  }
-
-  js_log(buffer, pos);
 }
 
 // Threads

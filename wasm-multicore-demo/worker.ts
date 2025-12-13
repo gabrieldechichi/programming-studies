@@ -6,6 +6,7 @@ import { createGpuImports } from "./renderer.ts";
 // State set during 'load' phase
 let wasmInstance: WebAssembly.Instance;
 let memory: WebAssembly.Memory;
+let threadIdx: number;
 let barrierDataBase = 0;
 
 self.onmessage = async (e) => {
@@ -13,13 +14,14 @@ self.onmessage = async (e) => {
 
     if (cmd === "load") {
         // Phase 1: Receive module and memory, instantiate WASM
+        threadIdx = e.data.index;
         memory = e.data.memory;
         const wasmModule = e.data.wasmModule as WebAssembly.Module;
 
         const imports = {
             env: {
                 memory,
-                ...createLogImports(memory, "Thread"),
+                ...createLogImports(memory, `Thread ${threadIdx}`),
                 ...createGpuImports(memory),
                 // Workers can't spawn threads (for now)
                 js_thread_spawn: () => {

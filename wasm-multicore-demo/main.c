@@ -311,6 +311,10 @@ void collision_integrate_and_boundary(f32 dt) {
 // =============================================================================
 
 void app_update_and_render(f32 dt) {
+    if (g_input.buttons[KEY_SPACE].pressed_this_frame){
+
+    LOG_INFO("% ", FMT_UINT(g_input.buttons[KEY_SPACE].pressed_this_frame));
+    }
   // Phase 1: Clear grid
   collision_clear_grid();
   lane_sync();

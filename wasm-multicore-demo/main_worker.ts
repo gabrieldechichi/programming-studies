@@ -135,6 +135,7 @@ async function preloadWorker(index: number): Promise<WorkerInfo> {
 
         worker.postMessage({
             cmd: "load",
+            index,
             wasmModule,
             memory,
         });
@@ -166,7 +167,7 @@ let barrierDataBase = 0; // byte offset of barrier_data array
 const imports = {
     env: {
         memory,
-        ...createLogImports(memory),
+        ...createLogImports(memory, "Main Thread"),
         ...createGpuImports(memory),
         js_thread_spawn: (
             funcPtr: number,

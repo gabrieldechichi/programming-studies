@@ -119,7 +119,7 @@ export function createLogImports(memory: WebAssembly.Memory, prefix?: string): L
         ) => {
             const message = readString(memory, ptr, len);
             const fileName = readString(memory, fileNamePtr, fileNameLen);
-            console.log(`${fileName}:${lineNumber}: ${message}`);
+            console.log(`${logPrefix} ${fileName}:${lineNumber}: ${message}`);
         },
         _os_log_warn: (
             ptr: number,
@@ -130,7 +130,7 @@ export function createLogImports(memory: WebAssembly.Memory, prefix?: string): L
         ) => {
             const message = readString(memory, ptr, len);
             const fileName = readString(memory, fileNamePtr, fileNameLen);
-            console.warn(`${fileName}:${lineNumber}: ${message}`);
+            console.warn(`${logPrefix} ${fileName}:${lineNumber}: ${message}`);
         },
         _os_log_error: (
             ptr: number,
@@ -141,7 +141,7 @@ export function createLogImports(memory: WebAssembly.Memory, prefix?: string): L
         ) => {
             const message = readString(memory, ptr, len);
             const fileName = readString(memory, fileNamePtr, fileNameLen);
-            console.error(`${fileName}:${lineNumber}: ${message}`);
+            console.error(`${logPrefix} ${fileName}:${lineNumber}: ${message}`);
         },
         js_get_core_count: () => OS_CORES,
     };
