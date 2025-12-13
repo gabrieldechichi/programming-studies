@@ -19,15 +19,21 @@
 #include "cube.h"
 #include "renderer.h"
 
+// todo: fix hardcoded vertex format
+//  Vertex layout constants (position vec3 + normal vec3 + color vec4)
+#define VERTEX_STRIDE 40         // 10 floats * 4 bytes
+#define VERTEX_NORMAL_OFFSET 12  // after position (3 floats)
+#define VERTEX_COLOR_OFFSET 24   // after position + normal (6 floats)
+
 #define NUM_CUBES 100000
 
 // Collision constants
-#define GRID_SIZE 8192
+#define GRID_SIZE (8192 * 8)
 #define MAX_PER_BUCKET 64
 #define CELL_SIZE 2.0f
 #define CUBE_RADIUS 0.5f
-#define BOUNDS 50.0f
-#define CUBE_SPEED 10.0f
+#define BOUNDS 125.0f
+#define CUBE_SPEED 6.0f
 
 // Bucket entry for spatial hash grid - stores position for cache-friendly collision checks
 typedef struct {
@@ -62,12 +68,13 @@ static const char *instanced_vs =
     "\n"
     "struct VertexInput {\n"
     "    @location(0) position: vec3<f32>,\n"
-    "    @location(1) vertex_color: vec4<f32>,\n"
+    "    @location(1) normal: vec3<f32>,\n"
+    "    @location(2) vertex_color: vec4<f32>,\n"
     "};\n"
     "\n"
     "struct VertexOutput {\n"
     "    @builtin(position) position: vec4<f32>,\n"
-    "    @location(0) vertex_color: vec4<f32>,\n"
+    "    @location(0) world_normal: vec3<f32>,\n"
     "    @location(1) material_color: vec4<f32>,\n"
     "};\n"
     "\n"
@@ -77,16 +84,26 @@ static const char *instanced_vs =
     "    let model = instances[instance_idx].model;\n"
     "    let mvp = global.view_proj * model;\n"
     "    out.position = mvp * vec4<f32>(in.position, 1.0);\n"
-    "    out.vertex_color = vec4(1.0);\n"
+    "    // Transform normal to world space (using upper-left 3x3 of model matrix)\n"
+    "    let normal_matrix = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz);\n"
+    "    out.world_normal = normalize(normal_matrix * in.normal);\n"
     "    out.material_color = color;\n"
     "    return out;\n"
     "}\n";
 
 static const char *default_fs =
+    "// Directional light parameters\n"
+    "const LIGHT_DIR: vec3<f32> = vec3<f32>(0.5, 0.8, 0.3);\n"
+    "const AMBIENT: f32 = 0.15;\n"
+    "\n"
     "@fragment\n"
-    "fn fs_main(@location(0) vertex_color: vec4<f32>, @location(1) material_color: vec4<f32>) "
+    "fn fs_main(@location(0) world_normal: vec3<f32>, @location(1) material_color: vec4<f32>) "
     "-> @location(0) vec4<f32> {\n"
-    "    return vertex_color * material_color;\n"
+    "    let light_dir = normalize(LIGHT_DIR);\n"
+    "    let n = normalize(world_normal);\n"
+    "    let ndotl = max(dot(n, light_dir), 0.0);\n"
+    "    let diffuse = AMBIENT + (1.0 - AMBIENT) * ndotl;\n"
+    "    return vec4<f32>(material_color.rgb * diffuse, material_color.a);\n"
     "}\n";
 
 typedef struct {
@@ -437,11 +454,11 @@ int wasm_main(void) {
               .stride = VERTEX_STRIDE,
               .attrs =
                   {
-                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0}, // position
-                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET,
-                       1}, // color
+                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},                      // position
+                      {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},   // normal
+                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2},    // color
                   },
-              .attr_count = 2,
+              .attr_count = 3,
           },
       .primitive = GPU_PRIMITIVE_TRIANGLES,
       .depth_test = true,
@@ -488,7 +505,7 @@ void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height, f32
 
   // Setup view and projection (main thread only, before barrier)
   mat4 view, proj;
-  mat4_lookat(VEC3(0, 80, 120), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
+  mat4_lookat(VEC3(0, 80, 320), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
   mat4_perspective(RAD(45.0f), aspect, 0.1f, 300.0f, proj);
 
   // Begin frame (clears, sets view/proj, resets cmd queue)

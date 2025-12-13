@@ -9,11 +9,6 @@
 #define MAX_MATERIALS 64
 #define MAX_INSTANCE_BUFFERS 16
 
-// todo: fix hardcoded vertex format
-//  Vertex layout constants (position vec3 + color vec4)
-#define VERTEX_STRIDE 28       // 7 floats * 4 bytes
-#define VERTEX_COLOR_OFFSET 12 // 3 floats * 4 bytes
-
 typedef struct {
   HandleArray_GpuMesh meshes;
   HandleArray_Material materials;
