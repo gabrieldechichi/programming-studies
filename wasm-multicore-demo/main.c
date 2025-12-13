@@ -21,9 +21,9 @@
 
 // todo: fix hardcoded vertex format
 //  Vertex layout constants (position vec3 + normal vec3 + color vec4)
-#define VERTEX_STRIDE 40         // 10 floats * 4 bytes
-#define VERTEX_NORMAL_OFFSET 12  // after position (3 floats)
-#define VERTEX_COLOR_OFFSET 24   // after position + normal (6 floats)
+#define VERTEX_STRIDE 40        // 10 floats * 4 bytes
+#define VERTEX_NORMAL_OFFSET 12 // after position (3 floats)
+#define VERTEX_COLOR_OFFSET 24  // after position + normal (6 floats)
 
 #define NUM_CUBES 100000
 
@@ -33,12 +33,16 @@
 #define CELL_SIZE 2.0f
 #define CUBE_RADIUS 0.5f
 #define BOUNDS 125.0f
-#define CUBE_SPEED 6.0f
+#define CUBE_SPEED 50.0f
+#define RESTITUTION 0.5f // 0 = perfectly inelastic, 1 = perfectly elastic
+// #define CUBE_SPEED 10.0f
+// #define RESTITUTION 1.0f // 0 = perfectly inelastic, 1 = perfectly elastic
 
-// Bucket entry for spatial hash grid - stores position for cache-friendly collision checks
+// Bucket entry for spatial hash grid - stores position for cache-friendly
+// collision checks
 typedef struct {
-  f32 px, py, pz;  // Position (unpacked for cache efficiency)
-  u32 cube_idx;    // Link back to full CubeData
+  f32 px, py, pz; // Position (unpacked for cache efficiency)
+  u32 cube_idx;   // Link back to full CubeData
 } BucketEntry;
 
 // Fixed-size bucket for cache-friendly traversal
@@ -79,13 +83,16 @@ static const char *instanced_vs =
     "};\n"
     "\n"
     "@vertex\n"
-    "fn vs_main(@builtin(instance_index) instance_idx: u32, in: VertexInput) -> VertexOutput {\n"
+    "fn vs_main(@builtin(instance_index) instance_idx: u32, in: VertexInput) "
+    "-> VertexOutput {\n"
     "    var out: VertexOutput;\n"
     "    let model = instances[instance_idx].model;\n"
     "    let mvp = global.view_proj * model;\n"
     "    out.position = mvp * vec4<f32>(in.position, 1.0);\n"
-    "    // Transform normal to world space (using upper-left 3x3 of model matrix)\n"
-    "    let normal_matrix = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz);\n"
+    "    // Transform normal to world space (using upper-left 3x3 of model "
+    "matrix)\n"
+    "    let normal_matrix = mat3x3<f32>(model[0].xyz, model[1].xyz, "
+    "model[2].xyz);\n"
     "    out.world_normal = normalize(normal_matrix * in.normal);\n"
     "    out.material_color = color;\n"
     "    return out;\n"
@@ -97,7 +104,8 @@ static const char *default_fs =
     "const AMBIENT: f32 = 0.15;\n"
     "\n"
     "@fragment\n"
-    "fn fs_main(@location(0) world_normal: vec3<f32>, @location(1) material_color: vec4<f32>) "
+    "fn fs_main(@location(0) world_normal: vec3<f32>, @location(1) "
+    "material_color: vec4<f32>) "
     "-> @location(0) vec4<f32> {\n"
     "    let light_dir = normalize(LIGHT_DIR);\n"
     "    let n = normalize(world_normal);\n"
@@ -118,7 +126,7 @@ global f32 g_time = 0.0f;
 global GpuMesh_Handle g_cube_mesh;
 global Material_Handle g_cube_material;
 global InstanceBuffer_Handle g_instance_buffer;
-global mat4 g_instance_data[NUM_CUBES];  // CPU-side instance matrices
+global mat4 g_instance_data[NUM_CUBES]; // CPU-side instance matrices
 
 global Barrier frame_barrier;
 global ThreadContext main_thread_ctx;
@@ -146,7 +154,8 @@ void collision_insert_cubes(void) {
   for (u64 i = range.min; i < range.max; i++) {
     CubeData *cube = &cubes[i];
     u32 hash = spatial_hash_3f(cube->position[0], cube->position[1],
-                                cube->position[2], CELL_SIZE) % GRID_SIZE;
+                               cube->position[2], CELL_SIZE) %
+               GRID_SIZE;
 
     // Atomic increment to get our slot
     u32 slot = ins_atomic_u32_inc_eval(&g_buckets[hash].count) - 1;
@@ -164,9 +173,10 @@ void collision_insert_cubes(void) {
 
 // Check collision between two cubes, update only cube A (parallel-safe)
 force_inline void resolve_collision(u32 idx_a, f32 ax, f32 ay, f32 az,
-                                     u32 idx_b, f32 bx, f32 by, f32 bz) {
+                                    u32 idx_b, f32 bx, f32 by, f32 bz) {
   // Skip self
-  if (idx_a == idx_b) return;
+  if (idx_a == idx_b)
+    return;
 
   // Distance check
   f32 dx = bx - ax;
@@ -175,7 +185,8 @@ force_inline void resolve_collision(u32 idx_a, f32 ax, f32 ay, f32 az,
   f32 dist_sq = dx * dx + dy * dy + dz * dz;
 
   f32 min_dist = CUBE_RADIUS * 2.0f;
-  if (dist_sq >= min_dist * min_dist || dist_sq < 0.0001f) return;
+  if (dist_sq >= min_dist * min_dist || dist_sq < 0.0001f)
+    return;
 
   // Collision detected
   f32 dist = sqrtf(dist_sq);
@@ -198,13 +209,14 @@ force_inline void resolve_collision(u32 idx_a, f32 ax, f32 ay, f32 az,
   f32 vn = rel_vx * nx + rel_vy * ny + rel_vz * nz;
 
   // Only respond if moving toward each other
-  if (vn >= 0) return;
+  if (vn >= 0)
+    return;
 
-  // Elastic collision: A gets the full impulse (B will handle its own)
-  // For equal mass elastic collision: v_a' = v_a - vn * n
-  cube_a->velocity[0] -= vn * nx;
-  cube_a->velocity[1] -= vn * ny;
-  cube_a->velocity[2] -= vn * nz;
+  // Inelastic collision: scale impulse by restitution coefficient
+  // restitution=1 is elastic, restitution=0 is perfectly inelastic
+  cube_a->velocity[0] -= vn * nx * RESTITUTION;
+  cube_a->velocity[1] -= vn * ny * RESTITUTION;
+  cube_a->velocity[2] -= vn * nz * RESTITUTION;
 
   // Separate positions (push A away by half the overlap)
   f32 overlap = min_dist - dist;
@@ -236,12 +248,13 @@ void collision_detect_and_respond(void) {
 
           // Walk bucket entries (cache-friendly sequential access)
           u32 count = bucket->count;
-          if (count > MAX_PER_BUCKET) count = MAX_PER_BUCKET;
+          if (count > MAX_PER_BUCKET)
+            count = MAX_PER_BUCKET;
 
           for (u32 j = 0; j < count; j++) {
             BucketEntry *entry = &bucket->entries[j];
-            resolve_collision((u32)i, px, py, pz,
-                              entry->cube_idx, entry->px, entry->py, entry->pz);
+            resolve_collision((u32)i, px, py, pz, entry->cube_idx, entry->px,
+                              entry->py, entry->pz);
           }
         }
       }
@@ -309,15 +322,15 @@ void app_update_and_render(f32 dt) {
     mat4_rotate(*model, angle, VEC3(0, 1, 0));
     mat4_rotate(*model, angle * 0.7f, VEC3(1, 0, 0));
 
-    mat4_scale_uni(*model, CUBE_RADIUS);  // Scale to actual cube size
+    mat4_scale_uni(*model, CUBE_RADIUS); // Scale to actual cube size
   }
 }
 
-global f32 g_dt = 0.016f;       // Shared dt for workers
+global f32 g_dt = 0.016f;        // Shared dt for workers
 global f32 g_accumulator = 0.0f; // Time accumulator for fixed timestep
 
-#define FIXED_DT (1.0f / 20.0f)  // Physics runs at 20Hz
-#define MAX_FRAME_TIME 0.25f     // Cap to prevent spiral of death
+#define FIXED_DT (1.0f / 20.0f) // Physics runs at 20Hz
+#define MAX_FRAME_TIME 0.25f    // Cap to prevent spiral of death
 
 void worker_loop(void *arg) {
   WorkerData *data = (WorkerData *)arg;
@@ -341,7 +354,7 @@ void worker_loop(void *arg) {
 
 void init_cubes(PCG32_State *rng) {
   // Pack cubes in a small volume at center, then explode outward
-  f32 pack_size = 10.0f;  // Initial packed volume: 20m x 20m x 20m
+  f32 pack_size = 10.0f; // Initial packed volume: 20m x 20m x 20m
 
   for (u32 i = 0; i < NUM_CUBES; i++) {
     // Random position in packed volume
@@ -362,9 +375,12 @@ void init_cubes(PCG32_State *rng) {
       cubes[i].velocity[2] = dz * inv_len;
     } else {
       // Cube at center: random direction
-      cubes[i].velocity[0] = pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
-      cubes[i].velocity[1] = pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
-      cubes[i].velocity[2] = pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
+      cubes[i].velocity[0] =
+          pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
+      cubes[i].velocity[1] =
+          pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
+      cubes[i].velocity[2] =
+          pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
     }
 
     // Random rotation rate
@@ -445,7 +461,9 @@ int wasm_main(void) {
               .uniform_block_count = 2,
               .storage_buffers =
                   {
-                      {.stage = GPU_STAGE_VERTEX, .binding = 0, .readonly = true},
+                      {.stage = GPU_STAGE_VERTEX,
+                       .binding = 0,
+                       .readonly = true},
                   },
               .storage_buffer_count = 1,
           },
@@ -454,9 +472,11 @@ int wasm_main(void) {
               .stride = VERTEX_STRIDE,
               .attrs =
                   {
-                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},                      // position
-                      {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},   // normal
-                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2},    // color
+                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0}, // position
+                      {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET,
+                       1}, // normal
+                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET,
+                       2}, // color
                   },
               .attr_count = 3,
           },
@@ -492,7 +512,8 @@ int wasm_main(void) {
 }
 
 WASM_EXPORT(wasm_frame)
-void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height, f32 dpr) {
+void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height,
+                f32 dpr) {
   g_time = total_time;
 
   // Cap dt to prevent spiral of death (e.g., if tab was backgrounded)
@@ -505,7 +526,7 @@ void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height, f32
 
   // Setup view and projection (main thread only, before barrier)
   mat4 view, proj;
-  mat4_lookat(VEC3(0, 80, 320), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
+  mat4_lookat(VEC3(0, 80, 120), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
   mat4_perspective(RAD(45.0f), aspect, 0.1f, 300.0f, proj);
 
   // Begin frame (clears, sets view/proj, resets cmd queue)
@@ -516,15 +537,17 @@ void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height, f32
   // Fixed timestep: accumulate real time, step physics in fixed increments
   g_accumulator += dt;
 
-  // Cap max steps to prevent spiral of death (max 4 steps = catch up from 15fps)
+  // Cap max steps to prevent spiral of death (max 4 steps = catch up from
+  // 15fps)
   u32 max_steps = 4;
   u32 step_count = 0;
 
   // Run physics steps until we've consumed accumulated time
   // Each step uses exactly FIXED_DT for deterministic simulation
-  // Use do-while to guarantee at least one step (workers are waiting at lane_sync)
+  // Use do-while to guarantee at least one step (workers are waiting at
+  // lane_sync)
   do {
-    g_dt = FIXED_DT;  // Workers see fixed dt
+    g_dt = FIXED_DT; // Workers see fixed dt
 
     // Sync with workers - start parallel physics step
     lane_sync();
@@ -546,8 +569,10 @@ void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height, f32
 
   // Main thread: upload instance data and issue single instanced draw call
   if (is_main_thread()) {
-    renderer_update_instance_buffer(g_instance_buffer, g_instance_data, NUM_CUBES);
-    renderer_draw_mesh_instanced(g_cube_mesh, g_cube_material, g_instance_buffer);
+    renderer_update_instance_buffer(g_instance_buffer, g_instance_data,
+                                    NUM_CUBES);
+    renderer_draw_mesh_instanced(g_cube_mesh, g_cube_material,
+                                 g_instance_buffer);
     renderer_end_frame();
   }
 }
