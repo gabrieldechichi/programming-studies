@@ -235,8 +235,6 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             // Store SB info for bind group creation later
             pipelineSbInfo[idx] = { count: sbCount };
 
-            console.log(`[Pipeline ${idx}] ubCount=${ubCount}, sbCount=${sbCount}`);
-
             // Create bind group layout for uniforms (group 0)
             const uniformLayoutEntries: GPUBindGroupLayoutEntry[] = [];
             for (let i = 0; i < ubCount; i++) {
@@ -281,8 +279,6 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 }
                 bindGroupLayouts.push(storageBindGroupLayout);
             }
-
-            console.log(`[Pipeline ${idx}] uniformLayout=${!!uniformBindGroupLayout}, storageLayout=${!!storageBindGroupLayout}, totalLayouts=${bindGroupLayouts.length}`);
 
             const pipelineLayout = renderer.device.createPipelineLayout({
                 bindGroupLayouts: bindGroupLayouts.length > 0 ? bindGroupLayouts : undefined,

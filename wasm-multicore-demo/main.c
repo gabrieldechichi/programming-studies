@@ -13,10 +13,35 @@
 #include "renderer.c"
 #include "lib/handle.c"
 #include "lib/math.h"
+#include "lib/hash.h"
+#include "lib/random.h"
+#include "lib/random.c"
 #include "cube.h"
 #include "renderer.h"
 
 #define NUM_CUBES 100000
+
+// Collision constants
+#define GRID_SIZE 8192
+#define MAX_PER_BUCKET 64
+#define CELL_SIZE 2.0f
+#define CUBE_RADIUS 0.5f
+#define BOUNDS 50.0f
+#define CUBE_SPEED 10.0f
+
+// Bucket entry for spatial hash grid - stores position for cache-friendly collision checks
+typedef struct {
+  f32 px, py, pz;  // Position (unpacked for cache efficiency)
+  u32 cube_idx;    // Link back to full CubeData
+} BucketEntry;
+
+// Fixed-size bucket for cache-friendly traversal
+typedef struct {
+  u32 count;
+  BucketEntry entries[MAX_PER_BUCKET];
+} Bucket;
+
+global Bucket g_buckets[GRID_SIZE];
 
 // Instanced vertex shader - reads model matrices from storage buffer
 static const char *instanced_vs =
@@ -66,6 +91,7 @@ static const char *default_fs =
 
 typedef struct {
   vec3 position;
+  vec3 velocity;
   f32 rotation_rate;
 } CubeData;
 
@@ -85,32 +111,192 @@ typedef struct {
 } WorkerData;
 
 // =============================================================================
-// Frame Update - called by all threads
+// Collision System
 // =============================================================================
 
-void app_update_and_render(void) {
-  // Each thread processes a range of cubes
+// Clear grid buckets (parallel)
+void collision_clear_grid(void) {
+  Range_u64 range = lane_range(GRID_SIZE);
+  for (u64 i = range.min; i < range.max; i++) {
+    g_buckets[i].count = 0;
+  }
+}
+
+// Insert cubes into grid (parallel with atomics)
+void collision_insert_cubes(void) {
   Range_u64 range = lane_range(NUM_CUBES);
 
   for (u64 i = range.min; i < range.max; i++) {
     CubeData *cube = &cubes[i];
+    u32 hash = spatial_hash_3f(cube->position[0], cube->position[1],
+                                cube->position[2], CELL_SIZE) % GRID_SIZE;
 
-    // Build model matrix for this cube directly into instance data array
+    // Atomic increment to get our slot
+    u32 slot = ins_atomic_u32_inc_eval(&g_buckets[hash].count) - 1;
+
+    if (slot < MAX_PER_BUCKET) {
+      BucketEntry *entry = &g_buckets[hash].entries[slot];
+      entry->px = cube->position[0];
+      entry->py = cube->position[1];
+      entry->pz = cube->position[2];
+      entry->cube_idx = (u32)i;
+    }
+    // Overflow: cube won't collide this frame (acceptable)
+  }
+}
+
+// Check collision between two cubes, update only cube A (parallel-safe)
+force_inline void resolve_collision(u32 idx_a, f32 ax, f32 ay, f32 az,
+                                     u32 idx_b, f32 bx, f32 by, f32 bz) {
+  // Skip self
+  if (idx_a == idx_b) return;
+
+  // Distance check
+  f32 dx = bx - ax;
+  f32 dy = by - ay;
+  f32 dz = bz - az;
+  f32 dist_sq = dx * dx + dy * dy + dz * dz;
+
+  f32 min_dist = CUBE_RADIUS * 2.0f;
+  if (dist_sq >= min_dist * min_dist || dist_sq < 0.0001f) return;
+
+  // Collision detected
+  f32 dist = sqrtf(dist_sq);
+  f32 inv_dist = 1.0f / dist;
+
+  // Collision normal (from A to B)
+  f32 nx = dx * inv_dist;
+  f32 ny = dy * inv_dist;
+  f32 nz = dz * inv_dist;
+
+  CubeData *cube_a = &cubes[idx_a];
+  CubeData *cube_b = &cubes[idx_b];
+
+  // Relative velocity of A with respect to B
+  f32 rel_vx = cube_a->velocity[0] - cube_b->velocity[0];
+  f32 rel_vy = cube_a->velocity[1] - cube_b->velocity[1];
+  f32 rel_vz = cube_a->velocity[2] - cube_b->velocity[2];
+
+  // Velocity component along collision normal
+  f32 vn = rel_vx * nx + rel_vy * ny + rel_vz * nz;
+
+  // Only respond if moving toward each other
+  if (vn >= 0) return;
+
+  // Elastic collision: A gets the full impulse (B will handle its own)
+  // For equal mass elastic collision: v_a' = v_a - vn * n
+  cube_a->velocity[0] -= vn * nx;
+  cube_a->velocity[1] -= vn * ny;
+  cube_a->velocity[2] -= vn * nz;
+
+  // Separate positions (push A away by half the overlap)
+  f32 overlap = min_dist - dist;
+  cube_a->position[0] -= nx * overlap * 0.5f;
+  cube_a->position[1] -= ny * overlap * 0.5f;
+  cube_a->position[2] -= nz * overlap * 0.5f;
+}
+
+// Detect and respond to collisions (parallel)
+void collision_detect_and_respond(void) {
+  Range_u64 range = lane_range(NUM_CUBES);
+
+  for (u64 i = range.min; i < range.max; i++) {
+    CubeData *cube = &cubes[i];
+    f32 px = cube->position[0];
+    f32 py = cube->position[1];
+    f32 pz = cube->position[2];
+
+    // Get cell coordinates
+    i32 cx, cy, cz;
+    spatial_cell_coords(px, py, pz, CELL_SIZE, &cx, &cy, &cz);
+
+    // Check 27 neighboring cells (including own cell)
+    for (i32 dx = -1; dx <= 1; dx++) {
+      for (i32 dy = -1; dy <= 1; dy++) {
+        for (i32 dz = -1; dz <= 1; dz++) {
+          u32 hash = spatial_hash_3i(cx + dx, cy + dy, cz + dz) % GRID_SIZE;
+          Bucket *bucket = &g_buckets[hash];
+
+          // Walk bucket entries (cache-friendly sequential access)
+          u32 count = bucket->count;
+          if (count > MAX_PER_BUCKET) count = MAX_PER_BUCKET;
+
+          for (u32 j = 0; j < count; j++) {
+            BucketEntry *entry = &bucket->entries[j];
+            resolve_collision((u32)i, px, py, pz,
+                              entry->cube_idx, entry->px, entry->py, entry->pz);
+          }
+        }
+      }
+    }
+  }
+}
+
+// Integrate velocity and handle boundary collisions (parallel)
+void collision_integrate_and_boundary(f32 dt) {
+  Range_u64 range = lane_range(NUM_CUBES);
+  f32 bound_min = -BOUNDS + CUBE_RADIUS;
+  f32 bound_max = BOUNDS - CUBE_RADIUS;
+
+  for (u64 i = range.min; i < range.max; i++) {
+    CubeData *cube = &cubes[i];
+
+    // Integrate position
+    cube->position[0] += cube->velocity[0] * dt;
+    cube->position[1] += cube->velocity[1] * dt;
+    cube->position[2] += cube->velocity[2] * dt;
+
+    // Boundary collision (reflect velocity)
+    for (u32 axis = 0; axis < 3; axis++) {
+      if (cube->position[axis] < bound_min) {
+        cube->position[axis] = bound_min;
+        cube->velocity[axis] = -cube->velocity[axis];
+      } else if (cube->position[axis] > bound_max) {
+        cube->position[axis] = bound_max;
+        cube->velocity[axis] = -cube->velocity[axis];
+      }
+    }
+  }
+}
+
+// =============================================================================
+// Frame Update - called by all threads
+// =============================================================================
+
+void app_update_and_render(f32 dt) {
+  // Phase 1: Clear grid
+  collision_clear_grid();
+  lane_sync();
+
+  // Phase 2: Insert cubes into grid
+  collision_insert_cubes();
+  lane_sync();
+
+  // Phase 3: Detect and respond to collisions
+  collision_detect_and_respond();
+
+  // Phase 4: Integrate velocity and handle boundaries
+  collision_integrate_and_boundary(dt);
+
+  // Phase 5: Build instance matrices
+  Range_u64 range = lane_range(NUM_CUBES);
+  for (u64 i = range.min; i < range.max; i++) {
+    CubeData *cube = &cubes[i];
+
     mat4 *model = &g_instance_data[i];
     mat4_identity(*model);
 
-    // Translate to cube position
     mat4_translate(*model, cube->position);
 
-    // Rotate based on time and per-cube rotation rate
     f32 angle = g_time * cube->rotation_rate;
     mat4_rotate(*model, angle, VEC3(0, 1, 0));
     mat4_rotate(*model, angle * 0.7f, VEC3(1, 0, 0));
 
-    // Scale down cubes a bit
-    mat4_scale_uni(*model, 0.3f);
+    mat4_scale_uni(*model, CUBE_RADIUS);  // Scale to actual cube size
   }
 }
+
+global f32 g_dt = 0.016f;  // Shared dt for workers
 
 void worker_loop(void *arg) {
   WorkerData *data = (WorkerData *)arg;
@@ -121,7 +307,7 @@ void worker_loop(void *arg) {
     lane_sync();
 
     // All threads process their cube range
-    app_update_and_render();
+    app_update_and_render(g_dt);
 
     // Barrier 2: Wait for all threads to finish work
     lane_sync();
@@ -132,22 +318,36 @@ void worker_loop(void *arg) {
 // Initialization
 // =============================================================================
 
-void init_cubes(void) {
-  // Arrange cubes in a grid
-  u32 grid_size = 8; // 8x8 = 64 cubes
-  f32 spacing = 2.5f;
-  f32 offset = (grid_size - 1) * spacing * 0.5f;
+void init_cubes(PCG32_State *rng) {
+  // Pack cubes in a small volume at center, then explode outward
+  f32 pack_size = 10.0f;  // Initial packed volume: 20m x 20m x 20m
 
   for (u32 i = 0; i < NUM_CUBES; i++) {
-    u32 x = i % grid_size;
-    u32 z = i / grid_size;
+    // Random position in packed volume
+    cubes[i].position[0] = pcg32_next_f32_range(rng, -pack_size, pack_size);
+    cubes[i].position[1] = pcg32_next_f32_range(rng, -pack_size, pack_size);
+    cubes[i].position[2] = pcg32_next_f32_range(rng, -pack_size, pack_size);
 
-    cubes[i].position[0] = x * spacing - offset;
-    cubes[i].position[1] = 0.0f;
-    cubes[i].position[2] = z * spacing - offset;
+    // Velocity pointing outward from center (explosion)
+    f32 dx = cubes[i].position[0];
+    f32 dy = cubes[i].position[1];
+    f32 dz = cubes[i].position[2];
+    f32 len = sqrtf(dx * dx + dy * dy + dz * dz);
 
-    // Each cube gets a different rotation rate
-    cubes[i].rotation_rate = 0.5f + (f32)i * 0.05f;
+    if (len > 0.001f) {
+      f32 inv_len = CUBE_SPEED / len;
+      cubes[i].velocity[0] = dx * inv_len;
+      cubes[i].velocity[1] = dy * inv_len;
+      cubes[i].velocity[2] = dz * inv_len;
+    } else {
+      // Cube at center: random direction
+      cubes[i].velocity[0] = pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
+      cubes[i].velocity[1] = pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
+      cubes[i].velocity[2] = pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
+    }
+
+    // Random rotation rate
+    cubes[i].rotation_rate = 0.5f + pcg32_next_f32(rng) * 2.0f;
   }
 }
 
@@ -159,8 +359,9 @@ int wasm_main(void) {
   u8 *heap = os_get_heap_base();
   ArenaAllocator arena = arena_from_buffer(heap, MB(16));
 
-  // Initialize cube data
-  init_cubes();
+  // Initialize RNG and cube data
+  PCG32_State rng = pcg32_new(12345, 1);
+  init_cubes(&rng);
 
   // Total threads = main thread (0) + worker threads (1..N)
   u8 NUM_WORKERS = os_get_processor_count();
@@ -271,24 +472,27 @@ int wasm_main(void) {
 
 WASM_EXPORT(wasm_frame)
 void wasm_frame(void) {
-  // Update time
-  g_time += 0.016f; // ~60fps
+  // Fixed timestep
+  f32 dt = 0.016f;
+  g_dt = dt;  // Share with workers
+  g_time += dt;
 
   // Setup view and projection (main thread only, before barrier)
+  // Camera positioned to see the full 100x100x100 bounding box
   mat4 view, proj;
-  mat4_lookat(VEC3(0, 15, 25), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
-  mat4_perspective(RAD(45.0f), 16.0f / 9.0f, 0.1f, 100.0f, proj);
+  mat4_lookat(VEC3(0, 80, 120), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
+  mat4_perspective(RAD(45.0f), 16.0f / 9.0f, 0.1f, 300.0f, proj);
 
   // Begin frame (clears, sets view/proj, resets cmd queue)
   if (is_main_thread()) {
-    renderer_begin_frame(view, proj, (GpuColor){0.95f, 0.85f, 0.98f, 1.0f});
+    renderer_begin_frame(view, proj, (GpuColor){0.1f, 0.1f, 0.15f, 1.0f});
   }
 
   // Sync with workers - start parallel work
   lane_sync();
 
-  // All threads compute instance matrices in parallel
-  app_update_and_render();
+  // All threads: collision detection + physics + matrix building
+  app_update_and_render(dt);
 
   // Sync with workers - wait for all to finish
   lane_sync();

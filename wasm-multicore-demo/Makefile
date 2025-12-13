@@ -1,7 +1,8 @@
 CC = clang
 CFLAGS = --target=wasm32-wasi-threads \
 		 --sysroot ./wasi-sdk/win32/share/wasi-sysroot -msimd128 \
-		 -O0 -I. -DWASM -matomics -mbulk-memory
+		 -DCGLM_SIMD -DCGLM_SIMD_WASM \
+		 -O2 -I. -DWASM -matomics -mbulk-memory
 
 # --shared-memory requires --max-memory (shared memory can't grow)
 # --export-table needed for indirect function calls (function pointers) from JS
