@@ -22,6 +22,8 @@
 #include "input.c"
 #include "camera.h"
 #include "camera.c"
+#include "flycam.h"
+#include "flycam.c"
 
 typedef struct {
   f32 dt;
@@ -38,6 +40,7 @@ typedef struct {
 
 global InputSystem g_input;
 global Camera g_camera;
+global FlyCameraCtrl g_flycam;
 
 // todo: fix hardcoded vertex format
 //  Vertex layout constants (position vec3 + normal vec3 + color vec4)
@@ -426,6 +429,13 @@ int wasm_main(AppMemory *memory) {
   // Pitch down ~33.7° to look at origin from that position
   g_camera = camera_init(VEC3(0, 80, 120), VEC3(-0.588f, 0, 0), 45.0f);
 
+  // Initialize flycam controller
+  glm_vec3_copy(VEC3(0, 80, 120), g_flycam.camera_pos);
+  g_flycam.camera_yaw = 0.0f;
+  g_flycam.camera_pitch = -0.588f;
+  g_flycam.move_speed = 120.0f;
+  flycam_update_camera_transform(&g_flycam, &g_camera);
+
   // Total threads = main thread (0) + worker threads (1..N)
   u8 NUM_WORKERS = os_get_processor_count();
 
@@ -546,6 +556,9 @@ void wasm_frame(AppMemory *memory) {
 
   // Update input state from events written by JS
   input_update(&g_input, &memory->input_events, total_time);
+
+  // Update flycam (mouse look + WASD movement)
+  flycam_update(&g_flycam, &g_camera, &g_input, dt);
 
   g_time = total_time;
 
