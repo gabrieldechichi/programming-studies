@@ -233,16 +233,30 @@ currentDpr = dpr;
 renderer = await createRenderer(canvas);
 console.log("[Main Worker] WebGPU renderer initialized");
 
-const wasm_main = instance.exports.wasm_main as () => number;
-const wasm_frame = instance.exports.wasm_frame as ((
-    dt: number,
-    totalTime: number,
-    canvasWidth: number,
-    canvasHeight: number,
-    dpr: number,
-) => void) | undefined;
+const wasm_main = instance.exports.wasm_main as (memory: number) => number;
+const wasm_frame = instance.exports.wasm_frame as ((memory: number) => void) | undefined;
 
-const result = wasm_main();
+const heap = (instance.exports.os_get_heap_base as () => number)();
+
+// AppMemory struct layout (28 bytes):
+// offset 0:  dt (f32)
+// offset 4:  total_time (f32)
+// offset 8:  canvas_width (f32)
+// offset 12: canvas_height (f32)
+// offset 16: dpr (f32)
+// offset 20: heap pointer (u32)
+// offset 24: heap_size (u32)
+const APP_MEMORY_SIZE = 28;
+const TOTAL_HEAP_SIZE = 16 * 1024 * 1024; // 16MB (matches MB(16) in C)
+
+// Initialize AppMemory struct - set heap and heap_size fields
+{
+    const view = new DataView(memory.buffer);
+    view.setUint32(heap + 20, heap + APP_MEMORY_SIZE, true); // heap pointer
+    view.setUint32(heap + 24, TOTAL_HEAP_SIZE - APP_MEMORY_SIZE, true); // heap_size
+}
+
+const result = wasm_main(heap);
 
 // Render loop - call WASM frame function if it exists
 if (wasm_frame) {
@@ -291,8 +305,16 @@ if (wasm_frame) {
         const totalTimeSec = (time.nowMs - time.startMs) / 1000;
         const dtSec = time.dt / 1000;
 
-        // Call WASM frame with timing and canvas info
-        wasm_frame!(dtSec, totalTimeSec, canvas.width, canvas.height, currentDpr);
+        // Write frame data to AppMemory struct
+        const view = new DataView(memory.buffer);
+        view.setFloat32(heap + 0, dtSec, true);           // dt
+        view.setFloat32(heap + 4, totalTimeSec, true);    // total_time
+        view.setFloat32(heap + 8, canvas.width, true);    // canvas_width
+        view.setFloat32(heap + 12, canvas.height, true);  // canvas_height
+        view.setFloat32(heap + 16, currentDpr, true);     // dpr
+
+        // Call WASM frame with pointer to AppMemory struct
+        wasm_frame!(heap);
 
         requestAnimationFrame(tick);
     }

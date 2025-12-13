@@ -19,13 +19,24 @@
 #include "cube.h"
 #include "renderer.h"
 
+typedef struct {
+  f32 dt;
+  f32 total_time;
+  f32 canvas_width;
+  f32 canvas_height;
+  f32 dpr;
+
+  u8 *heap;
+  size_t heap_size;
+} AppMemory;
+
 // todo: fix hardcoded vertex format
 //  Vertex layout constants (position vec3 + normal vec3 + color vec4)
 #define VERTEX_STRIDE 40        // 10 floats * 4 bytes
 #define VERTEX_NORMAL_OFFSET 12 // after position (3 floats)
 #define VERTEX_COLOR_OFFSET 24  // after position + normal (6 floats)
 
-#define NUM_CUBES 100000
+#define NUM_CUBES 10000
 
 // Collision constants
 #define GRID_SIZE (8192 * 8)
@@ -389,12 +400,11 @@ void init_cubes(PCG32_State *rng) {
 }
 
 WASM_EXPORT(wasm_main)
-int wasm_main(void) {
+int wasm_main(AppMemory *memory) {
   LOG_INFO("Initializing GPU...");
 
-  // Setup arena allocator from heap
-  u8 *heap = os_get_heap_base();
-  ArenaAllocator arena = arena_from_buffer(heap, MB(16));
+  // Setup arena allocator from heap (JS sets memory->heap and memory->heap_size)
+  ArenaAllocator arena = arena_from_buffer(memory->heap, memory->heap_size);
 
   // Initialize RNG and cube data
   PCG32_State rng = pcg32_new(12345, 1);
@@ -512,8 +522,12 @@ int wasm_main(void) {
 }
 
 WASM_EXPORT(wasm_frame)
-void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height,
-                f32 dpr) {
+void wasm_frame(AppMemory *memory) {
+  f32 dt = memory->dt;
+  f32 total_time = memory->total_time;
+  f32 canvas_width = memory->canvas_width;
+  f32 canvas_height = memory->canvas_height;
+
   g_time = total_time;
 
   // Cap dt to prevent spiral of death (e.g., if tab was backgrounded)
