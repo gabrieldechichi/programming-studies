@@ -20,6 +20,8 @@
 #include "renderer.h"
 #include "input.h"
 #include "input.c"
+#include "camera.h"
+#include "camera.c"
 
 typedef struct {
   f32 dt;
@@ -35,6 +37,7 @@ typedef struct {
 } AppMemory;
 
 global InputSystem g_input;
+global Camera g_camera;
 
 // todo: fix hardcoded vertex format
 //  Vertex layout constants (position vec3 + normal vec3 + color vec4)
@@ -311,10 +314,6 @@ void collision_integrate_and_boundary(f32 dt) {
 // =============================================================================
 
 void app_update_and_render(f32 dt) {
-    if (g_input.buttons[KEY_SPACE].pressed_this_frame){
-
-    LOG_INFO("% ", FMT_UINT(g_input.buttons[KEY_SPACE].pressed_this_frame));
-    }
   // Phase 1: Clear grid
   collision_clear_grid();
   lane_sync();
@@ -422,6 +421,10 @@ int wasm_main(AppMemory *memory) {
 
   // Initialize input system
   g_input = input_init();
+
+  // Initialize camera at (0, 80, 120) looking at origin, 45° FOV
+  // Pitch down ~33.7° to look at origin from that position
+  g_camera = camera_init(VEC3(0, 80, 120), VEC3(-0.588f, 0, 0), 45.0f);
 
   // Total threads = main thread (0) + worker threads (1..N)
   u8 NUM_WORKERS = os_get_processor_count();
@@ -551,17 +554,13 @@ void wasm_frame(AppMemory *memory) {
     dt = MAX_FRAME_TIME;
   }
 
-  // Calculate aspect ratio from canvas dimensions
-  f32 aspect = canvas_width / canvas_height;
-
-  // Setup view and projection (main thread only, before barrier)
-  mat4 view, proj;
-  mat4_lookat(VEC3(0, 80, 120), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
-  mat4_perspective(RAD(45.0f), aspect, 0.1f, 300.0f, proj);
+  // Update camera matrices
+  camera_update(&g_camera, canvas_width, canvas_height);
 
   // Begin frame (clears, sets view/proj, resets cmd queue)
   if (is_main_thread()) {
-    renderer_begin_frame(view, proj, (GpuColor){0.1f, 0.1f, 0.15f, 1.0f});
+    renderer_begin_frame(g_camera.view, g_camera.proj,
+                         (GpuColor){0.1f, 0.1f, 0.15f, 1.0f});
   }
 
   // Fixed timestep: accumulate real time, step physics in fixed increments
