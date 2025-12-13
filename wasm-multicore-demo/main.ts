@@ -16,8 +16,15 @@ const worker = new Worker(new URL("./main_worker.mjs", import.meta.url), {
     name: "Main Thread",
 });
 
-// Send canvas to worker
-worker.postMessage({ type: "init", canvas: offscreen }, [offscreen]);
+// Send canvas and DPR to worker
+worker.postMessage({ type: "init", canvas: offscreen, dpr: devicePixelRatio }, [offscreen]);
+
+// Handle window resize - notify worker of new dimensions
+window.addEventListener("resize", () => {
+    const width = canvas.clientWidth * devicePixelRatio;
+    const height = canvas.clientHeight * devicePixelRatio;
+    worker.postMessage({ type: "resize", width, height, dpr: devicePixelRatio });
+});
 
 worker.onmessage = (e) => {
     if (e.data.type === "done") {

@@ -471,17 +471,19 @@ int wasm_main(void) {
 }
 
 WASM_EXPORT(wasm_frame)
-void wasm_frame(void) {
-  // Fixed timestep
-  f32 dt = 0.016f;
-  g_dt = dt;  // Share with workers
-  g_time += dt;
+void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height, f32 dpr) {
+  // Share dt with workers
+  g_dt = dt;
+  g_time = total_time;
+
+  // Calculate aspect ratio from canvas dimensions
+  f32 aspect = canvas_width / canvas_height;
 
   // Setup view and projection (main thread only, before barrier)
   // Camera positioned to see the full 100x100x100 bounding box
   mat4 view, proj;
   mat4_lookat(VEC3(0, 80, 120), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
-  mat4_perspective(RAD(45.0f), 16.0f / 9.0f, 0.1f, 300.0f, proj);
+  mat4_perspective(RAD(45.0f), aspect, 0.1f, 300.0f, proj);
 
   // Begin frame (clears, sets view/proj, resets cmd queue)
   if (is_main_thread()) {

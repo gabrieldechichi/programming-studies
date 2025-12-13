@@ -5,20 +5,37 @@ import { createRenderer, createGpuImports, Renderer } from "./renderer.ts";
 
 // Renderer state - initialized when we receive canvas from main thread
 let renderer: Renderer | null = null;
-let canvasReady: Promise<OffscreenCanvas>;
-let resolveCanvas: (canvas: OffscreenCanvas) => void;
+let canvasReady: Promise<{ canvas: OffscreenCanvas; dpr: number }>;
+let resolveCanvas: (data: { canvas: OffscreenCanvas; dpr: number }) => void;
 
 // Set up promise to wait for canvas
 canvasReady = new Promise((resolve) => {
     resolveCanvas = resolve;
 });
 
-// Listen for canvas from main thread
+// Current DPR (updated on resize)
+let currentDpr = 1;
+
+// Listen for messages from main thread
 self.addEventListener("message", (e) => {
     if (e.data.type === "init" && e.data.canvas) {
-        resolveCanvas(e.data.canvas);
+        currentDpr = e.data.dpr ?? 1;
+        resolveCanvas({
+            canvas: e.data.canvas,
+            dpr: currentDpr,
+        });
+    } else if (e.data.type === "resize") {
+        // Update canvas dimensions on resize
+        if (canvasRef) {
+            canvasRef.width = e.data.width;
+            canvasRef.height = e.data.height;
+            currentDpr = e.data.dpr ?? currentDpr;
+        }
     }
 });
+
+// Reference to canvas for resize handling
+let canvasRef: OffscreenCanvas | null = null;
 
 // Shared memory (4GB max)
 const memory = new WebAssembly.Memory({
@@ -208,22 +225,78 @@ for (const info of workerPool) {
 }
 
 // Initialize renderer BEFORE wasm_main so GPU is ready
-const canvas = await canvasReady;
+const { canvas, dpr } = await canvasReady;
+canvasRef = canvas;  // Store reference for resize handling
+currentDpr = dpr;
 renderer = await createRenderer(canvas);
 console.log("[Main Worker] WebGPU renderer initialized");
 
 const wasm_main = instance.exports.wasm_main as () => number;
-const wasm_frame = instance.exports.wasm_frame as (() => void) | undefined;
+const wasm_frame = instance.exports.wasm_frame as ((
+    dt: number,
+    totalTime: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+) => void) | undefined;
 
 const result = wasm_main();
 
 // Render loop - call WASM frame function if it exists
 if (wasm_frame) {
-    function frame() {
-        wasm_frame!();
-        requestAnimationFrame(frame);
+    const targetFPS = 60;
+    const targetFrameTimeMs = 1000 / targetFPS;
+    const sleepToleranceMs = 3;
+    const loopSleepToleranceMs = 1.5;
+
+    const time = {
+        startMs: performance.now(),
+        nowMs: performance.now(),
+        lastMs: performance.now(),
+        dt: 0,
+    };
+
+    let isRunning = true;
+
+    function tick(): void {
+        if (!isRunning) return;
+
+        // Frame timing - early exit if we're ahead of schedule
+        {
+            let startFrameMs = performance.now();
+            let lastStartFrameMs = time.nowMs;
+            let lastFrameDtMs = startFrameMs - lastStartFrameMs;
+
+            // If way ahead of schedule, skip this frame via rAF
+            if (lastFrameDtMs < targetFrameTimeMs - sleepToleranceMs) {
+                requestAnimationFrame(tick);
+                return;
+            }
+
+            // Spin loop for finer granularity timing
+            while (lastFrameDtMs < targetFrameTimeMs - loopSleepToleranceMs) {
+                startFrameMs = performance.now();
+                lastFrameDtMs = startFrameMs - lastStartFrameMs;
+            }
+        }
+
+        // Update time
+        time.nowMs = performance.now();
+        time.dt = time.nowMs - time.lastMs;
+        time.lastMs = time.nowMs;
+
+        // Calculate total time since start (in seconds)
+        const totalTimeSec = (time.nowMs - time.startMs) / 1000;
+        const dtSec = time.dt / 1000;
+
+        // Call WASM frame with timing and canvas info
+        wasm_frame!(dtSec, totalTimeSec, canvas.width, canvas.height, currentDpr);
+
+        requestAnimationFrame(tick);
     }
-    requestAnimationFrame(frame);
+
+    console.log("[Main Worker] Starting game loop at 60 FPS");
+    requestAnimationFrame(tick);
 }
 
 // Notify main thread
