@@ -296,7 +296,11 @@ void app_update_and_render(f32 dt) {
   }
 }
 
-global f32 g_dt = 0.016f;  // Shared dt for workers
+global f32 g_dt = 0.016f;       // Shared dt for workers
+global f32 g_accumulator = 0.0f; // Time accumulator for fixed timestep
+
+#define FIXED_DT (1.0f / 20.0f)  // Physics runs at 20Hz
+#define MAX_FRAME_TIME 0.25f     // Cap to prevent spiral of death
 
 void worker_loop(void *arg) {
   WorkerData *data = (WorkerData *)arg;
@@ -472,15 +476,17 @@ int wasm_main(void) {
 
 WASM_EXPORT(wasm_frame)
 void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height, f32 dpr) {
-  // Share dt with workers
-  g_dt = dt;
   g_time = total_time;
+
+  // Cap dt to prevent spiral of death (e.g., if tab was backgrounded)
+  if (dt > MAX_FRAME_TIME) {
+    dt = MAX_FRAME_TIME;
+  }
 
   // Calculate aspect ratio from canvas dimensions
   f32 aspect = canvas_width / canvas_height;
 
   // Setup view and projection (main thread only, before barrier)
-  // Camera positioned to see the full 100x100x100 bounding box
   mat4 view, proj;
   mat4_lookat(VEC3(0, 80, 120), VEC3(0, 0, 0), VEC3(0, 1, 0), view);
   mat4_perspective(RAD(45.0f), aspect, 0.1f, 300.0f, proj);
@@ -490,23 +496,41 @@ void wasm_frame(f32 dt, f32 total_time, f32 canvas_width, f32 canvas_height, f32
     renderer_begin_frame(view, proj, (GpuColor){0.1f, 0.1f, 0.15f, 1.0f});
   }
 
-  // Sync with workers - start parallel work
-  lane_sync();
+  // Fixed timestep: accumulate real time, step physics in fixed increments
+  g_accumulator += dt;
 
-  // All threads: collision detection + physics + matrix building
-  app_update_and_render(dt);
+  // Cap max steps to prevent spiral of death (max 4 steps = catch up from 15fps)
+  u32 max_steps = 4;
+  u32 step_count = 0;
 
-  // Sync with workers - wait for all to finish
-  lane_sync();
+  // Run physics steps until we've consumed accumulated time
+  // Each step uses exactly FIXED_DT for deterministic simulation
+  // Use do-while to guarantee at least one step (workers are waiting at lane_sync)
+  do {
+    g_dt = FIXED_DT;  // Workers see fixed dt
+
+    // Sync with workers - start parallel physics step
+    lane_sync();
+
+    // All threads: collision detection + physics + matrix building
+    app_update_and_render(FIXED_DT);
+
+    // Sync with workers - wait for all to finish this step
+    lane_sync();
+
+    g_accumulator -= FIXED_DT;
+    step_count++;
+  } while (g_accumulator >= FIXED_DT && step_count < max_steps);
+
+  // If we hit max steps, drain remaining accumulator to prevent buildup
+  if (step_count >= max_steps && g_accumulator > FIXED_DT) {
+    g_accumulator = 0.0f;
+  }
 
   // Main thread: upload instance data and issue single instanced draw call
   if (is_main_thread()) {
-    // Upload all instance matrices to GPU
     renderer_update_instance_buffer(g_instance_buffer, g_instance_data, NUM_CUBES);
-
-    // Single draw call for all cubes
     renderer_draw_mesh_instanced(g_cube_mesh, g_cube_material, g_instance_buffer);
-
     renderer_end_frame();
   }
 }
