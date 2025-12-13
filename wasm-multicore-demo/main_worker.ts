@@ -1,7 +1,7 @@
 // Main worker - runs WASM main() and can use Atomics.wait
 
 import { OS_CORES, barrierWait, createLogImports, createWasiImports } from "./shared.ts";
-import { createRenderer, createGpuImports, Renderer } from "./renderer.ts";
+import { createRenderer, createGpuImports, resizeRenderer, Renderer } from "./renderer.ts";
 
 // Renderer state - initialized when we receive canvas from main thread
 let renderer: Renderer | null = null;
@@ -30,6 +30,8 @@ self.addEventListener("message", (e) => {
             canvasRef.width = e.data.width;
             canvasRef.height = e.data.height;
             currentDpr = e.data.dpr ?? currentDpr;
+            // Recreate depth texture to match new canvas size
+            resizeRenderer(e.data.width, e.data.height);
         }
     }
 });

@@ -34,6 +34,20 @@ let currentPipelineIdx: number = -1;
 
 let renderer: Renderer | null = null;
 
+export function resizeRenderer(width: number, height: number): void {
+    if (!renderer) return;
+
+    // Destroy old depth texture
+    renderer.depthTexture.destroy();
+
+    // Create new depth texture with updated dimensions
+    renderer.depthTexture = renderer.device.createTexture({
+        size: [width, height],
+        format: "depth24plus",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+}
+
 export async function createRenderer(canvas: OffscreenCanvas): Promise<Renderer> {
     if (!navigator.gpu) {
         throw new Error("WebGPU not supported");
