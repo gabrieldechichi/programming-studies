@@ -20,25 +20,25 @@ CC = clang
 #   -msign-ext             Sign extension instructions
 #   -mrelaxed-simd         Relaxed SIMD (faster, less deterministic)
 
-# CFLAGS = --target=wasm32-wasi-threads \
-# 		 --sysroot ./wasi-sdk/win32/share/wasi-sysroot \
-# 		 -O3 -flto -DNDEBUG \
-# 		 -ffast-math \
-# 		 -fomit-frame-pointer -fno-stack-protector -funroll-loops \
-# 		 -ffunction-sections -fdata-sections \
-# 		 -msimd128 -matomics -mbulk-memory \
-# 		 -DCGLM_SIMD -DCGLM_SIMD_WASM \
-# 		 -I. -DWASM
-
 CFLAGS = --target=wasm32-wasi-threads \
 		 --sysroot ./wasi-sdk/win32/share/wasi-sysroot \
-		 -O0 -g -DDEBUG \
+		 -O3 -flto -DNDEBUG \
 		 -ffast-math \
 		 -fomit-frame-pointer -fno-stack-protector -funroll-loops \
 		 -ffunction-sections -fdata-sections \
 		 -msimd128 -matomics -mbulk-memory \
 		 -DCGLM_SIMD -DCGLM_SIMD_WASM \
 		 -I. -DWASM
+
+# CFLAGS = --target=wasm32-wasi-threads \
+# 		 --sysroot ./wasi-sdk/win32/share/wasi-sysroot \
+# 		 -O0 -g -DDEBUG \
+# 		 -ffast-math \
+# 		 -fomit-frame-pointer -fno-stack-protector -funroll-loops \
+# 		 -ffunction-sections -fdata-sections \
+# 		 -msimd128 -matomics -mbulk-memory \
+# 		 -DCGLM_SIMD -DCGLM_SIMD_WASM \
+# 		 -I. -DWASM
 
 # --shared-memory requires --max-memory (shared memory can't grow)
 # --export-table needed for indirect function calls (function pointers) from JS

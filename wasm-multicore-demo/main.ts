@@ -106,9 +106,20 @@ window.addEventListener("resize", () => {
     worker.postMessage({ type: "resize", width, height, dpr: devicePixelRatio });
 });
 
+// Get or create FPS display element
+let fpsDisplay = document.getElementById("fps-display");
+if (!fpsDisplay) {
+    fpsDisplay = document.createElement("div");
+    fpsDisplay.id = "fps-display";
+    fpsDisplay.style.cssText = "position:absolute;top:10px;left:10px;color:#0f0;font-family:monospace;font-size:24px;z-index:1000;";
+    document.body.appendChild(fpsDisplay);
+}
+
 worker.onmessage = (e) => {
     if (e.data.type === "done") {
         console.log(`main() returned: ${e.data.result}`);
+    } else if (e.data.type === "fps") {
+        fpsDisplay!.textContent = `FPS: ${e.data.fps.toFixed(1)}`;
     }
 };
 

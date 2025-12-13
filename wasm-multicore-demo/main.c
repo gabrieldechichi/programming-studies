@@ -48,13 +48,13 @@ global FlyCameraCtrl g_flycam;
 #define VERTEX_NORMAL_OFFSET 12 // after position (3 floats)
 #define VERTEX_COLOR_OFFSET 24  // after position + normal (6 floats)
 
-#define NUM_CUBES 10000
+#define NUM_CUBES 100000
 
 // Collision constants
 #define GRID_SIZE (8192 * 8)
-#define MAX_PER_BUCKET 64
-#define CELL_SIZE 2.0f
+#define MAX_PER_BUCKET 1024
 #define CUBE_RADIUS 0.5f
+#define CELL_SIZE (CUBE_RADIUS * 4.0f)
 #define BOUNDS 125.0f
 #define CUBE_SPEED 50.0f
 #define RESTITUTION 0.5f // 0 = perfectly inelastic, 1 = perfectly elastic
@@ -303,10 +303,10 @@ void collision_integrate_and_boundary(f32 dt) {
     for (u32 axis = 0; axis < 3; axis++) {
       if (cube->position[axis] < bound_min) {
         cube->position[axis] = bound_min;
-        cube->velocity[axis] = -cube->velocity[axis];
+        cube->velocity[axis] = -cube->velocity[axis] * RESTITUTION ;
       } else if (cube->position[axis] > bound_max) {
         cube->position[axis] = bound_max;
-        cube->velocity[axis] = -cube->velocity[axis];
+        cube->velocity[axis] = -cube->velocity[axis]* RESTITUTION ;
       }
     }
   }
@@ -325,10 +325,12 @@ void app_update_and_render(f32 dt) {
   collision_insert_cubes();
   lane_sync();
 
+  // Phase 4: Integrate velocity and handle boundaries
+  collision_integrate_and_boundary(dt);
   // Phase 3: Detect and respond to collisions
   collision_detect_and_respond();
 
-  // Phase 4: Integrate velocity and handle boundaries
+  // // Phase 4: Integrate velocity and handle boundaries
   collision_integrate_and_boundary(dt);
 
   // Phase 5: Build instance matrices
@@ -354,6 +356,20 @@ global f32 g_accumulator = 0.0f; // Time accumulator for fixed timestep
 
 #define FIXED_DT (1.0f / 20.0f) // Physics runs at 20Hz
 #define MAX_FRAME_TIME 0.25f    // Cap to prevent spiral of death
+
+// FPS tracking (rolling average over 20 frames)
+#define FPS_SAMPLE_COUNT 20
+global f32 g_frame_times[FPS_SAMPLE_COUNT];
+global u32 g_frame_time_idx = 0;
+global f32 g_avg_dt = 0.016f;
+
+WASM_EXPORT(wasm_get_fps)
+f32 wasm_get_fps(void) {
+  if (g_avg_dt > 0.0001f) {
+    return 1.0f / g_avg_dt;
+  }
+  return 0.0f;
+}
 
 void worker_loop(void *arg) {
   WorkerData *data = (WorkerData *)arg;
@@ -553,6 +569,15 @@ void wasm_frame(AppMemory *memory) {
   f32 total_time = memory->total_time;
   f32 canvas_width = memory->canvas_width;
   f32 canvas_height = memory->canvas_height;
+
+  // Track frame times for FPS calculation (rolling average)
+  g_frame_times[g_frame_time_idx] = dt;
+  g_frame_time_idx = (g_frame_time_idx + 1) % FPS_SAMPLE_COUNT;
+  f32 sum = 0.0f;
+  for (u32 i = 0; i < FPS_SAMPLE_COUNT; i++) {
+    sum += g_frame_times[i];
+  }
+  g_avg_dt = sum / (f32)FPS_SAMPLE_COUNT;
 
   // Update input state from events written by JS
   input_update(&g_input, &memory->input_events, total_time);
