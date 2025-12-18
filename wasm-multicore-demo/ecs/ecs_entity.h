@@ -21,6 +21,7 @@
 typedef u64 EcsEntity;
 
 typedef struct EcsTable EcsTable;
+typedef struct EcsTableMap EcsTableMap;
 
 typedef struct EcsRecord {
     EcsTable *table;
@@ -51,12 +52,21 @@ typedef struct EcsTypeInfo {
     const char *name;
 } EcsTypeInfo;
 
+typedef struct EcsStore {
+    EcsTable *tables;
+    i32 table_count;
+    i32 table_cap;
+    EcsTable *root;
+    EcsTableMap *table_map;
+} EcsStore;
+
 typedef struct EcsWorld {
     EcsEntityIndex entity_index;
     ArenaAllocator *arena;
     EcsEntity last_component_id;
     EcsTypeInfo *type_info;
     i32 type_info_count;
+    EcsStore store;
 } EcsWorld;
 
 force_inline u32 ecs_entity_index(EcsEntity entity) {
