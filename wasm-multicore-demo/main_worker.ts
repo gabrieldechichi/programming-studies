@@ -273,7 +273,6 @@ console.log("[Main Worker] WebGPU renderer initialized");
 
 const wasm_main = instance.exports.wasm_main as (memory: number) => number;
 const wasm_frame = instance.exports.wasm_frame as ((memory: number) => void) | undefined;
-const wasm_get_fps = instance.exports.wasm_get_fps as () => number;
 
 const heap = (instance.exports.os_get_heap_base as () => number)();
 
@@ -323,8 +322,6 @@ if (wasm_frame) {
     };
 
     let isRunning = true;
-    let lastFpsPostMs = 0;
-    const FPS_POST_INTERVAL_MS = 300;
 
     function tick(): void {
         if (!isRunning) return;
@@ -399,13 +396,6 @@ if (wasm_frame) {
 
         // Call WASM frame with pointer to AppMemory struct
         wasm_frame!(heap);
-
-        // Post FPS to main thread periodically
-        if (time.nowMs - lastFpsPostMs >= FPS_POST_INTERVAL_MS) {
-            const fps = wasm_get_fps();
-            self.postMessage({ type: "fps", fps });
-            lastFpsPostMs = time.nowMs;
-        }
 
         requestAnimationFrame(tick);
     }
