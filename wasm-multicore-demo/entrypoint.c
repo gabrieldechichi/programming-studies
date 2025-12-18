@@ -35,7 +35,6 @@ int wasm_main(AppMemory *memory) {
 
   g_memory = memory;
 
-  LOG_INFO("---> % MB", FMT_UINT(BYTES_TO_MB(memory->heap_size)));
   g_app_ctx.arena = arena_from_buffer(memory->heap, memory->heap_size);
   g_app_ctx.num_threads = os_get_processor_count();
   app_ctx_set(&g_app_ctx);

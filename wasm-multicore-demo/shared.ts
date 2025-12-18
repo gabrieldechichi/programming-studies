@@ -93,13 +93,16 @@ export function createWasiImports() {
     return {
         args_get: () => 0,
         args_sizes_get: (argc_ptr: number, argv_buf_size_ptr: number) => {
-            // No args - set both to 0
             return 0;
         },
         proc_exit: (code: number) => {
             console.log(`[WASI] proc_exit(${code})`);
         },
         sched_yield: () => 0,
+        fd_close: (fd: number) => 0,
+        fd_write: (fd: number, iovs: number, iovs_len: number, nwritten: number) => 0,
+        fd_read: (fd: number, iovs: number, iovs_len: number, nread: number) => 0,
+        fd_seek: (fd: number, offset: bigint, whence: number, newoffset: number) => 0,
     };
 }
 
