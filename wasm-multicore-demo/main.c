@@ -25,4 +25,5 @@
 // #include "demos/demo_multicore_tasks.c"
 // #include "demos/demo_ecs.c"
 // #include "demos/demo_ecs_components.c"
-#include "demos/demo_ecs_tables.c"
+// #include "demos/demo_ecs_tables.c"
+#include "demos/demo_ecs_add_remove.c"

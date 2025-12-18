@@ -24,12 +24,30 @@ typedef struct EcsTableData {
     i32 size;
 } EcsTableData;
 
+typedef struct EcsGraphEdge {
+    EcsEntity id;
+    struct EcsTable *to;
+} EcsGraphEdge;
+
+typedef struct EcsGraphEdges {
+    EcsGraphEdge *lo;
+    EcsGraphEdge *hi;
+    i32 hi_count;
+    i32 hi_cap;
+} EcsGraphEdges;
+
+typedef struct EcsGraphNode {
+    EcsGraphEdges add;
+    EcsGraphEdges remove;
+} EcsGraphNode;
+
 struct EcsTable {
     u64 id;
     EcsType type;
     EcsTableData data;
+    EcsGraphNode node;
     i16 column_count;
-    i16 *component_map;
+    i16 *column_map;
 };
 
 typedef struct EcsTableMapBucket {
@@ -69,13 +87,31 @@ void ecs_table_map_set(EcsTableMap *map, const EcsType *type, EcsTable *table);
 void ecs_table_init(EcsWorld *world, EcsTable *table, const EcsType *type);
 i32 ecs_table_append(EcsWorld *world, EcsTable *table, EcsEntity entity);
 void ecs_table_delete(EcsWorld *world, EcsTable *table, i32 row);
+void ecs_table_move(EcsWorld *world, EcsEntity entity, EcsTable *dst_table, EcsTable *src_table, i32 src_row);
 void* ecs_table_get_column(EcsTable *table, EcsEntity component, i32 *out_column_index);
 void* ecs_table_get_component(EcsTable *table, i32 row, i32 column_index);
 i32 ecs_table_get_column_index(EcsTable *table, EcsEntity component);
-b32 ecs_table_has_component(EcsTable *table, EcsEntity component);
 
 EcsTable* ecs_table_find_or_create(EcsWorld *world, const EcsType *type);
+EcsTable* ecs_table_traverse_add(EcsWorld *world, EcsTable *table, EcsEntity component);
+EcsTable* ecs_table_traverse_remove(EcsWorld *world, EcsTable *table, EcsEntity component);
 
 void ecs_store_init(EcsWorld *world);
+
+void ecs_add(EcsWorld *world, EcsEntity entity, EcsEntity component);
+void ecs_remove(EcsWorld *world, EcsEntity entity, EcsEntity component);
+b32 ecs_has(EcsWorld *world, EcsEntity entity, EcsEntity component);
+void* ecs_get(EcsWorld *world, EcsEntity entity, EcsEntity component);
+void* ecs_get_mut(EcsWorld *world, EcsEntity entity, EcsEntity component);
+void ecs_set_ptr(EcsWorld *world, EcsEntity entity, EcsEntity component, const void *ptr);
+
+#define ecs_set(world, entity, T, ...) \
+    do { \
+        T __temp = __VA_ARGS__; \
+        ecs_set_ptr((world), (entity), ecs_id(T), &__temp); \
+    } while(0)
+
+#define ecs_get_component(world, entity, T) \
+    ((T*)ecs_get((world), (entity), ecs_id(T)))
 
 #endif

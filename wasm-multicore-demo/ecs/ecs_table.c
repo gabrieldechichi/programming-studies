@@ -77,14 +77,14 @@ void ecs_table_init(EcsWorld *world, EcsTable *table, const EcsType *type) {
         table->type.array = NULL;
     }
 
-    table->component_map = ARENA_ALLOC_ARRAY(world->arena, i16, ECS_HI_COMPONENT_ID);
-    memset(table->component_map, 0, sizeof(i16) * ECS_HI_COMPONENT_ID);
+    table->column_map = ARENA_ALLOC_ARRAY(world->arena, i16, ECS_HI_COMPONENT_ID);
+    memset(table->column_map, 0, sizeof(i16) * ECS_HI_COMPONENT_ID);
 
     for (i32 i = 0; i < table->type.count; i++) {
         EcsEntity comp = table->type.array[i];
         u32 comp_id = ecs_entity_index(comp);
         if (comp_id < ECS_HI_COMPONENT_ID) {
-            table->component_map[comp_id] = (i16)(-(i + 1));
+            table->column_map[comp_id] = (i16)(-(i + 1));
         }
     }
 
@@ -112,7 +112,7 @@ void ecs_table_init(EcsWorld *world, EcsTable *table, const EcsType *type) {
 
                 u32 comp_id = ecs_entity_index(comp);
                 if (comp_id < ECS_HI_COMPONENT_ID) {
-                    table->component_map[comp_id] = (i16)(col_idx + 1);
+                    table->column_map[comp_id] = (i16)(col_idx + 1);
                 }
 
                 col_idx++;
@@ -216,7 +216,7 @@ void* ecs_table_get_column(EcsTable *table, EcsEntity component, i32 *out_column
         return NULL;
     }
 
-    i16 res = table->component_map[comp_id];
+    i16 res = table->column_map[comp_id];
     if (res <= 0) {
         if (out_column_index) *out_column_index = -1;
         return NULL;
@@ -242,7 +242,7 @@ i32 ecs_table_get_column_index(EcsTable *table, EcsEntity component) {
         return -1;
     }
 
-    i16 res = table->component_map[comp_id];
+    i16 res = table->column_map[comp_id];
     if (res <= 0) {
         return -1;
     }
@@ -257,7 +257,7 @@ b32 ecs_table_has_component(EcsTable *table, EcsEntity component) {
         return ecs_type_index_of(&table->type, component) >= 0;
     }
 
-    return table->component_map[comp_id] != 0;
+    return table->column_map[comp_id] != 0;
 }
 
 internal EcsTable* ecs_store_new_table(EcsWorld *world) {
@@ -311,4 +311,271 @@ EcsTable* ecs_table_find_or_create(EcsWorld *world, const EcsType *type) {
     ecs_table_map_set(world->store.table_map, &table->type, table);
 
     return table;
+}
+
+internal EcsGraphEdge* ecs_graph_edge_get(EcsWorld *world, EcsGraphEdges *edges, EcsEntity id) {
+    u32 comp_id = ecs_entity_index(id);
+
+    if (comp_id < ECS_HI_COMPONENT_ID) {
+        if (!edges->lo) {
+            return NULL;
+        }
+        EcsGraphEdge *edge = &edges->lo[comp_id];
+        if (edge->id == 0) {
+            return NULL;
+        }
+        return edge;
+    }
+
+    for (i32 i = 0; i < edges->hi_count; i++) {
+        if (edges->hi[i].id == id) {
+            return &edges->hi[i];
+        }
+    }
+    return NULL;
+}
+
+internal EcsGraphEdge* ecs_graph_edge_ensure(EcsWorld *world, EcsGraphEdges *edges, EcsEntity id) {
+    u32 comp_id = ecs_entity_index(id);
+
+    if (comp_id < ECS_HI_COMPONENT_ID) {
+        if (!edges->lo) {
+            edges->lo = ARENA_ALLOC_ARRAY(world->arena, EcsGraphEdge, ECS_HI_COMPONENT_ID);
+            memset(edges->lo, 0, sizeof(EcsGraphEdge) * ECS_HI_COMPONENT_ID);
+        }
+        return &edges->lo[comp_id];
+    }
+
+    for (i32 i = 0; i < edges->hi_count; i++) {
+        if (edges->hi[i].id == id) {
+            return &edges->hi[i];
+        }
+    }
+
+    if (edges->hi_count >= edges->hi_cap) {
+        i32 new_cap = edges->hi_cap == 0 ? 4 : edges->hi_cap * 2;
+        EcsGraphEdge *new_hi = ARENA_ALLOC_ARRAY(world->arena, EcsGraphEdge, new_cap);
+        if (edges->hi) {
+            memcpy(new_hi, edges->hi, sizeof(EcsGraphEdge) * edges->hi_count);
+        }
+        edges->hi = new_hi;
+        edges->hi_cap = new_cap;
+    }
+
+    EcsGraphEdge *edge = &edges->hi[edges->hi_count++];
+    memset(edge, 0, sizeof(EcsGraphEdge));
+    return edge;
+}
+
+internal i32 ecs_type_find_insert(const EcsType *type, EcsEntity to_add) {
+    for (i32 i = 0; i < type->count; i++) {
+        if (type->array[i] == to_add) {
+            return -1;
+        }
+        if (type->array[i] > to_add) {
+            return i;
+        }
+    }
+    return type->count;
+}
+
+internal EcsTable* ecs_find_table_with(EcsWorld *world, EcsTable *table, EcsEntity component) {
+    i32 insert_pos = ecs_type_find_insert(&table->type, component);
+    if (insert_pos < 0) {
+        return table;
+    }
+
+    i32 new_count = table->type.count + 1;
+    EcsEntity *new_array = ARENA_ALLOC_ARRAY(world->arena, EcsEntity, new_count);
+
+    if (insert_pos > 0) {
+        memcpy(new_array, table->type.array, sizeof(EcsEntity) * insert_pos);
+    }
+    new_array[insert_pos] = component;
+    if (insert_pos < table->type.count) {
+        memcpy(new_array + insert_pos + 1, table->type.array + insert_pos,
+               sizeof(EcsEntity) * (table->type.count - insert_pos));
+    }
+
+    EcsType new_type = { .array = new_array, .count = new_count };
+    return ecs_table_find_or_create(world, &new_type);
+}
+
+internal EcsTable* ecs_find_table_without(EcsWorld *world, EcsTable *table, EcsEntity component) {
+    i32 remove_pos = ecs_type_index_of(&table->type, component);
+    if (remove_pos < 0) {
+        return table;
+    }
+
+    i32 new_count = table->type.count - 1;
+    if (new_count == 0) {
+        return world->store.root;
+    }
+
+    EcsEntity *new_array = ARENA_ALLOC_ARRAY(world->arena, EcsEntity, new_count);
+
+    if (remove_pos > 0) {
+        memcpy(new_array, table->type.array, sizeof(EcsEntity) * remove_pos);
+    }
+    if (remove_pos < table->type.count - 1) {
+        memcpy(new_array + remove_pos, table->type.array + remove_pos + 1,
+               sizeof(EcsEntity) * (table->type.count - remove_pos - 1));
+    }
+
+    EcsType new_type = { .array = new_array, .count = new_count };
+    return ecs_table_find_or_create(world, &new_type);
+}
+
+EcsTable* ecs_table_traverse_add(EcsWorld *world, EcsTable *table, EcsEntity component) {
+    EcsGraphEdge *edge = ecs_graph_edge_get(world, &table->node.add, component);
+    if (edge && edge->to) {
+        return edge->to;
+    }
+
+    EcsTable *to = ecs_find_table_with(world, table, component);
+
+    edge = ecs_graph_edge_ensure(world, &table->node.add, component);
+    edge->id = component;
+    edge->to = to;
+
+    return to;
+}
+
+EcsTable* ecs_table_traverse_remove(EcsWorld *world, EcsTable *table, EcsEntity component) {
+    EcsGraphEdge *edge = ecs_graph_edge_get(world, &table->node.remove, component);
+    if (edge && edge->to) {
+        return edge->to;
+    }
+
+    EcsTable *to = ecs_find_table_without(world, table, component);
+
+    edge = ecs_graph_edge_ensure(world, &table->node.remove, component);
+    edge->id = component;
+    edge->to = to;
+
+    return to;
+}
+
+void ecs_table_move(EcsWorld *world, EcsEntity entity, EcsTable *dst_table, EcsTable *src_table, i32 src_row) {
+    i32 dst_row = ecs_table_append(world, dst_table, entity);
+
+    for (i32 src_col = 0; src_col < src_table->column_count; src_col++) {
+        EcsColumn *src_column = &src_table->data.columns[src_col];
+        EcsEntity comp = src_column->ti->component;
+
+        i32 dst_col = ecs_table_get_column_index(dst_table, comp);
+        if (dst_col < 0) {
+            continue;
+        }
+
+        EcsColumn *dst_column = &dst_table->data.columns[dst_col];
+        u32 size = src_column->ti->size;
+
+        void *src_ptr = (u8*)src_column->data + (size * src_row);
+        void *dst_ptr = (u8*)dst_column->data + (size * dst_row);
+        memcpy(dst_ptr, src_ptr, size);
+    }
+
+    ecs_table_delete(world, src_table, src_row);
+}
+
+void ecs_add(EcsWorld *world, EcsEntity entity, EcsEntity component) {
+    EcsRecord *record = ecs_entity_get_record(world, entity);
+    if (!record) {
+        return;
+    }
+
+    EcsTable *src_table = record->table;
+    if (!src_table) {
+        src_table = world->store.root;
+    }
+
+    EcsTable *dst_table = ecs_table_traverse_add(world, src_table, component);
+
+    if (src_table == dst_table) {
+        return;
+    }
+
+    if (src_table == world->store.root || src_table->data.count == 0) {
+        ecs_table_append(world, dst_table, entity);
+    } else {
+        i32 src_row = (i32)record->row;
+        ecs_table_move(world, entity, dst_table, src_table, src_row);
+    }
+}
+
+void ecs_remove(EcsWorld *world, EcsEntity entity, EcsEntity component) {
+    EcsRecord *record = ecs_entity_get_record(world, entity);
+    if (!record || !record->table) {
+        return;
+    }
+
+    EcsTable *src_table = record->table;
+    EcsTable *dst_table = ecs_table_traverse_remove(world, src_table, component);
+
+    if (src_table == dst_table) {
+        return;
+    }
+
+    i32 src_row = (i32)record->row;
+    ecs_table_move(world, entity, dst_table, src_table, src_row);
+}
+
+b32 ecs_has(EcsWorld *world, EcsEntity entity, EcsEntity component) {
+    EcsRecord *record = ecs_entity_get_record(world, entity);
+    if (!record || !record->table) {
+        return false;
+    }
+
+    u32 comp_id = ecs_entity_index(component);
+    if (comp_id < ECS_HI_COMPONENT_ID) {
+        return record->table->column_map[comp_id] != 0;
+    }
+
+    return ecs_type_index_of(&record->table->type, component) >= 0;
+}
+
+void* ecs_get(EcsWorld *world, EcsEntity entity, EcsEntity component) {
+    EcsRecord *record = ecs_entity_get_record(world, entity);
+    if (!record || !record->table) {
+        return NULL;
+    }
+
+    i32 col_idx = ecs_table_get_column_index(record->table, component);
+    if (col_idx < 0) {
+        return NULL;
+    }
+
+    return ecs_table_get_component(record->table, (i32)record->row, col_idx);
+}
+
+void* ecs_get_mut(EcsWorld *world, EcsEntity entity, EcsEntity component) {
+    EcsRecord *record = ecs_entity_get_record(world, entity);
+    if (!record) {
+        return NULL;
+    }
+
+    if (!record->table || !ecs_has(world, entity, component)) {
+        ecs_add(world, entity, component);
+        record = ecs_entity_get_record(world, entity);
+    }
+
+    i32 col_idx = ecs_table_get_column_index(record->table, component);
+    if (col_idx < 0) {
+        return NULL;
+    }
+
+    return ecs_table_get_component(record->table, (i32)record->row, col_idx);
+}
+
+void ecs_set_ptr(EcsWorld *world, EcsEntity entity, EcsEntity component, const void *ptr) {
+    void *dst = ecs_get_mut(world, entity, component);
+    if (!dst) {
+        return;
+    }
+
+    const EcsTypeInfo *ti = ecs_type_info_get(world, component);
+    if (ti) {
+        memcpy(dst, ptr, ti->size);
+    }
 }
