@@ -139,8 +139,8 @@ void *arena_alloc_align(ArenaAllocator *a, size_t size, size_t align) {
 #endif
 
   debug_assert_msg(
-      false, "Failed to allocate memory. Request % kb, Remaining % kb",
-      FMT_UINT(BYTES_TO_KB(size)), FMT_UINT(BYTES_TO_KB(arena_free_size(a))));
+      false, "Failed to allocate memory. Request % kb, Remaining % kb. Total %",
+      FMT_UINT(BYTES_TO_KB(size)), FMT_UINT(BYTES_TO_KB(arena_free_size(a))), FMT_UINT(BYTES_TO_KB(a->reserved)));
   return NULL;
 }
 

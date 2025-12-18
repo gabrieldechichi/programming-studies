@@ -18,11 +18,13 @@ void worker_loop(void *arg) {
 
   lane_sync(); // Wait for init
   app_init(g_memory);
+  arena_reset(&tctx_current()->temp_arena);
   lane_sync(); // Init done
 
   for (;;) {
     lane_sync(); // Wait for frame start (main sets g_memory before this)
     app_update_and_render(g_memory);
+  arena_reset(&tctx_current()->temp_arena);
     lane_sync(); // Frame done
   }
 }
@@ -33,6 +35,7 @@ int wasm_main(AppMemory *memory) {
 
   g_memory = memory;
 
+  LOG_INFO("---> % MB", FMT_UINT(BYTES_TO_MB(memory->heap_size)));
   g_app_ctx.arena = arena_from_buffer(memory->heap, memory->heap_size);
   g_app_ctx.num_threads = os_get_processor_count();
   app_ctx_set(&g_app_ctx);
@@ -76,6 +79,7 @@ int wasm_main(AppMemory *memory) {
   // Sync with workers for init phase
   lane_sync();
   app_init(memory);
+  arena_reset(&tctx_current()->temp_arena);
   lane_sync();
 
   return 0;
@@ -87,6 +91,7 @@ void wasm_frame(AppMemory *memory) {
   lane_sync(); // Release workers - they can now read g_memory
 
   app_update_and_render(memory);
+  arena_reset(&tctx_current()->temp_arena);
 
   lane_sync(); // Wait for all threads to finish
 }

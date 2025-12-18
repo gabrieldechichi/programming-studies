@@ -289,7 +289,8 @@ const heap = (instance.exports.os_get_heap_base as () => number)();
 // offset 352: heap pointer (u32)
 // offset 356: heap_size (u32)
 const APP_MEMORY_SIZE = 360;
-const TOTAL_HEAP_SIZE = 16 * 1024 * 1024; // 16MB (matches MB(16) in C)
+const TOTAL_PAGES = 65536; // 4GB
+const TOTAL_HEAP_SIZE = TOTAL_PAGES * 65536; // 4GB
 
 // Offsets for input events
 const INPUT_MOUSE_X_OFFSET = 20;
