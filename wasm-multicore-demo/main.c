@@ -20,4 +20,5 @@
 #include "camera.c"
 #include "context.c"
 #include "entrypoint.c"
-#include "app.c"
+// #include "demos/demo_cube_instancing.c"
+#include "demos/demo_hello_world.c"
