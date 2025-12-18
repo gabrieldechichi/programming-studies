@@ -14,6 +14,10 @@
 
 #define ECS_ENTITY_INVALID 0
 
+#define ECS_HI_COMPONENT_ID 256
+#define ECS_FIRST_USER_COMPONENT_ID 8
+#define ECS_FIRST_USER_ENTITY_ID (ECS_HI_COMPONENT_ID + 128)
+
 typedef u64 EcsEntity;
 
 typedef struct EcsTable EcsTable;
@@ -40,9 +44,19 @@ typedef struct EcsEntityIndex {
     ArenaAllocator *arena;
 } EcsEntityIndex;
 
+typedef struct EcsTypeInfo {
+    u32 size;
+    u32 alignment;
+    EcsEntity component;
+    const char *name;
+} EcsTypeInfo;
+
 typedef struct EcsWorld {
     EcsEntityIndex entity_index;
     ArenaAllocator *arena;
+    EcsEntity last_component_id;
+    EcsTypeInfo *type_info;
+    i32 type_info_count;
 } EcsWorld;
 
 force_inline u32 ecs_entity_index(EcsEntity entity) {
@@ -59,10 +73,25 @@ force_inline EcsEntity ecs_entity_make(u32 index, u32 generation) {
 
 void ecs_world_init(EcsWorld *world, ArenaAllocator *arena);
 EcsEntity ecs_entity_new(EcsWorld *world);
+EcsEntity ecs_entity_new_low_id(EcsWorld *world);
 void ecs_entity_delete(EcsWorld *world, EcsEntity entity);
 b32 ecs_entity_is_alive(EcsWorld *world, EcsEntity entity);
 b32 ecs_entity_is_valid(EcsWorld *world, EcsEntity entity);
+b32 ecs_entity_exists(EcsWorld *world, EcsEntity entity);
 EcsRecord* ecs_entity_get_record(EcsWorld *world, EcsEntity entity);
 i32 ecs_entity_count(EcsWorld *world);
+
+EcsEntity ecs_component_register(EcsWorld *world, u32 size, u32 alignment, const char *name);
+const EcsTypeInfo* ecs_type_info_get(EcsWorld *world, EcsEntity component);
+
+#define ecs_id(T) FLECS_ID##T##ID_
+
+#define ECS_COMPONENT(world, T) \
+    EcsEntity ecs_id(T) = ecs_component_register( \
+        (world), \
+        sizeof(T), \
+        _Alignof(T), \
+        #T \
+    )
 
 #endif

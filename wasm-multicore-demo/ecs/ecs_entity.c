@@ -77,7 +77,7 @@ internal EcsRecord* ecs_entity_index_try_get(EcsEntityIndex *index, EcsEntity en
     return r;
 }
 
-internal void ecs_entity_index_init(EcsEntityIndex *index, ArenaAllocator *arena) {
+internal void ecs_entity_index_init(EcsEntityIndex *index, ArenaAllocator *arena, u64 first_id) {
     index->arena = arena;
     index->alive_count = 1;
     index->dense_count = 1;
@@ -90,7 +90,24 @@ internal void ecs_entity_index_init(EcsEntityIndex *index, ArenaAllocator *arena
     index->pages = ARENA_ALLOC_ARRAY(arena, EcsEntityPage*, ECS_INITIAL_PAGE_CAP);
     memset(index->pages, 0, sizeof(EcsEntityPage*) * ECS_INITIAL_PAGE_CAP);
 
-    index->max_id = 0;
+    index->max_id = first_id;
+}
+
+internal b32 ecs_entity_index_exists(EcsEntityIndex *index, EcsEntity entity) {
+    u32 id = ecs_entity_index(entity);
+    i32 page_index = (i32)(id >> ECS_ENTITY_PAGE_BITS);
+
+    if (page_index >= index->page_count) {
+        return false;
+    }
+
+    EcsEntityPage *page = index->pages[page_index];
+    if (!page) {
+        return false;
+    }
+
+    EcsRecord *r = &page->records[id & ECS_ENTITY_PAGE_MASK];
+    return r->dense != 0;
 }
 
 internal EcsRecord* ecs_entity_index_ensure(EcsEntityIndex *index, EcsEntity entity) {
@@ -200,7 +217,7 @@ internal EcsEntity ecs_entity_index_new(EcsEntityIndex *index) {
     if (index->alive_count < index->dense_count) {
         entity = index->dense[index->alive_count];
     } else {
-        u32 id = (u32)index->dense_count;
+        u32 id = (u32)(++index->max_id);
         entity = ecs_entity_make(id, 0);
     }
 
@@ -210,7 +227,11 @@ internal EcsEntity ecs_entity_index_new(EcsEntityIndex *index) {
 
 void ecs_world_init(EcsWorld *world, ArenaAllocator *arena) {
     world->arena = arena;
-    ecs_entity_index_init(&world->entity_index, arena);
+    ecs_entity_index_init(&world->entity_index, arena, ECS_FIRST_USER_ENTITY_ID);
+    world->last_component_id = ECS_FIRST_USER_COMPONENT_ID;
+    world->type_info = ARENA_ALLOC_ARRAY(arena, EcsTypeInfo, ECS_HI_COMPONENT_ID);
+    memset(world->type_info, 0, sizeof(EcsTypeInfo) * ECS_HI_COMPONENT_ID);
+    world->type_info_count = 0;
 }
 
 EcsEntity ecs_entity_new(EcsWorld *world) {
@@ -238,4 +259,56 @@ EcsRecord* ecs_entity_get_record(EcsWorld *world, EcsEntity entity) {
 
 i32 ecs_entity_count(EcsWorld *world) {
     return world->entity_index.alive_count - 1;
+}
+
+b32 ecs_entity_exists(EcsWorld *world, EcsEntity entity) {
+    return ecs_entity_index_exists(&world->entity_index, entity);
+}
+
+EcsEntity ecs_entity_new_low_id(EcsWorld *world) {
+    EcsEntity e = 0;
+
+    if (world->last_component_id < ECS_HI_COMPONENT_ID) {
+        do {
+            e = world->last_component_id++;
+        } while (ecs_entity_exists(world, e) && e < ECS_HI_COMPONENT_ID);
+    }
+
+    if (!e || e >= ECS_HI_COMPONENT_ID) {
+        e = ecs_entity_new(world);
+    } else {
+        ecs_entity_index_ensure(&world->entity_index, e);
+    }
+
+    return e;
+}
+
+EcsEntity ecs_component_register(EcsWorld *world, u32 size, u32 alignment, const char *name) {
+    EcsEntity e = ecs_entity_new_low_id(world);
+
+    debug_assert(ecs_entity_index(e) < ECS_HI_COMPONENT_ID);
+
+    u32 id = ecs_entity_index(e);
+    EcsTypeInfo *ti = &world->type_info[id];
+    ti->size = size;
+    ti->alignment = alignment;
+    ti->component = e;
+    ti->name = name;
+    world->type_info_count++;
+
+    return e;
+}
+
+const EcsTypeInfo* ecs_type_info_get(EcsWorld *world, EcsEntity component) {
+    u32 id = ecs_entity_index(component);
+    if (id >= ECS_HI_COMPONENT_ID) {
+        return NULL;
+    }
+
+    EcsTypeInfo *ti = &world->type_info[id];
+    if (ti->component == 0) {
+        return NULL;
+    }
+
+    return ti;
 }

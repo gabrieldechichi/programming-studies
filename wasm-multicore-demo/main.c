@@ -23,4 +23,5 @@
 // #include "demos/demo_cube_instancing.c"
 // #include "demos/demo_hello_world.c"
 // #include "demos/demo_multicore_tasks.c"
-#include "demos/demo_ecs.c"
+// #include "demos/demo_ecs.c"
+#include "demos/demo_ecs_components.c"
