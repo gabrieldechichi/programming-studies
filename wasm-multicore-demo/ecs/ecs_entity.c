@@ -161,29 +161,22 @@ internal void ecs_entity_index_remove(EcsEntityIndex *index, EcsEntity entity) {
         return;
     }
 
-    debug_assert(r->dense < index->alive_count);
-
-    index->alive_count--;
-
     i32 dense = r->dense;
-    EcsEntity e_swap = index->dense[index->alive_count];
+    i32 i_swap = --index->alive_count;
+    EcsEntity e_swap = index->dense[i_swap];
+    EcsRecord *r_swap = ecs_entity_index_get_any(index, e_swap);
 
-    if (e_swap != entity) {
-        u32 swap_id = ecs_entity_index(e_swap);
-        i32 swap_page_index = (i32)(swap_id >> ECS_ENTITY_PAGE_BITS);
-        EcsEntityPage *swap_page = index->pages[swap_page_index];
-        EcsRecord *r_swap = &swap_page->records[swap_id & ECS_ENTITY_PAGE_MASK];
+    debug_assert(r_swap->dense == i_swap);
 
-        r_swap->dense = dense;
-        index->dense[dense] = e_swap;
-    }
-
-    r->dense = index->alive_count;
+    r_swap->dense = dense;
+    r->table = NULL;
+    r->row = 0;
+    r->dense = i_swap;
+    index->dense[dense] = e_swap;
 
     u32 old_gen = ecs_entity_generation(entity);
     u32 id = ecs_entity_index(entity);
-    EcsEntity new_entity = ecs_entity_make(id, old_gen + 1);
-    index->dense[index->alive_count] = new_entity;
+    index->dense[i_swap] = ecs_entity_make(id, old_gen + 1);
 }
 
 internal b32 ecs_entity_index_is_alive(EcsEntityIndex *index, EcsEntity entity) {
@@ -212,17 +205,32 @@ internal b32 ecs_entity_index_is_alive(EcsEntityIndex *index, EcsEntity entity) 
 }
 
 internal EcsEntity ecs_entity_index_new(EcsEntityIndex *index) {
-    EcsEntity entity;
-
     if (index->alive_count < index->dense_count) {
-        entity = index->dense[index->alive_count];
-    } else {
-        u32 id = (u32)(++index->max_id);
-        entity = ecs_entity_make(id, 0);
+        return index->dense[index->alive_count++];
     }
 
-    ecs_entity_index_ensure(index, entity);
-    return entity;
+    u32 id = (u32)(++index->max_id);
+
+    debug_assert(!ecs_entity_index_exists(index, id));
+
+    if (index->dense_count >= index->dense_cap) {
+        i32 new_cap = index->dense_cap * 2;
+        EcsEntity *new_dense = ARENA_ALLOC_ARRAY(index->arena, EcsEntity, new_cap);
+        memcpy(new_dense, index->dense, sizeof(EcsEntity) * index->dense_count);
+        index->dense = new_dense;
+        index->dense_cap = new_cap;
+    }
+
+    index->dense[index->dense_count] = id;
+
+    EcsEntityPage *page = ecs_entity_index_ensure_page(index, id);
+    EcsRecord *r = &page->records[id & ECS_ENTITY_PAGE_MASK];
+    r->dense = index->alive_count++;
+    index->dense_count++;
+
+    debug_assert(index->alive_count == index->dense_count);
+
+    return id;
 }
 
 void ecs_world_init(EcsWorld *world, ArenaAllocator *arena) {
