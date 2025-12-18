@@ -66,4 +66,6 @@ Barrier os_barrier_alloc(u32 count);
 void os_barrier_release(Barrier b);
 void os_barrier_wait(Barrier b);
 
+i32 os_get_processor_count(void);
+
 #endif
