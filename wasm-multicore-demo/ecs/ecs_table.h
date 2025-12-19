@@ -49,6 +49,7 @@ struct EcsTable {
     EcsTableData data;
     EcsGraphNode node;
     u64 bloom_filter;
+    i32 *dirty_state;
     i16 column_count;
     i16 *column_map;
 };
@@ -150,6 +151,7 @@ typedef struct EcsQueryCacheMatch {
     EcsTable *table;
     i16 columns[ECS_QUERY_MAX_TERMS];
     u32 set_fields;
+    i32 *monitor;
     struct EcsQueryCacheMatch *next;
 } EcsQueryCacheMatch;
 
@@ -264,6 +266,12 @@ void ecs_query_cache_populate(EcsQuery *query);
 void ecs_query_cache_add_table(EcsQuery *query, EcsTable *table);
 void ecs_query_cache_remove_table(EcsQuery *query, EcsTable *table);
 b32 ecs_query_table_matches(EcsQuery *query, EcsTable *table, i16 *out_columns, u32 *out_set_fields);
+
+void ecs_table_mark_dirty(EcsTable *table, i32 column);
+b32 ecs_query_changed(EcsQuery *query);
+b32 ecs_iter_changed(EcsIter *it);
+void ecs_query_sync(EcsQuery *query);
+void ecs_iter_sync(EcsIter *it);
 
 #define ecs_field(it, T, index) ((T*)ecs_iter_field((it), (index)))
 #define ecs_field_is_set(it, index) (((it)->set_fields & (1u << (index))) != 0)

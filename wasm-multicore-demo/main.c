@@ -29,4 +29,5 @@
 // #include "demos/demo_ecs_add_remove.c"
 // #include "demos/demo_ecs_query.c"
 // #include "demos/demo_ecs_query_cache.c"
-#include "demos/demo_ecs_inout.c"
+// #include "demos/demo_ecs_inout.c"
+#include "demos/demo_ecs_change_detection.c"

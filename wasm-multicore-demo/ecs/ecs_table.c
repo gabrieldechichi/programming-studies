@@ -148,6 +148,12 @@ void ecs_table_init(EcsWorld *world, EcsTable *table, const EcsType *type) {
     table->data.count = 0;
     table->data.size = 0;
 
+    i32 dirty_state_count = 1 + table->column_count;
+    table->dirty_state = ARENA_ALLOC_ARRAY(world->arena, i32, dirty_state_count);
+    for (i32 i = 0; i < dirty_state_count; i++) {
+        table->dirty_state[i] = 1;
+    }
+
     for (i32 i = 0; i < table->type.count; i++) {
         EcsEntity comp = table->type.array[i];
         EcsComponentRecord *cr = ecs_component_record_get(world, comp);
@@ -200,6 +206,7 @@ i32 ecs_table_append(EcsWorld *world, EcsTable *table, EcsEntity entity) {
     }
 
     table->data.count = count + 1;
+    table->dirty_state[0]++;
 
     EcsRecord *record = ecs_entity_get_record(world, entity);
     if (record) {
@@ -236,6 +243,7 @@ void ecs_table_delete(EcsWorld *world, EcsTable *table, i32 row) {
     }
 
     table->data.count--;
+    table->dirty_state[0]++;
 }
 
 void* ecs_table_get_column(EcsTable *table, EcsEntity component, i32 *out_column_index) {
@@ -612,6 +620,12 @@ void ecs_set_ptr(EcsWorld *world, EcsEntity entity, EcsEntity component, const v
     const EcsTypeInfo *ti = ecs_type_info_get(world, component);
     if (ti) {
         memcpy(dst, ptr, ti->size);
+    }
+
+    EcsRecord *record = ecs_entity_get_record(world, entity);
+    if (record && record->table) {
+        i32 col = ecs_table_get_column_index(record->table, component);
+        ecs_table_mark_dirty(record->table, col);
     }
 }
 
@@ -1029,6 +1043,10 @@ void ecs_query_cache_add_table(EcsQuery *query, EcsTable *table) {
     match->set_fields = set_fields;
     match->next = NULL;
 
+    i32 monitor_count = 1 + table->column_count;
+    match->monitor = ARENA_ALLOC_ARRAY(world->arena, i32, monitor_count);
+    memcpy(match->monitor, table->dirty_state, sizeof(i32) * monitor_count);
+
     if (query->cache.last) {
         query->cache.last->next = match;
     } else {
@@ -1095,4 +1113,77 @@ internal b32 ecs_iter_next_cached(EcsIter *it) {
     }
 
     return false;
+}
+
+void ecs_table_mark_dirty(EcsTable *table, i32 column) {
+    if (table->dirty_state && column >= 0) {
+        table->dirty_state[column + 1]++;
+    }
+}
+
+internal b32 ecs_query_match_changed(EcsQuery *query, EcsQueryCacheMatch *match) {
+    EcsTable *table = match->table;
+
+    if (match->monitor[0] != table->dirty_state[0]) {
+        return true;
+    }
+
+    for (i32 i = 0; i < query->field_count; i++) {
+        if (!(query->read_fields & (1u << i))) {
+            continue;
+        }
+
+        i16 column = match->columns[i];
+        if (column >= 0) {
+            if (match->monitor[column + 1] != table->dirty_state[column + 1]) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+b32 ecs_query_changed(EcsQuery *query) {
+    if (!query->is_cached) {
+        return true;
+    }
+
+    for (EcsQueryCacheMatch *m = query->cache.first; m; m = m->next) {
+        if (ecs_query_match_changed(query, m)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+b32 ecs_iter_changed(EcsIter *it) {
+    if (!it->query->is_cached || !it->cache_cur) {
+        return true;
+    }
+
+    return ecs_query_match_changed(it->query, it->cache_cur);
+}
+
+internal void ecs_query_match_sync(EcsQueryCacheMatch *match) {
+    EcsTable *table = match->table;
+    i32 count = 1 + table->column_count;
+    memcpy(match->monitor, table->dirty_state, sizeof(i32) * count);
+}
+
+void ecs_query_sync(EcsQuery *query) {
+    if (!query->is_cached) {
+        return;
+    }
+
+    for (EcsQueryCacheMatch *m = query->cache.first; m; m = m->next) {
+        ecs_query_match_sync(m);
+    }
+}
+
+void ecs_iter_sync(EcsIter *it) {
+    if (it->cache_cur) {
+        ecs_query_match_sync(it->cache_cur);
+    }
 }
