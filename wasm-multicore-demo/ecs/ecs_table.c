@@ -1,6 +1,23 @@
 #include "ecs_table.h"
 #include "lib/assert.h"
 
+internal void ecs_component_record_insert_table(EcsWorld *world, EcsComponentRecord *cr, EcsTable *table, i16 column, i16 type_index) {
+    EcsTableRecord *tr = ARENA_ALLOC(world->arena, EcsTableRecord);
+    tr->table = table;
+    tr->column = column;
+    tr->type_index = type_index;
+    tr->prev = cr->last;
+    tr->next = NULL;
+
+    if (cr->last) {
+        cr->last->next = tr;
+    } else {
+        cr->first = tr;
+    }
+    cr->last = tr;
+    cr->table_count++;
+}
+
 void ecs_table_map_init(EcsTableMap *map, ArenaAllocator *arena) {
     map->arena = arena;
     map->bucket_count = ECS_TABLE_MAP_INITIAL_CAPACITY;
@@ -125,6 +142,15 @@ void ecs_table_init(EcsWorld *world, EcsTable *table, const EcsType *type) {
     table->data.entities = NULL;
     table->data.count = 0;
     table->data.size = 0;
+
+    for (i32 i = 0; i < table->type.count; i++) {
+        EcsEntity comp = table->type.array[i];
+        EcsComponentRecord *cr = ecs_component_record_get(world, comp);
+        if (cr) {
+            i16 column = ecs_table_get_column_index(table, comp);
+            ecs_component_record_insert_table(world, cr, table, column, (i16)i);
+        }
+    }
 }
 
 i32 ecs_table_append(EcsWorld *world, EcsTable *table, EcsEntity entity) {
@@ -578,4 +604,222 @@ void ecs_set_ptr(EcsWorld *world, EcsEntity entity, EcsEntity component, const v
     if (ti) {
         memcpy(dst, ptr, ti->size);
     }
+}
+
+void ecs_query_init(EcsQuery *query, EcsWorld *world, EcsEntity *terms, i32 term_count) {
+    debug_assert(term_count > 0 && term_count <= ECS_QUERY_MAX_TERMS);
+
+    query->world = world;
+    query->term_count = term_count;
+    query->field_count = term_count;
+
+    for (i32 i = 0; i < term_count; i++) {
+        query->terms[i].id = terms[i];
+        query->terms[i].oper = EcsOperAnd;
+        query->terms[i].field_index = (i8)i;
+        query->terms[i].or_chain_length = 0;
+    }
+}
+
+void ecs_query_init_terms(EcsQuery *query, EcsWorld *world, EcsTerm *terms, i32 term_count) {
+    debug_assert(term_count > 0 && term_count <= ECS_QUERY_MAX_TERMS);
+
+    query->world = world;
+    query->term_count = term_count;
+
+    i32 field_index = 0;
+    for (i32 i = 0; i < term_count; i++) {
+        query->terms[i] = terms[i];
+
+        if (terms[i].oper == EcsOperNot) {
+            query->terms[i].field_index = -1;
+        } else {
+            query->terms[i].field_index = (i8)field_index;
+            field_index++;
+        }
+    }
+    query->field_count = field_index;
+}
+
+internal i32 ecs_query_find_pivot_term(EcsQuery *query) {
+    for (i32 i = 0; i < query->term_count; i++) {
+        EcsTerm *term = &query->terms[i];
+        if (term->oper == EcsOperAnd) {
+            return i;
+        }
+    }
+
+    for (i32 i = 0; i < query->term_count; i++) {
+        EcsTerm *term = &query->terms[i];
+        if (term->oper == EcsOperOr && term->or_chain_length > 0) {
+            return i;
+        }
+    }
+
+    return 0;
+}
+
+EcsIter ecs_query_iter(EcsQuery *query) {
+    EcsIter it = {0};
+    it.world = query->world;
+    it.query = query;
+    it.table = NULL;
+    it.count = 0;
+    it.entities = NULL;
+    it.cur = NULL;
+    it.set_fields = 0;
+
+    for (i32 i = 0; i < ECS_QUERY_MAX_TERMS; i++) {
+        it.columns[i] = -1;
+    }
+
+    return it;
+}
+
+b32 ecs_iter_next(EcsIter *it) {
+    EcsQuery *query = it->query;
+    EcsWorld *world = it->world;
+
+    if (query->term_count == 0) {
+        return false;
+    }
+
+    i32 pivot_term = ecs_query_find_pivot_term(query);
+    EcsTerm *first_term = &query->terms[pivot_term];
+
+    EcsComponentRecord *cr_first = ecs_component_record_get(world, first_term->id);
+    if (!cr_first) {
+        return false;
+    }
+
+    EcsTableRecord *tr = it->cur ? it->cur->next : cr_first->first;
+
+    while (tr) {
+        EcsTable *table = tr->table;
+
+        if (table->data.count == 0) {
+            tr = tr->next;
+            continue;
+        }
+
+        b32 match = true;
+        u32 set_fields = 0;
+
+        for (i32 i = 0; i < ECS_QUERY_MAX_TERMS; i++) {
+            it->columns[i] = -1;
+        }
+
+        if (first_term->field_index >= 0) {
+            it->columns[first_term->field_index] = tr->column;
+            set_fields |= (1u << first_term->field_index);
+        }
+
+        for (i32 t = 0; t < query->term_count && match; t++) {
+            if (t == pivot_term) {
+                continue;
+            }
+
+            EcsTerm *term = &query->terms[t];
+            EcsComponentRecord *cr = ecs_component_record_get(world, term->id);
+            b32 has_component = false;
+            i16 column = -1;
+
+            if (cr) {
+                EcsTableRecord *tr_term = ecs_component_record_get_table(cr, table);
+                if (tr_term) {
+                    has_component = true;
+                    column = tr_term->column;
+                }
+            }
+
+            switch (term->oper) {
+            case EcsOperAnd:
+                if (!has_component) {
+                    match = false;
+                } else {
+                    if (term->field_index >= 0) {
+                        it->columns[term->field_index] = column;
+                        set_fields |= (1u << term->field_index);
+                    }
+                }
+                break;
+
+            case EcsOperNot:
+                if (has_component) {
+                    match = false;
+                }
+                break;
+
+            case EcsOperOptional:
+                if (has_component && term->field_index >= 0) {
+                    it->columns[term->field_index] = column;
+                    set_fields |= (1u << term->field_index);
+                }
+                break;
+
+            case EcsOperOr:
+                if (term->or_chain_length > 0) {
+                    b32 or_match = has_component;
+                    i16 or_column = column;
+                    EcsEntity matched_id = term->id;
+
+                    for (i32 o = 1; o < term->or_chain_length && !or_match; o++) {
+                        i32 or_idx = t + o;
+                        if (or_idx >= query->term_count) break;
+
+                        EcsTerm *or_term = &query->terms[or_idx];
+                        EcsComponentRecord *or_cr = ecs_component_record_get(world, or_term->id);
+                        if (or_cr) {
+                            EcsTableRecord *or_tr = ecs_component_record_get_table(or_cr, table);
+                            if (or_tr) {
+                                or_match = true;
+                                or_column = or_tr->column;
+                                matched_id = or_term->id;
+                            }
+                        }
+                    }
+
+                    if (!or_match) {
+                        match = false;
+                    } else if (term->field_index >= 0) {
+                        it->columns[term->field_index] = or_column;
+                        set_fields |= (1u << term->field_index);
+                    }
+
+                    t += term->or_chain_length - 1;
+                }
+                break;
+            }
+        }
+
+        if (match) {
+            it->cur = tr;
+            it->table = table;
+            it->count = table->data.count;
+            it->entities = table->data.entities;
+            it->set_fields = set_fields;
+            return true;
+        }
+
+        tr = tr->next;
+    }
+
+    return false;
+}
+
+void* ecs_iter_field(EcsIter *it, i32 field_index) {
+    debug_assert(field_index >= 0 && field_index < it->query->field_count);
+    debug_assert(it->table != NULL);
+
+    i16 column = it->columns[field_index];
+    if (column < 0) {
+        return NULL;
+    }
+
+    return it->table->data.columns[column].data;
+}
+
+i32 ecs_iter_field_column(EcsIter *it, i32 field_index) {
+    debug_assert(field_index >= 0 && field_index < it->query->field_count);
+    return it->columns[field_index];
 }

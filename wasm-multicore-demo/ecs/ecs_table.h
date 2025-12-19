@@ -24,11 +24,13 @@ typedef struct EcsTableData {
     i32 size;
 } EcsTableData;
 
+// TODO: add EcsTableDiff *diff (added/removed component arrays) for faster moves
 typedef struct EcsGraphEdge {
     EcsEntity id;
     struct EcsTable *to;
 } EcsGraphEdge;
 
+// TODO: use hash map for hi edges instead of array (O(1) vs O(n) lookup)
 typedef struct EcsGraphEdges {
     EcsGraphEdge *lo;
     EcsGraphEdge *hi;
@@ -113,5 +115,88 @@ void ecs_set_ptr(EcsWorld *world, EcsEntity entity, EcsEntity component, const v
 
 #define ecs_get_component(world, entity, T) \
     ((T*)ecs_get((world), (entity), ecs_id(T)))
+
+#define ECS_QUERY_MAX_TERMS 16
+
+typedef enum {
+    EcsOperAnd = 0,
+    EcsOperNot,
+    EcsOperOptional,
+    EcsOperOr,
+} EcsOperKind;
+
+typedef struct EcsTerm {
+    EcsEntity id;
+    i16 oper;
+    i8 field_index;
+    i8 or_chain_length;
+} EcsTerm;
+
+typedef struct EcsQuery {
+    EcsWorld *world;
+    EcsTerm terms[ECS_QUERY_MAX_TERMS];
+    i32 term_count;
+    i32 field_count;
+} EcsQuery;
+
+typedef struct EcsIter {
+    EcsWorld *world;
+    EcsQuery *query;
+
+    EcsTable *table;
+    i32 count;
+    EcsEntity *entities;
+
+    i16 columns[ECS_QUERY_MAX_TERMS];
+    u32 set_fields;
+
+    EcsTableRecord *cur;
+} EcsIter;
+
+force_inline EcsTerm ecs_term(EcsEntity id) {
+    EcsTerm t = {0};
+    t.id = id;
+    t.oper = EcsOperAnd;
+    t.field_index = -1;
+    t.or_chain_length = 0;
+    return t;
+}
+
+force_inline EcsTerm ecs_term_not(EcsEntity id) {
+    EcsTerm t = {0};
+    t.id = id;
+    t.oper = EcsOperNot;
+    t.field_index = -1;
+    t.or_chain_length = 0;
+    return t;
+}
+
+force_inline EcsTerm ecs_term_optional(EcsEntity id) {
+    EcsTerm t = {0};
+    t.id = id;
+    t.oper = EcsOperOptional;
+    t.field_index = -1;
+    t.or_chain_length = 0;
+    return t;
+}
+
+force_inline EcsTerm ecs_term_or(EcsEntity id, i8 chain_length) {
+    EcsTerm t = {0};
+    t.id = id;
+    t.oper = EcsOperOr;
+    t.field_index = -1;
+    t.or_chain_length = chain_length;
+    return t;
+}
+
+void ecs_query_init(EcsQuery *query, EcsWorld *world, EcsEntity *terms, i32 term_count);
+void ecs_query_init_terms(EcsQuery *query, EcsWorld *world, EcsTerm *terms, i32 term_count);
+EcsIter ecs_query_iter(EcsQuery *query);
+b32 ecs_iter_next(EcsIter *it);
+void* ecs_iter_field(EcsIter *it, i32 field_index);
+i32 ecs_iter_field_column(EcsIter *it, i32 field_index);
+
+#define ecs_field(it, T, index) ((T*)ecs_iter_field((it), (index)))
+#define ecs_field_is_set(it, index) (((it)->set_fields & (1u << (index))) != 0)
 
 #endif

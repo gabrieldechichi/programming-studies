@@ -239,6 +239,8 @@ void ecs_world_init(EcsWorld *world, ArenaAllocator *arena) {
     world->last_component_id = ECS_FIRST_USER_COMPONENT_ID;
     world->type_info = ARENA_ALLOC_ARRAY(arena, EcsTypeInfo, ECS_HI_COMPONENT_ID);
     memset(world->type_info, 0, sizeof(EcsTypeInfo) * ECS_HI_COMPONENT_ID);
+    world->component_records = ARENA_ALLOC_ARRAY(arena, EcsComponentRecord, ECS_HI_COMPONENT_ID);
+    memset(world->component_records, 0, sizeof(EcsComponentRecord) * ECS_HI_COMPONENT_ID);
     world->type_info_count = 0;
 }
 
@@ -304,6 +306,13 @@ EcsEntity ecs_component_register(EcsWorld *world, u32 size, u32 alignment, const
     ti->name = name;
     world->type_info_count++;
 
+    EcsComponentRecord *cr = &world->component_records[id];
+    cr->id = e;
+    cr->type_info = ti;
+    cr->first = NULL;
+    cr->last = NULL;
+    cr->table_count = 0;
+
     return e;
 }
 
@@ -319,4 +328,32 @@ const EcsTypeInfo* ecs_type_info_get(EcsWorld *world, EcsEntity component) {
     }
 
     return ti;
+}
+
+EcsComponentRecord* ecs_component_record_get(EcsWorld *world, EcsEntity component) {
+    u32 id = ecs_entity_index(component);
+    if (id >= ECS_HI_COMPONENT_ID) {
+        return NULL;
+    }
+
+    EcsComponentRecord *cr = &world->component_records[id];
+    if (cr->id == 0) {
+        return NULL;
+    }
+
+    return cr;
+}
+
+EcsTableRecord* ecs_component_record_get_table(EcsComponentRecord *cr, EcsTable *table) {
+    if (!cr) {
+        return NULL;
+    }
+
+    for (EcsTableRecord *tr = cr->first; tr != NULL; tr = tr->next) {
+        if (tr->table == table) {
+            return tr;
+        }
+    }
+
+    return NULL;
 }

@@ -45,12 +45,34 @@ typedef struct EcsEntityIndex {
     ArenaAllocator *arena;
 } EcsEntityIndex;
 
+// TODO: add type hooks for complex types (ctor/dtor/copy/move callbacks)
+// void (*ctor)(void *ptr, i32 count, const EcsTypeInfo *ti);
+// void (*dtor)(void *ptr, i32 count, const EcsTypeInfo *ti);
+// void (*copy)(void *dst, const void *src, i32 count, const EcsTypeInfo *ti);
+// void (*move)(void *dst, void *src, i32 count, const EcsTypeInfo *ti);
 typedef struct EcsTypeInfo {
     u32 size;
     u32 alignment;
     EcsEntity component;
     const char *name;
 } EcsTypeInfo;
+
+typedef struct EcsTableRecord {
+    EcsTable *table;
+    i16 column;
+    i16 type_index;
+    struct EcsTableRecord *prev;
+    struct EcsTableRecord *next;
+} EcsTableRecord;
+
+typedef struct EcsComponentRecord {
+    EcsEntity id;
+    const EcsTypeInfo *type_info;
+    EcsTableRecord *first;
+    EcsTableRecord *last;
+    i32 table_count;
+} EcsComponentRecord;
+
 
 typedef struct EcsStore {
     EcsTable *tables;
@@ -65,6 +87,7 @@ typedef struct EcsWorld {
     ArenaAllocator *arena;
     EcsEntity last_component_id;
     EcsTypeInfo *type_info;
+    EcsComponentRecord *component_records;
     i32 type_info_count;
     EcsStore store;
 } EcsWorld;
@@ -93,6 +116,8 @@ i32 ecs_entity_count(EcsWorld *world);
 
 EcsEntity ecs_component_register(EcsWorld *world, u32 size, u32 alignment, const char *name);
 const EcsTypeInfo* ecs_type_info_get(EcsWorld *world, EcsEntity component);
+EcsComponentRecord* ecs_component_record_get(EcsWorld *world, EcsEntity component);
+EcsTableRecord* ecs_component_record_get_table(EcsComponentRecord *cr, EcsTable *table);
 
 #define ecs_id(T) FLECS_ID##T##ID_
 
