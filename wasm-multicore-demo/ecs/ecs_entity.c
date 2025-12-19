@@ -242,6 +242,9 @@ void ecs_world_init(EcsWorld *world, ArenaAllocator *arena) {
     world->component_records = ARENA_ALLOC_ARRAY(arena, EcsComponentRecord, ECS_HI_COMPONENT_ID);
     memset(world->component_records, 0, sizeof(EcsComponentRecord) * ECS_HI_COMPONENT_ID);
     world->type_info_count = 0;
+    world->cached_queries = NULL;
+    world->cached_query_count = 0;
+    world->cached_query_cap = 0;
 }
 
 EcsEntity ecs_entity_new(EcsWorld *world) {

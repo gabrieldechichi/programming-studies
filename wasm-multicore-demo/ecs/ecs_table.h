@@ -48,6 +48,7 @@ struct EcsTable {
     EcsType type;
     EcsTableData data;
     EcsGraphNode node;
+    u64 bloom_filter;
     i16 column_count;
     i16 *column_map;
 };
@@ -67,6 +68,10 @@ typedef struct EcsTableMap {
 
 force_inline u64 ecs_type_hash(const EcsType *type) {
     return flecs_hash(type->array, type->count * (i32)sizeof(EcsEntity));
+}
+
+force_inline u64 ecs_bloom_bit(EcsEntity component) {
+    return 1ull << (ecs_entity_index(component) % 64);
 }
 
 force_inline i32 ecs_type_compare(const EcsType *type_1, const EcsType *type_2) {
@@ -125,19 +130,46 @@ typedef enum {
     EcsOperOr,
 } EcsOperKind;
 
+typedef enum {
+    EcsInOutDefault = 0,
+    EcsIn,
+    EcsOut,
+    EcsInOut,
+    EcsInOutNone,
+} EcsInOutKind;
+
 typedef struct EcsTerm {
     EcsEntity id;
     i16 oper;
+    i16 inout;
     i8 field_index;
     i8 or_chain_length;
 } EcsTerm;
 
-typedef struct EcsQuery {
+typedef struct EcsQueryCacheMatch {
+    EcsTable *table;
+    i16 columns[ECS_QUERY_MAX_TERMS];
+    u32 set_fields;
+    struct EcsQueryCacheMatch *next;
+} EcsQueryCacheMatch;
+
+typedef struct EcsQueryCache {
+    EcsQueryCacheMatch *first;
+    EcsQueryCacheMatch *last;
+    i32 match_count;
+} EcsQueryCache;
+
+struct EcsQuery {
     EcsWorld *world;
     EcsTerm terms[ECS_QUERY_MAX_TERMS];
     i32 term_count;
     i32 field_count;
-} EcsQuery;
+    u64 bloom_filter;
+    u32 read_fields;
+    u32 write_fields;
+    EcsQueryCache cache;
+    b32 is_cached;
+};
 
 typedef struct EcsIter {
     EcsWorld *world;
@@ -151,21 +183,50 @@ typedef struct EcsIter {
     u32 set_fields;
 
     EcsTableRecord *cur;
+    EcsQueryCacheMatch *cache_cur;
 } EcsIter;
 
 force_inline EcsTerm ecs_term(EcsEntity id) {
     EcsTerm t = {0};
     t.id = id;
     t.oper = EcsOperAnd;
+    t.inout = EcsInOutDefault;
     t.field_index = -1;
     t.or_chain_length = 0;
     return t;
+}
+
+force_inline EcsTerm ecs_term_w_inout(EcsEntity id, EcsInOutKind inout) {
+    EcsTerm t = {0};
+    t.id = id;
+    t.oper = EcsOperAnd;
+    t.inout = (i16)inout;
+    t.field_index = -1;
+    t.or_chain_length = 0;
+    return t;
+}
+
+force_inline EcsTerm ecs_term_in(EcsEntity id) {
+    return ecs_term_w_inout(id, EcsIn);
+}
+
+force_inline EcsTerm ecs_term_out(EcsEntity id) {
+    return ecs_term_w_inout(id, EcsOut);
+}
+
+force_inline EcsTerm ecs_term_inout(EcsEntity id) {
+    return ecs_term_w_inout(id, EcsInOut);
+}
+
+force_inline EcsTerm ecs_term_none(EcsEntity id) {
+    return ecs_term_w_inout(id, EcsInOutNone);
 }
 
 force_inline EcsTerm ecs_term_not(EcsEntity id) {
     EcsTerm t = {0};
     t.id = id;
     t.oper = EcsOperNot;
+    t.inout = EcsInOutNone;
     t.field_index = -1;
     t.or_chain_length = 0;
     return t;
@@ -175,6 +236,7 @@ force_inline EcsTerm ecs_term_optional(EcsEntity id) {
     EcsTerm t = {0};
     t.id = id;
     t.oper = EcsOperOptional;
+    t.inout = EcsInOutDefault;
     t.field_index = -1;
     t.or_chain_length = 0;
     return t;
@@ -184,6 +246,7 @@ force_inline EcsTerm ecs_term_or(EcsEntity id, i8 chain_length) {
     EcsTerm t = {0};
     t.id = id;
     t.oper = EcsOperOr;
+    t.inout = EcsInOutDefault;
     t.field_index = -1;
     t.or_chain_length = chain_length;
     return t;
@@ -195,6 +258,12 @@ EcsIter ecs_query_iter(EcsQuery *query);
 b32 ecs_iter_next(EcsIter *it);
 void* ecs_iter_field(EcsIter *it, i32 field_index);
 i32 ecs_iter_field_column(EcsIter *it, i32 field_index);
+
+void ecs_query_cache_init(EcsQuery *query);
+void ecs_query_cache_populate(EcsQuery *query);
+void ecs_query_cache_add_table(EcsQuery *query, EcsTable *table);
+void ecs_query_cache_remove_table(EcsQuery *query, EcsTable *table);
+b32 ecs_query_table_matches(EcsQuery *query, EcsTable *table, i16 *out_columns, u32 *out_set_fields);
 
 #define ecs_field(it, T, index) ((T*)ecs_iter_field((it), (index)))
 #define ecs_field_is_set(it, index) (((it)->set_fields & (1u << (index))) != 0)

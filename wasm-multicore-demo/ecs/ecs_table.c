@@ -94,6 +94,11 @@ void ecs_table_init(EcsWorld *world, EcsTable *table, const EcsType *type) {
         table->type.array = NULL;
     }
 
+    table->bloom_filter = 0;
+    for (i32 i = 0; i < table->type.count; i++) {
+        table->bloom_filter |= ecs_bloom_bit(table->type.array[i]);
+    }
+
     table->column_map = ARENA_ALLOC_ARRAY(world->arena, i16, ECS_HI_COMPONENT_ID);
     memset(table->column_map, 0, sizeof(i16) * ECS_HI_COMPONENT_ID);
 
@@ -150,6 +155,10 @@ void ecs_table_init(EcsWorld *world, EcsTable *table, const EcsType *type) {
             i16 column = ecs_table_get_column_index(table, comp);
             ecs_component_record_insert_table(world, cr, table, column, (i16)i);
         }
+    }
+
+    for (i32 i = 0; i < world->cached_query_count; i++) {
+        ecs_query_cache_add_table(world->cached_queries[i], table);
     }
 }
 
@@ -612,12 +621,26 @@ void ecs_query_init(EcsQuery *query, EcsWorld *world, EcsEntity *terms, i32 term
     query->world = world;
     query->term_count = term_count;
     query->field_count = term_count;
+    query->is_cached = false;
+    query->cache.first = NULL;
+    query->cache.last = NULL;
+    query->cache.match_count = 0;
+
+    query->bloom_filter = 0;
+    query->read_fields = 0;
+    query->write_fields = 0;
 
     for (i32 i = 0; i < term_count; i++) {
         query->terms[i].id = terms[i];
         query->terms[i].oper = EcsOperAnd;
+        query->terms[i].inout = EcsInOutDefault;
         query->terms[i].field_index = (i8)i;
         query->terms[i].or_chain_length = 0;
+        query->bloom_filter |= ecs_bloom_bit(terms[i]);
+
+        u32 field_bit = 1u << i;
+        query->read_fields |= field_bit;
+        query->write_fields |= field_bit;
     }
 }
 
@@ -626,6 +649,14 @@ void ecs_query_init_terms(EcsQuery *query, EcsWorld *world, EcsTerm *terms, i32 
 
     query->world = world;
     query->term_count = term_count;
+    query->is_cached = false;
+    query->cache.first = NULL;
+    query->cache.last = NULL;
+    query->cache.match_count = 0;
+
+    query->bloom_filter = 0;
+    query->read_fields = 0;
+    query->write_fields = 0;
 
     i32 field_index = 0;
     for (i32 i = 0; i < term_count; i++) {
@@ -635,18 +666,48 @@ void ecs_query_init_terms(EcsQuery *query, EcsWorld *world, EcsTerm *terms, i32 
             query->terms[i].field_index = -1;
         } else {
             query->terms[i].field_index = (i8)field_index;
+
+            i16 inout = terms[i].inout;
+            if (inout == EcsInOutDefault) {
+                inout = EcsInOut;
+            }
+
+            u32 field_bit = 1u << field_index;
+            if (inout != EcsOut && inout != EcsInOutNone) {
+                query->read_fields |= field_bit;
+            }
+            if (inout != EcsIn && inout != EcsInOutNone) {
+                query->write_fields |= field_bit;
+            }
+
             field_index++;
+        }
+
+        if (terms[i].oper == EcsOperAnd) {
+            query->bloom_filter |= ecs_bloom_bit(terms[i].id);
         }
     }
     query->field_count = field_index;
 }
 
 internal i32 ecs_query_find_pivot_term(EcsQuery *query) {
+    i32 pivot = -1;
+    i32 min_tables = INT32_MAX;
+
     for (i32 i = 0; i < query->term_count; i++) {
         EcsTerm *term = &query->terms[i];
         if (term->oper == EcsOperAnd) {
-            return i;
+            EcsComponentRecord *cr = ecs_component_record_get(query->world, term->id);
+            i32 table_count = cr ? cr->table_count : 0;
+            if (table_count < min_tables) {
+                min_tables = table_count;
+                pivot = i;
+            }
         }
+    }
+
+    if (pivot >= 0) {
+        return pivot;
     }
 
     for (i32 i = 0; i < query->term_count; i++) {
@@ -667,6 +728,7 @@ EcsIter ecs_query_iter(EcsQuery *query) {
     it.count = 0;
     it.entities = NULL;
     it.cur = NULL;
+    it.cache_cur = NULL;
     it.set_fields = 0;
 
     for (i32 i = 0; i < ECS_QUERY_MAX_TERMS; i++) {
@@ -676,13 +738,26 @@ EcsIter ecs_query_iter(EcsQuery *query) {
     return it;
 }
 
+internal b32 ecs_iter_next_uncached(EcsIter *it);
+internal b32 ecs_iter_next_cached(EcsIter *it);
+
 b32 ecs_iter_next(EcsIter *it) {
     EcsQuery *query = it->query;
-    EcsWorld *world = it->world;
 
     if (query->term_count == 0) {
         return false;
     }
+
+    if (query->is_cached) {
+        return ecs_iter_next_cached(it);
+    }
+
+    return ecs_iter_next_uncached(it);
+}
+
+internal b32 ecs_iter_next_uncached(EcsIter *it) {
+    EcsQuery *query = it->query;
+    EcsWorld *world = it->world;
 
     i32 pivot_term = ecs_query_find_pivot_term(query);
     EcsTerm *first_term = &query->terms[pivot_term];
@@ -698,6 +773,11 @@ b32 ecs_iter_next(EcsIter *it) {
         EcsTable *table = tr->table;
 
         if (table->data.count == 0) {
+            tr = tr->next;
+            continue;
+        }
+
+        if ((table->bloom_filter & query->bloom_filter) != query->bloom_filter) {
             tr = tr->next;
             continue;
         }
@@ -822,4 +902,197 @@ void* ecs_iter_field(EcsIter *it, i32 field_index) {
 i32 ecs_iter_field_column(EcsIter *it, i32 field_index) {
     debug_assert(field_index >= 0 && field_index < it->query->field_count);
     return it->columns[field_index];
+}
+
+b32 ecs_query_table_matches(EcsQuery *query, EcsTable *table, i16 *out_columns, u32 *out_set_fields) {
+    EcsWorld *world = query->world;
+
+    if ((table->bloom_filter & query->bloom_filter) != query->bloom_filter) {
+        return false;
+    }
+
+    for (i32 i = 0; i < ECS_QUERY_MAX_TERMS; i++) {
+        out_columns[i] = -1;
+    }
+    *out_set_fields = 0;
+
+    for (i32 t = 0; t < query->term_count; t++) {
+        EcsTerm *term = &query->terms[t];
+        EcsComponentRecord *cr = ecs_component_record_get(world, term->id);
+        b32 has_component = false;
+        i16 column = -1;
+
+        if (cr) {
+            EcsTableRecord *tr_term = ecs_component_record_get_table(cr, table);
+            if (tr_term) {
+                has_component = true;
+                column = tr_term->column;
+            }
+        }
+
+        switch (term->oper) {
+        case EcsOperAnd:
+            if (!has_component) {
+                return false;
+            }
+            if (term->field_index >= 0) {
+                out_columns[term->field_index] = column;
+                *out_set_fields |= (1u << term->field_index);
+            }
+            break;
+
+        case EcsOperNot:
+            if (has_component) {
+                return false;
+            }
+            break;
+
+        case EcsOperOptional:
+            if (has_component && term->field_index >= 0) {
+                out_columns[term->field_index] = column;
+                *out_set_fields |= (1u << term->field_index);
+            }
+            break;
+
+        case EcsOperOr:
+            if (term->or_chain_length > 0) {
+                b32 or_match = has_component;
+                i16 or_column = column;
+
+                for (i32 o = 1; o < term->or_chain_length && !or_match; o++) {
+                    i32 or_idx = t + o;
+                    if (or_idx >= query->term_count) break;
+
+                    EcsTerm *or_term = &query->terms[or_idx];
+                    EcsComponentRecord *or_cr = ecs_component_record_get(world, or_term->id);
+                    if (or_cr) {
+                        EcsTableRecord *or_tr = ecs_component_record_get_table(or_cr, table);
+                        if (or_tr) {
+                            or_match = true;
+                            or_column = or_tr->column;
+                        }
+                    }
+                }
+
+                if (!or_match) {
+                    return false;
+                }
+                if (term->field_index >= 0) {
+                    out_columns[term->field_index] = or_column;
+                    *out_set_fields |= (1u << term->field_index);
+                }
+
+                t += term->or_chain_length - 1;
+            }
+            break;
+        }
+    }
+
+    return true;
+}
+
+void ecs_query_cache_init(EcsQuery *query) {
+    EcsWorld *world = query->world;
+
+    query->cache.first = NULL;
+    query->cache.last = NULL;
+    query->cache.match_count = 0;
+    query->is_cached = true;
+
+    if (world->cached_query_count >= world->cached_query_cap) {
+        i32 new_cap = world->cached_query_cap == 0 ? 16 : world->cached_query_cap * 2;
+        EcsQuery **new_queries = ARENA_ALLOC_ARRAY(world->arena, EcsQuery*, new_cap);
+        if (world->cached_queries) {
+            memcpy(new_queries, world->cached_queries, sizeof(EcsQuery*) * world->cached_query_count);
+        }
+        world->cached_queries = new_queries;
+        world->cached_query_cap = new_cap;
+    }
+
+    world->cached_queries[world->cached_query_count++] = query;
+
+    ecs_query_cache_populate(query);
+}
+
+void ecs_query_cache_add_table(EcsQuery *query, EcsTable *table) {
+    i16 columns[ECS_QUERY_MAX_TERMS];
+    u32 set_fields;
+
+    if (!ecs_query_table_matches(query, table, columns, &set_fields)) {
+        return;
+    }
+
+    EcsWorld *world = query->world;
+    EcsQueryCacheMatch *match = ARENA_ALLOC(world->arena, EcsQueryCacheMatch);
+    match->table = table;
+    memcpy(match->columns, columns, sizeof(columns));
+    match->set_fields = set_fields;
+    match->next = NULL;
+
+    if (query->cache.last) {
+        query->cache.last->next = match;
+    } else {
+        query->cache.first = match;
+    }
+    query->cache.last = match;
+    query->cache.match_count++;
+}
+
+void ecs_query_cache_remove_table(EcsQuery *query, EcsTable *table) {
+    EcsQueryCacheMatch *prev = NULL;
+    EcsQueryCacheMatch *cur = query->cache.first;
+
+    while (cur) {
+        if (cur->table == table) {
+            if (prev) {
+                prev->next = cur->next;
+            } else {
+                query->cache.first = cur->next;
+            }
+
+            if (cur == query->cache.last) {
+                query->cache.last = prev;
+            }
+
+            query->cache.match_count--;
+            return;
+        }
+        prev = cur;
+        cur = cur->next;
+    }
+}
+
+void ecs_query_cache_populate(EcsQuery *query) {
+    EcsWorld *world = query->world;
+
+    query->cache.first = NULL;
+    query->cache.last = NULL;
+    query->cache.match_count = 0;
+
+    for (i32 i = 0; i < world->store.table_count; i++) {
+        EcsTable *table = &world->store.tables[i];
+        if (table->data.count == 0) {
+            continue;
+        }
+        ecs_query_cache_add_table(query, table);
+    }
+}
+
+internal b32 ecs_iter_next_cached(EcsIter *it) {
+    EcsQueryCacheMatch *match = it->cache_cur ? it->cache_cur->next : it->query->cache.first;
+
+    while (match) {
+        if (match->table->data.count > 0) {
+            it->cache_cur = match;
+            it->table = match->table;
+            it->count = match->table->data.count;
+            it->entities = match->table->data.entities;
+            memcpy(it->columns, match->columns, sizeof(match->columns));
+            it->set_fields = match->set_fields;
+            return true;
+        }
+        match = match->next;
+    }
+
+    return false;
 }

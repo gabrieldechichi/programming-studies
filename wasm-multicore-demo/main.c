@@ -27,4 +27,6 @@
 // #include "demos/demo_ecs_components.c"
 // #include "demos/demo_ecs_tables.c"
 // #include "demos/demo_ecs_add_remove.c"
-#include "demos/demo_ecs_query.c"
+// #include "demos/demo_ecs_query.c"
+// #include "demos/demo_ecs_query_cache.c"
+#include "demos/demo_ecs_inout.c"
