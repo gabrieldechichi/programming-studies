@@ -1,5 +1,6 @@
 #include "ecs_table.h"
 #include "lib/assert.h"
+#include "lib/multicore_runtime.h"
 
 internal void ecs_component_record_insert_table(EcsWorld *world, EcsComponentRecord *cr, EcsTable *table, i16 column, i16 type_index) {
     EcsTableRecord *tr = ARENA_ALLOC(world->arena, EcsTableRecord);
@@ -739,11 +740,14 @@ EcsIter ecs_query_iter(EcsQuery *query) {
     it.world = query->world;
     it.query = query;
     it.table = NULL;
+    it.offset = 0;
     it.count = 0;
     it.entities = NULL;
     it.cur = NULL;
     it.cache_cur = NULL;
     it.set_fields = 0;
+    it.delta_time = 0.0f;
+    it.ctx = NULL;
 
     for (i32 i = 0; i < ECS_QUERY_MAX_TERMS; i++) {
         it.columns[i] = -1;
@@ -910,7 +914,9 @@ void* ecs_iter_field(EcsIter *it, i32 field_index) {
         return NULL;
     }
 
-    return it->table->data.columns[column].data;
+    EcsColumn *col = &it->table->data.columns[column];
+    u8 *base = (u8 *)col->data;
+    return base + (it->offset * col->ti->size);
 }
 
 i32 ecs_iter_field_column(EcsIter *it, i32 field_index) {
@@ -1186,4 +1192,183 @@ void ecs_iter_sync(EcsIter *it) {
     if (it->cache_cur) {
         ecs_query_match_sync(it->cache_cur);
     }
+}
+
+EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc) {
+    debug_assert(desc != NULL);
+    debug_assert(desc->callback != NULL);
+    debug_assert(desc->term_count > 0);
+
+    if (world->system_count >= world->system_cap) {
+        i32 new_cap = world->system_cap == 0 ? 16 : world->system_cap * 2;
+        EcsSystem *new_systems = ARENA_ALLOC_ARRAY(world->arena, EcsSystem, new_cap);
+        if (world->systems) {
+            memcpy(new_systems, world->systems, sizeof(EcsSystem) * world->system_count);
+        }
+        world->systems = new_systems;
+        world->system_cap = new_cap;
+    }
+
+    EcsSystem *sys = &world->systems[world->system_count];
+    memset(sys, 0, sizeof(EcsSystem));
+
+    sys->id = ecs_entity_new(world);
+    sys->callback = desc->callback;
+    sys->ctx = desc->ctx;
+    sys->name = desc->name;
+    sys->main_thread_only = desc->main_thread_only;
+
+    ecs_query_init_terms(&sys->query, world, desc->terms, desc->term_count);
+    ecs_query_cache_init(&sys->query);
+
+    sys->depends_on = NULL;
+    sys->depends_on_count = 0;
+    sys->depends_on_cap = 0;
+
+    ThreadContext *tctx = tctx_current();
+    sys->task_handles = ARENA_ALLOC_ARRAY(world->arena, MCRTaskHandle, tctx->thread_count);
+    memset(sys->task_handles, 0, sizeof(MCRTaskHandle) * tctx->thread_count);
+
+    world->system_count++;
+
+    return sys;
+}
+
+EcsSystem* ecs_system_get(EcsWorld *world, i32 index) {
+    if (index < 0 || index >= world->system_count) {
+        return NULL;
+    }
+    return &world->systems[index];
+}
+
+void ecs_system_depends_on(EcsSystem *system, EcsSystem *dependency) {
+    debug_assert(system != NULL);
+    debug_assert(dependency != NULL);
+
+    if (system->depends_on_count >= system->depends_on_cap) {
+        i32 new_cap = system->depends_on_cap == 0 ? 4 : system->depends_on_cap * 2;
+        if (new_cap > ECS_MAX_SYSTEM_DEPS) {
+            new_cap = ECS_MAX_SYSTEM_DEPS;
+        }
+
+        EcsWorld *world = system->query.world;
+        EcsSystem **new_deps = ARENA_ALLOC_ARRAY(world->arena, EcsSystem*, new_cap);
+        if (system->depends_on) {
+            memcpy(new_deps, system->depends_on, sizeof(EcsSystem*) * system->depends_on_count);
+        }
+        system->depends_on = new_deps;
+        system->depends_on_cap = new_cap;
+    }
+
+    if (system->depends_on_count < ECS_MAX_SYSTEM_DEPS) {
+        system->depends_on[system->depends_on_count++] = dependency;
+    }
+}
+
+internal b32 ecs_term_writes(EcsTerm *term) {
+    return term->inout == EcsOut || term->inout == EcsInOut || term->inout == EcsInOutDefault;
+}
+
+internal b32 ecs_term_reads(EcsTerm *term) {
+    return term->inout == EcsIn || term->inout == EcsInOut || term->inout == EcsInOutDefault;
+}
+
+b32 ecs_systems_conflict(EcsSystem *writer, EcsSystem *reader) {
+    EcsQuery *q_writer = &writer->query;
+    EcsQuery *q_reader = &reader->query;
+
+    for (i32 w = 0; w < q_writer->term_count; w++) {
+        EcsTerm *term_w = &q_writer->terms[w];
+        if (!ecs_term_writes(term_w)) {
+            continue;
+        }
+
+        for (i32 r = 0; r < q_reader->term_count; r++) {
+            EcsTerm *term_r = &q_reader->terms[r];
+            if (!ecs_term_reads(term_r)) {
+                continue;
+            }
+
+            if (term_w->id == term_r->id) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void ecs_world_compute_system_dependencies(EcsWorld *world) {
+    for (i32 b = 0; b < world->system_count; b++) {
+        EcsSystem *sys_b = &world->systems[b];
+
+        for (i32 a = 0; a < b; a++) {
+            EcsSystem *sys_a = &world->systems[a];
+
+            if (ecs_systems_conflict(sys_a, sys_b)) {
+                ecs_system_depends_on(sys_b, sys_a);
+            }
+        }
+    }
+}
+
+internal void ecs_system_run_task(void *arg) {
+    EcsSystemRunData *data = (EcsSystemRunData *)arg;
+    EcsSystem *sys = data->sys;
+
+    if (sys->main_thread_only && !is_main_thread()) {
+        return;
+    }
+
+    EcsIter it = ecs_query_iter(&sys->query);
+    it.delta_time = data->delta_time;
+    it.ctx = sys->ctx;
+
+    while (ecs_iter_next(&it)) {
+        i32 table_count = it.count;
+        Range_u64 range = lane_range((u64)table_count);
+
+        if (range.max > range.min) {
+            it.offset = (i32)range.min;
+            it.count = (i32)(range.max - range.min);
+            it.entities = it.table->data.entities + range.min;
+
+            sys->callback(&it);
+        }
+    }
+}
+
+void ecs_progress(EcsWorld *world, f32 delta_time) {
+    ThreadContext *tctx = tctx_current();
+
+    local_shared MCRTaskQueue queue = {0};
+
+    for (i32 s = 0; s < world->system_count; s++) {
+        EcsSystem *sys = &world->systems[s];
+        MCRTaskHandle *task_handles = (MCRTaskHandle *)sys->task_handles;
+
+        EcsSystemRunData *run_data = ARENA_ALLOC(&tctx->temp_arena, EcsSystemRunData);
+        run_data->sys = sys;
+        run_data->delta_time = delta_time;
+        run_data->thread_idx = tctx->thread_idx;
+
+        MCRTaskHandle deps[ECS_MAX_SYSTEM_DEPS];
+        i32 dep_count = 0;
+
+        for (i32 d = 0; d < sys->depends_on_count; d++) {
+            EcsSystem *dep_sys = sys->depends_on[d];
+            MCRTaskHandle *dep_handles = (MCRTaskHandle *)dep_sys->task_handles;
+            deps[dep_count++] = dep_handles[tctx->thread_idx];
+        }
+
+        task_handles[tctx->thread_idx] = mcr_queue_append(
+            &queue,
+            ecs_system_run_task,
+            run_data,
+            NULL, 0,
+            deps, (u8)dep_count
+        );
+    }
+
+    mcr_queue_process(&queue);
 }

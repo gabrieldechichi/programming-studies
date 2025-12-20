@@ -178,15 +178,53 @@ typedef struct EcsIter {
     EcsQuery *query;
 
     EcsTable *table;
+    i32 offset;
     i32 count;
     EcsEntity *entities;
 
     i16 columns[ECS_QUERY_MAX_TERMS];
     u32 set_fields;
 
+    f32 delta_time;
+    void *ctx;
+
     EcsTableRecord *cur;
     EcsQueryCacheMatch *cache_cur;
 } EcsIter;
+
+#define ECS_MAX_SYSTEM_DEPS 16
+
+typedef void (*EcsSystemCallback)(EcsIter *it);
+
+typedef struct EcsSystem {
+    EcsEntity id;
+    EcsQuery query;
+    EcsSystemCallback callback;
+    void *ctx;
+    const char *name;
+
+    struct EcsSystem **depends_on;
+    i32 depends_on_count;
+    i32 depends_on_cap;
+
+    void *task_handles;
+    b32 main_thread_only;
+} EcsSystem;
+
+typedef struct EcsSystemDesc {
+    EcsTerm *terms;
+    i32 term_count;
+    EcsSystemCallback callback;
+    void *ctx;
+    const char *name;
+    b32 main_thread_only;
+} EcsSystemDesc;
+
+typedef struct EcsSystemRunData {
+    EcsSystem *sys;
+    f32 delta_time;
+    u8 thread_idx;
+} EcsSystemRunData;
 
 force_inline EcsTerm ecs_term(EcsEntity id) {
     EcsTerm t = {0};
@@ -273,7 +311,22 @@ b32 ecs_iter_changed(EcsIter *it);
 void ecs_query_sync(EcsQuery *query);
 void ecs_iter_sync(EcsIter *it);
 
+EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc);
+EcsSystem* ecs_system_get(EcsWorld *world, i32 index);
+void ecs_system_depends_on(EcsSystem *system, EcsSystem *dependency);
+b32 ecs_systems_conflict(EcsSystem *writer, EcsSystem *reader);
+void ecs_world_compute_system_dependencies(EcsWorld *world);
+void ecs_progress(EcsWorld *world, f32 delta_time);
+
 #define ecs_field(it, T, index) ((T*)ecs_iter_field((it), (index)))
 #define ecs_field_is_set(it, index) (((it)->set_fields & (1u << (index))) != 0)
+
+#define ECS_SYSTEM(world, callback_fn, terms_arr, terms_count) \
+    ecs_system_init((world), &(EcsSystemDesc){ \
+        .terms = (terms_arr), \
+        .term_count = (terms_count), \
+        .callback = (callback_fn), \
+        .name = #callback_fn, \
+    })
 
 #endif

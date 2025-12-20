@@ -245,6 +245,9 @@ void ecs_world_init(EcsWorld *world, ArenaAllocator *arena) {
     world->cached_queries = NULL;
     world->cached_query_count = 0;
     world->cached_query_cap = 0;
+    world->systems = NULL;
+    world->system_count = 0;
+    world->system_cap = 0;
 }
 
 EcsEntity ecs_entity_new(EcsWorld *world) {

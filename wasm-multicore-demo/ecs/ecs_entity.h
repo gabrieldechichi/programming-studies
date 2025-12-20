@@ -23,6 +23,7 @@ typedef u64 EcsEntity;
 typedef struct EcsTable EcsTable;
 typedef struct EcsTableMap EcsTableMap;
 typedef struct EcsQuery EcsQuery;
+typedef struct EcsSystem EcsSystem;
 
 typedef struct EcsRecord {
     EcsTable *table;
@@ -94,6 +95,9 @@ typedef struct EcsWorld {
     EcsQuery **cached_queries;
     i32 cached_query_count;
     i32 cached_query_cap;
+    EcsSystem *systems;
+    i32 system_count;
+    i32 system_cap;
 } EcsWorld;
 
 force_inline u32 ecs_entity_index(EcsEntity entity) {
