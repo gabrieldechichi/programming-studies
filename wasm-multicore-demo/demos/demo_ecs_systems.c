@@ -37,6 +37,7 @@ void ecs_world_init_full(EcsWorld *world, ArenaAllocator *arena) {
 }
 
 void MoveSystem(EcsIter *it) {
+    LOG_INFO("Move System running");
     Position *p = ecs_field(it, Position, 0);
     Velocity *v = ecs_field(it, Velocity, 1);
 
@@ -47,6 +48,7 @@ void MoveSystem(EcsIter *it) {
 }
 
 void DamageSystem(EcsIter *it) {
+    LOG_INFO("Damage System running");
     Health *h = ecs_field(it, Health, 0);
     Velocity *v = ecs_field(it, Velocity, 1);
 
@@ -58,16 +60,17 @@ void DamageSystem(EcsIter *it) {
 
 void PrintSystem(EcsIter *it) {
     Position *p = ecs_field(it, Position, 0);
+    LOG_INFO("Print system running");
 
-    ThreadContext *tctx = tctx_current();
-    for (i32 i = 0; i < it->count; i++) {
-        if (i == 0) {
-            LOG_INFO("Thread %: pos[0]=(%, %)",
-                     FMT_UINT(tctx->thread_idx),
-                     FMT_UINT((u32)(p[i].x * 100)),
-                     FMT_UINT((u32)(p[i].y * 100)));
-        }
-    }
+    // ThreadContext *tctx = tctx_current();
+    // for (i32 i = 0; i < it->count; i++) {
+    //     if (i == 0) {
+    //         LOG_INFO("Thread %: pos[0]=(%, %)",
+    //                  FMT_UINT(tctx->thread_idx),
+    //                  FMT_UINT((u32)(p[i].x * 100)),
+    //                  FMT_UINT((u32)(p[i].y * 100)));
+    //     }
+    // }
 }
 
 void app_init(AppMemory *memory) {
@@ -134,6 +137,9 @@ void app_init(AppMemory *memory) {
 
 void app_update_and_render(AppMemory *memory) {
     UNUSED(memory);
+    if(is_main_thread()){
+        LOG_INFO("------ FRAME START ------");
+    }
 
     f32 delta_time = 0.016f;
 
@@ -144,5 +150,7 @@ void app_update_and_render(AppMemory *memory) {
         if (g_frame_count % 60 == 0) {
             LOG_INFO("Frame %", FMT_UINT(g_frame_count));
         }
+
+        LOG_INFO("------ FRAME END ------");
     }
 }
