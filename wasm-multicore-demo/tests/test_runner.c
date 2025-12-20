@@ -5,13 +5,30 @@
 #include "os/os.h"
 
 #include "ecs/ecs_entity.c"
+#include "ecs/ecs_table.c"
 
 #include "tests/test_ecs.c"
+#include "tests/test_ecs_components.c"
+#include "tests/test_ecs_tables.c"
+#include "tests/test_ecs_add_remove.c"
+#include "tests/test_ecs_query.c"
+#include "tests/test_ecs_query_cache.c"
+#include "tests/test_ecs_inout.c"
+#include "tests/test_ecs_change_detection.c"
+#include "tests/test_ecs_systems.c"
 
 global AppContext g_test_app_ctx;
 
 void test_main(void) {
     RUN_TEST(test_ecs, &g_test_app_ctx.arena);
+    RUN_TEST(test_ecs_components, &g_test_app_ctx.arena);
+    RUN_TEST(test_ecs_tables, &g_test_app_ctx.arena);
+    RUN_TEST(test_ecs_add_remove, &g_test_app_ctx.arena);
+    RUN_TEST(test_ecs_query, &g_test_app_ctx.arena);
+    RUN_TEST(test_ecs_query_cache, &g_test_app_ctx.arena);
+    RUN_TEST(test_ecs_inout, &g_test_app_ctx.arena);
+    RUN_TEST(test_ecs_change_detection, &g_test_app_ctx.arena);
+    RUN_TEST(test_ecs_systems, &g_test_app_ctx.arena);
 
     if (is_main_thread()) {
         print_test_results();

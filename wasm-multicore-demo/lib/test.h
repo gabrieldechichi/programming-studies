@@ -11,6 +11,7 @@ static u32 g_test_passed = 0;
 
 #define RUN_TEST(test_func, app_arena)                                         \
   do {                                                                         \
+    UNUSED(app_arena);                                                         \
     if (is_main_thread()) {                                                    \
       LOG_INFO("Running test: %", FMT_STR(#test_func));                        \
       g_test_count++;                                                          \
@@ -19,7 +20,6 @@ static u32 g_test_passed = 0;
     lane_sync();                                                               \
     arena_reset(&tctx_current()->temp_arena);                                  \
     if (is_main_thread()) {                                                    \
-      arena_reset(app_arena);                                                  \
       g_test_passed++;                                                         \
       LOG_INFO("PASSED: %", FMT_STR(#test_func));                              \
     }                                                                          \
