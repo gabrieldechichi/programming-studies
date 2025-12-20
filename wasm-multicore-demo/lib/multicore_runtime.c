@@ -137,7 +137,7 @@ MCRTaskHandle _mcr_queue_append(MCRTaskQueue *queue, MCRTaskFunc fn, void *data,
             }
 
             if (!is_dependency) {
-              LOG_INFO(
+              LOG_ERROR(
                   "RACE CONDITION DETECTED:\n"
                   "  Task %d conflicts with Task %d\n"
                   "  Memory region: [%p - %p] overlaps [%p - %p]\n"

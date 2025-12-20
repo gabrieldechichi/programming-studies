@@ -315,7 +315,6 @@ EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc);
 EcsSystem* ecs_system_get(EcsWorld *world, i32 index);
 void ecs_system_depends_on(EcsSystem *system, EcsSystem *dependency);
 b32 ecs_systems_conflict(EcsSystem *writer, EcsSystem *reader);
-void ecs_world_compute_system_dependencies(EcsWorld *world);
 void ecs_progress(EcsWorld *world, f32 delta_time);
 
 #define ecs_field(it, T, index) ((T*)ecs_iter_field((it), (index)))

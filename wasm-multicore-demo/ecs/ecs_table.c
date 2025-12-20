@@ -1229,6 +1229,13 @@ EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc) {
     sys->task_handles = ARENA_ALLOC_ARRAY(world->arena, MCRTaskHandle, tctx->thread_count);
     memset(sys->task_handles, 0, sizeof(MCRTaskHandle) * tctx->thread_count);
 
+    for (i32 i = 0; i < world->system_count; i++) {
+        EcsSystem *existing = &world->systems[i];
+        if (ecs_systems_conflict(existing, sys)) {
+            ecs_system_depends_on(sys, existing);
+        }
+    }
+
     world->system_count++;
 
     return sys;
@@ -1298,20 +1305,6 @@ b32 ecs_systems_conflict(EcsSystem *writer, EcsSystem *reader) {
     return false;
 }
 
-void ecs_world_compute_system_dependencies(EcsWorld *world) {
-    for (i32 b = 0; b < world->system_count; b++) {
-        EcsSystem *sys_b = &world->systems[b];
-
-        for (i32 a = 0; a < b; a++) {
-            EcsSystem *sys_a = &world->systems[a];
-
-            if (ecs_systems_conflict(sys_a, sys_b)) {
-                ecs_system_depends_on(sys_b, sys_a);
-            }
-        }
-    }
-}
-
 internal void ecs_system_run_task(void *arg) {
     EcsSystemRunData *data = (EcsSystemRunData *)arg;
     EcsSystem *sys = data->sys;
@@ -1365,6 +1358,9 @@ void ecs_progress(EcsWorld *world, f32 delta_time) {
             &queue,
             ecs_system_run_task,
             run_data,
+            // NOTE: we purposely do not pass resource access here since we don't know that yet
+            // only ecs_system_run_task when we iterate over the query.
+            // we are trusting that ecs_system_init has computed dependencies correctly
             NULL, 0,
             deps, (u8)dep_count
         );

@@ -11,24 +11,17 @@
 #include "ecs/ecs_entity.c"
 #include "ecs/ecs_table.c"
 
-typedef struct {
-    f32 x;
-    f32 y;
-} Position;
-
-typedef struct {
-    f32 x;
-    f32 y;
-} Velocity;
-
-typedef struct {
-    f32 value;
-} Health;
+typedef struct { f32 value; } Alpha;
+typedef struct { f32 value; } Beta;
+typedef struct { f32 value; } Gamma;
+typedef struct { f32 value; } Delta;
 
 global EcsWorld g_world;
-global EcsSystem *g_move_system;
-global EcsSystem *g_damage_system;
-global EcsSystem *g_print_system;
+global EcsSystem *g_sys_a;
+global EcsSystem *g_sys_b;
+global EcsSystem *g_sys_c;
+global EcsSystem *g_sys_d;
+global EcsSystem *g_sys_e;
 global u32 g_frame_count = 0;
 
 void ecs_world_init_full(EcsWorld *world, ArenaAllocator *arena) {
@@ -36,41 +29,44 @@ void ecs_world_init_full(EcsWorld *world, ArenaAllocator *arena) {
     ecs_store_init(world);
 }
 
-void MoveSystem(EcsIter *it) {
-    LOG_INFO("Move System running");
-    Position *p = ecs_field(it, Position, 0);
-    Velocity *v = ecs_field(it, Velocity, 1);
-
+void SystemA(EcsIter *it) {
+    Alpha *a = ecs_field(it, Alpha, 0);
     for (i32 i = 0; i < it->count; i++) {
-        p[i].x += v[i].x * it->delta_time;
-        p[i].y += v[i].y * it->delta_time;
+        a[i].value += 1.0f;
     }
 }
 
-void DamageSystem(EcsIter *it) {
-    LOG_INFO("Damage System running");
-    Health *h = ecs_field(it, Health, 0);
-    Velocity *v = ecs_field(it, Velocity, 1);
-
+void SystemB(EcsIter *it) {
+    Alpha *a = ecs_field(it, Alpha, 0);
+    Beta *b = ecs_field(it, Beta, 1);
     for (i32 i = 0; i < it->count; i++) {
-        f32 speed = sqrtf(v[i].x * v[i].x + v[i].y * v[i].y);
-        h[i].value -= speed * it->delta_time * 0.1f;
+        b[i].value = a[i].value * 2.0f;
     }
 }
 
-void PrintSystem(EcsIter *it) {
-    Position *p = ecs_field(it, Position, 0);
-    LOG_INFO("Print system running");
+void SystemC(EcsIter *it) {
+    Beta *b = ecs_field(it, Beta, 0);
+    Gamma *g = ecs_field(it, Gamma, 1);
+    for (i32 i = 0; i < it->count; i++) {
+        g[i].value = b[i].value + 10.0f;
+    }
+}
 
-    // ThreadContext *tctx = tctx_current();
-    // for (i32 i = 0; i < it->count; i++) {
-    //     if (i == 0) {
-    //         LOG_INFO("Thread %: pos[0]=(%, %)",
-    //                  FMT_UINT(tctx->thread_idx),
-    //                  FMT_UINT((u32)(p[i].x * 100)),
-    //                  FMT_UINT((u32)(p[i].y * 100)));
-    //     }
-    // }
+void SystemD(EcsIter *it) {
+    Alpha *a = ecs_field(it, Alpha, 0);
+    Beta *b = ecs_field(it, Beta, 1);
+    Gamma *g = ecs_field(it, Gamma, 2);
+    Delta *d = ecs_field(it, Delta, 3);
+    for (i32 i = 0; i < it->count; i++) {
+        d[i].value = a[i].value + b[i].value + g[i].value;
+    }
+}
+
+void SystemE(EcsIter *it) {
+    Alpha *a = ecs_field(it, Alpha, 0);
+    Beta *b = ecs_field(it, Beta, 1);
+    UNUSED(a);
+    UNUSED(b);
 }
 
 void app_init(AppMemory *memory) {
@@ -84,73 +80,72 @@ void app_init(AppMemory *memory) {
     ThreadContext *tctx = tctx_current();
 
     ecs_world_init_full(&g_world, &app_ctx->arena);
-    LOG_INFO("ECS World initialized");
 
-    LOG_INFO("=== ECS Systems Test ===");
+    LOG_INFO("=== ECS Dependency Test ===");
     LOG_INFO("Thread count: %", FMT_UINT(tctx->thread_count));
 
-    ECS_COMPONENT(&g_world, Position);
-    ECS_COMPONENT(&g_world, Velocity);
-    ECS_COMPONENT(&g_world, Health);
+    ECS_COMPONENT(&g_world, Alpha);
+    ECS_COMPONENT(&g_world, Beta);
+    ECS_COMPONENT(&g_world, Gamma);
+    ECS_COMPONENT(&g_world, Delta);
 
-    LOG_INFO("--- Creating entities ---");
-    for (i32 i = 0; i < 1000; i++) {
+    for (i32 i = 0; i < 100; i++) {
         EcsEntity e = ecs_entity_new(&g_world);
-        ecs_set(&g_world, e, Position, { .x = (f32)(i % 100), .y = (f32)(i / 100) });
-        ecs_set(&g_world, e, Velocity, { .x = 1.0f + (f32)(i % 5), .y = 0.5f + (f32)(i % 3) });
-        ecs_set(&g_world, e, Health, { .value = 100.0f });
+        ecs_set(&g_world, e, Alpha, { .value = 0.0f });
+        ecs_set(&g_world, e, Beta, { .value = 0.0f });
+        ecs_set(&g_world, e, Gamma, { .value = 0.0f });
+        ecs_set(&g_world, e, Delta, { .value = 0.0f });
     }
-    LOG_INFO("Created 1000 entities with [Position, Velocity, Health]");
+
+    LOG_INFO("--- Expected dependencies ---");
+    LOG_INFO("A: writes Alpha -> 0 deps");
+    LOG_INFO("B: reads Alpha, writes Beta -> depends on A");
+    LOG_INFO("C: reads Beta, writes Gamma -> depends on B");
+    LOG_INFO("D: reads Alpha/Beta/Gamma, writes Delta -> depends on A, B, C");
+    LOG_INFO("E: reads Alpha/Beta -> depends on A, B");
 
     LOG_INFO("--- Registering systems ---");
 
-    EcsTerm move_terms[] = {
-        ecs_term_inout(ecs_id(Position)),
-        ecs_term_in(ecs_id(Velocity)),
+    EcsTerm terms_a[] = { ecs_term_out(ecs_id(Alpha)) };
+    g_sys_a = ECS_SYSTEM(&g_world, SystemA, terms_a, 1);
+
+    EcsTerm terms_b[] = { ecs_term_in(ecs_id(Alpha)), ecs_term_out(ecs_id(Beta)) };
+    g_sys_b = ECS_SYSTEM(&g_world, SystemB, terms_b, 2);
+
+    EcsTerm terms_c[] = { ecs_term_in(ecs_id(Beta)), ecs_term_out(ecs_id(Gamma)) };
+    g_sys_c = ECS_SYSTEM(&g_world, SystemC, terms_c, 2);
+
+    EcsTerm terms_d[] = {
+        ecs_term_in(ecs_id(Alpha)),
+        ecs_term_in(ecs_id(Beta)),
+        ecs_term_in(ecs_id(Gamma)),
+        ecs_term_out(ecs_id(Delta))
     };
-    g_move_system = ECS_SYSTEM(&g_world, MoveSystem, move_terms, 2);
-    LOG_INFO("Registered MoveSystem (Position InOut, Velocity In)");
+    g_sys_d = ECS_SYSTEM(&g_world, SystemD, terms_d, 4);
 
-    EcsTerm damage_terms[] = {
-        ecs_term_inout(ecs_id(Health)),
-        ecs_term_in(ecs_id(Velocity)),
-    };
-    g_damage_system = ECS_SYSTEM(&g_world, DamageSystem, damage_terms, 2);
-    LOG_INFO("Registered DamageSystem (Health InOut, Velocity In)");
+    EcsTerm terms_e[] = { ecs_term_in(ecs_id(Alpha)), ecs_term_in(ecs_id(Beta)) };
+    g_sys_e = ECS_SYSTEM(&g_world, SystemE, terms_e, 2);
 
-    EcsTerm print_terms[] = {
-        ecs_term_in(ecs_id(Position)),
-    };
-    g_print_system = ECS_SYSTEM(&g_world, PrintSystem, print_terms, 1);
-    LOG_INFO("Registered PrintSystem (Position In)");
+    LOG_INFO("--- Actual dependencies ---");
+    LOG_INFO("SystemA deps: % (expected 0)", FMT_UINT(g_sys_a->depends_on_count));
+    LOG_INFO("SystemB deps: % (expected 1: A)", FMT_UINT(g_sys_b->depends_on_count));
+    LOG_INFO("SystemC deps: % (expected 1: B)", FMT_UINT(g_sys_c->depends_on_count));
+    LOG_INFO("SystemD deps: % (expected 3: A,B,C)", FMT_UINT(g_sys_d->depends_on_count));
+    LOG_INFO("SystemE deps: % (expected 2: A,B)", FMT_UINT(g_sys_e->depends_on_count));
 
-    LOG_INFO("--- Computing automatic dependencies ---");
-    ecs_world_compute_system_dependencies(&g_world);
-
-    LOG_INFO("MoveSystem dependencies: %", FMT_UINT(g_move_system->depends_on_count));
-    LOG_INFO("DamageSystem dependencies: %", FMT_UINT(g_damage_system->depends_on_count));
-    LOG_INFO("PrintSystem dependencies: %", FMT_UINT(g_print_system->depends_on_count));
-
-    LOG_INFO("Total systems: %", FMT_UINT(g_world.system_count));
-    LOG_INFO("=== Initialization complete ===");
+    LOG_INFO("=== Test complete ===");
 }
 
 void app_update_and_render(AppMemory *memory) {
     UNUSED(memory);
-    if(is_main_thread()){
-        LOG_INFO("------ FRAME START ------");
-    }
 
     f32 delta_time = 0.016f;
-
     ecs_progress(&g_world, delta_time);
 
     if (is_main_thread()) {
         g_frame_count++;
-        if (g_frame_count % 60 == 0) {
+        if (g_frame_count % 120 == 0) {
             LOG_INFO("Frame %", FMT_UINT(g_frame_count));
         }
-
-        LOG_INFO("------ FRAME END ------");
     }
 }
