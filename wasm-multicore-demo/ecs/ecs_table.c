@@ -17,6 +17,22 @@ internal void ecs_component_record_insert_table(EcsWorld *world, EcsComponentRec
     }
     cr->last = tr;
     cr->table_count++;
+
+    i32 table_id = (i32)table->id;
+    if (table_id >= cr->table_map_cap) {
+        i32 new_cap = cr->table_map_cap == 0 ? 16 : cr->table_map_cap * 2;
+        if (new_cap <= table_id) {
+            new_cap = table_id + 1;
+        }
+        EcsTableRecord **new_map = ARENA_ALLOC_ARRAY(world->arena, EcsTableRecord*, new_cap);
+        memset(new_map, 0, sizeof(EcsTableRecord*) * new_cap);
+        if (cr->table_map) {
+            memcpy(new_map, cr->table_map, sizeof(EcsTableRecord*) * cr->table_map_cap);
+        }
+        cr->table_map = new_map;
+        cr->table_map_cap = new_cap;
+    }
+    cr->table_map[table_id] = tr;
 }
 
 void ecs_table_map_init(EcsTableMap *map, ArenaAllocator *arena) {
@@ -304,26 +320,58 @@ b32 ecs_table_has_component(EcsTable *table, EcsEntity component) {
     return table->column_map[comp_id] != 0;
 }
 
+internal EcsTablePage* ecs_store_ensure_page(EcsWorld *world, i32 page_index) {
+    EcsStore *store = &world->store;
+
+    if (page_index >= store->page_cap) {
+        i32 new_cap = store->page_cap == 0 ? 4 : store->page_cap * 2;
+        if (new_cap <= page_index) {
+            new_cap = page_index + 1;
+        }
+        EcsTablePage **new_pages = ARENA_ALLOC_ARRAY(world->arena, EcsTablePage*, new_cap);
+        memset(new_pages, 0, sizeof(EcsTablePage*) * new_cap);
+        if (store->pages) {
+            memcpy(new_pages, store->pages, sizeof(EcsTablePage*) * store->page_count);
+        }
+        store->pages = new_pages;
+        store->page_cap = new_cap;
+    }
+
+    if (page_index >= store->page_count) {
+        store->page_count = page_index + 1;
+    }
+
+    EcsTablePage *page = store->pages[page_index];
+    if (!page) {
+        page = ARENA_ALLOC(world->arena, EcsTablePage);
+        memset(page, 0, sizeof(EcsTablePage));
+        store->pages[page_index] = page;
+    }
+
+    return page;
+}
+
+EcsTable* ecs_store_get_table(EcsWorld *world, i32 index) {
+    EcsStore *store = &world->store;
+    if (index < 0 || index >= store->table_count) {
+        return NULL;
+    }
+    i32 page_index = index >> ECS_TABLE_PAGE_BITS;
+    i32 slot_index = index & ECS_TABLE_PAGE_MASK;
+    return &store->pages[page_index]->tables[slot_index];
+}
+
 internal EcsTable* ecs_store_new_table(EcsWorld *world) {
     EcsStore *store = &world->store;
 
-    if (store->table_count >= store->table_cap) {
-        i32 new_cap = store->table_cap == 0 ? 16 : store->table_cap * 2;
-        EcsTable *new_tables = ARENA_ALLOC_ARRAY(world->arena, EcsTable, new_cap);
-        if (store->tables) {
-            memcpy(new_tables, store->tables, sizeof(EcsTable) * store->table_count);
-        }
-        store->tables = new_tables;
-        store->table_cap = new_cap;
+    i32 table_index = store->table_count;
+    i32 page_index = table_index >> ECS_TABLE_PAGE_BITS;
+    i32 slot_index = table_index & ECS_TABLE_PAGE_MASK;
 
-        if (store->root) {
-            store->root = &store->tables[0];
-        }
-    }
-
-    EcsTable *table = &store->tables[store->table_count];
+    EcsTablePage *page = ecs_store_ensure_page(world, page_index);
+    EcsTable *table = &page->tables[slot_index];
     memset(table, 0, sizeof(EcsTable));
-    table->id = (u64)store->table_count;
+    table->id = (u64)table_index;
     store->table_count++;
 
     return table;
@@ -470,9 +518,28 @@ internal EcsTable* ecs_find_table_without(EcsWorld *world, EcsTable *table, EcsE
     return ecs_table_find_or_create(world, &new_type);
 }
 
-EcsTable* ecs_table_traverse_add(EcsWorld *world, EcsTable *table, EcsEntity component) {
+internal EcsTableDiff* ecs_table_diff_compute(EcsWorld *world, EcsTable *src, EcsTable *dst) {
+    if (src->column_count == 0) {
+        return NULL;
+    }
+
+    EcsTableDiff *diff = ARENA_ALLOC(world->arena, EcsTableDiff);
+    diff->column_count = src->column_count;
+    diff->src_to_dst = ARENA_ALLOC_ARRAY(world->arena, i16, src->column_count);
+
+    for (i32 src_col = 0; src_col < src->column_count; src_col++) {
+        EcsColumn *src_column = &src->data.columns[src_col];
+        EcsEntity comp = src_column->ti->component;
+        diff->src_to_dst[src_col] = (i16)ecs_table_get_column_index(dst, comp);
+    }
+
+    return diff;
+}
+
+EcsTable* ecs_table_traverse_add(EcsWorld *world, EcsTable *table, EcsEntity component, EcsTableDiff **out_diff) {
     EcsGraphEdge *edge = ecs_graph_edge_get(world, &table->node.add, component);
     if (edge && edge->to) {
+        if (out_diff) *out_diff = edge->diff;
         return edge->to;
     }
 
@@ -481,13 +548,16 @@ EcsTable* ecs_table_traverse_add(EcsWorld *world, EcsTable *table, EcsEntity com
     edge = ecs_graph_edge_ensure(world, &table->node.add, component);
     edge->id = component;
     edge->to = to;
+    edge->diff = ecs_table_diff_compute(world, table, to);
 
+    if (out_diff) *out_diff = edge->diff;
     return to;
 }
 
-EcsTable* ecs_table_traverse_remove(EcsWorld *world, EcsTable *table, EcsEntity component) {
+EcsTable* ecs_table_traverse_remove(EcsWorld *world, EcsTable *table, EcsEntity component, EcsTableDiff **out_diff) {
     EcsGraphEdge *edge = ecs_graph_edge_get(world, &table->node.remove, component);
     if (edge && edge->to) {
+        if (out_diff) *out_diff = edge->diff;
         return edge->to;
     }
 
@@ -496,28 +566,47 @@ EcsTable* ecs_table_traverse_remove(EcsWorld *world, EcsTable *table, EcsEntity 
     edge = ecs_graph_edge_ensure(world, &table->node.remove, component);
     edge->id = component;
     edge->to = to;
+    edge->diff = ecs_table_diff_compute(world, table, to);
 
+    if (out_diff) *out_diff = edge->diff;
     return to;
 }
 
-void ecs_table_move(EcsWorld *world, EcsEntity entity, EcsTable *dst_table, EcsTable *src_table, i32 src_row) {
+void ecs_table_move(EcsWorld *world, EcsEntity entity, EcsTable *dst_table, EcsTable *src_table, i32 src_row, EcsTableDiff *diff) {
     i32 dst_row = ecs_table_append(world, dst_table, entity);
 
-    for (i32 src_col = 0; src_col < src_table->column_count; src_col++) {
-        EcsColumn *src_column = &src_table->data.columns[src_col];
-        EcsEntity comp = src_column->ti->component;
+    if (diff) {
+        for (i32 src_col = 0; src_col < diff->column_count; src_col++) {
+            i16 dst_col = diff->src_to_dst[src_col];
+            if (dst_col < 0) {
+                continue;
+            }
 
-        i32 dst_col = ecs_table_get_column_index(dst_table, comp);
-        if (dst_col < 0) {
-            continue;
+            EcsColumn *src_column = &src_table->data.columns[src_col];
+            EcsColumn *dst_column = &dst_table->data.columns[dst_col];
+            u32 size = src_column->ti->size;
+
+            void *src_ptr = (u8*)src_column->data + (size * src_row);
+            void *dst_ptr = (u8*)dst_column->data + (size * dst_row);
+            memcpy(dst_ptr, src_ptr, size);
         }
+    } else {
+        for (i32 src_col = 0; src_col < src_table->column_count; src_col++) {
+            EcsColumn *src_column = &src_table->data.columns[src_col];
+            EcsEntity comp = src_column->ti->component;
 
-        EcsColumn *dst_column = &dst_table->data.columns[dst_col];
-        u32 size = src_column->ti->size;
+            i32 dst_col = ecs_table_get_column_index(dst_table, comp);
+            if (dst_col < 0) {
+                continue;
+            }
 
-        void *src_ptr = (u8*)src_column->data + (size * src_row);
-        void *dst_ptr = (u8*)dst_column->data + (size * dst_row);
-        memcpy(dst_ptr, src_ptr, size);
+            EcsColumn *dst_column = &dst_table->data.columns[dst_col];
+            u32 size = src_column->ti->size;
+
+            void *src_ptr = (u8*)src_column->data + (size * src_row);
+            void *dst_ptr = (u8*)dst_column->data + (size * dst_row);
+            memcpy(dst_ptr, src_ptr, size);
+        }
     }
 
     ecs_table_delete(world, src_table, src_row);
@@ -534,7 +623,8 @@ void ecs_add(EcsWorld *world, EcsEntity entity, EcsEntity component) {
         src_table = world->store.root;
     }
 
-    EcsTable *dst_table = ecs_table_traverse_add(world, src_table, component);
+    EcsTableDiff *diff = NULL;
+    EcsTable *dst_table = ecs_table_traverse_add(world, src_table, component, &diff);
 
     if (src_table == dst_table) {
         return;
@@ -544,7 +634,7 @@ void ecs_add(EcsWorld *world, EcsEntity entity, EcsEntity component) {
         ecs_table_append(world, dst_table, entity);
     } else {
         i32 src_row = (i32)record->row;
-        ecs_table_move(world, entity, dst_table, src_table, src_row);
+        ecs_table_move(world, entity, dst_table, src_table, src_row, diff);
     }
 }
 
@@ -555,14 +645,15 @@ void ecs_remove(EcsWorld *world, EcsEntity entity, EcsEntity component) {
     }
 
     EcsTable *src_table = record->table;
-    EcsTable *dst_table = ecs_table_traverse_remove(world, src_table, component);
+    EcsTableDiff *diff = NULL;
+    EcsTable *dst_table = ecs_table_traverse_remove(world, src_table, component, &diff);
 
     if (src_table == dst_table) {
         return;
     }
 
     i32 src_row = (i32)record->row;
-    ecs_table_move(world, entity, dst_table, src_table, src_row);
+    ecs_table_move(world, entity, dst_table, src_table, src_row, diff);
 }
 
 b32 ecs_has(EcsWorld *world, EcsEntity entity, EcsEntity component) {
@@ -1094,7 +1185,7 @@ void ecs_query_cache_populate(EcsQuery *query) {
     query->cache.match_count = 0;
 
     for (i32 i = 0; i < world->store.table_count; i++) {
-        EcsTable *table = &world->store.tables[i];
+        EcsTable *table = ecs_store_get_table(world, i);
         if (table->data.count == 0) {
             continue;
         }

@@ -6,6 +6,9 @@
 
 #define ECS_TABLE_INITIAL_CAPACITY 8
 #define ECS_TABLE_MAP_INITIAL_CAPACITY 64
+#define ECS_TABLE_PAGE_BITS 6
+#define ECS_TABLE_PAGE_SIZE (1 << ECS_TABLE_PAGE_BITS)
+#define ECS_TABLE_PAGE_MASK (ECS_TABLE_PAGE_SIZE - 1)
 
 typedef struct EcsType {
     EcsEntity *array;
@@ -24,10 +27,15 @@ typedef struct EcsTableData {
     i32 size;
 } EcsTableData;
 
-// TODO: add EcsTableDiff *diff (added/removed component arrays) for faster moves
+typedef struct EcsTableDiff {
+    i16 *src_to_dst;
+    i16 column_count;
+} EcsTableDiff;
+
 typedef struct EcsGraphEdge {
     EcsEntity id;
     struct EcsTable *to;
+    EcsTableDiff *diff;
 } EcsGraphEdge;
 
 // TODO: use hash map for hi edges instead of array (O(1) vs O(n) lookup)
@@ -53,6 +61,10 @@ struct EcsTable {
     i16 column_count;
     i16 *column_map;
 };
+
+typedef struct EcsTablePage {
+    EcsTable tables[ECS_TABLE_PAGE_SIZE];
+} EcsTablePage;
 
 typedef struct EcsTableMapBucket {
     EcsType *keys;
@@ -95,16 +107,17 @@ void ecs_table_map_set(EcsTableMap *map, const EcsType *type, EcsTable *table);
 void ecs_table_init(EcsWorld *world, EcsTable *table, const EcsType *type);
 i32 ecs_table_append(EcsWorld *world, EcsTable *table, EcsEntity entity);
 void ecs_table_delete(EcsWorld *world, EcsTable *table, i32 row);
-void ecs_table_move(EcsWorld *world, EcsEntity entity, EcsTable *dst_table, EcsTable *src_table, i32 src_row);
+void ecs_table_move(EcsWorld *world, EcsEntity entity, EcsTable *dst_table, EcsTable *src_table, i32 src_row, EcsTableDiff *diff);
 void* ecs_table_get_column(EcsTable *table, EcsEntity component, i32 *out_column_index);
 void* ecs_table_get_component(EcsTable *table, i32 row, i32 column_index);
 i32 ecs_table_get_column_index(EcsTable *table, EcsEntity component);
 
 EcsTable* ecs_table_find_or_create(EcsWorld *world, const EcsType *type);
-EcsTable* ecs_table_traverse_add(EcsWorld *world, EcsTable *table, EcsEntity component);
-EcsTable* ecs_table_traverse_remove(EcsWorld *world, EcsTable *table, EcsEntity component);
+EcsTable* ecs_table_traverse_add(EcsWorld *world, EcsTable *table, EcsEntity component, EcsTableDiff **out_diff);
+EcsTable* ecs_table_traverse_remove(EcsWorld *world, EcsTable *table, EcsEntity component, EcsTableDiff **out_diff);
 
 void ecs_store_init(EcsWorld *world);
+EcsTable* ecs_store_get_table(EcsWorld *world, i32 index);
 
 void ecs_add(EcsWorld *world, EcsEntity entity, EcsEntity component);
 void ecs_remove(EcsWorld *world, EcsEntity entity, EcsEntity component);

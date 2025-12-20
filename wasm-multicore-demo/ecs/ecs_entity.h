@@ -21,6 +21,7 @@
 typedef u64 EcsEntity;
 
 typedef struct EcsTable EcsTable;
+typedef struct EcsTablePage EcsTablePage;
 typedef struct EcsTableMap EcsTableMap;
 typedef struct EcsQuery EcsQuery;
 typedef struct EcsSystem EcsSystem;
@@ -73,13 +74,16 @@ typedef struct EcsComponentRecord {
     EcsTableRecord *first;
     EcsTableRecord *last;
     i32 table_count;
+    EcsTableRecord **table_map;
+    i32 table_map_cap;
 } EcsComponentRecord;
 
 
 typedef struct EcsStore {
-    EcsTable *tables;
+    EcsTablePage **pages;
+    i32 page_count;
+    i32 page_cap;
     i32 table_count;
-    i32 table_cap;
     EcsTable *root;
     EcsTableMap *table_map;
 } EcsStore;

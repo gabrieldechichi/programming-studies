@@ -1,4 +1,5 @@
 #include "ecs_entity.h"
+#include "ecs_table.h"
 #include "lib/assert.h"
 
 #define ECS_INITIAL_DENSE_CAP 1024
@@ -351,15 +352,14 @@ EcsComponentRecord* ecs_component_record_get(EcsWorld *world, EcsEntity componen
 }
 
 EcsTableRecord* ecs_component_record_get_table(EcsComponentRecord *cr, EcsTable *table) {
-    if (!cr) {
+    if (!cr || !table) {
         return NULL;
     }
 
-    for (EcsTableRecord *tr = cr->first; tr != NULL; tr = tr->next) {
-        if (tr->table == table) {
-            return tr;
-        }
+    i32 table_id = (i32)table->id;
+    if (table_id >= cr->table_map_cap) {
+        return NULL;
     }
 
-    return NULL;
+    return cr->table_map[table_id];
 }

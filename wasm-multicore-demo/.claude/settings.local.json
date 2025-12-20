@@ -4,7 +4,8 @@
       "WebFetch(domain:web.dev)",
       "WebSearch",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:shi-yan.github.io)"
+      "WebFetch(domain:shi-yan.github.io)",
+      "WebFetch(domain:merveilles.town)"
     ],
     "deny": [],
     "ask": []
