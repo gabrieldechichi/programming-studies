@@ -4,22 +4,26 @@
 #include "os/os.h"
 #include "assert.h"
 #include "memory.h"
+#include "thread_context.h"
 
-typedef struct TestContext {
-  Allocator allocator;
-} TestContext;
+static u32 g_test_count = 0;
+static u32 g_test_passed = 0;
 
-static u32 test_count = 0;
-static u32 test_passed = 0;
-
-#define RUN_TEST(test_func, ctx)                                              \
+#define RUN_TEST(test_func, app_arena)                                         \
   do {                                                                         \
-    LOG_INFO("Running test: %", FMT_STR(#test_func));                          \
-    test_count++;                                                              \
-    test_func(ctx);                                                            \
-    ALLOC_RESET(&(ctx)->allocator);                                            \
-    test_passed++;                                                             \
-    LOG_INFO("PASSED: %", FMT_STR(#test_func));                                \
+    if (is_main_thread()) {                                                    \
+      LOG_INFO("Running test: %", FMT_STR(#test_func));                        \
+      g_test_count++;                                                          \
+    }                                                                          \
+    test_func();                                                               \
+    lane_sync();                                                               \
+    arena_reset(&tctx_current()->temp_arena);                                  \
+    if (is_main_thread()) {                                                    \
+      arena_reset(app_arena);                                                  \
+      g_test_passed++;                                                         \
+      LOG_INFO("PASSED: %", FMT_STR(#test_func));                              \
+    }                                                                          \
+    lane_sync();                                                               \
   } while(0)
 
 #define assert_eq(actual, expected)                                            \
@@ -51,11 +55,12 @@ static u32 test_passed = 0;
 
 #define print_test_results()                                                   \
   do {                                                                         \
-    if (test_passed == test_count) {                                           \
-      LOG_INFO("All % tests passed!", FMT_UINT(test_count));                   \
+    if (g_test_passed == g_test_count) {                                       \
+      LOG_INFO("[PASS] All % tests passed!", FMT_UINT(g_test_count));          \
     } else {                                                                   \
-      LOG_ERROR("% out of % tests failed", FMT_UINT(test_count - test_passed), \
-                FMT_UINT(test_count));                                         \
+      LOG_ERROR("[FAIL] % out of % tests failed",                              \
+                FMT_UINT(g_test_count - g_test_passed),                        \
+                FMT_UINT(g_test_count));                                       \
     }                                                                          \
   } while (0)
 

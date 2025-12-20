@@ -55,6 +55,7 @@ LDFLAGS = -Wl,--no-entry -Wl,--export-table -Wl,--import-memory \
 		  -flto
 
 SRC = main.c
+TEST_SRC = test_main.c
 OUT_DIR = out
 
 all: dirs wasm js
@@ -64,6 +65,9 @@ dirs:
 
 wasm:
 	$(CC) $(CFLAGS) $(SRC) -o $(OUT_DIR)/wasm.wasm $(LDFLAGS)
+
+test: dirs
+	$(CC) $(CFLAGS) $(TEST_SRC) -o $(OUT_DIR)/wasm.wasm $(LDFLAGS)
 
 js:
 	bun build main.ts --outfile $(OUT_DIR)/main.mjs
@@ -76,4 +80,4 @@ run: all
 clean:
 	powershell -Command "if (Test-Path $(OUT_DIR)) { Remove-Item -Recurse -Force $(OUT_DIR) }"
 
-.PHONY: all dirs wasm js clean run
+.PHONY: all dirs wasm js clean run test
