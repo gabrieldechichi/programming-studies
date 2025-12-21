@@ -10,5 +10,4 @@
 #include "lib/multicore_runtime.c"
 #include "lib/handle.c"
 #include "lib/math.h"
-#include "context.c"
 #include "tests/test_runner.c"

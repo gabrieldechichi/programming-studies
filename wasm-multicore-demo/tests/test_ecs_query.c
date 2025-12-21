@@ -16,10 +16,10 @@ void test_ecs_query(void) {
         return;
     }
 
-    AppContext *app_ctx = app_ctx_current();
+    ThreadContext *tctx = tctx_current();
 
     EcsWorld world;
-    ecs_world_init_full_q(&world, &app_ctx->arena);
+    ecs_world_init_full_q(&world, &tctx->temp_arena);
 
     ECS_COMPONENT(&world, QPosition);
     ECS_COMPONENT(&world, QVelocity);

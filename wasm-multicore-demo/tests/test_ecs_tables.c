@@ -12,10 +12,10 @@ void test_ecs_tables(void) {
         return;
     }
 
-    AppContext *app_ctx = app_ctx_current();
+    ThreadContext *tctx = tctx_current();
 
     EcsWorld world;
-    ecs_world_init_full_tbl(&world, &app_ctx->arena);
+    ecs_world_init_full_tbl(&world, &tctx->temp_arena);
 
     ECS_COMPONENT(&world, TblPosition);
     ECS_COMPONENT(&world, TblVelocity);

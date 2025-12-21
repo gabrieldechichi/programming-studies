@@ -12,9 +12,8 @@ static b32 g_test_failed = false;
 static u32 g_test_count = 0;
 static u32 g_test_passed = 0;
 
-#define RUN_TEST(test_func, app_arena)                                         \
+#define RUN_TEST(test_func)                                                    \
   do {                                                                         \
-    UNUSED(app_arena);                                                         \
     if (is_main_thread()) {                                                    \
       g_test_failed = false;                                                   \
       LOG_INFO("Running test: %", FMT_STR(#test_func));                        \

@@ -21,10 +21,10 @@ void test_ecs_components(void) {
         return;
     }
 
-    AppContext *app_ctx = app_ctx_current();
+    ThreadContext *tctx = tctx_current();
 
     EcsWorld world;
-    ecs_world_init(&world, &app_ctx->arena);
+    ecs_world_init(&world, &tctx->temp_arena);
 
     ECS_COMPONENT(&world, TestPosition);
     ECS_COMPONENT(&world, TestVelocity);

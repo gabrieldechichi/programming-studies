@@ -13,10 +13,10 @@ void test_ecs_inout(void) {
         return;
     }
 
-    AppContext *app_ctx = app_ctx_current();
+    ThreadContext *tctx = tctx_current();
 
     EcsWorld world;
-    ecs_world_init_full_io(&world, &app_ctx->arena);
+    ecs_world_init_full_io(&world, &tctx->temp_arena);
 
     ECS_COMPONENT(&world, IOPosition);
     ECS_COMPONENT(&world, IOVelocity);

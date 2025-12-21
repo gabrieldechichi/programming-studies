@@ -3,10 +3,10 @@ void test_ecs(void) {
         return;
     }
 
-    AppContext *app_ctx = app_ctx_current();
+    ThreadContext *tctx = tctx_current();
 
     EcsWorld world;
-    ecs_world_init(&world, &app_ctx->arena);
+    ecs_world_init(&world, &tctx->temp_arena);
 
     EcsEntity e1 = ecs_entity_new(&world);
     EcsEntity e2 = ecs_entity_new(&world);
