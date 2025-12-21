@@ -24,6 +24,10 @@
 #include "fmt.h"
 #include "lib/typedefs.h"
 
+#ifndef ASSERT_FAILED
+#define ASSERT_FAILED() __builtin_unreachable()
+#endif
+
 HZ_ENGINE_API void assert_log(u8 log_level, const char *fmt,
                               const FmtArgs *args, const char *file_name,
                               uint32 line_number);
@@ -41,7 +45,7 @@ HZ_ENGINE_API void assert_log(u8 log_level, const char *fmt,
   do {                                                                         \
     if (!(expr)) {                                                             \
       ASSERT_LOG(2, "assert triggered %", FMT_STR(#expr));                     \
-      __builtin_unreachable();                                                 \
+      ASSERT_FAILED();                                                         \
     }                                                                          \
   } while (0)
 
@@ -49,7 +53,7 @@ HZ_ENGINE_API void assert_log(u8 log_level, const char *fmt,
   do {                                                                         \
     if (!(expr)) {                                                             \
       ASSERT_LOG(2, "assert triggered: " fmt, __VA_ARGS__);                    \
-      __builtin_unreachable();                                                 \
+      ASSERT_FAILED();                                                         \
     }                                                                          \
   } while (0)
 
@@ -59,7 +63,7 @@ force_inline void assert_expr_helper(b32 condition, const char *expr_str,
     FmtArg args[] = {(FmtArg){.type = 0}, FMT_STR(expr_str)};
     FmtArgs fmt = {args + 1, 1};
     assert_log(2, "assert triggered %", &fmt, file, line);
-    __builtin_unreachable();
+    ASSERT_FAILED();
   }
 }
 
@@ -78,7 +82,7 @@ force_inline void assert_expr_msg_helper(b32 condition, const char *fmt,
                                          uint32 line) {
   if (!condition) {
     assert_log(2, fmt, args, file, line);
-    __builtin_unreachable();
+    ASSERT_FAILED();
   }
 }
 

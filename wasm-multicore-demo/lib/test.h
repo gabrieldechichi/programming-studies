@@ -1,6 +1,9 @@
 #ifndef H_TEST
 #define H_TEST
 
+static b32 g_test_failed = false;
+#define ASSERT_FAILED() (g_test_failed = true)
+
 #include "os/os.h"
 #include "assert.h"
 #include "memory.h"
@@ -13,6 +16,7 @@ static u32 g_test_passed = 0;
   do {                                                                         \
     UNUSED(app_arena);                                                         \
     if (is_main_thread()) {                                                    \
+      g_test_failed = false;                                                   \
       LOG_INFO("Running test: %", FMT_STR(#test_func));                        \
       g_test_count++;                                                          \
     }                                                                          \
@@ -20,38 +24,57 @@ static u32 g_test_passed = 0;
     lane_sync();                                                               \
     arena_reset(&tctx_current()->temp_arena);                                  \
     if (is_main_thread()) {                                                    \
-      g_test_passed++;                                                         \
-      LOG_INFO("PASSED: %", FMT_STR(#test_func));                              \
+      if (g_test_failed) {                                                     \
+        LOG_ERROR("FAILED: %", FMT_STR(#test_func));                           \
+      } else {                                                                 \
+        g_test_passed++;                                                       \
+        LOG_INFO("PASSED: %", FMT_STR(#test_func));                            \
+      }                                                                        \
     }                                                                          \
     lane_sync();                                                               \
   } while(0)
 
 #define assert_eq(actual, expected)                                            \
-  assert_msg((actual) == (expected),                                           \
-             "ASSERT_EQ failed at %:%: expected %, got %",                     \
-             FMT_STR(__FILE_NAME__), FMT_UINT(__LINE__),                       \
-             FMT_UINT((u32)(expected)), FMT_UINT((u32)(actual)))
+  do {                                                                         \
+    assert_msg((actual) == (expected),                                         \
+               "ASSERT_EQ failed at %:%: expected %, got %",                   \
+               FMT_STR(__FILE_NAME__), FMT_UINT(__LINE__),                     \
+               FMT_UINT((u32)(expected)), FMT_UINT((u32)(actual)));            \
+    if (g_test_failed) return;                                                 \
+  } while(0)
 
 #define assert_str_eq(actual, expected)                                        \
-  assert_msg(str_equal(actual, expected),                                      \
-             "ASSERT_STR_EQ failed at %:%: expected '%', got '%'",             \
-             FMT_STR(__FILE_NAME__), FMT_UINT(__LINE__), FMT_STR(expected),    \
-             FMT_STR(actual))
+  do {                                                                         \
+    assert_msg(str_equal(actual, expected),                                    \
+               "ASSERT_STR_EQ failed at %:%: expected '%', got '%'",           \
+               FMT_STR(__FILE_NAME__), FMT_UINT(__LINE__), FMT_STR(expected),  \
+               FMT_STR(actual));                                               \
+    if (g_test_failed) return;                                                 \
+  } while(0)
 
 #define assert_true(condition)                                                 \
-  assert_msg(condition, "ASSERT_TRUE failed at %:%: condition was false",      \
-             FMT_STR(__FILE_NAME__), FMT_UINT(__LINE__))
+  do {                                                                         \
+    assert_msg(condition, "ASSERT_TRUE failed at %:%: condition was false",    \
+               FMT_STR(__FILE_NAME__), FMT_UINT(__LINE__));                    \
+    if (g_test_failed) return;                                                 \
+  } while(0)
 
 #define assert_false(condition)                                                \
-  assert_msg(!(condition), "ASSERT_FALSE failed at %:%: condition was true",   \
-             FMT_STR(__FILE_NAME__), FMT_UINT(__LINE__))
+  do {                                                                         \
+    assert_msg(!(condition), "ASSERT_FALSE failed at %:%: condition was true", \
+               FMT_STR(__FILE_NAME__), FMT_UINT(__LINE__));                    \
+    if (g_test_failed) return;                                                 \
+  } while(0)
 
 #define assert_mem_eq(type, actual, expected)                                  \
-  assert_msg((actual == NULL && expected == NULL) ||                           \
-                 (actual != NULL && expected != NULL &&                        \
-                  memcmp(actual, expected, sizeof(type)) == 0),                \
-             "ASSERT_MEM_EQ failed at %:%", FMT_STR(__FILE_NAME__),            \
-             FMT_UINT(__LINE__))
+  do {                                                                         \
+    assert_msg((actual == NULL && expected == NULL) ||                         \
+                   (actual != NULL && expected != NULL &&                      \
+                    memcmp(actual, expected, sizeof(type)) == 0),              \
+               "ASSERT_MEM_EQ failed at %:%", FMT_STR(__FILE_NAME__),          \
+               FMT_UINT(__LINE__));                                            \
+    if (g_test_failed) return;                                                 \
+  } while(0)
 
 #define print_test_results()                                                   \
   do {                                                                         \
