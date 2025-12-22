@@ -118,9 +118,67 @@ static const char *default_fs =
     "    return vec4<f32>(material_color.rgb * diffuse, material_color.a);\n"
     "}\n";
 
+global f32 g_total_time = 0.0f;
+
 void ecs_world_init_full(EcsWorld *world, ArenaAllocator *arena) {
     ecs_world_init(world, arena);
     ecs_store_init(world);
+}
+
+global i32 g_target_index = 0;
+
+void MoveTargetsSystem(EcsIter *it) {
+    Position *positions = ecs_field(it, Position, 0);
+
+    f32 t = g_total_time;
+
+    for (i32 i = 0; i < it->count; i++) {
+        i32 idx = g_target_index;
+        g_target_index++;
+
+        f32 angle = t * 0.5f + (f32)idx * 3.14159f;
+        f32 radius = 80.0f;
+        f32 px = radius * cosf(angle);
+        f32 py = 20.0f * sinf(t * 0.3f + (f32)idx * 1.5f);
+        f32 pz = radius * sinf(angle);
+
+        positions[i].x = px;
+        positions[i].y = py;
+        positions[i].z = pz;
+
+        if (idx < NUM_TARGETS) {
+            g_target_positions[idx][0] = px;
+            g_target_positions[idx][1] = py;
+            g_target_positions[idx][2] = pz;
+        }
+    }
+}
+
+global i32 g_obstacle_index = 0;
+
+void MoveObstaclesSystem(EcsIter *it) {
+    Position *positions = ecs_field(it, Position, 0);
+
+    f32 t = g_total_time;
+
+    for (i32 i = 0; i < it->count; i++) {
+        i32 idx = g_obstacle_index;
+        g_obstacle_index++;
+
+        f32 px = 40.0f * sinf(t * 0.2f);
+        f32 py = 30.0f * sinf(t * 0.15f);
+        f32 pz = 40.0f * cosf(t * 0.25f);
+
+        positions[i].x = px;
+        positions[i].y = py;
+        positions[i].z = pz;
+
+        if (idx < NUM_OBSTACLES) {
+            g_obstacle_positions[idx][0] = px;
+            g_obstacle_positions[idx][1] = py;
+            g_obstacle_positions[idx][2] = pz;
+        }
+    }
 }
 
 void InsertBoidsSystem(EcsIter *it) {
@@ -415,6 +473,28 @@ void app_init(AppMemory *memory) {
         g_obstacle_positions[i][2] = pz;
     }
 
+    EcsTerm move_targets_terms[] = {
+        ecs_term_inout(ecs_id(Position)),
+        ecs_term_none(ecs_id(TargetTag)),
+    };
+    ecs_system_init(&g_world, &(EcsSystemDesc){
+        .terms = move_targets_terms,
+        .term_count = 2,
+        .callback = MoveTargetsSystem,
+        .name = "MoveTargetsSystem",
+    });
+
+    EcsTerm move_obstacles_terms[] = {
+        ecs_term_inout(ecs_id(Position)),
+        ecs_term_none(ecs_id(ObstacleTag)),
+    };
+    ecs_system_init(&g_world, &(EcsSystemDesc){
+        .terms = move_obstacles_terms,
+        .term_count = 2,
+        .callback = MoveObstaclesSystem,
+        .name = "MoveObstaclesSystem",
+    });
+
     EcsTerm insert_boids_terms[] = {
         ecs_term_in(ecs_id(Position)),
         ecs_term_in(ecs_id(Heading)),
@@ -511,6 +591,10 @@ void app_init(AppMemory *memory) {
 }
 
 void app_update_and_render(AppMemory *memory) {
+    g_total_time = memory->total_time;
+    g_target_index = 0;
+    g_obstacle_index = 0;
+
     Range_u64 range = lane_range(GRID_SIZE);
     for (u64 i = range.min; i < range.max; i++) {
         g_buckets[i].count = 0;
