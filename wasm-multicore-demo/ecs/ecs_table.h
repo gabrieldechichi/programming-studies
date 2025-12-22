@@ -207,6 +207,21 @@ typedef struct EcsIter {
 
 #define ECS_MAX_SYSTEM_DEPS 64
 
+typedef enum {
+    ECS_ITER_QUERY = 0,
+    ECS_ITER_RANGE,
+} EcsIterMode;
+
+typedef enum {
+    ECS_THREAD_MULTI = 0,
+    ECS_THREAD_SINGLE,
+} EcsThreadMode;
+
+typedef enum {
+    ECS_SYNC_NONE = 0,
+    ECS_SYNC_BARRIER,
+} EcsSyncMode;
+
 typedef void (*EcsSystemCallback)(EcsIter *it);
 
 typedef struct EcsSystem {
@@ -221,18 +236,22 @@ typedef struct EcsSystem {
     i32 depends_on_cap;
 
     void *task_handles;
-    b32 barrier_after;
-    b32 single_threaded;
+    i32 iter_count;
+    EcsIterMode iter_mode;
+    EcsThreadMode thread_mode;
+    EcsSyncMode sync_mode;
 } EcsSystem;
 
 typedef struct EcsSystemDesc {
     EcsTerm *terms;
     i32 term_count;
+    i32 iter_count;
     EcsSystemCallback callback;
     void *ctx;
     const char *name;
-    b32 barrier_after;
-    b32 single_threaded;
+    EcsIterMode iter_mode;
+    EcsThreadMode thread_mode;
+    EcsSyncMode sync_mode;
 } EcsSystemDesc;
 
 typedef struct EcsSystemRunData {

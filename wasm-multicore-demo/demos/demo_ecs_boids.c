@@ -53,8 +53,6 @@ typedef struct {
     BoidBucketEntry entries[MAX_PER_BUCKET];
 } BoidBucket;
 
-typedef struct { u8 dummy; } MergeCellsTrigger;
-
 global BoidBucket g_buckets[GRID_SIZE];
 
 global EcsWorld g_world;
@@ -216,11 +214,9 @@ void InsertBoidsSystem(EcsIter *it) {
 }
 
 void MergeCellsSystem(EcsIter *it) {
-    UNUSED(it);
-
-    Range_u64 range = lane_range(GRID_SIZE);
-    for (u64 i = range.min; i < range.max; i++) {
-        BoidBucket *bucket = &g_buckets[i];
+    for (i32 i = 0; i < it->count; i++) {
+        i32 bucket_idx = it->offset + i;
+        BoidBucket *bucket = &g_buckets[bucket_idx];
         if (bucket->count == 0) continue;
 
         u32 count = bucket->count;
@@ -473,7 +469,6 @@ void app_init(AppMemory *memory) {
     ECS_COMPONENT(&g_world, BoidTag);
     ECS_COMPONENT(&g_world, TargetTag);
     ECS_COMPONENT(&g_world, ObstacleTag);
-    ECS_COMPONENT(&g_world, MergeCellsTrigger);
 
     f32 spawn_radius = 50.0f;
     for (i32 i = 0; i < NUM_BOIDS; i++) {
@@ -534,11 +529,6 @@ void app_init(AppMemory *memory) {
         g_obstacle_positions[i][2] = pz;
     }
 
-    for (i32 i = 0; i < app_ctx->num_threads; i++) {
-        EcsEntity e = ecs_entity_new(&g_world);
-        ecs_add(&g_world, e, ecs_id(MergeCellsTrigger));
-    }
-
     EcsTerm move_targets_terms[] = {
         ecs_term_inout(ecs_id(Position)),
         ecs_term_none(ecs_id(TargetTag)),
@@ -572,18 +562,15 @@ void app_init(AppMemory *memory) {
         .term_count = 4,
         .callback = InsertBoidsSystem,
         .name = "InsertBoidsSystem",
-        .barrier_after = true,
+        .sync_mode = ECS_SYNC_BARRIER,
     });
 
-    EcsTerm merge_cells_terms[] = {
-        ecs_term_none(ecs_id(MergeCellsTrigger)),
-    };
     EcsSystem *merge_cells_sys = ecs_system_init(&g_world, &(EcsSystemDesc){
-        .terms = merge_cells_terms,
-        .term_count = 1,
+        .iter_mode = ECS_ITER_RANGE,
+        .iter_count = GRID_SIZE,
         .callback = MergeCellsSystem,
         .name = "MergeCellsSystem",
-        .barrier_after = true,
+        .sync_mode = ECS_SYNC_BARRIER,
     });
     ecs_system_depends_on(merge_cells_sys, insert_boids_sys);
 
@@ -677,11 +664,8 @@ void app_update_and_render(AppMemory *memory) {
     for (u64 i = range.min; i < range.max; i++) {
         g_buckets[i].count = 0;
     }
-    lane_sync();
 
     ecs_progress(&g_world, memory->dt);
-
-    lane_sync();
 
     if (is_main_thread()) {
         camera_update(&g_camera, memory->canvas_width, memory->canvas_height);

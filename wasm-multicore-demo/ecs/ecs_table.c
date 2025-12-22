@@ -1289,7 +1289,7 @@ void ecs_iter_sync(EcsIter *it) {
 EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc) {
     debug_assert(desc != NULL);
     debug_assert(desc->callback != NULL);
-    debug_assert(desc->term_count > 0);
+    debug_assert(desc->iter_mode == ECS_ITER_RANGE || desc->term_count > 0);
 
     if (world->system_count >= world->system_cap) {
         i32 new_cap = world->system_cap == 0 ? 16 : world->system_cap * 2;
@@ -1308,11 +1308,16 @@ EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc) {
     sys->callback = desc->callback;
     sys->ctx = desc->ctx;
     sys->name = desc->name;
-    sys->barrier_after = desc->barrier_after;
-    sys->single_threaded = desc->single_threaded;
+    sys->iter_count = desc->iter_count;
+    sys->iter_mode = desc->iter_mode;
+    sys->thread_mode = desc->thread_mode;
+    sys->sync_mode = desc->sync_mode;
+    sys->query.world = world;
 
-    ecs_query_init_terms(&sys->query, world, desc->terms, desc->term_count);
-    ecs_query_cache_init(&sys->query);
+    if (desc->iter_mode == ECS_ITER_QUERY) {
+        ecs_query_init_terms(&sys->query, world, desc->terms, desc->term_count);
+        ecs_query_cache_init(&sys->query);
+    }
 
     sys->depends_on = NULL;
     sys->depends_on_count = 0;
@@ -1322,10 +1327,12 @@ EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc) {
     sys->task_handles = ARENA_ALLOC_ARRAY(world->arena, MCRTaskHandle, tctx->thread_count);
     memset(sys->task_handles, 0, sizeof(MCRTaskHandle) * tctx->thread_count);
 
-    for (i32 i = 0; i < world->system_count; i++) {
-        EcsSystem *existing = &world->systems[i];
-        if (ecs_systems_conflict(existing, sys)) {
-            ecs_system_depends_on(sys, existing);
+    if (desc->iter_mode == ECS_ITER_QUERY) {
+        for (i32 i = 0; i < world->system_count; i++) {
+            EcsSystem *existing = &world->systems[i];
+            if (ecs_systems_conflict(existing, sys)) {
+                ecs_system_depends_on(sys, existing);
+            }
         }
     }
 
@@ -1401,25 +1408,44 @@ b32 ecs_systems_conflict(EcsSystem *writer, EcsSystem *reader) {
 internal void ecs_system_run_task(void *arg) {
     EcsSystemRunData *data = (EcsSystemRunData *)arg;
     EcsSystem *sys = data->sys;
-    ThreadContext *tctx = tctx_current();
 
-    EcsIter it = ecs_query_iter(&sys->query);
+    EcsIter it = {0};
     it.delta_time = data->delta_time;
     it.ctx = sys->ctx;
+    it.world = sys->query.world;
 
-    while (ecs_iter_next(&it)) {
-        if (sys->single_threaded) {
+    if (sys->iter_mode == ECS_ITER_RANGE) {
+        if (sys->thread_mode == ECS_THREAD_SINGLE) {
+            it.offset = 0;
+            it.count = sys->iter_count;
             sys->callback(&it);
         } else {
-            i32 table_count = it.count;
-            Range_u64 range = lane_range((u64)table_count);
-
+            Range_u64 range = lane_range((u64)sys->iter_count);
             if (range.max > range.min) {
                 it.offset = (i32)range.min;
                 it.count = (i32)(range.max - range.min);
-                it.entities = it.table->data.entities + range.min;
-
                 sys->callback(&it);
+            }
+        }
+    } else {
+        it = ecs_query_iter(&sys->query);
+        it.delta_time = data->delta_time;
+        it.ctx = sys->ctx;
+
+        while (ecs_iter_next(&it)) {
+            if (sys->thread_mode == ECS_THREAD_SINGLE) {
+                sys->callback(&it);
+            } else {
+                i32 table_count = it.count;
+                Range_u64 range = lane_range((u64)table_count);
+
+                if (range.max > range.min) {
+                    it.offset = (i32)range.min;
+                    it.count = (i32)(range.max - range.min);
+                    it.entities = it.table->data.entities + range.min;
+
+                    sys->callback(&it);
+                }
             }
         }
     }
@@ -1434,7 +1460,7 @@ void ecs_progress(EcsWorld *world, f32 delta_time) {
         EcsSystem *sys = &world->systems[s];
         MCRTaskHandle *task_handles = (MCRTaskHandle *)sys->task_handles;
 
-        if (sys->single_threaded && tctx->thread_idx != 0) {
+        if (sys->thread_mode == ECS_THREAD_SINGLE && tctx->thread_idx != 0) {
             continue;
         }
 
@@ -1450,14 +1476,14 @@ void ecs_progress(EcsWorld *world, f32 delta_time) {
             EcsSystem *dep_sys = sys->depends_on[d];
             MCRTaskHandle *dep_handles = (MCRTaskHandle *)dep_sys->task_handles;
 
-            if (dep_sys->barrier_after) {
+            if (dep_sys->sync_mode == ECS_SYNC_BARRIER) {
                 debug_assert_msg(dep_count + tctx->thread_count <= ECS_MAX_SYSTEM_DEPS,
                     "ECS_MAX_SYSTEM_DEPS overflow: barrier needs % slots, only % available (max %)",
                     FMT_INT(tctx->thread_count), FMT_INT(ECS_MAX_SYSTEM_DEPS - dep_count), FMT_INT(ECS_MAX_SYSTEM_DEPS));
                 for (i32 t = 0; t < tctx->thread_count && dep_count < ECS_MAX_SYSTEM_DEPS; t++) {
                     deps[dep_count++] = dep_handles[t];
                 }
-            } else if (dep_sys->single_threaded) {
+            } else if (dep_sys->thread_mode == ECS_THREAD_SINGLE) {
                 deps[dep_count++] = dep_handles[0];
             } else {
                 deps[dep_count++] = dep_handles[tctx->thread_idx];
@@ -1468,14 +1494,11 @@ void ecs_progress(EcsWorld *world, f32 delta_time) {
             &queue,
             ecs_system_run_task,
             run_data,
-            // NOTE: we purposely do not pass resource access here since we don't know that yet
-            // only ecs_system_run_task when we iterate over the query.
-            // we are trusting that ecs_system_init has computed dependencies correctly
             NULL, 0,
             deps, (u8)dep_count
         );
 
-        if (sys->barrier_after) {
+        if (sys->sync_mode == ECS_SYNC_BARRIER) {
             lane_sync();
         }
     }
