@@ -330,9 +330,9 @@ void SteerBoidsSystem(EcsIter *it) {
             target_result_z = target_dz * inv;
         }
 
-        f32 obs_steer_x = cell_center_x - nearest_obstacle_x;
-        f32 obs_steer_y = cell_center_y - nearest_obstacle_y;
-        f32 obs_steer_z = cell_center_z - nearest_obstacle_z;
+        f32 obs_steer_x = px - nearest_obstacle_x;
+        f32 obs_steer_y = py - nearest_obstacle_y;
+        f32 obs_steer_z = pz - nearest_obstacle_z;
         f32 obs_steer_len = sqrtf(obs_steer_x*obs_steer_x + obs_steer_y*obs_steer_y + obs_steer_z*obs_steer_z);
         f32 avoid_heading_x = 0, avoid_heading_y = 0, avoid_heading_z = 0;
         if (obs_steer_len > 0.0001f) {
