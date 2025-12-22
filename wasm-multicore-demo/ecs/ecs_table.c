@@ -1,6 +1,7 @@
 #include "ecs_table.h"
 #include "lib/assert.h"
 #include "lib/multicore_runtime.h"
+#include "os/os.h"
 
 internal void ecs_component_record_insert_table(EcsWorld *world, EcsComponentRecord *cr, EcsTable *table, i16 column, i16 type_index) {
     EcsTableRecord *tr = ARENA_ALLOC(world->arena, EcsTableRecord);
@@ -1308,6 +1309,11 @@ EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc) {
     sys->ctx = desc->ctx;
     sys->name = desc->name;
     sys->main_thread_only = desc->main_thread_only;
+    sys->barrier_after = desc->barrier_after;
+
+    if (sys->barrier_after) {
+        LOG_INFO("ECS: System '%' has barrier_after=true (global sync point)", FMT_STR(desc->name));
+    }
 
     ecs_query_init_terms(&sys->query, world, desc->terms, desc->term_count);
     ecs_query_cache_init(&sys->query);
@@ -1360,6 +1366,13 @@ void ecs_system_depends_on(EcsSystem *system, EcsSystem *dependency) {
 
     if (system->depends_on_count < ECS_MAX_SYSTEM_DEPS) {
         system->depends_on[system->depends_on_count++] = dependency;
+        if (dependency->barrier_after) {
+            LOG_INFO("ECS: '%' depends on '%' (BARRIER - waits for all threads)",
+                     FMT_STR(system->name), FMT_STR(dependency->name));
+        } else {
+            LOG_INFO("ECS: '%' depends on '%' (per-thread)",
+                     FMT_STR(system->name), FMT_STR(dependency->name));
+        }
     }
 }
 
@@ -1442,7 +1455,17 @@ void ecs_progress(EcsWorld *world, f32 delta_time) {
         for (i32 d = 0; d < sys->depends_on_count; d++) {
             EcsSystem *dep_sys = sys->depends_on[d];
             MCRTaskHandle *dep_handles = (MCRTaskHandle *)dep_sys->task_handles;
-            deps[dep_count++] = dep_handles[tctx->thread_idx];
+
+            if (dep_sys->barrier_after) {
+                debug_assert_msg(dep_count + tctx->thread_count <= ECS_MAX_SYSTEM_DEPS,
+                    "ECS_MAX_SYSTEM_DEPS overflow: barrier needs % slots, only % available (max %)",
+                    FMT_INT(tctx->thread_count), FMT_INT(ECS_MAX_SYSTEM_DEPS - dep_count), FMT_INT(ECS_MAX_SYSTEM_DEPS));
+                for (i32 t = 0; t < tctx->thread_count && dep_count < ECS_MAX_SYSTEM_DEPS; t++) {
+                    deps[dep_count++] = dep_handles[t];
+                }
+            } else {
+                deps[dep_count++] = dep_handles[tctx->thread_idx];
+            }
         }
 
         task_handles[tctx->thread_idx] = mcr_queue_append(
@@ -1455,6 +1478,10 @@ void ecs_progress(EcsWorld *world, f32 delta_time) {
             NULL, 0,
             deps, (u8)dep_count
         );
+
+        if (sys->barrier_after) {
+            lane_sync();
+        }
     }
 
     mcr_queue_process(&queue);

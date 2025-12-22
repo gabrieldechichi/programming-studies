@@ -205,7 +205,7 @@ typedef struct EcsIter {
     EcsQueryCacheMatch *cache_cur;
 } EcsIter;
 
-#define ECS_MAX_SYSTEM_DEPS 16
+#define ECS_MAX_SYSTEM_DEPS 64
 
 typedef void (*EcsSystemCallback)(EcsIter *it);
 
@@ -222,6 +222,7 @@ typedef struct EcsSystem {
 
     void *task_handles;
     b32 main_thread_only;
+    b32 barrier_after;
 } EcsSystem;
 
 typedef struct EcsSystemDesc {
@@ -231,6 +232,7 @@ typedef struct EcsSystemDesc {
     void *ctx;
     const char *name;
     b32 main_thread_only;
+    b32 barrier_after;
 } EcsSystemDesc;
 
 typedef struct EcsSystemRunData {
