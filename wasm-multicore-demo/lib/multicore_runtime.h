@@ -48,15 +48,17 @@ mcr_resource_access_create(MCRResourceAccessType type, void *ptr, u64 size) {
   return resource_access;
 }
 
+#define MCR_TASK_QUEUE_SIZE 256
+
 typedef struct {
-  MCRTask tasks_ptr[128];
+  MCRTask tasks_ptr[MCR_TASK_QUEUE_SIZE];
   u64 tasks_count;
 
-  MCRTaskHandle ready_queue[128];
+  MCRTaskHandle ready_queue[MCR_TASK_QUEUE_SIZE];
   u64 ready_count;
   u64 ready_counter;
 
-  MCRTaskHandle next_ready_queue[128];
+  MCRTaskHandle next_ready_queue[MCR_TASK_QUEUE_SIZE];
   u64 next_ready_count;
 } MCRTaskQueue;
 

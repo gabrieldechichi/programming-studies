@@ -64,6 +64,9 @@ MCRTaskHandle _mcr_queue_append(MCRTaskQueue *queue, MCRTaskFunc fn, void *data,
                                 u8 dep_count) {
   u64 next_mcr_id = ins_atomic_u64_inc_eval(&queue->tasks_count) - 1;
 
+  debug_assert_msg(next_mcr_id < MCR_TASK_QUEUE_SIZE,
+      "MCRTaskQueue tasks_ptr overflow: task_id=% >= %", FMT_UINT(next_mcr_id), FMT_UINT(MCR_TASK_QUEUE_SIZE));
+
   MCRTask task = (MCRTask){.mcr_func = (MCRTaskFunc)(fn), .user_data = data};
   task.dependency_count_remaining = dep_count;
 
@@ -83,8 +86,9 @@ MCRTaskHandle _mcr_queue_append(MCRTaskQueue *queue, MCRTaskFunc fn, void *data,
       dependency_task->dependent_mcr_ids[next_dependent_id] = this_mcr_handle;
     }
   } else {
-    // if we don't have dependencies add ourselves to the ready queue directly
     u64 next_ready_id = ins_atomic_u64_inc_eval(&queue->ready_count) - 1;
+    debug_assert_msg(next_ready_id < MCR_TASK_QUEUE_SIZE,
+        "MCRTaskQueue ready_queue overflow: ready_id=% >= %", FMT_UINT(next_ready_id), FMT_UINT(MCR_TASK_QUEUE_SIZE));
     queue->ready_queue[next_ready_id] = this_mcr_handle;
   }
 
@@ -203,9 +207,10 @@ process_queue_loop:
           // tctx->thread_idx,
           //        dependent_handle.h[0]);
 
-          // todo: fix repeated code (thread safe array?)
           u64 next_ready_id =
               ins_atomic_u64_inc_eval(&queue->next_ready_count) - 1;
+          debug_assert_msg(next_ready_id < MCR_TASK_QUEUE_SIZE,
+              "MCRTaskQueue next_ready_queue overflow: ready_id=% >= %", FMT_UINT(next_ready_id), FMT_UINT(MCR_TASK_QUEUE_SIZE));
           queue->next_ready_queue[next_ready_id] = dependent_handle;
         }
       }
