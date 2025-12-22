@@ -123,6 +123,201 @@ void ecs_world_init_full(EcsWorld *world, ArenaAllocator *arena) {
     ecs_store_init(world);
 }
 
+void InsertBoidsSystem(EcsIter *it) {
+    Position *positions = ecs_field(it, Position, 0);
+    Heading *headings = ecs_field(it, Heading, 1);
+    BoidIndex *indices = ecs_field(it, BoidIndex, 2);
+
+    for (i32 i = 0; i < it->count; i++) {
+        f32 px = positions[i].x;
+        f32 py = positions[i].y;
+        f32 pz = positions[i].z;
+
+        u32 hash = spatial_hash_3f(px, py, pz, CELL_SIZE) % GRID_SIZE;
+
+        u32 slot = ins_atomic_u32_inc_eval(&g_buckets[hash].count) - 1;
+
+        if (slot < MAX_PER_BUCKET) {
+            BoidBucketEntry *entry = &g_buckets[hash].entries[slot];
+            entry->px = px;
+            entry->py = py;
+            entry->pz = pz;
+            entry->hx = headings[i].x;
+            entry->hy = headings[i].y;
+            entry->hz = headings[i].z;
+            entry->boid_idx = indices[i].index;
+        }
+    }
+}
+
+void SteerBoidsSystem(EcsIter *it) {
+    Position *positions = ecs_field(it, Position, 0);
+    Heading *headings = ecs_field(it, Heading, 1);
+    BoidIndex *indices = ecs_field(it, BoidIndex, 2);
+
+    f32 dt = it->delta_time;
+
+    for (i32 i = 0; i < it->count; i++) {
+        f32 px = positions[i].x;
+        f32 py = positions[i].y;
+        f32 pz = positions[i].z;
+        f32 hx = headings[i].x;
+        f32 hy = headings[i].y;
+        f32 hz = headings[i].z;
+        u32 my_idx = indices[i].index;
+
+        i32 cx, cy, cz;
+        spatial_cell_coords(px, py, pz, CELL_SIZE, &cx, &cy, &cz);
+
+        f32 align_x = 0, align_y = 0, align_z = 0;
+        f32 sep_x = 0, sep_y = 0, sep_z = 0;
+        i32 neighbor_count = 0;
+
+        for (i32 dx = -1; dx <= 1; dx++) {
+            for (i32 dy = -1; dy <= 1; dy++) {
+                for (i32 dz = -1; dz <= 1; dz++) {
+                    u32 hash = spatial_hash_3i(cx + dx, cy + dy, cz + dz) % GRID_SIZE;
+                    BoidBucket *bucket = &g_buckets[hash];
+                    u32 count = bucket->count;
+                    if (count > MAX_PER_BUCKET) count = MAX_PER_BUCKET;
+
+                    for (u32 j = 0; j < count; j++) {
+                        BoidBucketEntry *entry = &bucket->entries[j];
+                        if (entry->boid_idx == my_idx) continue;
+
+                        align_x += entry->hx;
+                        align_y += entry->hy;
+                        align_z += entry->hz;
+                        sep_x += entry->px;
+                        sep_y += entry->py;
+                        sep_z += entry->pz;
+                        neighbor_count++;
+                    }
+                }
+            }
+        }
+
+        f32 nearest_target_dist_sq = 1e18f;
+        f32 nearest_target_x = px, nearest_target_y = py, nearest_target_z = pz;
+        for (i32 t = 0; t < NUM_TARGETS; t++) {
+            f32 tdx = g_target_positions[t][0] - px;
+            f32 tdy = g_target_positions[t][1] - py;
+            f32 tdz = g_target_positions[t][2] - pz;
+            f32 dist_sq = tdx*tdx + tdy*tdy + tdz*tdz;
+            if (dist_sq < nearest_target_dist_sq) {
+                nearest_target_dist_sq = dist_sq;
+                nearest_target_x = g_target_positions[t][0];
+                nearest_target_y = g_target_positions[t][1];
+                nearest_target_z = g_target_positions[t][2];
+            }
+        }
+
+        f32 nearest_obstacle_dist_sq = 1e18f;
+        f32 nearest_obstacle_x = px, nearest_obstacle_y = py, nearest_obstacle_z = pz;
+        for (i32 o = 0; o < NUM_OBSTACLES; o++) {
+            f32 odx = g_obstacle_positions[o][0] - px;
+            f32 ody = g_obstacle_positions[o][1] - py;
+            f32 odz = g_obstacle_positions[o][2] - pz;
+            f32 dist_sq = odx*odx + ody*ody + odz*odz;
+            if (dist_sq < nearest_obstacle_dist_sq) {
+                nearest_obstacle_dist_sq = dist_sq;
+                nearest_obstacle_x = g_obstacle_positions[o][0];
+                nearest_obstacle_y = g_obstacle_positions[o][1];
+                nearest_obstacle_z = g_obstacle_positions[o][2];
+            }
+        }
+
+        f32 steer_x = 0, steer_y = 0, steer_z = 0;
+
+        if (neighbor_count > 0) {
+            f32 inv_count = 1.0f / (f32)neighbor_count;
+
+            f32 avg_hx = align_x * inv_count;
+            f32 avg_hy = align_y * inv_count;
+            f32 avg_hz = align_z * inv_count;
+            f32 align_dx = avg_hx - hx;
+            f32 align_dy = avg_hy - hy;
+            f32 align_dz = avg_hz - hz;
+
+            f32 sep_dx = px - sep_x * inv_count;
+            f32 sep_dy = py - sep_y * inv_count;
+            f32 sep_dz = pz - sep_z * inv_count;
+
+            f32 align_len = sqrtf(align_dx*align_dx + align_dy*align_dy + align_dz*align_dz);
+            if (align_len > 0.0001f) {
+                f32 inv = BOID_ALIGNMENT_WEIGHT / align_len;
+                steer_x += align_dx * inv;
+                steer_y += align_dy * inv;
+                steer_z += align_dz * inv;
+            }
+
+            f32 sep_len = sqrtf(sep_dx*sep_dx + sep_dy*sep_dy + sep_dz*sep_dz);
+            if (sep_len > 0.0001f) {
+                f32 inv = BOID_SEPARATION_WEIGHT / sep_len;
+                steer_x += sep_dx * inv;
+                steer_y += sep_dy * inv;
+                steer_z += sep_dz * inv;
+            }
+        }
+
+        f32 target_dx = nearest_target_x - px;
+        f32 target_dy = nearest_target_y - py;
+        f32 target_dz = nearest_target_z - pz;
+        f32 target_len = sqrtf(target_dx*target_dx + target_dy*target_dy + target_dz*target_dz);
+        if (target_len > 0.0001f) {
+            f32 inv = BOID_TARGET_WEIGHT / target_len;
+            steer_x += target_dx * inv;
+            steer_y += target_dy * inv;
+            steer_z += target_dz * inv;
+        }
+
+        f32 steer_len = sqrtf(steer_x*steer_x + steer_y*steer_y + steer_z*steer_z);
+        f32 target_hx, target_hy, target_hz;
+        if (steer_len > 0.0001f) {
+            f32 inv = 1.0f / steer_len;
+            target_hx = steer_x * inv;
+            target_hy = steer_y * inv;
+            target_hz = steer_z * inv;
+        } else {
+            target_hx = hx;
+            target_hy = hy;
+            target_hz = hz;
+        }
+
+        f32 obstacle_dist = sqrtf(nearest_obstacle_dist_sq);
+        if (obstacle_dist < BOID_OBSTACLE_AVERSION_DISTANCE && obstacle_dist > 0.0001f) {
+            f32 avoid_x = px - nearest_obstacle_x;
+            f32 avoid_y = py - nearest_obstacle_y;
+            f32 avoid_z = pz - nearest_obstacle_z;
+            f32 avoid_len = sqrtf(avoid_x*avoid_x + avoid_y*avoid_y + avoid_z*avoid_z);
+            if (avoid_len > 0.0001f) {
+                f32 inv = 1.0f / avoid_len;
+                target_hx = avoid_x * inv;
+                target_hy = avoid_y * inv;
+                target_hz = avoid_z * inv;
+            }
+        }
+
+        f32 new_hx = hx + dt * (target_hx - hx);
+        f32 new_hy = hy + dt * (target_hy - hy);
+        f32 new_hz = hz + dt * (target_hz - hz);
+        f32 new_len = sqrtf(new_hx*new_hx + new_hy*new_hy + new_hz*new_hz);
+        if (new_len > 0.0001f) {
+            f32 inv = 1.0f / new_len;
+            new_hx *= inv;
+            new_hy *= inv;
+            new_hz *= inv;
+        }
+
+        positions[i].x = px + new_hx * BOID_MOVE_SPEED * dt;
+        positions[i].y = py + new_hy * BOID_MOVE_SPEED * dt;
+        positions[i].z = pz + new_hz * BOID_MOVE_SPEED * dt;
+        headings[i].x = new_hx;
+        headings[i].y = new_hy;
+        headings[i].z = new_hz;
+    }
+}
+
 void BuildMatricesSystem(EcsIter *it) {
     Position *positions = ecs_field(it, Position, 0);
     Heading *headings = ecs_field(it, Heading, 1);
@@ -219,6 +414,33 @@ void app_init(AppMemory *memory) {
         g_obstacle_positions[i][1] = py;
         g_obstacle_positions[i][2] = pz;
     }
+
+    EcsTerm insert_boids_terms[] = {
+        ecs_term_in(ecs_id(Position)),
+        ecs_term_in(ecs_id(Heading)),
+        ecs_term_in(ecs_id(BoidIndex)),
+        ecs_term_none(ecs_id(BoidTag)),
+    };
+    EcsSystem *insert_boids_sys = ecs_system_init(&g_world, &(EcsSystemDesc){
+        .terms = insert_boids_terms,
+        .term_count = 4,
+        .callback = InsertBoidsSystem,
+        .name = "InsertBoidsSystem",
+    });
+
+    EcsTerm steer_boids_terms[] = {
+        ecs_term_inout(ecs_id(Position)),
+        ecs_term_inout(ecs_id(Heading)),
+        ecs_term_in(ecs_id(BoidIndex)),
+        ecs_term_none(ecs_id(BoidTag)),
+    };
+    EcsSystem *steer_boids_sys = ecs_system_init(&g_world, &(EcsSystemDesc){
+        .terms = steer_boids_terms,
+        .term_count = 4,
+        .callback = SteerBoidsSystem,
+        .name = "SteerBoidsSystem",
+    });
+    ecs_system_depends_on(steer_boids_sys, insert_boids_sys);
 
     EcsTerm build_matrices_terms[] = {
         ecs_term_in(ecs_id(Position)),
