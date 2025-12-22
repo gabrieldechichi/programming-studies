@@ -1,8 +1,4 @@
 void test_ecs(void) {
-    if (!is_main_thread()) {
-        return;
-    }
-
     ThreadContext *tctx = tctx_current();
 
     EcsWorld world;

@@ -8,10 +8,6 @@ void ecs_world_init_full_qc(EcsWorld *world, ArenaAllocator *arena) {
 }
 
 void test_ecs_query_cache(void) {
-    if (!is_main_thread()) {
-        return;
-    }
-
     ThreadContext *tctx = tctx_current();
 
     EcsWorld world;

@@ -12,10 +12,6 @@ void ecs_world_init_full_q(EcsWorld *world, ArenaAllocator *arena) {
 }
 
 void test_ecs_query(void) {
-    if (!is_main_thread()) {
-        return;
-    }
-
     ThreadContext *tctx = tctx_current();
 
     EcsWorld world;

@@ -9,10 +9,6 @@ void ecs_world_init_full_io(EcsWorld *world, ArenaAllocator *arena) {
 }
 
 void test_ecs_inout(void) {
-    if (!is_main_thread()) {
-        return;
-    }
-
     ThreadContext *tctx = tctx_current();
 
     EcsWorld world;

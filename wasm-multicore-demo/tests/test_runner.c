@@ -1,3 +1,4 @@
+#include "context.h"
 #include "app.h"
 #include "lib/test.h"
 #include "lib/multicore_runtime.h"
@@ -16,32 +17,45 @@
 #include "tests/test_ecs_change_detection.c"
 #include "tests/test_ecs_systems.c"
 
-void test_main(void) {
-    RUN_TEST(test_ecs);
-    RUN_TEST(test_ecs_components);
-    RUN_TEST(test_ecs_tables);
-    RUN_TEST(test_ecs_add_remove);
-    RUN_TEST(test_ecs_query);
-    RUN_TEST(test_ecs_query_cache);
-    RUN_TEST(test_ecs_inout);
-    RUN_TEST(test_ecs_change_detection);
-    RUN_TEST(test_ecs_systems);
+global AppContext g_test_app_ctx;
 
+void register_tests(void) {
+    REGISTER_TEST(test_ecs);
+    REGISTER_TEST(test_ecs_components);
+    REGISTER_TEST(test_ecs_tables);
+    REGISTER_TEST(test_ecs_add_remove);
+    REGISTER_TEST(test_ecs_query);
+    REGISTER_TEST(test_ecs_query_cache);
+    REGISTER_TEST(test_ecs_inout);
+    REGISTER_TEST(test_ecs_change_detection);
+    REGISTER_TEST(test_ecs_systems);
+}
+
+void test_main(void) {
     if (is_main_thread()) {
-        print_test_results();
+        register_tests();
     }
+    lane_sync();
+
+    test_runner_run();
+
+    lane_sync();
+    test_runner_print_results();
 }
 
 WASM_EXPORT(wasm_main)
 int wasm_main(AppMemory *memory) {
     LOG_INFO("=== Test Runner Starting ===");
 
-    ArenaAllocator arena = arena_from_buffer(memory->heap, memory->heap_size);
-    u8 num_threads = os_get_processor_count();
+    g_test_app_ctx.arena = arena_from_buffer(memory->heap, memory->heap_size);
+    g_test_app_ctx.num_threads = os_get_processor_count();
+    app_ctx_set(&g_test_app_ctx);
 
-    LOG_INFO("Thread count: %", FMT_UINT(num_threads));
+    test_runner_init(&g_test_app_ctx.arena);
 
-    mcr_run(num_threads, MB(64), test_main, &arena);
+    LOG_INFO("Thread count: %", FMT_UINT(g_test_app_ctx.num_threads));
+
+    mcr_run(g_test_app_ctx.num_threads, MB(4), test_main, &g_test_app_ctx.arena);
 
     LOG_INFO("=== Test Runner Complete ===");
     return 0;

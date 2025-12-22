@@ -17,10 +17,6 @@ typedef struct {
 } TestTransform;
 
 void test_ecs_components(void) {
-    if (!is_main_thread()) {
-        return;
-    }
-
     ThreadContext *tctx = tctx_current();
 
     EcsWorld world;

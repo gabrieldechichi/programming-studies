@@ -49,10 +49,6 @@ void SysSystemE(EcsIter *it) {
 }
 
 void test_ecs_systems(void) {
-    if (!is_main_thread()) {
-        return;
-    }
-
     ThreadContext *tctx = tctx_current();
 
     EcsWorld world;

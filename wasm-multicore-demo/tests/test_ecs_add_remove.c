@@ -8,10 +8,6 @@ void ecs_world_init_full_ar(EcsWorld *world, ArenaAllocator *arena) {
 }
 
 void test_ecs_add_remove(void) {
-    if (!is_main_thread()) {
-        return;
-    }
-
     ThreadContext *tctx = tctx_current();
 
     EcsWorld world;
