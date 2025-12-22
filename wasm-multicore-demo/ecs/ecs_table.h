@@ -221,8 +221,8 @@ typedef struct EcsSystem {
     i32 depends_on_cap;
 
     void *task_handles;
-    b32 main_thread_only;
     b32 barrier_after;
+    b32 single_threaded;
 } EcsSystem;
 
 typedef struct EcsSystemDesc {
@@ -231,8 +231,8 @@ typedef struct EcsSystemDesc {
     EcsSystemCallback callback;
     void *ctx;
     const char *name;
-    b32 main_thread_only;
     b32 barrier_after;
+    b32 single_threaded;
 } EcsSystemDesc;
 
 typedef struct EcsSystemRunData {

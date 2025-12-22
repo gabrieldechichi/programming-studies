@@ -1,7 +1,6 @@
 #include "ecs_table.h"
 #include "lib/assert.h"
 #include "lib/multicore_runtime.h"
-#include "os/os.h"
 
 internal void ecs_component_record_insert_table(EcsWorld *world, EcsComponentRecord *cr, EcsTable *table, i16 column, i16 type_index) {
     EcsTableRecord *tr = ARENA_ALLOC(world->arena, EcsTableRecord);
@@ -1308,12 +1307,8 @@ EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc) {
     sys->callback = desc->callback;
     sys->ctx = desc->ctx;
     sys->name = desc->name;
-    sys->main_thread_only = desc->main_thread_only;
     sys->barrier_after = desc->barrier_after;
-
-    if (sys->barrier_after) {
-        LOG_INFO("ECS: System '%' has barrier_after=true (global sync point)", FMT_STR(desc->name));
-    }
+    sys->single_threaded = desc->single_threaded;
 
     ecs_query_init_terms(&sys->query, world, desc->terms, desc->term_count);
     ecs_query_cache_init(&sys->query);
@@ -1366,13 +1361,6 @@ void ecs_system_depends_on(EcsSystem *system, EcsSystem *dependency) {
 
     if (system->depends_on_count < ECS_MAX_SYSTEM_DEPS) {
         system->depends_on[system->depends_on_count++] = dependency;
-        if (dependency->barrier_after) {
-            LOG_INFO("ECS: '%' depends on '%' (BARRIER - waits for all threads)",
-                     FMT_STR(system->name), FMT_STR(dependency->name));
-        } else {
-            LOG_INFO("ECS: '%' depends on '%' (per-thread)",
-                     FMT_STR(system->name), FMT_STR(dependency->name));
-        }
     }
 }
 
@@ -1412,25 +1400,26 @@ b32 ecs_systems_conflict(EcsSystem *writer, EcsSystem *reader) {
 internal void ecs_system_run_task(void *arg) {
     EcsSystemRunData *data = (EcsSystemRunData *)arg;
     EcsSystem *sys = data->sys;
-
-    if (sys->main_thread_only && !is_main_thread()) {
-        return;
-    }
+    ThreadContext *tctx = tctx_current();
 
     EcsIter it = ecs_query_iter(&sys->query);
     it.delta_time = data->delta_time;
     it.ctx = sys->ctx;
 
     while (ecs_iter_next(&it)) {
-        i32 table_count = it.count;
-        Range_u64 range = lane_range((u64)table_count);
-
-        if (range.max > range.min) {
-            it.offset = (i32)range.min;
-            it.count = (i32)(range.max - range.min);
-            it.entities = it.table->data.entities + range.min;
-
+        if (sys->single_threaded) {
             sys->callback(&it);
+        } else {
+            i32 table_count = it.count;
+            Range_u64 range = lane_range((u64)table_count);
+
+            if (range.max > range.min) {
+                it.offset = (i32)range.min;
+                it.count = (i32)(range.max - range.min);
+                it.entities = it.table->data.entities + range.min;
+
+                sys->callback(&it);
+            }
         }
     }
 }
@@ -1443,6 +1432,10 @@ void ecs_progress(EcsWorld *world, f32 delta_time) {
     for (i32 s = 0; s < world->system_count; s++) {
         EcsSystem *sys = &world->systems[s];
         MCRTaskHandle *task_handles = (MCRTaskHandle *)sys->task_handles;
+
+        if (sys->single_threaded && tctx->thread_idx != 0) {
+            continue;
+        }
 
         EcsSystemRunData *run_data = ARENA_ALLOC(&tctx->temp_arena, EcsSystemRunData);
         run_data->sys = sys;
@@ -1463,6 +1456,8 @@ void ecs_progress(EcsWorld *world, f32 delta_time) {
                 for (i32 t = 0; t < tctx->thread_count && dep_count < ECS_MAX_SYSTEM_DEPS; t++) {
                     deps[dep_count++] = dep_handles[t];
                 }
+            } else if (dep_sys->single_threaded) {
+                deps[dep_count++] = dep_handles[0];
             } else {
                 deps[dep_count++] = dep_handles[tctx->thread_idx];
             }
