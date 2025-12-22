@@ -1311,8 +1311,6 @@ EcsSystem* ecs_system_init(EcsWorld *world, const EcsSystemDesc *desc) {
     sys->barrier_after = desc->barrier_after;
     sys->single_threaded = desc->single_threaded;
 
-    LOG_INFO("System registered: % callback=%", FMT_STR(desc->name), FMT_HEX((uintptr)desc->callback));
-
     ecs_query_init_terms(&sys->query, world, desc->terms, desc->term_count);
     ecs_query_cache_init(&sys->query);
 
@@ -1410,7 +1408,6 @@ internal void ecs_system_run_task(void *arg) {
     it.ctx = sys->ctx;
 
     while (ecs_iter_next(&it)) {
-        LOG_INFO("Running system: % callback=% thread=%", FMT_STR(sys->name), FMT_HEX((uintptr)sys->callback), FMT_INT(tctx->thread_idx));
         if (sys->single_threaded) {
             sys->callback(&it);
         } else {

@@ -217,7 +217,6 @@ void InsertBoidsSystem(EcsIter *it) {
 
 void MergeCellsSystem(EcsIter *it) {
     UNUSED(it);
-    LOG_INFO("HERE???");
 
     Range_u64 range = lane_range(GRID_SIZE);
     for (u64 i = range.min; i < range.max; i++) {
@@ -245,17 +244,16 @@ void MergeCellsSystem(EcsIter *it) {
         bucket->sum_sep_y = sum_sy;
         bucket->sum_sep_z = sum_sz;
 
-        f32 inv = 1.0f / (f32)count;
-        f32 cx = sum_sx * inv;
-        f32 cy = sum_sy * inv;
-        f32 cz = sum_sz * inv;
+        f32 first_px = bucket->entries[0].px;
+        f32 first_py = bucket->entries[0].py;
+        f32 first_pz = bucket->entries[0].pz;
 
         f32 nearest_target_dist_sq = 1e18f;
         i32 nearest_target_idx = 0;
         for (i32 t = 0; t < NUM_TARGETS; t++) {
-            f32 dx = g_target_positions[t][0] - cx;
-            f32 dy = g_target_positions[t][1] - cy;
-            f32 dz = g_target_positions[t][2] - cz;
+            f32 dx = g_target_positions[t][0] - first_px;
+            f32 dy = g_target_positions[t][1] - first_py;
+            f32 dz = g_target_positions[t][2] - first_pz;
             f32 dist_sq = dx*dx + dy*dy + dz*dz;
             if (dist_sq < nearest_target_dist_sq) {
                 nearest_target_dist_sq = dist_sq;
@@ -267,9 +265,9 @@ void MergeCellsSystem(EcsIter *it) {
         f32 nearest_obs_dist_sq = 1e18f;
         i32 nearest_obs_idx = 0;
         for (i32 o = 0; o < NUM_OBSTACLES; o++) {
-            f32 dx = g_obstacle_positions[o][0] - cx;
-            f32 dy = g_obstacle_positions[o][1] - cy;
-            f32 dz = g_obstacle_positions[o][2] - cz;
+            f32 dx = g_obstacle_positions[o][0] - first_px;
+            f32 dy = g_obstacle_positions[o][1] - first_py;
+            f32 dz = g_obstacle_positions[o][2] - first_pz;
             f32 dist_sq = dx*dx + dy*dy + dz*dz;
             if (dist_sq < nearest_obs_dist_sq) {
                 nearest_obs_dist_sq = dist_sq;
