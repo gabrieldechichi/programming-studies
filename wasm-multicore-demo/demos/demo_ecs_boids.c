@@ -32,6 +32,7 @@
 
 typedef struct { f32 x, y, z; } Position;
 typedef struct { f32 x, y, z; } Heading;
+typedef struct { u32 index; } BoidIndex;
 typedef struct { u8 dummy; } BoidTag;
 typedef struct { u8 dummy; } TargetTag;
 typedef struct { u8 dummy; } ObstacleTag;
@@ -122,6 +123,26 @@ void ecs_world_init_full(EcsWorld *world, ArenaAllocator *arena) {
     ecs_store_init(world);
 }
 
+void BuildMatricesSystem(EcsIter *it) {
+    Position *positions = ecs_field(it, Position, 0);
+    Heading *headings = ecs_field(it, Heading, 1);
+    BoidIndex *indices = ecs_field(it, BoidIndex, 2);
+
+    for (i32 i = 0; i < it->count; i++) {
+        u32 idx = indices[i].index;
+        mat4 *model = &g_instance_data[idx];
+
+        vec3 pos = { positions[i].x, positions[i].y, positions[i].z };
+        vec3 dir = { headings[i].x, headings[i].y, headings[i].z };
+
+        quaternion rot;
+        quat_look_at_dir(dir, rot);
+
+        vec3 scale = { 0.5f, 0.5f, 1.0f };
+        mat_trs(pos, rot, scale, *model);
+    }
+}
+
 void app_init(AppMemory *memory) {
     UNUSED(memory);
 
@@ -135,6 +156,7 @@ void app_init(AppMemory *memory) {
 
     ECS_COMPONENT(&g_world, Position);
     ECS_COMPONENT(&g_world, Heading);
+    ECS_COMPONENT(&g_world, BoidIndex);
     ECS_COMPONENT(&g_world, BoidTag);
     ECS_COMPONENT(&g_world, TargetTag);
     ECS_COMPONENT(&g_world, ObstacleTag);
@@ -167,6 +189,7 @@ void app_init(AppMemory *memory) {
 
         ecs_set(&g_world, e, Position, { .x = px, .y = py, .z = pz });
         ecs_set(&g_world, e, Heading, { .x = hx, .y = hy, .z = hz });
+        ecs_set(&g_world, e, BoidIndex, { .index = (u32)i });
         ecs_add(&g_world, e, ecs_id(BoidTag));
     }
 
@@ -196,6 +219,19 @@ void app_init(AppMemory *memory) {
         g_obstacle_positions[i][1] = py;
         g_obstacle_positions[i][2] = pz;
     }
+
+    EcsTerm build_matrices_terms[] = {
+        ecs_term_in(ecs_id(Position)),
+        ecs_term_in(ecs_id(Heading)),
+        ecs_term_in(ecs_id(BoidIndex)),
+        ecs_term_none(ecs_id(BoidTag)),
+    };
+    ecs_system_init(&g_world, &(EcsSystemDesc){
+        .terms = build_matrices_terms,
+        .term_count = 4,
+        .callback = BuildMatricesSystem,
+        .name = "BuildMatricesSystem",
+    });
 
     g_camera = camera_init(VEC3(0, 100, 200), VEC3(-0.4f, 0, 0), 45.0f);
 
@@ -259,18 +295,8 @@ void app_update_and_render(AppMemory *memory) {
     }
     lane_sync();
 
-    Range_u64 boid_range = lane_range(NUM_BOIDS);
-    for (u64 i = boid_range.min; i < boid_range.max; i++) {
-        mat4 *model = &g_instance_data[i];
-        mat4_identity(*model);
+    ecs_progress(&g_world, memory->dt);
 
-        f32 x = 50.0f * sinf((f32)i * 0.1f + memory->total_time * 0.5f);
-        f32 y = 20.0f * sinf((f32)i * 0.2f + memory->total_time * 0.3f);
-        f32 z = 50.0f * cosf((f32)i * 0.15f + memory->total_time * 0.4f);
-
-        mat4_translate(*model, VEC3(x, y, z));
-        mat4_scale_uni(*model, 0.5f);
-    }
     lane_sync();
 
     if (is_main_thread()) {
