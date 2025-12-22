@@ -45,8 +45,15 @@ typedef struct {
 
 typedef struct {
     u32 count;
+    f32 sum_align_x, sum_align_y, sum_align_z;
+    f32 sum_sep_x, sum_sep_y, sum_sep_z;
+    i32 nearest_target_idx;
+    i32 nearest_obstacle_idx;
+    f32 nearest_obstacle_dist;
     BoidBucketEntry entries[MAX_PER_BUCKET];
 } BoidBucket;
+
+typedef struct { u8 dummy; } MergeCellsTrigger;
 
 global BoidBucket g_buckets[GRID_SIZE];
 
@@ -208,6 +215,72 @@ void InsertBoidsSystem(EcsIter *it) {
     }
 }
 
+void MergeCellsSystem(EcsIter *it) {
+    UNUSED(it);
+    LOG_INFO("HERE???");
+
+    Range_u64 range = lane_range(GRID_SIZE);
+    for (u64 i = range.min; i < range.max; i++) {
+        BoidBucket *bucket = &g_buckets[i];
+        if (bucket->count == 0) continue;
+
+        u32 count = bucket->count;
+        if (count > MAX_PER_BUCKET) count = MAX_PER_BUCKET;
+
+        f32 sum_ax = 0, sum_ay = 0, sum_az = 0;
+        f32 sum_sx = 0, sum_sy = 0, sum_sz = 0;
+        for (u32 j = 0; j < count; j++) {
+            BoidBucketEntry *entry = &bucket->entries[j];
+            sum_ax += entry->hx;
+            sum_ay += entry->hy;
+            sum_az += entry->hz;
+            sum_sx += entry->px;
+            sum_sy += entry->py;
+            sum_sz += entry->pz;
+        }
+        bucket->sum_align_x = sum_ax;
+        bucket->sum_align_y = sum_ay;
+        bucket->sum_align_z = sum_az;
+        bucket->sum_sep_x = sum_sx;
+        bucket->sum_sep_y = sum_sy;
+        bucket->sum_sep_z = sum_sz;
+
+        f32 inv = 1.0f / (f32)count;
+        f32 cx = sum_sx * inv;
+        f32 cy = sum_sy * inv;
+        f32 cz = sum_sz * inv;
+
+        f32 nearest_target_dist_sq = 1e18f;
+        i32 nearest_target_idx = 0;
+        for (i32 t = 0; t < NUM_TARGETS; t++) {
+            f32 dx = g_target_positions[t][0] - cx;
+            f32 dy = g_target_positions[t][1] - cy;
+            f32 dz = g_target_positions[t][2] - cz;
+            f32 dist_sq = dx*dx + dy*dy + dz*dz;
+            if (dist_sq < nearest_target_dist_sq) {
+                nearest_target_dist_sq = dist_sq;
+                nearest_target_idx = t;
+            }
+        }
+        bucket->nearest_target_idx = nearest_target_idx;
+
+        f32 nearest_obs_dist_sq = 1e18f;
+        i32 nearest_obs_idx = 0;
+        for (i32 o = 0; o < NUM_OBSTACLES; o++) {
+            f32 dx = g_obstacle_positions[o][0] - cx;
+            f32 dy = g_obstacle_positions[o][1] - cy;
+            f32 dz = g_obstacle_positions[o][2] - cz;
+            f32 dist_sq = dx*dx + dy*dy + dz*dz;
+            if (dist_sq < nearest_obs_dist_sq) {
+                nearest_obs_dist_sq = dist_sq;
+                nearest_obs_idx = o;
+            }
+        }
+        bucket->nearest_obstacle_idx = nearest_obs_idx;
+        bucket->nearest_obstacle_dist = sqrtf(nearest_obs_dist_sq);
+    }
+}
+
 void SteerBoidsSystem(EcsIter *it) {
     Position *positions = ecs_field(it, Position, 0);
     Heading *headings = ecs_field(it, Heading, 1);
@@ -228,22 +301,11 @@ void SteerBoidsSystem(EcsIter *it) {
         u32 count = bucket->count;
         if (count > MAX_PER_BUCKET) count = MAX_PER_BUCKET;
 
-        f32 alignment_x = 0, alignment_y = 0, alignment_z = 0;
-        f32 separation_x = 0, separation_y = 0, separation_z = 0;
-        i32 neighbor_count = 0;
+        f32 alignment_x, alignment_y, alignment_z;
+        f32 separation_x, separation_y, separation_z;
+        i32 neighbor_count;
 
-        for (u32 j = 0; j < count; j++) {
-            BoidBucketEntry *entry = &bucket->entries[j];
-            alignment_x += entry->hx;
-            alignment_y += entry->hy;
-            alignment_z += entry->hz;
-            separation_x += entry->px;
-            separation_y += entry->py;
-            separation_z += entry->pz;
-            neighbor_count++;
-        }
-
-        if (neighbor_count == 0) {
+        if (count == 0) {
             neighbor_count = 1;
             alignment_x = forward_x;
             alignment_y = forward_y;
@@ -251,42 +313,25 @@ void SteerBoidsSystem(EcsIter *it) {
             separation_x = px;
             separation_y = py;
             separation_z = pz;
+        } else {
+            neighbor_count = (i32)count;
+            alignment_x = bucket->sum_align_x;
+            alignment_y = bucket->sum_align_y;
+            alignment_z = bucket->sum_align_z;
+            separation_x = bucket->sum_sep_x;
+            separation_y = bucket->sum_sep_y;
+            separation_z = bucket->sum_sep_z;
         }
 
         f32 inv_count = 1.0f / (f32)neighbor_count;
-        f32 cell_center_x = separation_x * inv_count;
-        f32 cell_center_y = separation_y * inv_count;
-        f32 cell_center_z = separation_z * inv_count;
 
-        f32 nearest_obstacle_dist_sq = 1e18f;
-        i32 nearest_obstacle_idx = 0;
-        for (i32 o = 0; o < NUM_OBSTACLES; o++) {
-            f32 odx = g_obstacle_positions[o][0] - cell_center_x;
-            f32 ody = g_obstacle_positions[o][1] - cell_center_y;
-            f32 odz = g_obstacle_positions[o][2] - cell_center_z;
-            f32 dist_sq = odx*odx + ody*ody + odz*odz;
-            if (dist_sq < nearest_obstacle_dist_sq) {
-                nearest_obstacle_dist_sq = dist_sq;
-                nearest_obstacle_idx = o;
-            }
-        }
+        i32 nearest_obstacle_idx = bucket->nearest_obstacle_idx;
         f32 nearest_obstacle_x = g_obstacle_positions[nearest_obstacle_idx][0];
         f32 nearest_obstacle_y = g_obstacle_positions[nearest_obstacle_idx][1];
         f32 nearest_obstacle_z = g_obstacle_positions[nearest_obstacle_idx][2];
-        f32 nearest_obstacle_dist = sqrtf(nearest_obstacle_dist_sq);
+        f32 nearest_obstacle_dist = bucket->nearest_obstacle_dist;
 
-        f32 nearest_target_dist_sq = 1e18f;
-        i32 nearest_target_idx = 0;
-        for (i32 t = 0; t < NUM_TARGETS; t++) {
-            f32 tdx = g_target_positions[t][0] - cell_center_x;
-            f32 tdy = g_target_positions[t][1] - cell_center_y;
-            f32 tdz = g_target_positions[t][2] - cell_center_z;
-            f32 dist_sq = tdx*tdx + tdy*tdy + tdz*tdz;
-            if (dist_sq < nearest_target_dist_sq) {
-                nearest_target_dist_sq = dist_sq;
-                nearest_target_idx = t;
-            }
-        }
+        i32 nearest_target_idx = bucket->nearest_target_idx;
         f32 nearest_target_x = g_target_positions[nearest_target_idx][0];
         f32 nearest_target_y = g_target_positions[nearest_target_idx][1];
         f32 nearest_target_z = g_target_positions[nearest_target_idx][2];
@@ -430,6 +475,7 @@ void app_init(AppMemory *memory) {
     ECS_COMPONENT(&g_world, BoidTag);
     ECS_COMPONENT(&g_world, TargetTag);
     ECS_COMPONENT(&g_world, ObstacleTag);
+    ECS_COMPONENT(&g_world, MergeCellsTrigger);
 
     f32 spawn_radius = 50.0f;
     for (i32 i = 0; i < NUM_BOIDS; i++) {
@@ -490,6 +536,11 @@ void app_init(AppMemory *memory) {
         g_obstacle_positions[i][2] = pz;
     }
 
+    for (i32 i = 0; i < app_ctx->num_threads; i++) {
+        EcsEntity e = ecs_entity_new(&g_world);
+        ecs_add(&g_world, e, ecs_id(MergeCellsTrigger));
+    }
+
     EcsTerm move_targets_terms[] = {
         ecs_term_inout(ecs_id(Position)),
         ecs_term_none(ecs_id(TargetTag)),
@@ -526,6 +577,18 @@ void app_init(AppMemory *memory) {
         .barrier_after = true,
     });
 
+    EcsTerm merge_cells_terms[] = {
+        ecs_term_none(ecs_id(MergeCellsTrigger)),
+    };
+    EcsSystem *merge_cells_sys = ecs_system_init(&g_world, &(EcsSystemDesc){
+        .terms = merge_cells_terms,
+        .term_count = 1,
+        .callback = MergeCellsSystem,
+        .name = "MergeCellsSystem",
+        .barrier_after = true,
+    });
+    ecs_system_depends_on(merge_cells_sys, insert_boids_sys);
+
     EcsTerm steer_boids_terms[] = {
         ecs_term_inout(ecs_id(Position)),
         ecs_term_inout(ecs_id(Heading)),
@@ -537,7 +600,7 @@ void app_init(AppMemory *memory) {
         .callback = SteerBoidsSystem,
         .name = "SteerBoidsSystem",
     });
-    ecs_system_depends_on(steer_boids_sys, insert_boids_sys);
+    ecs_system_depends_on(steer_boids_sys, merge_cells_sys);
 
     EcsTerm build_matrices_terms[] = {
         ecs_term_in(ecs_id(Position)),
