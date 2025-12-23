@@ -4,6 +4,7 @@
 #include "os/os.h"
 #include "lib/math.h"
 #include "lib/hash.h"
+#include "lib/random.h"
 #include "cube.h"
 #include "renderer.h"
 #include "camera.h"
@@ -447,7 +448,7 @@ void BuildMatricesSystem(EcsIter *it) {
         quaternion rot;
         quat_look_at_dir(dir, rot);
 
-        vec3 scale = { 0.5f, 0.5f, 1.0f };
+        vec3 scale = { 0.2f, 0.2f, 1.0f };
         mat_trs(pos, rot, scale, *model);
     }
 }
@@ -474,27 +475,27 @@ void app_init(AppMemory *memory) {
     for (i32 i = 0; i < NUM_BOIDS; i++) {
         EcsEntity e = ecs_entity_new(&g_world);
 
-        f32 theta = ((f32)i / NUM_BOIDS) * 2.0f * 3.14159f * 100.0f;
-        f32 phi = ((f32)(i * 7) / NUM_BOIDS) * 3.14159f;
-        f32 r = spawn_radius * (0.5f + 0.5f * ((f32)(i % 100) / 100.0f));
+        UnityRandom rng = unity_random_new((u32)(i + 1) * 0x9F6ABC1u);
+        f32 rx = unity_random_next_f32(&rng) - 0.5f;
+        f32 ry = unity_random_next_f32(&rng) - 0.5f;
+        f32 rz = unity_random_next_f32(&rng) - 0.5f;
 
-        f32 px = r * sinf(phi) * cosf(theta);
-        f32 py = r * sinf(phi) * sinf(theta);
-        f32 pz = r * cosf(phi);
-
-        f32 hx = -px;
-        f32 hy = -py;
-        f32 hz = -pz;
-        f32 len = sqrtf(hx*hx + hy*hy + hz*hz);
-        if (len > 0.001f) {
-            hx /= len;
-            hy /= len;
-            hz /= len;
+        f32 len = sqrtf(rx*rx + ry*ry + rz*rz);
+        f32 hx, hy, hz;
+        if (len > 0.0001f) {
+            f32 inv = 1.0f / len;
+            hx = rx * inv;
+            hy = ry * inv;
+            hz = rz * inv;
         } else {
-            hx = 1.0f;
-            hy = 0.0f;
+            hx = 0.0f;
+            hy = 1.0f;
             hz = 0.0f;
         }
+
+        f32 px = hx * spawn_radius;
+        f32 py = hy * spawn_radius;
+        f32 pz = hz * spawn_radius;
 
         ecs_set(&g_world, e, Position, { .x = px, .y = py, .z = pz });
         ecs_set(&g_world, e, Heading, { .x = hx, .y = hy, .z = hz });

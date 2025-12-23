@@ -25,4 +25,12 @@ f32 xorshift32_next_f32(Xorshift32_State *rng);
 f32 xorshift32_next_f32_range(Xorshift32_State *rng, f32 min, f32 max);
 u32 xorshift32_next_u32_range(Xorshift32_State *rng, u32 min, u32 max);
 
+typedef struct {
+    u32 state;
+} UnityRandom;
+
+UnityRandom unity_random_new(u32 seed);
+u32 unity_random_next(UnityRandom *rng);
+f32 unity_random_next_f32(UnityRandom *rng);
+
 #endif

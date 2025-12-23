@@ -73,3 +73,24 @@ u32 xorshift32_next_u32_range(Xorshift32_State *rng, u32 min, u32 max) {
     }
   }
 }
+
+UnityRandom unity_random_new(u32 seed) {
+    UnityRandom rng;
+    rng.state = seed;
+    unity_random_next(&rng);
+    return rng;
+}
+
+u32 unity_random_next(UnityRandom *rng) {
+    u32 t = rng->state;
+    rng->state ^= rng->state << 13;
+    rng->state ^= rng->state >> 17;
+    rng->state ^= rng->state << 5;
+    return t;
+}
+
+f32 unity_random_next_f32(UnityRandom *rng) {
+    union { u32 u; f32 f; } conv;
+    conv.u = 0x3f800000u | (unity_random_next(rng) >> 9);
+    return conv.f - 1.0f;
+}

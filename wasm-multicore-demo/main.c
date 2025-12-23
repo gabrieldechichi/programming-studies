@@ -18,6 +18,7 @@
 #include "input.h"
 #include "camera.h"
 #include "camera.c"
+#include "lib/random.c"
 #include "context.c"
 #include "entrypoint.c"
 // #include "demos/demo_cube_instancing.c"
