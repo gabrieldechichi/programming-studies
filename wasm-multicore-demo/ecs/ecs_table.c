@@ -1408,6 +1408,7 @@ b32 ecs_systems_conflict(EcsSystem *writer, EcsSystem *reader) {
 internal void ecs_system_run_task(void *arg) {
     EcsSystemRunData *data = (EcsSystemRunData *)arg;
     EcsSystem *sys = data->sys;
+    ThreadContext *tctx = tctx_current();
 
     EcsIter it = {0};
     it.delta_time = data->delta_time;
@@ -1418,12 +1419,14 @@ internal void ecs_system_run_task(void *arg) {
         if (sys->thread_mode == ECS_THREAD_SINGLE) {
             it.offset = 0;
             it.count = sys->iter_count;
+            it.frame_offset = 0;
             sys->callback(&it);
         } else {
-            Range_u64 range = lane_range((u64)sys->iter_count);
+            Range_u64 range = lane_range_for(data->thread_idx, tctx->thread_count, (u64)sys->iter_count);
             if (range.max > range.min) {
                 it.offset = (i32)range.min;
                 it.count = (i32)(range.max - range.min);
+                it.frame_offset = 0;
                 sys->callback(&it);
             }
         }
@@ -1432,21 +1435,27 @@ internal void ecs_system_run_task(void *arg) {
         it.delta_time = data->delta_time;
         it.ctx = sys->ctx;
 
+        i32 frame_offset = 0;
         while (ecs_iter_next(&it)) {
+            i32 table_total = it.count;
+
             if (sys->thread_mode == ECS_THREAD_SINGLE) {
+                it.frame_offset = frame_offset;
                 sys->callback(&it);
             } else {
-                i32 table_count = it.count;
-                Range_u64 range = lane_range((u64)table_count);
+                Range_u64 range = lane_range_for(data->thread_idx, tctx->thread_count, (u64)table_total);
 
                 if (range.max > range.min) {
                     it.offset = (i32)range.min;
                     it.count = (i32)(range.max - range.min);
+                    it.frame_offset = frame_offset;
                     it.entities = it.table->data.entities + range.min;
 
                     sys->callback(&it);
                 }
             }
+
+            frame_offset += table_total;
         }
     }
 }

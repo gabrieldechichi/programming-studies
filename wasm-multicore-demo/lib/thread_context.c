@@ -35,10 +35,7 @@ void _lane_sync_u64(ThreadContext *ctx, u32 broadcast_thread_idx,
 
 void _lane_sync(ThreadContext *ctx) { barrier_wait(*ctx->barrier); }
 
-Range_u64 _lane_range(ThreadContext *ctx, u64 values_count) {
-  u32 thread_count = ctx->thread_count;
-  u32 thread_idx = ctx->thread_idx;
-
+Range_u64 _lane_range(u32 thread_idx, u32 thread_count, u64 values_count) {
   u64 values_per_thread = values_count / thread_count;
   u64 leftover_values_count = values_count % thread_count;
   b32 thread_has_leftover = thread_idx < leftover_values_count;

@@ -94,11 +94,14 @@ void _lane_sync_u64(ThreadContext *ctx, u32 broadcast_thread_idx,
 
 void _lane_sync(ThreadContext *ctx);
 
-Range_u64 _lane_range(ThreadContext *ctx, u64 values_count);
+Range_u64 _lane_range(u32 thread_idx, u32 thread_count, u64 values_count);
 
 #define lane_sync_u64(broadcast_thread_idx, value_ptr)                         \
   _lane_sync_u64(tctx_current(), (broadcast_thread_idx), (u64 *)(value_ptr))
 #define lane_sync() _lane_sync(tctx_current())
-#define lane_range(values_count) _lane_range(tctx_current(), (values_count))
+#define lane_range(values_count)                                               \
+  _lane_range(tctx_current()->thread_idx, tctx_current()->thread_count, (values_count))
+#define lane_range_for(thread_idx, thread_count, values_count)                 \
+  _lane_range((thread_idx), (thread_count), (values_count))
 
 #endif

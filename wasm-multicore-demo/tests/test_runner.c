@@ -16,6 +16,7 @@
 #include "tests/test_ecs_inout.c"
 #include "tests/test_ecs_change_detection.c"
 #include "tests/test_ecs_systems.c"
+#include "tests/test_ecs_entity_index.c"
 
 global AppContext g_test_app_ctx;
 
@@ -29,6 +30,8 @@ void register_tests(void) {
     REGISTER_TEST(test_ecs_inout);
     REGISTER_TEST(test_ecs_change_detection);
     REGISTER_TEST(test_ecs_systems);
+    REGISTER_TEST_MULTICORE(test_ecs_entity_index_single);
+    REGISTER_TEST_MULTICORE(test_ecs_entity_index_multi);
 }
 
 void test_main(void) {

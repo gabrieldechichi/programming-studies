@@ -193,6 +193,7 @@ typedef struct EcsIter {
     EcsTable *table;
     i32 offset;
     i32 count;
+    i32 frame_offset;
     EcsEntity *entities;
 
     i16 columns[ECS_QUERY_MAX_TERMS];
