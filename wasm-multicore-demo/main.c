@@ -20,6 +20,8 @@
 #include "camera.c"
 #include "lib/random.c"
 #include "context.c"
+#include "ecs/ecs_entity.c"
+#include "ecs/ecs_table.c"
 #include "entrypoint.c"
 // #include "demos/demo_cube_instancing.c"
 // #include "demos/demo_hello_world.c"

@@ -10,9 +10,6 @@
 #include "camera.h"
 #include "app.h"
 
-#include "ecs/ecs_entity.c"
-#include "ecs/ecs_table.c"
-
 #define VERTEX_STRIDE 40
 #define VERTEX_NORMAL_OFFSET 12
 #define VERTEX_COLOR_OFFSET 24
@@ -39,6 +36,19 @@ typedef struct { u8 dummy; } TargetTag;
 typedef struct { u8 dummy; } ObstacleTag;
 
 typedef struct {
+    f32 sample_rate;
+    i32 frame_count;
+    const vec3 *positions;
+    const versor *rotations;
+} SampledAnimationClip;
+
+typedef struct {
+    const SampledAnimationClip *clip;
+    f32 current_time;
+    vec3 *dest_position;
+} AnimationPlayer;
+
+typedef struct {
     f32 px, py, pz;
     f32 hx, hy, hz;
     u32 boid_idx;
@@ -53,6 +63,10 @@ typedef struct {
     f32 nearest_obstacle_dist;
     BoidBucketEntry entries[MAX_PER_BUCKET];
 } BoidBucket;
+
+#include "./Shark_animation.c"
+#include "./Target01_animation.c"
+#include "./Target02_animation.c"
 
 global BoidBucket g_buckets[GRID_SIZE];
 
@@ -131,58 +145,51 @@ void ecs_world_init_full(EcsWorld *world, ArenaAllocator *arena) {
     ecs_store_init(world);
 }
 
-global i32 g_target_index = 0;
+void sample_animation_position(const SampledAnimationClip *clip, f32 time, vec3 out_pos) {
+    f32 duration = clip->sample_rate * (f32)(clip->frame_count - 1);
+    while (time >= duration) time -= duration;
+    if (time < 0.0f) time = 0.0f;
 
-void MoveTargetsSystem(EcsIter *it) {
-    Position *positions = ecs_field(it, Position, 0);
+    f32 frame_f = time / clip->sample_rate;
+    i32 frame0 = (i32)frame_f;
+    i32 frame1 = frame0 + 1;
+    if (frame1 >= clip->frame_count) frame1 = clip->frame_count - 1;
+    f32 t = frame_f - (f32)frame0;
 
-    f32 t = g_total_time;
-
-    for (i32 i = 0; i < it->count; i++) {
-        i32 idx = g_target_index;
-        g_target_index++;
-
-        f32 angle = t * 0.5f + (f32)idx * 3.14159f;
-        f32 radius = 80.0f;
-        f32 px = radius * cosf(angle);
-        f32 py = 20.0f * sinf(t * 0.3f + (f32)idx * 1.5f);
-        f32 pz = radius * sinf(angle);
-
-        positions[i].x = px;
-        positions[i].y = py;
-        positions[i].z = pz;
-
-        if (idx < NUM_TARGETS) {
-            g_target_positions[idx][0] = px;
-            g_target_positions[idx][1] = py;
-            g_target_positions[idx][2] = pz;
-        }
-    }
+    const vec3 *p0 = &clip->positions[frame0];
+    const vec3 *p1 = &clip->positions[frame1];
+    out_pos[0] = (*p0)[0] + t * ((*p1)[0] - (*p0)[0]);
+    out_pos[1] = (*p0)[1] + t * ((*p1)[1] - (*p0)[1]);
+    out_pos[2] = (*p0)[2] + t * ((*p1)[2] - (*p0)[2]);
 }
 
-global i32 g_obstacle_index = 0;
-
-void MoveObstaclesSystem(EcsIter *it) {
+void PlayAnimationsSystem(EcsIter *it) {
     Position *positions = ecs_field(it, Position, 0);
+    AnimationPlayer *players = ecs_field(it, AnimationPlayer, 1);
 
-    f32 t = g_total_time;
+    f32 dt = it->delta_time;
+    if (dt > 0.05f) dt = 0.05f;
 
     for (i32 i = 0; i < it->count; i++) {
-        i32 idx = g_obstacle_index;
-        g_obstacle_index++;
+        AnimationPlayer *player = &players[i];
+        player->current_time += dt;
 
-        f32 px = 40.0f * sinf(t * 0.2f);
-        f32 py = 30.0f * sinf(t * 0.15f);
-        f32 pz = 40.0f * cosf(t * 0.25f);
+        f32 duration = player->clip->sample_rate * (f32)(player->clip->frame_count - 1);
+        while (player->current_time >= duration) {
+            player->current_time -= duration;
+        }
 
-        positions[i].x = px;
-        positions[i].y = py;
-        positions[i].z = pz;
+        vec3 sampled_pos;
+        sample_animation_position(player->clip, player->current_time, sampled_pos);
 
-        if (idx < NUM_OBSTACLES) {
-            g_obstacle_positions[idx][0] = px;
-            g_obstacle_positions[idx][1] = py;
-            g_obstacle_positions[idx][2] = pz;
+        positions[i].x = sampled_pos[0];
+        positions[i].y = sampled_pos[1];
+        positions[i].z = sampled_pos[2];
+
+        if (player->dest_position) {
+            (*player->dest_position)[0] = sampled_pos[0];
+            (*player->dest_position)[1] = sampled_pos[1];
+            (*player->dest_position)[2] = sampled_pos[2];
         }
     }
 }
@@ -470,6 +477,7 @@ void app_init(AppMemory *memory) {
     ECS_COMPONENT(&g_world, BoidTag);
     ECS_COMPONENT(&g_world, TargetTag);
     ECS_COMPONENT(&g_world, ObstacleTag);
+    ECS_COMPONENT(&g_world, AnimationPlayer);
 
     f32 spawn_radius = 50.0f;
     for (i32 i = 0; i < NUM_BOIDS; i++) {
@@ -503,53 +511,54 @@ void app_init(AppMemory *memory) {
         ecs_add(&g_world, e, ecs_id(BoidTag));
     }
 
+    const SampledAnimationClip *target_clips[NUM_TARGETS] = { &Target01_animation, &Target02_animation };
     for (i32 i = 0; i < NUM_TARGETS; i++) {
         EcsEntity e = ecs_entity_new(&g_world);
-        f32 angle = (f32)i * 3.14159f;
-        f32 px = 80.0f * cosf(angle);
-        f32 py = 0.0f;
-        f32 pz = 80.0f * sinf(angle);
-        ecs_set(&g_world, e, Position, { .x = px, .y = py, .z = pz });
+
+        vec3 initial_pos;
+        sample_animation_position(target_clips[i], 0.0f, initial_pos);
+
+        ecs_set(&g_world, e, Position, { .x = initial_pos[0], .y = initial_pos[1], .z = initial_pos[2] });
+        ecs_set(&g_world, e, AnimationPlayer, {
+            .clip = target_clips[i],
+            .current_time = 0.0f,
+            .dest_position = &g_target_positions[i],
+        });
         ecs_add(&g_world, e, ecs_id(TargetTag));
 
-        g_target_positions[i][0] = px;
-        g_target_positions[i][1] = py;
-        g_target_positions[i][2] = pz;
+        g_target_positions[i][0] = initial_pos[0];
+        g_target_positions[i][1] = initial_pos[1];
+        g_target_positions[i][2] = initial_pos[2];
     }
 
     for (i32 i = 0; i < NUM_OBSTACLES; i++) {
         EcsEntity e = ecs_entity_new(&g_world);
-        f32 px = 0.0f;
-        f32 py = 0.0f;
-        f32 pz = 0.0f;
-        ecs_set(&g_world, e, Position, { .x = px, .y = py, .z = pz });
+
+        vec3 initial_pos;
+        sample_animation_position(&Shark_animation, 0.0f, initial_pos);
+
+        ecs_set(&g_world, e, Position, { .x = initial_pos[0], .y = initial_pos[1], .z = initial_pos[2] });
+        ecs_set(&g_world, e, AnimationPlayer, {
+            .clip = &Shark_animation,
+            .current_time = 0.0f,
+            .dest_position = &g_obstacle_positions[i],
+        });
         ecs_add(&g_world, e, ecs_id(ObstacleTag));
 
-        g_obstacle_positions[i][0] = px;
-        g_obstacle_positions[i][1] = py;
-        g_obstacle_positions[i][2] = pz;
+        g_obstacle_positions[i][0] = initial_pos[0];
+        g_obstacle_positions[i][1] = initial_pos[1];
+        g_obstacle_positions[i][2] = initial_pos[2];
     }
 
-    EcsTerm move_targets_terms[] = {
+    EcsTerm play_animations_terms[] = {
         ecs_term_inout(ecs_id(Position)),
-        ecs_term_none(ecs_id(TargetTag)),
+        ecs_term_inout(ecs_id(AnimationPlayer)),
     };
     ecs_system_init(&g_world, &(EcsSystemDesc){
-        .terms = move_targets_terms,
+        .terms = play_animations_terms,
         .term_count = 2,
-        .callback = MoveTargetsSystem,
-        .name = "MoveTargetsSystem",
-    });
-
-    EcsTerm move_obstacles_terms[] = {
-        ecs_term_inout(ecs_id(Position)),
-        ecs_term_none(ecs_id(ObstacleTag)),
-    };
-    ecs_system_init(&g_world, &(EcsSystemDesc){
-        .terms = move_obstacles_terms,
-        .term_count = 2,
-        .callback = MoveObstaclesSystem,
-        .name = "MoveObstaclesSystem",
+        .callback = PlayAnimationsSystem,
+        .name = "PlayAnimationsSystem",
     });
 
     EcsTerm insert_boids_terms[] = {
@@ -658,8 +667,6 @@ void app_init(AppMemory *memory) {
 
 void app_update_and_render(AppMemory *memory) {
     g_total_time = memory->total_time;
-    g_target_index = 0;
-    g_obstacle_index = 0;
 
     Range_u64 range = lane_range(GRID_SIZE);
     for (u64 i = range.min; i < range.max; i++) {
