@@ -24,6 +24,8 @@ typedef struct {
   u8 thread_count;
   // todo: maybe pass thread_count on renderer_init?
   DynArray(RenderCmd) thread_cmds[32]; // MAX_THREADS
+
+  GpuTexture placeholder_texture;
 } RendererState;
 
 global RendererState g_renderer;
@@ -36,11 +38,9 @@ void renderer_init(ArenaAllocator *arena, u8 thread_count) {
   g_renderer.materials = ha_init(Material, &alloc, MAX_MATERIALS);
   g_renderer.instance_buffers = ha_init(InstanceBuffer, &alloc, MAX_INSTANCE_BUFFERS);
 
-  // Get thread count from current context
   g_renderer.thread_count = thread_count;
   assert_msg(g_renderer.thread_count > 0, "Thread count can't be zero");
 
-  // Allocate command arrays for each thread
   u32 cmds_per_thread = MAX_RENDER_CMDS / g_renderer.thread_count;
   for (u8 i = 0; i < g_renderer.thread_count; i++) {
     g_renderer.thread_cmds[i] = (RenderCmd_DynArray){
@@ -49,6 +49,13 @@ void renderer_init(ArenaAllocator *arena, u8 thread_count) {
         .items = ARENA_ALLOC_ARRAY(arena, RenderCmd, cmds_per_thread),
     };
   }
+
+#ifdef DEBUG
+  u8 placeholder_pixels[4] = {255, 0, 255, 255};
+#else
+  u8 placeholder_pixels[4] = {255, 255, 255, 255};
+#endif
+  g_renderer.placeholder_texture = gpu_make_texture_data(1, 1, placeholder_pixels);
 }
 
 GpuMesh_Handle renderer_upload_mesh(MeshDesc *desc) {
@@ -265,7 +272,11 @@ void renderer_end_frame(void) {
         for (u8 p = 0; p < material->property_count; p++) {
           MaterialProperty *prop = &material->properties[p];
           if (prop->type == MAT_PROP_TEXTURE) {
-            mat_textures[mat_texture_count++] = prop->tex;
+            GpuTexture tex = prop->tex;
+            if (!gpu_texture_is_ready(tex)) {
+              tex = g_renderer.placeholder_texture;
+            }
+            mat_textures[mat_texture_count++] = tex;
           } else {
             void *data;
             u32 size;

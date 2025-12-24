@@ -93,6 +93,9 @@ void js_gpu_apply_bindings(u32 vb_count, u32 *vb_indices, u32 ib_idx,
 WASM_IMPORT(js_gpu_load_texture)
 void js_gpu_load_texture(u32 idx, const char *path, u32 path_len);
 
+WASM_IMPORT(js_gpu_make_texture_data)
+void js_gpu_make_texture_data(u32 idx, u32 width, u32 height, u8 *data);
+
 WASM_IMPORT(js_gpu_texture_is_ready)
 u32 js_gpu_texture_is_ready(u32 idx);
 
@@ -364,6 +367,13 @@ GpuTexture gpu_make_texture(const char *path) {
   GpuTextureSlot slot = {0};
   GpuTexture handle = ha_add(GpuTextureSlot, &gpu_state.textures, slot);
   js_gpu_load_texture(handle.idx, path, str_len(path));
+  return handle;
+}
+
+GpuTexture gpu_make_texture_data(u32 width, u32 height, u8 *data) {
+  GpuTextureSlot slot = {0};
+  GpuTexture handle = ha_add(GpuTextureSlot, &gpu_state.textures, slot);
+  js_gpu_make_texture_data(handle.idx, width, height, data);
   return handle;
 }
 

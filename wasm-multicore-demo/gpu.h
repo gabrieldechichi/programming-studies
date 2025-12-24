@@ -198,6 +198,7 @@ void gpu_end_pass(void);
 void gpu_commit(void);
 
 GpuTexture gpu_make_texture(const char *path);
+GpuTexture gpu_make_texture_data(u32 width, u32 height, u8 *data);
 b32 gpu_texture_is_ready(GpuTexture tex);
 void gpu_destroy_texture(GpuTexture tex);
 

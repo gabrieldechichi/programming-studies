@@ -17,6 +17,7 @@ const pipelines: (GPURenderPipeline | null)[] = [];
 const textures: (GPUTexture | null)[] = [];
 const samplers: (GPUSampler | null)[] = [];
 
+
 // Per-pipeline bind group layouts: [0] = uniforms (group 0), [1] = storage (group 1), [2] = textures (group 2)
 const pipelineBindGroupLayouts: [GPUBindGroupLayout | null, GPUBindGroupLayout | null, GPUBindGroupLayout | null][] = [];
 
@@ -170,6 +171,32 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 buffer.destroy();
                 buffers[handleIdx] = null;
             }
+        },
+
+        js_gpu_make_texture_data: (idx: number, width: number, height: number, dataPtr: number) => {
+            if (!renderer) return;
+
+            const texture = renderer.device.createTexture({
+                size: [width, height],
+                format: "rgba8unorm",
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+            });
+
+            const data = new Uint8Array(memory.buffer, dataPtr, width * height * 4);
+            renderer.device.queue.writeTexture(
+                { texture },
+                data,
+                { bytesPerRow: width * 4 },
+                [width, height]
+            );
+
+            const sampler = renderer.device.createSampler({
+                minFilter: "linear",
+                magFilter: "linear",
+            });
+
+            textures[idx] = texture;
+            samplers[idx] = sampler;
         },
 
         js_gpu_load_texture: (idx: number, pathPtr: number, pathLen: number) => {
@@ -610,47 +637,37 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 if (layouts && layouts[2] && texInfo && texInfo.count > 0 && texCount > 0) {
                     const texIndices = new Uint32Array(memory.buffer, texIndicesPtr, texCount);
 
-                    let allTexturesReady = true;
-                    for (let i = 0; i < texCount; i++) {
-                        if (!textures[texIndices[i]] || !samplers[texIndices[i]]) {
-                            allTexturesReady = false;
-                            break;
+                    const key = `tex-${currentPipelineIdx}-${Array.from(texIndices).join("-")}`;
+
+                    let bindGroup = pipelineUniformBindGroups.get(key);
+                    if (!bindGroup) {
+                        const entries: GPUBindGroupEntry[] = [];
+                        for (let i = 0; i < texCount; i++) {
+                            const sampler = samplers[texIndices[i]];
+                            const texture = textures[texIndices[i]];
+                            if (sampler && texture) {
+                                entries.push({
+                                    binding: texInfo.samplerBindings[i],
+                                    resource: sampler,
+                                });
+                                entries.push({
+                                    binding: texInfo.textureBindings[i],
+                                    resource: texture.createView(),
+                                });
+                            }
+                        }
+
+                        if (entries.length > 0) {
+                            bindGroup = renderer.device.createBindGroup({
+                                layout: layouts[2],
+                                entries,
+                            });
+                            pipelineUniformBindGroups.set(key, bindGroup);
                         }
                     }
 
-                    if (allTexturesReady) {
-                        const key = `tex-${currentPipelineIdx}-${Array.from(texIndices).join("-")}`;
-
-                        let bindGroup = pipelineUniformBindGroups.get(key);
-                        if (!bindGroup) {
-                            const entries: GPUBindGroupEntry[] = [];
-                            for (let i = 0; i < texCount; i++) {
-                                const sampler = samplers[texIndices[i]];
-                                const texture = textures[texIndices[i]];
-                                if (sampler && texture) {
-                                    entries.push({
-                                        binding: texInfo.samplerBindings[i],
-                                        resource: sampler,
-                                    });
-                                    entries.push({
-                                        binding: texInfo.textureBindings[i],
-                                        resource: texture.createView(),
-                                    });
-                                }
-                            }
-
-                            if (entries.length > 0) {
-                                bindGroup = renderer.device.createBindGroup({
-                                    layout: layouts[2],
-                                    entries,
-                                });
-                                pipelineUniformBindGroups.set(key, bindGroup);
-                            }
-                        }
-
-                        if (bindGroup) {
-                            currentPass.setBindGroup(2, bindGroup);
-                        }
+                    if (bindGroup) {
+                        currentPass.setBindGroup(2, bindGroup);
                     }
                 }
             }

@@ -79,8 +79,8 @@ global OsFileOp *g_file_op;
 global Camera g_camera;
 global GpuMesh_Handle g_mesh;
 global Material_Handle g_material;
-global GpuTexture g_albedo_tex;
-global GpuTexture g_normal_tex;
+global GpuTexture g_albedo_tex = {0};
+global GpuTexture g_normal_tex = {0};
 global f32 g_rotation;
 
 void app_init(AppMemory *memory) {
