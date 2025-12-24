@@ -3,6 +3,8 @@
 
 #include "blob_asset.h"
 
+#define MESH_VERTEX_STRIDE 40
+
 typedef enum {
     INDEX_FORMAT_U16 = 0,
     INDEX_FORMAT_U32 = 1,
@@ -25,5 +27,10 @@ typedef struct {
     u32 mesh_count;
     BlobArray meshes;
 } ModelBlobAsset;
+
+#ifndef MESH_TYPES_ONLY
+#include "renderer.h"
+MeshDesc mesh_asset_to_mesh(MeshBlobAsset *mesh_asset, Allocator *alloc);
+#endif
 
 #endif

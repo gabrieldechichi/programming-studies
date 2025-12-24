@@ -8,8 +8,6 @@
 #include "renderer.h"
 #include "camera.h"
 
-#define VERTEX_STRIDE 40
-
 static const char *simple_vs =
     "struct GlobalUniforms {\n"
     "    model: mat4x4<f32>,\n"
@@ -61,103 +59,54 @@ static const char *default_fs =
     "    return vec4<f32>(material_color.rgb * diffuse, material_color.a);\n"
     "}\n";
 
-typedef enum {
-    LOAD_STATE_IDLE,
-    LOAD_STATE_LOADING,
-    LOAD_STATE_CREATING_GPU_RESOURCES,
-    LOAD_STATE_DONE,
-    LOAD_STATE_ERROR,
-} LoadState;
-
-typedef struct {
-    LoadState load_state;
-    OsFileOp *file_op;
-    u8 *asset_data;
-    u32 asset_size;
-
-    Camera camera;
-    GpuMesh_Handle mesh;
-    Material_Handle material;
-    f32 rotation;
-} GameState;
-
-global GameState g_state;
+global OsFileOp *g_file_op;
+global Camera g_camera;
+global GpuMesh_Handle g_mesh;
+global Material_Handle g_material;
+global f32 g_rotation;
 
 void app_init(AppMemory *memory) {
-    UNUSED(memory);
-    if (!is_main_thread()) {
-        return;
-    }
+  UNUSED(memory);
+  if (!is_main_thread()) {
+    return;
+  }
 
-    AppContext *app_ctx = app_ctx_current();
+  AppContext *app_ctx = app_ctx_current();
 
-    g_state.load_state = LOAD_STATE_IDLE;
-    g_state.rotation = 0.0f;
+  g_camera = camera_init(VEC3(0, 0, 5), VEC3(0, 0, 0), 45.0f);
+  renderer_init(&app_ctx->arena, app_ctx->num_threads);
 
-    g_state.camera = camera_init(VEC3(0, 0, 5), VEC3(0, 0, 0), 45.0f);
-    renderer_init(&app_ctx->arena, app_ctx->num_threads);
-
-    LOG_INFO("Mesh loading demo initialized");
-    LOG_INFO("Starting to load cube.hasset...");
-
-    ThreadContext *tctx = tctx_current();
-    g_state.file_op = os_start_read_file("cube.hasset", tctx->task_system);
-    if (g_state.file_op) {
-        g_state.load_state = LOAD_STATE_LOADING;
-    } else {
-        LOG_ERROR("Failed to start file read");
-        g_state.load_state = LOAD_STATE_ERROR;
-    }
+  ThreadContext *tctx = tctx_current();
+  g_file_op = os_start_read_file("cube.hasset", tctx->task_system);
 }
 
-void create_gpu_resources_from_asset(void) {
+void app_update_and_render(AppMemory *memory) {
+  if (!is_main_thread()) {
+    return;
+  }
+
+  local_persist b32 loaded = false;
+
+  if (!loaded) {
+    OsFileReadState state = os_check_read_file(g_file_op);
+    if (state != OS_FILE_READ_STATE_COMPLETED) {
+      return;
+    }
+
     AppContext *app_ctx = app_ctx_current();
     Allocator alloc = make_arena_allocator(&app_ctx->arena);
 
-    ModelBlobAsset *model = (ModelBlobAsset *)g_state.asset_data;
-    MeshBlobAsset *meshes = (MeshBlobAsset *)(g_state.asset_data + model->meshes.offset);
-    MeshBlobAsset *mesh = &meshes[0];
+    PlatformFileData file_data = {0};
+    os_get_file_data(g_file_op, &file_data, &alloc);
 
-    f32 *positions = (f32 *)blob_array_get(mesh, mesh->positions);
-    f32 *normals = (f32 *)blob_array_get(mesh, mesh->normals);
+    ModelBlobAsset *model = (ModelBlobAsset *)file_data.buffer;
+    MeshBlobAsset *mesh_asset =
+        (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
 
-    u32 vertex_count = mesh->vertex_count;
-    u32 vertex_buffer_size = vertex_count * VERTEX_STRIDE;
-    f32 *vertices = ALLOC_ARRAY(&alloc, f32, vertex_count * 10);
+    MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
+    g_mesh = renderer_upload_mesh(&mesh_desc);
 
-    for (u32 i = 0; i < vertex_count; i++) {
-        u32 dst = i * 10;
-        u32 src3 = i * 3;
-
-        vertices[dst + 0] = positions[src3 + 0];
-        vertices[dst + 1] = positions[src3 + 1];
-        vertices[dst + 2] = positions[src3 + 2];
-
-        vertices[dst + 3] = normals[src3 + 0];
-        vertices[dst + 4] = normals[src3 + 1];
-        vertices[dst + 5] = normals[src3 + 2];
-
-        vertices[dst + 6] = 1.0f;
-        vertices[dst + 7] = 1.0f;
-        vertices[dst + 8] = 1.0f;
-        vertices[dst + 9] = 1.0f;
-    }
-
-    void *indices = blob_array_get(mesh, mesh->indices);
-    GpuIndexFormat index_format = (mesh->index_format == INDEX_FORMAT_U16)
-        ? GPU_INDEX_FORMAT_U16
-        : GPU_INDEX_FORMAT_U32;
-
-    g_state.mesh = renderer_upload_mesh(&(MeshDesc){
-        .vertices = vertices,
-        .vertex_size = vertex_buffer_size,
-        .indices = indices,
-        .index_size = mesh->indices.size,
-        .index_count = mesh->index_count,
-        .index_format = index_format,
-    });
-
-    g_state.material = renderer_create_material(&(MaterialDesc){
+    g_material = renderer_create_material(&(MaterialDesc){
         .shader_desc =
             (GpuShaderDesc){
                 .vs_code = simple_vs,
@@ -175,12 +124,18 @@ void create_gpu_resources_from_asset(void) {
             },
         .vertex_layout =
             (GpuVertexLayout){
-                .stride = VERTEX_STRIDE,
+                .stride = MESH_VERTEX_STRIDE,
                 .attrs =
                     {
-                        {.format = GPU_VERTEX_FORMAT_FLOAT3, .offset = 0, .shader_location = 0},
-                        {.format = GPU_VERTEX_FORMAT_FLOAT3, .offset = 12, .shader_location = 1},
-                        {.format = GPU_VERTEX_FORMAT_FLOAT4, .offset = 24, .shader_location = 2},
+                        {.format = GPU_VERTEX_FORMAT_FLOAT3,
+                         .offset = 0,
+                         .shader_location = 0},
+                        {.format = GPU_VERTEX_FORMAT_FLOAT3,
+                         .offset = 12,
+                         .shader_location = 1},
+                        {.format = GPU_VERTEX_FORMAT_FLOAT4,
+                         .offset = 24,
+                         .shader_location = 2},
                     },
                 .attr_count = 3,
             },
@@ -194,64 +149,26 @@ void create_gpu_resources_from_asset(void) {
         .property_count = 1,
     });
 
-    material_set_vec4(g_state.material, "color", (vec4){0.2f, 0.6f, 1.0f, 1.0f});
+    material_set_vec4(g_material, "color", (vec4){0.2f, 0.6f, 1.0f, 1.0f});
 
-    char *name = string_blob_get(mesh, mesh->name);
-    LOG_INFO("Created GPU mesh '%' with % vertices, % indices",
-             FMT_STR(name), FMT_UINT(vertex_count), FMT_UINT(mesh->index_count));
+    char *name = string_blob_get(mesh_asset, mesh_asset->name);
+    LOG_INFO("Loaded mesh '%'", FMT_STR(name));
 
-    g_state.load_state = LOAD_STATE_DONE;
-}
+    loaded = true;
+  }
 
-void app_update_and_render(AppMemory *memory) {
-    if (!is_main_thread()) {
-        return;
-    }
+  g_rotation += memory->dt * 0.5f;
 
-    if (g_state.load_state == LOAD_STATE_LOADING) {
-        OsFileReadState read_state = os_check_read_file(g_state.file_op);
+  camera_update(&g_camera, memory->canvas_width, memory->canvas_height);
 
-        if (read_state == OS_FILE_READ_STATE_COMPLETED) {
-            AppContext *app_ctx = app_ctx_current();
-            Allocator alloc = make_arena_allocator(&app_ctx->arena);
+  renderer_begin_frame(g_camera.view, g_camera.proj,
+                       (GpuColor){0.1f, 0.1f, 0.15f, 1.0f});
 
-            PlatformFileData file_data = {0};
-            if (os_get_file_data(g_state.file_op, &file_data, &alloc)) {
-                g_state.asset_data = file_data.buffer;
-                g_state.asset_size = file_data.buffer_len;
-                LOG_INFO("File loaded: % bytes", FMT_UINT(g_state.asset_size));
-                g_state.load_state = LOAD_STATE_CREATING_GPU_RESOURCES;
-            } else {
-                LOG_ERROR("Failed to get file data");
-                g_state.load_state = LOAD_STATE_ERROR;
-            }
-        } else if (read_state == OS_FILE_READ_STATE_ERROR) {
-            LOG_ERROR("File read error");
-            g_state.load_state = LOAD_STATE_ERROR;
-        }
-        return;
-    }
+  mat4 model;
+  glm_mat4_identity(model);
+  glm_rotate_y(model, g_rotation, model);
 
-    if (g_state.load_state == LOAD_STATE_CREATING_GPU_RESOURCES) {
-        create_gpu_resources_from_asset();
-        return;
-    }
+  renderer_draw_mesh(g_mesh, g_material, model);
 
-    if (g_state.load_state != LOAD_STATE_DONE) {
-        return;
-    }
-
-    g_state.rotation += memory->dt * 0.5f;
-
-    camera_update(&g_state.camera, memory->canvas_width, memory->canvas_height);
-
-    renderer_begin_frame(g_state.camera.view, g_state.camera.proj, (GpuColor){0.1f, 0.1f, 0.15f, 1.0f});
-
-    mat4 model;
-    glm_mat4_identity(model);
-    glm_rotate_y(model, g_state.rotation, model);
-
-    renderer_draw_mesh(g_state.mesh, g_state.material, model);
-
-    renderer_end_frame();
+  renderer_end_frame();
 }

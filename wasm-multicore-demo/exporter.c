@@ -7,6 +7,7 @@
 #include "lib/thread_context.h"
 #include "lib/multicore_runtime.h"
 #include "os/os.h"
+#define MESH_TYPES_ONLY
 #include "mesh.h"
 
 #define CGLTF_IMPLEMENTATION
