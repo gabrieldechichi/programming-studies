@@ -18,6 +18,7 @@
 typedef Handle GpuBuffer;
 typedef Handle GpuShader;
 typedef Handle GpuPipeline;
+typedef Handle GpuTexture;
 
 #define GPU_INVALID_HANDLE INVALID_HANDLE
 
@@ -43,21 +44,35 @@ typedef struct {
     b32 readonly;          // true for read-only storage buffers
 } GpuStorageBufferDesc;
 
+// Texture binding description (sampler + texture pair)
+#define GPU_MAX_TEXTURE_SLOTS 4
+
+typedef struct {
+    GpuShaderStage stage;      // which shader stage(s) can access this
+    u32 sampler_binding;       // WGSL @binding(n) for sampler
+    u32 texture_binding;       // WGSL @binding(n+1) for texture
+} GpuTextureBindingDesc;
+
 // Resource slot types (stored in handle arrays, actual GPU data lives in JS)
 typedef struct { u8 _unused; } GpuBufferSlot;
+typedef struct { u8 _unused; } GpuTextureSlot;
 typedef struct {
     GpuUniformBlockDesc uniform_blocks[GPU_MAX_UNIFORMBLOCK_SLOTS];
     u32 uniform_block_count;
     GpuStorageBufferDesc storage_buffers[GPU_MAX_STORAGE_BUFFER_SLOTS];
     u32 storage_buffer_count;
+    GpuTextureBindingDesc texture_bindings[GPU_MAX_TEXTURE_SLOTS];
+    u32 texture_binding_count;
 } GpuShaderSlot;
 typedef struct {
     GpuShader shader;
     u32 uniform_block_count;   // cached from shader
     u32 storage_buffer_count;  // cached from shader
+    u32 texture_binding_count; // cached from shader
 } GpuPipelineSlot;
 
 HANDLE_ARRAY_DEFINE(GpuBufferSlot);
+HANDLE_ARRAY_DEFINE(GpuTextureSlot);
 HANDLE_ARRAY_DEFINE(GpuShaderSlot);
 HANDLE_ARRAY_DEFINE(GpuPipelineSlot);
 
@@ -99,6 +114,8 @@ typedef struct {
     u32 uniform_block_count;
     GpuStorageBufferDesc storage_buffers[GPU_MAX_STORAGE_BUFFER_SLOTS];
     u32 storage_buffer_count;
+    GpuTextureBindingDesc texture_bindings[GPU_MAX_TEXTURE_SLOTS];
+    u32 texture_binding_count;
 } GpuShaderDesc;
 
 typedef struct {
@@ -133,6 +150,8 @@ typedef struct {
     GpuIndexFormat index_format;
     GpuBuffer storage_buffers[GPU_MAX_STORAGE_BUFFER_SLOTS];
     u32 storage_buffer_count;
+    GpuTexture textures[GPU_MAX_TEXTURE_SLOTS];
+    u32 texture_count;
 } GpuBindings;
 
 //todo: unions?
@@ -177,5 +196,9 @@ void gpu_draw(u32 vertex_count, u32 instance_count);
 void gpu_draw_indexed(u32 index_count, u32 instance_count);
 void gpu_end_pass(void);
 void gpu_commit(void);
+
+GpuTexture gpu_make_texture(const char *path);
+b32 gpu_texture_is_ready(GpuTexture tex);
+void gpu_destroy_texture(GpuTexture tex);
 
 #endif

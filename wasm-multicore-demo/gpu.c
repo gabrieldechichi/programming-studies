@@ -14,6 +14,7 @@ typedef struct {
 
 typedef struct {
   HandleArray_GpuBufferSlot buffers;
+  HandleArray_GpuTextureSlot textures;
   HandleArray_GpuShaderSlot shaders;
   HandleArray_GpuPipelineSlot pipelines;
 
@@ -53,6 +54,8 @@ void js_gpu_make_pipeline(u32 idx, u32 shader_idx, u32 stride, u32 attr_count,
                           u32 *attr_locations,
                           u32 ub_count, u32 *ub_stages, u32 *ub_sizes, u32 *ub_bindings,
                           u32 sb_count, u32 *sb_stages, u32 *sb_bindings, u32 *sb_readonly,
+                          u32 tex_count, u32 *tex_stages, u32 *tex_sampler_bindings,
+                          u32 *tex_texture_bindings,
                           u32 primitive, u32 depth_test, u32 depth_write);
 
 WASM_IMPORT(js_gpu_destroy_pipeline)
@@ -79,11 +82,22 @@ void js_gpu_commit(void);
 WASM_IMPORT(js_gpu_upload_uniforms)
 void js_gpu_upload_uniforms(u32 buf_idx, void *data, u32 size);
 
-// Bindings: vertex buffers, index buffer, uniforms, and storage buffers
+// Bindings: vertex buffers, index buffer, uniforms, storage buffers, and textures
 WASM_IMPORT(js_gpu_apply_bindings)
 void js_gpu_apply_bindings(u32 vb_count, u32 *vb_indices, u32 ib_idx,
                            u32 ib_format, u32 uniform_buf_idx, u32 ub_count,
-                           u32 *ub_offsets, u32 sb_count, u32 *sb_indices);
+                           u32 *ub_offsets, u32 sb_count, u32 *sb_indices,
+                           u32 tex_count, u32 *tex_indices);
+
+// Texture functions
+WASM_IMPORT(js_gpu_load_texture)
+void js_gpu_load_texture(u32 idx, const char *path, u32 path_len);
+
+WASM_IMPORT(js_gpu_texture_is_ready)
+u32 js_gpu_texture_is_ready(u32 idx);
+
+WASM_IMPORT(js_gpu_destroy_texture)
+void js_gpu_destroy_texture(u32 idx);
 
 // =============================================================================
 // Global State
@@ -92,6 +106,7 @@ void js_gpu_apply_bindings(u32 vb_count, u32 *vb_indices, u32 ib_idx,
 local_persist GpuStateInternal gpu_state;
 
 #define GPU_INITIAL_BUFFER_CAPACITY 64
+#define GPU_INITIAL_TEXTURE_CAPACITY 32
 #define GPU_INITIAL_SHADER_CAPACITY 16
 #define GPU_INITIAL_PIPELINE_CAPACITY 16
 
@@ -139,6 +154,8 @@ void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size) {
   Allocator alloc = make_arena_allocator(arena);
   gpu_state.buffers =
       ha_init(GpuBufferSlot, &alloc, GPU_INITIAL_BUFFER_CAPACITY);
+  gpu_state.textures =
+      ha_init(GpuTextureSlot, &alloc, GPU_INITIAL_TEXTURE_CAPACITY);
   gpu_state.shaders =
       ha_init(GpuShaderSlot, &alloc, GPU_INITIAL_SHADER_CAPACITY);
   gpu_state.pipelines =
@@ -177,7 +194,6 @@ void gpu_destroy_buffer(GpuBuffer buf) {
 }
 
 GpuShader gpu_make_shader(GpuShaderDesc *desc) {
-  // Store uniform block and storage buffer info in the slot
   GpuShaderSlot slot = {0};
   slot.uniform_block_count = desc->uniform_block_count;
   for (u32 i = 0; i < desc->uniform_block_count; i++) {
@@ -186,6 +202,10 @@ GpuShader gpu_make_shader(GpuShaderDesc *desc) {
   slot.storage_buffer_count = desc->storage_buffer_count;
   for (u32 i = 0; i < desc->storage_buffer_count; i++) {
     slot.storage_buffers[i] = desc->storage_buffers[i];
+  }
+  slot.texture_binding_count = desc->texture_binding_count;
+  for (u32 i = 0; i < desc->texture_binding_count; i++) {
+    slot.texture_bindings[i] = desc->texture_bindings[i];
   }
 
   GpuShader handle = ha_add(GpuShaderSlot, &gpu_state.shaders, slot);
@@ -204,20 +224,18 @@ void gpu_destroy_shader(GpuShader shd) {
 }
 
 GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
-  // Get shader's uniform block and storage buffer info
   GpuShaderSlot *shader_slot =
       ha_get(GpuShaderSlot, &gpu_state.shaders, desc->shader);
   assert(shader_slot != NULL);
 
-  // Create pipeline slot with shader reference and cached counts
   GpuPipelineSlot slot = {
       .shader = desc->shader,
       .uniform_block_count = shader_slot->uniform_block_count,
       .storage_buffer_count = shader_slot->storage_buffer_count,
+      .texture_binding_count = shader_slot->texture_binding_count,
   };
   GpuPipeline handle = ha_add(GpuPipelineSlot, &gpu_state.pipelines, slot);
 
-  // Prepare vertex attribute arrays
   u32 attr_formats[GPU_MAX_VERTEX_ATTRS];
   u32 attr_offsets[GPU_MAX_VERTEX_ATTRS];
   u32 attr_locations[GPU_MAX_VERTEX_ATTRS];
@@ -227,7 +245,6 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
     attr_locations[i] = desc->vertex_layout.attrs[i].shader_location;
   }
 
-  // Prepare uniform block arrays
   u32 ub_stages[GPU_MAX_UNIFORMBLOCK_SLOTS];
   u32 ub_sizes[GPU_MAX_UNIFORMBLOCK_SLOTS];
   u32 ub_bindings[GPU_MAX_UNIFORMBLOCK_SLOTS];
@@ -237,7 +254,6 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
     ub_bindings[i] = shader_slot->uniform_blocks[i].binding;
   }
 
-  // Prepare storage buffer arrays
   u32 sb_stages[GPU_MAX_STORAGE_BUFFER_SLOTS];
   u32 sb_bindings[GPU_MAX_STORAGE_BUFFER_SLOTS];
   u32 sb_readonly[GPU_MAX_STORAGE_BUFFER_SLOTS];
@@ -247,6 +263,15 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
     sb_readonly[i] = shader_slot->storage_buffers[i].readonly;
   }
 
+  u32 tex_stages[GPU_MAX_TEXTURE_SLOTS];
+  u32 tex_sampler_bindings[GPU_MAX_TEXTURE_SLOTS];
+  u32 tex_texture_bindings[GPU_MAX_TEXTURE_SLOTS];
+  for (u32 i = 0; i < shader_slot->texture_binding_count; i++) {
+    tex_stages[i] = shader_slot->texture_bindings[i].stage;
+    tex_sampler_bindings[i] = shader_slot->texture_bindings[i].sampler_binding;
+    tex_texture_bindings[i] = shader_slot->texture_bindings[i].texture_binding;
+  }
+
   js_gpu_make_pipeline(handle.idx, desc->shader.idx, desc->vertex_layout.stride,
                        desc->vertex_layout.attr_count, attr_formats,
                        attr_offsets, attr_locations,
@@ -254,6 +279,8 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
                        ub_bindings,
                        shader_slot->storage_buffer_count, sb_stages,
                        sb_bindings, sb_readonly,
+                       shader_slot->texture_binding_count, tex_stages,
+                       tex_sampler_bindings, tex_texture_bindings,
                        desc->primitive, desc->depth_test,
                        desc->depth_write);
   return handle;
@@ -295,23 +322,27 @@ void gpu_apply_bindings(GpuBindings *bindings) {
       ha_get(GpuPipelineSlot, &gpu_state.pipelines, gpu_state.current_pipeline);
   assert(pip_slot != NULL);
 
-  // Extract vertex buffer indices
   u32 vb_indices[GPU_MAX_VERTEX_BUFFERS];
   for (u32 i = 0; i < bindings->vertex_buffer_count; i++) {
     vb_indices[i] = bindings->vertex_buffers[i].idx;
   }
 
-  // Extract storage buffer indices
   u32 sb_indices[GPU_MAX_STORAGE_BUFFER_SLOTS];
   for (u32 i = 0; i < bindings->storage_buffer_count; i++) {
     sb_indices[i] = bindings->storage_buffers[i].idx;
+  }
+
+  u32 tex_indices[GPU_MAX_TEXTURE_SLOTS];
+  for (u32 i = 0; i < bindings->texture_count; i++) {
+    tex_indices[i] = bindings->textures[i].idx;
   }
 
   js_gpu_apply_bindings(bindings->vertex_buffer_count, vb_indices,
                         bindings->index_buffer.idx, bindings->index_format,
                         gpu_state.uniforms.gpu_buf.idx,
                         pip_slot->uniform_block_count, gpu_state.uniform_offsets,
-                        bindings->storage_buffer_count, sb_indices);
+                        bindings->storage_buffer_count, sb_indices,
+                        bindings->texture_count, tex_indices);
 }
 
 void gpu_draw(u32 vertex_count, u32 instance_count) {
@@ -325,7 +356,26 @@ void gpu_draw_indexed(u32 index_count, u32 instance_count) {
 void gpu_end_pass(void) { js_gpu_end_pass(); }
 
 void gpu_commit(void) {
-  // Flush all uniforms to GPU before submitting commands
   uniform_buffer_flush(&gpu_state.uniforms);
   js_gpu_commit();
+}
+
+GpuTexture gpu_make_texture(const char *path) {
+  GpuTextureSlot slot = {0};
+  GpuTexture handle = ha_add(GpuTextureSlot, &gpu_state.textures, slot);
+  js_gpu_load_texture(handle.idx, path, str_len(path));
+  return handle;
+}
+
+b32 gpu_texture_is_ready(GpuTexture tex) {
+  if (!ha_is_valid(GpuTextureSlot, &gpu_state.textures, tex))
+    return false;
+  return js_gpu_texture_is_ready(tex.idx) != 0;
+}
+
+void gpu_destroy_texture(GpuTexture tex) {
+  if (!ha_is_valid(GpuTextureSlot, &gpu_state.textures, tex))
+    return;
+  js_gpu_destroy_texture(tex.idx);
+  ha_remove(GpuTextureSlot, &gpu_state.textures, tex);
 }
