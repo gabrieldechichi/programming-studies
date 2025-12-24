@@ -7,6 +7,7 @@
 #include "lib/thread_context.h"
 #include "lib/multicore_runtime.h"
 #include "os/os.h"
+#include "mesh.h"
 
 #define CGLTF_IMPLEMENTATION
 #include "cgltf.h"
@@ -22,51 +23,6 @@
 #include "lib/task.c"
 #include "lib/multicore_runtime.c"
 #include "os/os_win32.c"
-
-#define ASSET_VERSION 3
-#define TYPE_HASH(T) (fnv1a_hash(#T) ^ (u32)sizeof(T))
-
-typedef struct {
-    u32 len;
-    u32 offset;
-} StringBlob;
-
-typedef struct {
-    u32 offset;
-    u32 size;
-    u32 type_size;
-    u32 typehash;
-} BlobArray;
-
-typedef struct {
-    u32 version;
-    u64 asset_size;
-    u64 asset_type_hash;
-    u32 dependency_count;
-} BlobAssetHeader;
-
-typedef enum {
-    INDEX_FORMAT_U16 = 0,
-    INDEX_FORMAT_U32 = 1,
-} IndexFormat;
-
-typedef struct {
-    StringBlob name;
-    IndexFormat index_format;
-    u32 index_count;
-    u32 vertex_count;
-    BlobArray indices;
-    BlobArray positions;
-    BlobArray normals;
-    BlobArray tangents;
-    BlobArray uvs;
-} MeshBlobAsset;
-
-typedef struct {
-    BlobAssetHeader header;
-    u32 mesh_count;
-    BlobArray meshes;
-} ModelBlobAsset;
 
 arr_define(u16);
 

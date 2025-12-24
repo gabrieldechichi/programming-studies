@@ -41,4 +41,29 @@ force_inline u32 assetptr_len(BlobPtr ptr) {
 
 #define assetptr_get(type, parent, ptr)                                        \
   ((type *)_assetptr_get(parent, ptr, sizeof(type), TYPE_HASH(type)))
+
+#define ASSET_VERSION 3
+
+typedef struct {
+    u32 len;
+    u32 offset;
+} StringBlob;
+
+typedef BlobPtr BlobArray;
+
+typedef struct {
+    u32 version;
+    u64 asset_size;
+    u64 asset_type_hash;
+    u32 dependency_count;
+} BlobAssetHeader;
+
+force_inline void *blob_array_get(void *base, BlobArray arr) {
+    return (u8 *)base + arr.offset;
+}
+
+force_inline char *string_blob_get(void *base, StringBlob str) {
+    return (char *)((u8 *)base + str.offset);
+}
+
 #endif
