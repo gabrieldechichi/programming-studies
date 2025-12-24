@@ -218,6 +218,7 @@ void renderer_end_frame(void) {
       "renderer_end_frame can only be called from the main thread");
 
   Material *last_applied_material = NULL;
+
   // Process commands from all threads
   for (u8 t = 0; t < g_renderer.thread_count; t++) {
     DynArray(RenderCmd) *cmds = &g_renderer.thread_cmds[t];

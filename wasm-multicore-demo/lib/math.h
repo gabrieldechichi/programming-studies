@@ -55,7 +55,7 @@ arr_define(mat4);
 
 #define approximately(a, b) (abs((a) - (b)) < EPSILON)
 
-#define RADIANS(degrees) glm_rad(degrees)
+#define RADIANS(degrees) (degrees * GLM_PIf / 180.0f)
 #define RAD(degrees) RADIANS(degrees)
 #define DEGREES(radians) glm_deg(radians)
 #define DEG(radians) DEGREES(radians)

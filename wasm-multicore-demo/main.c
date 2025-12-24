@@ -18,6 +18,8 @@
 #include "input.h"
 #include "camera.h"
 #include "camera.c"
+#include "flycam.c"
+#include "input.c"
 #include "lib/random.c"
 #include "context.c"
 #include "ecs/ecs_entity.c"
