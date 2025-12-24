@@ -4,6 +4,7 @@
 #include "lib/string_builder.h"
 #include "lib/array.h"
 #include "lib/hash.h"
+#include "lib/assert.h"
 #include "lib/thread_context.h"
 #include "lib/multicore_runtime.h"
 #include "os/os.h"
@@ -390,6 +391,128 @@ void entrypoint(void) {
         LOG_INFO("Export complete: %", FMT_STR_VIEW(output_path));
     } else {
         LOG_ERROR("Failed to write output file: %", FMT_STR_VIEW(output_path));
+    }
+
+    char output_dir[512];
+    u32 output_dir_len = 0;
+    for (u32 i = output_path.len; i > 0; i--) {
+        if (output_path.value[i - 1] == '/' || output_path.value[i - 1] == '\\') {
+            output_dir_len = i;
+            break;
+        }
+    }
+    memcpy(output_dir, output_path.value, output_dir_len);
+
+    LOG_INFO("Exporting % textures", FMT_UINT(gltf->images_count));
+
+    for (u32 img_idx = 0; img_idx < gltf->images_count; img_idx++) {
+        cgltf_image *image = &gltf->images[img_idx];
+
+        const u8 *image_data = NULL;
+        u64 image_size = 0;
+        const char *extension = NULL;
+
+        if (image->buffer_view) {
+            image_data = (const u8 *)image->buffer_view->buffer->data + image->buffer_view->offset;
+            image_size = image->buffer_view->size;
+
+            if (image->mime_type) {
+                if (str_equal(image->mime_type, "image/png")) {
+                    extension = ".png";
+                } else if (str_equal(image->mime_type, "image/jpeg")) {
+                    extension = ".jpg";
+                } else {
+                    assert_msg(0, "Unsupported image format, expected PNG or JPEG");
+                    continue;
+                }
+            } else {
+                if (image_data[0] == 0x89 && image_data[1] == 'P' && image_data[2] == 'N' && image_data[3] == 'G') {
+                    extension = ".png";
+                } else if (image_data[0] == 0xFF && image_data[1] == 0xD8) {
+                    extension = ".jpg";
+                } else {
+                    assert_msg(0, "Unknown image format");
+                    continue;
+                }
+            }
+        } else if (image->uri) {
+            char uri_path[512];
+            u32 input_dir_len = 0;
+            for (u32 i = input_path.len; i > 0; i--) {
+                if (input_path.value[i - 1] == '/' || input_path.value[i - 1] == '\\') {
+                    input_dir_len = i;
+                    break;
+                }
+            }
+            memcpy(uri_path, input_path.value, input_dir_len);
+            u32 uri_len = str_len(image->uri);
+            memcpy(uri_path + input_dir_len, image->uri, uri_len);
+            uri_path[input_dir_len + uri_len] = '\0';
+
+            PlatformFileData file_result = os_read_file(uri_path, temp);
+            if (!file_result.success) {
+                LOG_ERROR("Failed to read external texture: %", FMT_STR(uri_path));
+                continue;
+            }
+            image_data = file_result.buffer;
+            image_size = file_result.buffer_len;
+
+            u32 ext_start = uri_len;
+            for (u32 i = uri_len; i > 0; i--) {
+                if (image->uri[i - 1] == '.') {
+                    ext_start = i - 1;
+                    break;
+                }
+            }
+            if (str_equal(image->uri + ext_start, ".png")) {
+                extension = ".png";
+            } else if (str_equal(image->uri + ext_start, ".jpg") || str_equal(image->uri + ext_start, ".jpeg")) {
+                extension = ".jpg";
+            } else {
+                assert_msg(0, "Unsupported image format, expected PNG or JPEG");
+                continue;
+            }
+        } else {
+            LOG_WARN("Image % has no data source", FMT_UINT(img_idx));
+            continue;
+        }
+
+        char texture_path[512];
+        StringBuilder tex_sb;
+        sb_init(&tex_sb, texture_path, sizeof(texture_path));
+        sb_append_len(&tex_sb, output_dir, output_dir_len);
+
+        if (image->name && str_len(image->name) > 0) {
+            sb_append(&tex_sb, image->name);
+        } else if (image->uri) {
+            u32 uri_len = str_len(image->uri);
+            u32 name_start = 0;
+            u32 name_end = uri_len;
+            for (u32 i = uri_len; i > 0; i--) {
+                if (image->uri[i - 1] == '/' || image->uri[i - 1] == '\\') {
+                    name_start = i;
+                    break;
+                }
+            }
+            for (u32 i = uri_len; i > name_start; i--) {
+                if (image->uri[i - 1] == '.') {
+                    name_end = i - 1;
+                    break;
+                }
+            }
+            sb_append_len(&tex_sb, image->uri + name_start, name_end - name_start);
+        } else {
+            sb_append_format(&tex_sb, "texture_%", FMT_UINT(img_idx));
+        }
+
+        sb_append(&tex_sb, extension);
+
+        b32 tex_write_success = os_write_file(texture_path, image_data, image_size);
+        if (tex_write_success) {
+            LOG_INFO("  Texture: %", FMT_STR(texture_path));
+        } else {
+            LOG_ERROR("  Failed to write texture: %", FMT_STR(texture_path));
+        }
     }
 }
 
