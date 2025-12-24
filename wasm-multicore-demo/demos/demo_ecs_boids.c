@@ -697,7 +697,10 @@ void app_init(AppMemory *memory) {
   });
   material_set_vec4(g_target_material, "color", (vec4){0.2f, 1.0f, 0.3f, 1.0f});
 
-  f32 spawn_radius = 50.0f;
+  f32 spawn_radius = 15.0f;
+  f32 spawn_center_x = 20.0f;
+  f32 spawn_center_y = 5.0f;
+  f32 spawn_center_z = -120.0f;
   for (i32 i = 0; i < NUM_BOIDS; i++) {
     EcsEntity e = ecs_entity_new(&g_world);
 
@@ -719,9 +722,9 @@ void app_init(AppMemory *memory) {
       hz = 0.0f;
     }
 
-    f32 px = hx * spawn_radius;
-    f32 py = hy * spawn_radius;
-    f32 pz = hz * spawn_radius;
+    f32 px = spawn_center_x + hx * spawn_radius;
+    f32 py = spawn_center_y + hy * spawn_radius;
+    f32 pz = spawn_center_z + hz * spawn_radius;
 
     ecs_set(&g_world, e, Position, {.x = px, .y = py, .z = pz});
     ecs_set(&g_world, e, Heading, {.x = hx, .y = hy, .z = hz});
