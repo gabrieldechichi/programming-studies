@@ -2,6 +2,7 @@
 
 import { OS_CORES, barrierWait, createLogImports, createWasiImports } from "./shared.ts";
 import { createRenderer, createGpuImports, resizeRenderer, Renderer } from "./renderer.ts";
+import { createFileSystemFunctions } from "./os_fs.ts";
 
 // Renderer state - initialized when we receive canvas from main thread
 let renderer: Renderer | null = null;
@@ -169,6 +170,7 @@ const imports = {
         memory,
         ...createLogImports(memory, "Main Thread"),
         ...createGpuImports(memory),
+        ...createFileSystemFunctions(memory),
         js_thread_spawn: (
             funcPtr: number,
             argPtr: number,

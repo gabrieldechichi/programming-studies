@@ -975,6 +975,76 @@ void *os_get_heap_base(void) {
   return base;
 }
 
+global i32 g_sleep_futex = 0;
+
+void os_sleep(u64 microseconds) {
+  if (microseconds == 0)
+    return;
+  i64 timeout_ns = (i64)(microseconds * 1000);
+  __builtin_wasm_memory_atomic_wait32(&g_sleep_futex, 0, timeout_ns);
+}
+
+WASM_IMPORT(_os_start_read_file)
+extern i32 _os_start_read_file(const char *path, i32 path_len);
+WASM_IMPORT(_os_check_read_file) extern i32 _os_check_read_file(i32 op_id);
+WASM_IMPORT(_os_get_file_size) extern i32 _os_get_file_size(i32 op_id);
+WASM_IMPORT(_os_get_file_data)
+extern i32 _os_get_file_data(i32 op_id, u8 *buffer, i32 buffer_len);
+
+struct OsFileOp {
+  i32 op_id;
+};
+
+OsFileOp *os_start_read_file(const char *file_path, TaskSystem *task_system) {
+  UNUSED(task_system);
+  i32 path_len = (i32)str_len(file_path);
+  i32 op_id = _os_start_read_file(file_path, path_len);
+  if (op_id <= 0) {
+    return NULL;
+  }
+  return (OsFileOp *)(uintptr)op_id;
+}
+
+OsFileReadState os_check_read_file(OsFileOp *op) {
+  if (!op)
+    return OS_FILE_READ_STATE_ERROR;
+  i32 op_id = (i32)(uintptr)op;
+  return (OsFileReadState)_os_check_read_file(op_id);
+}
+
+i32 os_get_file_size(OsFileOp *op) {
+  if (!op)
+    return -1;
+  i32 op_id = (i32)(uintptr)op;
+  return _os_get_file_size(op_id);
+}
+
+b32 os_get_file_data(OsFileOp *op, _out_ PlatformFileData *data,
+                     Allocator *allocator) {
+  if (!op || !data || !allocator)
+    return false;
+
+  i32 op_id = (i32)(uintptr)op;
+  i32 size = _os_get_file_size(op_id);
+  if (size < 0) {
+    return false;
+  }
+
+  data->buffer = ALLOC_ARRAY(allocator, u8, size);
+  if (!data->buffer) {
+    return false;
+  }
+
+  i32 result = _os_get_file_data(op_id, data->buffer, size);
+  if (result != 0) {
+    return false;
+  }
+
+  data->buffer_len = (u32)size;
+  data->success = true;
+  return true;
+}
+
 // Memory
 // void *os_allocate_memory(size_t size) { return malloc(size); }
 //

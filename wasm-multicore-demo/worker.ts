@@ -2,6 +2,7 @@
 
 import { barrierWait, createLogImports, createWasiImports } from "./shared.ts";
 import { createGpuImports } from "./renderer.ts";
+import { createFileSystemFunctions } from "./os_fs.ts";
 
 // State set during 'load' phase
 let wasmInstance: WebAssembly.Instance;
@@ -23,6 +24,7 @@ self.onmessage = async (e) => {
                 memory,
                 ...createLogImports(memory, `Thread ${threadIdx}`),
                 ...createGpuImports(memory),
+                ...createFileSystemFunctions(memory),
                 // Workers can't spawn threads (for now)
                 js_thread_spawn: () => {
                     console.error("Cannot spawn threads from worker");
