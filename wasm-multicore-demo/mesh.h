@@ -3,7 +3,7 @@
 
 #include "blob_asset.h"
 
-#define MESH_VERTEX_STRIDE 40
+#define MESH_VERTEX_STRIDE 48
 
 typedef enum {
     INDEX_FORMAT_U16 = 0,

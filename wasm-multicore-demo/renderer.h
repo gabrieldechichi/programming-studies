@@ -30,6 +30,7 @@ typedef enum {
     MAT_PROP_VEC3,
     MAT_PROP_VEC4,
     MAT_PROP_MAT4,
+    MAT_PROP_TEXTURE,
 } MaterialPropertyType;
 
 typedef struct {
@@ -64,6 +65,7 @@ typedef struct {
         vec3 v3;
         vec4 v4;
         mat4 m4;
+        GpuTexture tex;
     };
 } MaterialProperty;
 
@@ -132,6 +134,7 @@ void renderer_update_instance_buffer(InstanceBuffer_Handle handle, void *data, u
 // Material property setters
 void material_set_float(Material_Handle mat, const char *name, f32 value);
 void material_set_vec4(Material_Handle mat, const char *name, vec4 value);
+void material_set_texture(Material_Handle mat, const char *name, GpuTexture tex);
 
 // Main thread only: called before parallel work begins
 void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color);

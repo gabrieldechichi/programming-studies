@@ -128,6 +128,14 @@ void material_set_vec4(Material_Handle handle, const char *name, vec4 value) {
   glm_vec4_copy(value, prop->v4);
 }
 
+void material_set_texture(Material_Handle handle, const char *name, GpuTexture tex) {
+  Material *mat = ha_get(Material, &g_renderer.materials, handle);
+  if (!mat) return;
+  MaterialProperty *prop = find_property(mat, name);
+  if (!prop || prop->type != MAT_PROP_TEXTURE) return;
+  prop->tex = tex;
+}
+
 InstanceBuffer_Handle renderer_create_instance_buffer(InstanceBufferDesc *desc) {
   u32 size = desc->stride * desc->max_instances;
   GpuBuffer buf = gpu_make_buffer(&(GpuBufferDesc){
@@ -251,29 +259,39 @@ void renderer_end_frame(void) {
         // Set uniform data for slot 0 (GlobalUniforms)
         gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 
-        // Apply material properties
+        GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
+        u32 mat_texture_count = 0;
+
         for (u8 p = 0; p < material->property_count; p++) {
           MaterialProperty *prop = &material->properties[p];
-          void *data;
-          u32 size;
-          switch (prop->type) {
-            case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
-            case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
-            case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
-            case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
-            case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
-            default: continue;
+          if (prop->type == MAT_PROP_TEXTURE) {
+            mat_textures[mat_texture_count++] = prop->tex;
+          } else {
+            void *data;
+            u32 size;
+            switch (prop->type) {
+              case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
+              case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
+              case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
+              case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
+              case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
+              default: continue;
+            }
+            gpu_apply_uniforms(prop->binding, data, size);
           }
-          gpu_apply_uniforms(prop->binding, data, size);
         }
 
-        // Apply vertex/index buffer bindings
-        gpu_apply_bindings(&(GpuBindings){
+        GpuBindings bindings = {
             .vertex_buffers = {mesh->vbuf},
             .vertex_buffer_count = 1,
             .index_buffer = mesh->ibuf,
             .index_format = mesh->index_format,
-        });
+            .texture_count = mat_texture_count,
+        };
+        for (u32 t = 0; t < mat_texture_count; t++) {
+          bindings.textures[t] = mat_textures[t];
+        }
+        gpu_apply_bindings(&bindings);
 
         gpu_draw_indexed(mesh->index_count, 1);
         break;
