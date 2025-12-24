@@ -13,6 +13,7 @@
 #include "renderer.c"
 #include "mesh.c"
 #include "lib/handle.c"
+#include "vendor.c"
 #include "lib/math.h"
 #include "cube.h"
 #include "renderer.h"
