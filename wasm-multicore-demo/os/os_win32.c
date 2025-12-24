@@ -1888,4 +1888,3 @@ u32 os_mic_read_samples(i16 *buffer, u32 max_samples) {
 void os_mic_start_recording(void) {}
 void os_mic_stop_recording(void) {}
 u32 os_mic_get_sample_rate(void) { return 48000; }
-#include "os_win32_video.c"

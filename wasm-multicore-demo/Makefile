@@ -80,4 +80,10 @@ run: all
 clean:
 	powershell -Command "if (Test-Path $(OUT_DIR)) { Remove-Item -Recurse -Force $(OUT_DIR) }"
 
-.PHONY: all dirs wasm js clean run test
+EXPORTER_CFLAGS = /nologo /W3 /std:c11 /I. /Fe:$(OUT_DIR)/exporter.exe /Fo:$(OUT_DIR)/ /DWIN32 /DCOMPILER_MSVC
+EXPORTER_LIBS = dbghelp.lib shlwapi.lib
+
+exporter: dirs
+	cl $(EXPORTER_CFLAGS) exporter.c /link $(EXPORTER_LIBS)
+
+.PHONY: all dirs wasm js clean run test exporter
