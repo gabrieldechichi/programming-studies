@@ -7,6 +7,7 @@
 #include "mesh.h"
 #include "renderer.h"
 #include "camera.h"
+#include "mesh.h"
 
 static const char *textured_vs =
     "struct GlobalUniforms {\n"
@@ -39,10 +40,12 @@ static const char *textured_vs =
     "    let mvp = global.view_proj * global.model;\n"
     "    out.position = mvp * vec4<f32>(in.position, 1.0);\n"
     "    out.uv = in.uv;\n"
-    "    let normal_matrix = mat3x3<f32>(global.model[0].xyz, global.model[1].xyz, global.model[2].xyz);\n"
+    "    let normal_matrix = mat3x3<f32>(global.model[0].xyz, "
+    "global.model[1].xyz, global.model[2].xyz);\n"
     "    out.world_normal = normalize(normal_matrix * in.normal);\n"
     "    out.world_tangent = normalize(normal_matrix * in.tangent.xyz);\n"
-    "    out.world_bitangent = cross(out.world_normal, out.world_tangent) * in.tangent.w;\n"
+    "    out.world_bitangent = cross(out.world_normal, out.world_tangent) * "
+    "in.tangent.w;\n"
     "    return out;\n"
     "}\n";
 
@@ -64,10 +67,13 @@ static const char *textured_fs =
     "\n"
     "@fragment\n"
     "fn fs_main(in: FragmentInput) -> @location(0) vec4<f32> {\n"
-    "    let albedo = textureSample(albedo_texture, albedo_sampler, in.uv).rgb;\n"
-    "    let normal_sample = textureSample(normal_texture, normal_sampler, in.uv).rgb;\n"
+    "    let albedo = textureSample(albedo_texture, albedo_sampler, "
+    "in.uv).rgb;\n"
+    "    let normal_sample = textureSample(normal_texture, normal_sampler, "
+    "in.uv).rgb;\n"
     "    let tangent_normal = normal_sample * 2.0 - 1.0;\n"
-    "    let tbn = mat3x3<f32>(normalize(in.world_tangent), normalize(in.world_bitangent), normalize(in.world_normal));\n"
+    "    let tbn = mat3x3<f32>(normalize(in.world_tangent), "
+    "normalize(in.world_bitangent), normalize(in.world_normal));\n"
     "    let world_normal = normalize(tbn * tangent_normal);\n"
     "    let light_dir = normalize(LIGHT_DIR);\n"
     "    let ndotl = max(dot(world_normal, light_dir), 0.0);\n"
@@ -134,42 +140,17 @@ void app_update_and_render(AppMemory *memory) {
                 .fs_code = textured_fs,
                 .uniform_blocks =
                     {
-                        {.stage = GPU_STAGE_VERTEX,
-                         .size = sizeof(GlobalUniforms),
-                         .binding = 0},
+                        GPU_UNIFORM_DESC_VERTEX(GlobalUniforms, 0),
                     },
                 .uniform_block_count = 1,
                 .texture_bindings =
                     {
-                        {.stage = GPU_STAGE_FRAGMENT,
-                         .sampler_binding = 0,
-                         .texture_binding = 1},
-                        {.stage = GPU_STAGE_FRAGMENT,
-                         .sampler_binding = 2,
-                         .texture_binding = 3},
+                        GPU_TEXTURE_BINDING_FRAG(1, 0),
+                        GPU_TEXTURE_BINDING_FRAG(3, 2),
                     },
                 .texture_binding_count = 2,
             },
-        .vertex_layout =
-            (GpuVertexLayout){
-                .stride = MESH_VERTEX_STRIDE,
-                .attrs =
-                    {
-                        {.format = GPU_VERTEX_FORMAT_FLOAT3,
-                         .offset = 0,
-                         .shader_location = 0},
-                        {.format = GPU_VERTEX_FORMAT_FLOAT3,
-                         .offset = 12,
-                         .shader_location = 1},
-                        {.format = GPU_VERTEX_FORMAT_FLOAT4,
-                         .offset = 24,
-                         .shader_location = 2},
-                        {.format = GPU_VERTEX_FORMAT_FLOAT2,
-                         .offset = 40,
-                         .shader_location = 3},
-                    },
-                .attr_count = 4,
-            },
+        .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
         .primitive = GPU_PRIMITIVE_TRIANGLES,
         .depth_test = true,
         .depth_write = true,
