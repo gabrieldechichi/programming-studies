@@ -17,8 +17,10 @@ typedef struct {
   {.stage = GPU_STAGE_VERTEX, .size = sizeof(_type), .binding = (_binding)}
 #define GPU_UNIFORM_DESC_FRAG(_type, _binding)                                 \
   {.stage = GPU_STAGE_FRAGMENT, .size = sizeof(_type), .binding = (_binding)}
-#define GPU_TEXTURE_BINDING_FRAG(_tex_binding, _sampler_binding)                              \
-  {.stage = GPU_STAGE_FRAGMENT, .sampler_binding = (_sampler_binding), .texture_binding = (_tex_binding)}
+#define GPU_TEXTURE_BINDING_FRAG(_tex_binding, _sampler_binding)               \
+  {.stage = GPU_STAGE_FRAGMENT,                                                \
+   .sampler_binding = (_sampler_binding),                                      \
+   .texture_binding = (_tex_binding)}
 
 #define GLOBAL_UNIFORMS_DESC                                                   \
   {.stage = GPU_STAGE_VERTEX, .size = sizeof(GlobalUniforms), .binding = 0}
@@ -49,6 +51,8 @@ typedef struct {
   u8 binding;
 } MaterialPropertyDesc;
 
+arr_define(MaterialPropertyDesc);
+
 typedef struct {
   GpuShaderDesc shader_desc;
 
@@ -60,9 +64,7 @@ typedef struct {
   b32 depth_test;
   b32 depth_write;
 
-  // material properties
-  MaterialPropertyDesc properties[MAX_MATERIAL_PROPERTIES];
-  u8 property_count;
+  StaticArray(MaterialPropertyDesc, MAX_MATERIAL_PROPERTIES) properties;
 } MaterialDesc;
 
 typedef struct {
@@ -83,8 +85,7 @@ typedef struct {
   GpuShader shader;
   GpuPipeline pipeline;
 
-  MaterialProperty properties[MAX_MATERIAL_PROPERTIES];
-  u8 property_count;
+  StaticArray(MaterialProperty, MAX_MATERIAL_PROPERTIES) properties;
 } Material;
 TYPED_HANDLE_DEFINE(Material);
 HANDLE_ARRAY_DEFINE(Material);

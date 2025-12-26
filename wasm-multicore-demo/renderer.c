@@ -96,10 +96,10 @@ Material_Handle renderer_create_material(MaterialDesc *desc) {
   });
 
   // Cache property slots
-  material.property_count = desc->property_count;
-  for (u8 i = 0; i < desc->property_count; i++) {
-    MaterialPropertyDesc *p = &desc->properties[i];
-    material.properties[i] = (MaterialProperty){
+  material.properties.len = desc->properties.len;
+  for (u8 i = 0; i < desc->properties.len; i++) {
+    MaterialPropertyDesc *p = &desc->properties.items[i];
+    material.properties.items[i] = (MaterialProperty){
         .name_hash = fnv1a_hash(p->name),
         .binding = p->binding,
         .type = p->type,
@@ -111,9 +111,9 @@ Material_Handle renderer_create_material(MaterialDesc *desc) {
 
 static MaterialProperty *find_property(Material *mat, const char *name) {
   u32 hash = fnv1a_hash(name);
-  for (u8 i = 0; i < mat->property_count; i++) {
-    if (mat->properties[i].name_hash == hash) {
-      return &mat->properties[i];
+  for (u8 i = 0; i < mat->properties.len; i++) {
+    if (mat->properties.items[i].name_hash == hash) {
+      return &mat->properties.items[i];
     }
   }
   return NULL;
@@ -269,8 +269,8 @@ void renderer_end_frame(void) {
         GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
         u32 mat_texture_count = 0;
 
-        for (u8 p = 0; p < material->property_count; p++) {
-          MaterialProperty *prop = &material->properties[p];
+        for (u8 p = 0; p < material->properties.len; p++) {
+          MaterialProperty *prop = &material->properties.items[p];
           if (prop->type == MAT_PROP_TEXTURE) {
             GpuTexture tex = prop->tex;
             if (!gpu_texture_is_ready(tex)) {
@@ -338,8 +338,8 @@ void renderer_end_frame(void) {
         gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 
         // Apply material properties
-        for (u8 p = 0; p < material->property_count; p++) {
-          MaterialProperty *prop = &material->properties[p];
+        for (u8 p = 0; p < material->properties.len; p++) {
+          MaterialProperty *prop = &material->properties.items[p];
           void *data;
           u32 size;
           switch (prop->type) {

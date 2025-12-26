@@ -25,6 +25,12 @@
     type *items;                                                               \
   } type##_DynArray
 
+#define StaticArray(_type, _len)                                                \
+  struct {                                                                     \
+    size_t len;                                                                \
+    _type items[_len];                                                         \
+  }
+
 /* append element to array (asserts if over capacity) */
 #define arr_append(xs, x)                                                      \
   do {                                                                         \
@@ -96,11 +102,15 @@
 #define arr_from_c_array(type, _arr, _len)                                     \
   ((type##_Array){.len = (_len), .items = (_arr)})
 
-#define arr_from_const_array(arr)                                                  \
-  {.items = arr, .len = ARRAY_SIZE(arr)}
+#define arr_from_const_array(arr) {.items = arr, .len = ARRAY_SIZE(arr)}
 
-#define arr_const_define(type, ...)                                                 \
-  {.items = &((type[]){{0}, __VA_ARGS__})[1], .len = ((size_t)(sizeof((type[]){{0}, __VA_ARGS__}) / sizeof(type) - 1))}
+#define arr_const_define(type, ...)                                            \
+  {.items = &((type[]){{0}, __VA_ARGS__})[1],                                  \
+   .len = ((size_t)(sizeof((type[]){{0}, __VA_ARGS__}) / sizeof(type) - 1))}
+
+#define ARRAY_FROM_ELEMENTS(type, ...)                                         \
+  {.items = {__VA_ARGS__},                                                     \
+   .len = sizeof((type[]){__VA_ARGS__}) / sizeof(MaterialPropertyDesc)}
 
 /* create zero-initialized dynamic array */
 #define dyn_arr_new_zero(type) ((type##_DynArray){0})
@@ -151,8 +161,7 @@
 #define concurrent_arr_reserve(xs, count)                                      \
   (ins_atomic_u32_add_eval(&(xs).len_atomic, (count)) - (count))
 
-#define concurrent_arr_len(xs)                                                 \
-  ((u32)ins_atomic_load_acquire(&(xs).len_atomic))
+#define concurrent_arr_len(xs) ((u32)ins_atomic_load_acquire(&(xs).len_atomic))
 
 #define concurrent_arr_get(xs, idx) ((xs).items[idx])
 
@@ -162,4 +171,3 @@ arr_define(CString);
 arr_define_concurrent(CString);
 
 #endif // !H_ARRAY
-

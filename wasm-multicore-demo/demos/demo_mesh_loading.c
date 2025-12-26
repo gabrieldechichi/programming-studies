@@ -154,12 +154,10 @@ void app_update_and_render(AppMemory *memory) {
         .primitive = GPU_PRIMITIVE_TRIANGLES,
         .depth_test = true,
         .depth_write = true,
-        .properties =
-            {
-                {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
-                {.name = "normal", .type = MAT_PROP_TEXTURE, .binding = 1},
-            },
-        .property_count = 2,
+        .properties = ARRAY_FROM_ELEMENTS(MaterialPropertyDesc,
+            {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
+            {.name = "normal", .type = MAT_PROP_TEXTURE, .binding = 1},
+        ),
     });
 
     material_set_texture(g_material, "albedo", g_albedo_tex);
