@@ -11,7 +11,7 @@
 #define GPU_UNIFORM_BUFFER_SIZE MB(1)
 //todo: query at runtime
 #define GPU_UNIFORM_ALIGNMENT 256  // WebGPU minUniformBufferOffsetAlignment
-#define GPU_MAX_UNIFORMBLOCK_SLOTS 4
+#define GPU_MAX_UNIFORMBLOCK_SLOTS 8
 #define GPU_MAX_STORAGE_BUFFER_SLOTS 4
 
 // Resource handles

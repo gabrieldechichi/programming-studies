@@ -95,13 +95,13 @@ Material_Handle renderer_create_material(MaterialDesc *desc) {
       .depth_write = desc->depth_write,
   });
 
-  // Cache property slots
   material.properties.len = desc->properties.len;
   for (u8 i = 0; i < desc->properties.len; i++) {
     MaterialPropertyDesc *p = &desc->properties.items[i];
     material.properties.items[i] = (MaterialProperty){
         .name_hash = fnv1a_hash(p->name),
         .binding = p->binding,
+        .offset = p->offset,
         .type = p->type,
     };
   }
@@ -269,6 +269,10 @@ void renderer_end_frame(void) {
         GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
         u32 mat_texture_count = 0;
 
+        u8 uniform_pack_buf[256];
+        u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
+        u16 binding_max_size[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
+
         for (u8 p = 0; p < material->properties.len; p++) {
           MaterialProperty *prop = &material->properties.items[p];
           if (prop->type == MAT_PROP_TEXTURE) {
@@ -288,7 +292,19 @@ void renderer_end_frame(void) {
               case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
               default: continue;
             }
-            gpu_apply_uniforms(prop->binding, data, size);
+            assert(prop->offset + size <= sizeof(uniform_pack_buf));
+            memcpy(uniform_pack_buf + prop->offset, data, size);
+            binding_used[prop->binding] = 1;
+            u16 end = prop->offset + size;
+            if (end > binding_max_size[prop->binding]) {
+              binding_max_size[prop->binding] = end;
+            }
+          }
+        }
+
+        for (u8 b = 1; b < GPU_MAX_UNIFORMBLOCK_SLOTS; b++) {
+          if (binding_used[b]) {
+            gpu_apply_uniforms(b, uniform_pack_buf, binding_max_size[b]);
           }
         }
 
@@ -336,9 +352,13 @@ void renderer_end_frame(void) {
 
         gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 
-        // Apply material properties
+        u8 uniform_pack_buf[256];
+        u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
+        u16 binding_max_size[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
+
         for (u8 p = 0; p < material->properties.len; p++) {
           MaterialProperty *prop = &material->properties.items[p];
+          if (prop->type == MAT_PROP_TEXTURE) continue;
           void *data;
           u32 size;
           switch (prop->type) {
@@ -349,7 +369,19 @@ void renderer_end_frame(void) {
             case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
             default: continue;
           }
-          gpu_apply_uniforms(prop->binding, data, size);
+          assert(prop->offset + size <= sizeof(uniform_pack_buf));
+          memcpy(uniform_pack_buf + prop->offset, data, size);
+          binding_used[prop->binding] = 1;
+          u16 end = prop->offset + size;
+          if (end > binding_max_size[prop->binding]) {
+            binding_max_size[prop->binding] = end;
+          }
+        }
+
+        for (u8 b = 1; b < GPU_MAX_UNIFORMBLOCK_SLOTS; b++) {
+          if (binding_used[b]) {
+            gpu_apply_uniforms(b, uniform_pack_buf, binding_max_size[b]);
+          }
         }
 
         gpu_apply_bindings(&(GpuBindings){

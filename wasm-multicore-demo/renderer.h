@@ -49,6 +49,7 @@ typedef struct {
   const char *name;
   MaterialPropertyType type;
   u8 binding;
+  u16 offset;
 } MaterialPropertyDesc;
 
 arr_define(MaterialPropertyDesc);
@@ -70,6 +71,7 @@ typedef struct {
 typedef struct {
   u32 name_hash;
   u8 binding;
+  u16 offset;
   MaterialPropertyType type;
   union {
     f32 f;
