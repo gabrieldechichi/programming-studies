@@ -1,17 +1,9 @@
-Shader "Shader Graphs/Wiggle"
+Shader "Shader Graphs/FishTestPBR"
 {
     Properties
     {
-        Color_6fad55456a0f4d8e8cbf7e73a8860e75("Color", Color) = (1, 1, 1, 1)
-        [NoScaleOffset]Texture2D_f1501a0998c642b79ace66ac93266000("Albedo (RGBA)", 2D) = "white" {}
-        [NoScaleOffset]Texture2D_e893cbba98cb45f681fd897db3d0819d("MetallicGloss (RGB)", 2D) = "white" {}
-        [NoScaleOffset]Texture2D_fe15ad9678c146b584141fd68467b19c("Tints (RGB)", 2D) = "white" {}
-        Vector1_3b44777b43364ca68a0a221cc322b652("Smoothness", Range(0, 1)) = 0.5
-        Vector1_ddb141b7d6f34b07baac880f6fd87e70("Metallic", Range(0, 1)) = 0
-        Vector1_2b27bdfdb65f40b3bbd106395116c08e("Wave1 Frequency", Float) = 1
-        Vector1_613a6726b8ab4f9ab7314943d91bc344("Wave1 Speed", Float) = 1
-        Vector1_69db3926cfb44e73a5be98ada8013b3c("Distance", Float) = 1
-        Vector1_7932143712d4466bb0127e93a7311228("Offset", Float) = 0
+        _Metallic("Metallic", Float) = 0.5
+        _Smoothness("Smoothness", Float) = 0.5
         [HideInInspector]_QueueOffset("_QueueOffset", Float) = 0
         [HideInInspector]_QueueControl("_QueueControl", Float) = -1
         [HideInInspector][NoScaleOffset]unity_Lightmaps("unity_Lightmaps", 2DArray) = "" {}
@@ -39,7 +31,7 @@ Shader "Shader Graphs/Wiggle"
             }
         
         // Render State
-        Cull Off
+        Cull Back
         Blend One Zero
         ZTest LEqual
         ZWrite On
@@ -91,16 +83,13 @@ Shader "Shader Graphs/Wiggle"
         #define _NORMAL_DROPOFF_TS 1
         #define ATTRIBUTES_NEED_NORMAL
         #define ATTRIBUTES_NEED_TANGENT
-        #define ATTRIBUTES_NEED_TEXCOORD0
         #define ATTRIBUTES_NEED_TEXCOORD1
         #define ATTRIBUTES_NEED_TEXCOORD2
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX_NORMAL_OUTPUT
         #define FEATURES_GRAPH_VERTEX_TANGENT_OUTPUT
         #define VARYINGS_NEED_POSITION_WS
         #define VARYINGS_NEED_NORMAL_WS
         #define VARYINGS_NEED_TANGENT_WS
-        #define VARYINGS_NEED_TEXCOORD0
         #define VARYINGS_NEED_FOG_AND_VERTEX_LIGHT
         #define VARYINGS_NEED_SHADOW_COORD
         #define FEATURES_GRAPH_VERTEX
@@ -141,7 +130,6 @@ Shader "Shader Graphs/Wiggle"
              float3 positionOS : POSITION;
              float3 normalOS : NORMAL;
              float4 tangentOS : TANGENT;
-             float4 uv0 : TEXCOORD0;
              float4 uv1 : TEXCOORD1;
              float4 uv2 : TEXCOORD2;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(ATTRIBUTES_NEED_INSTANCEID)
@@ -154,7 +142,6 @@ Shader "Shader Graphs/Wiggle"
              float3 positionWS;
              float3 normalWS;
              float4 tangentWS;
-             float4 texCoord0;
             #if defined(LIGHTMAP_ON)
              float2 staticLightmapUV;
             #endif
@@ -187,14 +174,12 @@ Shader "Shader Graphs/Wiggle"
         struct SurfaceDescriptionInputs
         {
              float3 TangentSpaceNormal;
-             float4 uv0;
         };
         struct VertexDescriptionInputs
         {
              float3 ObjectSpaceNormal;
              float3 ObjectSpaceTangent;
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
@@ -215,10 +200,9 @@ Shader "Shader Graphs/Wiggle"
              float4 shadowCoord : INTERP4;
             #endif
              float4 tangentWS : INTERP5;
-             float4 texCoord0 : INTERP6;
-             float4 fogFactorAndVertexLight : INTERP7;
-             float3 positionWS : INTERP8;
-             float3 normalWS : INTERP9;
+             float4 fogFactorAndVertexLight : INTERP6;
+             float3 positionWS : INTERP7;
+             float3 normalWS : INTERP8;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
              uint instanceID : CUSTOM_INSTANCE_ID;
             #endif
@@ -254,7 +238,6 @@ Shader "Shader Graphs/Wiggle"
             output.shadowCoord = input.shadowCoord;
             #endif
             output.tangentWS.xyzw = input.tangentWS;
-            output.texCoord0.xyzw = input.texCoord0;
             output.fogFactorAndVertexLight.xyzw = input.fogFactorAndVertexLight;
             output.positionWS.xyz = input.positionWS;
             output.normalWS.xyz = input.normalWS;
@@ -293,7 +276,6 @@ Shader "Shader Graphs/Wiggle"
             output.shadowCoord = input.shadowCoord;
             #endif
             output.tangentWS = input.tangentWS.xyzw;
-            output.texCoord0 = input.texCoord0.xyzw;
             output.fogFactorAndVertexLight = input.fogFactorAndVertexLight.xyzw;
             output.positionWS = input.positionWS.xyz;
             output.normalWS = input.normalWS.xyz;
@@ -318,28 +300,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -356,31 +323,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
-        
-        void Unity_Multiply_float3_float3(float3 A, float3 B, out float3 Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Lerp_float3(float3 A, float3 B, float3 T, out float3 Out)
-        {
-            Out = lerp(A, B, T);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -396,30 +339,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             description.Normal = IN.ObjectSpaceNormal;
             description.Tangent = IN.ObjectSpaceTangent;
             return description;
@@ -448,43 +368,13 @@ Shader "Shader Graphs/Wiggle"
         SurfaceDescription SurfaceDescriptionFunction(SurfaceDescriptionInputs IN)
         {
             SurfaceDescription surface = (SurfaceDescription)0;
-            UnityTexture2D _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_f1501a0998c642b79ace66ac93266000);
-            float4 _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.tex, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.samplerstate, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.GetTransformedUV(IN.uv0.xy) );
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.r;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.g;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.b;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.a;
-            float3 _Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3 = float3(_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float);
-            UnityTexture2D _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_fe15ad9678c146b584141fd68467b19c);
-            float _Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float2 _Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2 = float2(_Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float, float(0));
-            float4 _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.tex, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.samplerstate, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.GetTransformedUV(_Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2) );
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_R_4_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.r;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_G_5_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.g;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_B_6_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.b;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_A_7_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.a;
-            float3 _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, (_SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.xyz), _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3);
-            float3 _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3;
-            Unity_Lerp_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3, (_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float.xxx), _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3);
-            float4 _Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4 = Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-            float3 _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3, (_Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4.xyz), _Multiply_67234ad010694730941597912c319956_Out_2_Vector3);
-            float _Property_02304ee70eb647659b9bf6e49f23c8bd_Out_0_Float = Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-            float _Property_6baf05fe7de8474c8e542f9212786377_Out_0_Float = Vector1_3b44777b43364ca68a0a221cc322b652;
-            UnityTexture2D _Property_376a554a278e4b248fe49f73a5be369d_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-            float4 _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_376a554a278e4b248fe49f73a5be369d_Out_0_Texture2D.tex, _Property_376a554a278e4b248fe49f73a5be369d_Out_0_Texture2D.samplerstate, _Property_376a554a278e4b248fe49f73a5be369d_Out_0_Texture2D.GetTransformedUV(IN.uv0.xy) );
-            float _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_R_4_Float = _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4.r;
-            float _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_G_5_Float = _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4.g;
-            float _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_B_6_Float = _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4.b;
-            float _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_A_7_Float = _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4.a;
-            float _Multiply_bbdbdb91e7484aeb9810ad897288ad4b_Out_2_Float;
-            Unity_Multiply_float_float(_Property_6baf05fe7de8474c8e542f9212786377_Out_0_Float, _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_A_7_Float, _Multiply_bbdbdb91e7484aeb9810ad897288ad4b_Out_2_Float);
-            surface.BaseColor = _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
+            float _Property_322703ae8b76402888957e49b59013ec_Out_0_Float = _Metallic;
+            float _Property_02e0ef0402ea4cebae354bf1f0c82e72_Out_0_Float = _Smoothness;
+            surface.BaseColor = IsGammaSpace() ? float3(0.5, 0.5, 0.5) : SRGBToLinear(float3(0.5, 0.5, 0.5));
             surface.NormalTS = IN.TangentSpaceNormal;
             surface.Emission = float3(0, 0, 0);
-            surface.Metallic = _Property_02304ee70eb647659b9bf6e49f23c8bd_Out_0_Float;
-            surface.Smoothness = _Multiply_bbdbdb91e7484aeb9810ad897288ad4b_Out_2_Float;
+            surface.Metallic = _Property_322703ae8b76402888957e49b59013ec_Out_0_Float;
+            surface.Smoothness = _Property_02e0ef0402ea4cebae354bf1f0c82e72_Out_0_Float;
             surface.Occlusion = float(1);
             return surface;
         }
@@ -504,7 +394,6 @@ Shader "Shader Graphs/Wiggle"
             output.ObjectSpaceNormal =                          input.normalOS;
             output.ObjectSpaceTangent =                         input.tangentOS.xyz;
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -538,7 +427,6 @@ Shader "Shader Graphs/Wiggle"
             #endif
         
         
-            output.uv0 = input.texCoord0;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -575,7 +463,7 @@ Shader "Shader Graphs/Wiggle"
             }
         
         // Render State
-        Cull Off
+        Cull Back
         Blend One Zero
         ZTest LEqual
         ZWrite On
@@ -624,16 +512,13 @@ Shader "Shader Graphs/Wiggle"
         #define _NORMAL_DROPOFF_TS 1
         #define ATTRIBUTES_NEED_NORMAL
         #define ATTRIBUTES_NEED_TANGENT
-        #define ATTRIBUTES_NEED_TEXCOORD0
         #define ATTRIBUTES_NEED_TEXCOORD1
         #define ATTRIBUTES_NEED_TEXCOORD2
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX_NORMAL_OUTPUT
         #define FEATURES_GRAPH_VERTEX_TANGENT_OUTPUT
         #define VARYINGS_NEED_POSITION_WS
         #define VARYINGS_NEED_NORMAL_WS
         #define VARYINGS_NEED_TANGENT_WS
-        #define VARYINGS_NEED_TEXCOORD0
         #define VARYINGS_NEED_FOG_AND_VERTEX_LIGHT
         #define VARYINGS_NEED_SHADOW_COORD
         #define FEATURES_GRAPH_VERTEX
@@ -675,7 +560,6 @@ Shader "Shader Graphs/Wiggle"
              float3 positionOS : POSITION;
              float3 normalOS : NORMAL;
              float4 tangentOS : TANGENT;
-             float4 uv0 : TEXCOORD0;
              float4 uv1 : TEXCOORD1;
              float4 uv2 : TEXCOORD2;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(ATTRIBUTES_NEED_INSTANCEID)
@@ -688,7 +572,6 @@ Shader "Shader Graphs/Wiggle"
              float3 positionWS;
              float3 normalWS;
              float4 tangentWS;
-             float4 texCoord0;
             #if defined(LIGHTMAP_ON)
              float2 staticLightmapUV;
             #endif
@@ -721,14 +604,12 @@ Shader "Shader Graphs/Wiggle"
         struct SurfaceDescriptionInputs
         {
              float3 TangentSpaceNormal;
-             float4 uv0;
         };
         struct VertexDescriptionInputs
         {
              float3 ObjectSpaceNormal;
              float3 ObjectSpaceTangent;
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
@@ -749,10 +630,9 @@ Shader "Shader Graphs/Wiggle"
              float4 shadowCoord : INTERP4;
             #endif
              float4 tangentWS : INTERP5;
-             float4 texCoord0 : INTERP6;
-             float4 fogFactorAndVertexLight : INTERP7;
-             float3 positionWS : INTERP8;
-             float3 normalWS : INTERP9;
+             float4 fogFactorAndVertexLight : INTERP6;
+             float3 positionWS : INTERP7;
+             float3 normalWS : INTERP8;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
              uint instanceID : CUSTOM_INSTANCE_ID;
             #endif
@@ -788,7 +668,6 @@ Shader "Shader Graphs/Wiggle"
             output.shadowCoord = input.shadowCoord;
             #endif
             output.tangentWS.xyzw = input.tangentWS;
-            output.texCoord0.xyzw = input.texCoord0;
             output.fogFactorAndVertexLight.xyzw = input.fogFactorAndVertexLight;
             output.positionWS.xyz = input.positionWS;
             output.normalWS.xyz = input.normalWS;
@@ -827,7 +706,6 @@ Shader "Shader Graphs/Wiggle"
             output.shadowCoord = input.shadowCoord;
             #endif
             output.tangentWS = input.tangentWS.xyzw;
-            output.texCoord0 = input.texCoord0.xyzw;
             output.fogFactorAndVertexLight = input.fogFactorAndVertexLight.xyzw;
             output.positionWS = input.positionWS.xyz;
             output.normalWS = input.normalWS.xyz;
@@ -852,28 +730,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -890,31 +753,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
-        
-        void Unity_Multiply_float3_float3(float3 A, float3 B, out float3 Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Lerp_float3(float3 A, float3 B, float3 T, out float3 Out)
-        {
-            Out = lerp(A, B, T);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -930,30 +769,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             description.Normal = IN.ObjectSpaceNormal;
             description.Tangent = IN.ObjectSpaceTangent;
             return description;
@@ -982,43 +798,13 @@ Shader "Shader Graphs/Wiggle"
         SurfaceDescription SurfaceDescriptionFunction(SurfaceDescriptionInputs IN)
         {
             SurfaceDescription surface = (SurfaceDescription)0;
-            UnityTexture2D _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_f1501a0998c642b79ace66ac93266000);
-            float4 _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.tex, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.samplerstate, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.GetTransformedUV(IN.uv0.xy) );
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.r;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.g;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.b;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.a;
-            float3 _Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3 = float3(_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float);
-            UnityTexture2D _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_fe15ad9678c146b584141fd68467b19c);
-            float _Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float2 _Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2 = float2(_Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float, float(0));
-            float4 _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.tex, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.samplerstate, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.GetTransformedUV(_Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2) );
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_R_4_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.r;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_G_5_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.g;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_B_6_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.b;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_A_7_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.a;
-            float3 _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, (_SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.xyz), _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3);
-            float3 _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3;
-            Unity_Lerp_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3, (_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float.xxx), _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3);
-            float4 _Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4 = Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-            float3 _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3, (_Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4.xyz), _Multiply_67234ad010694730941597912c319956_Out_2_Vector3);
-            float _Property_02304ee70eb647659b9bf6e49f23c8bd_Out_0_Float = Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-            float _Property_6baf05fe7de8474c8e542f9212786377_Out_0_Float = Vector1_3b44777b43364ca68a0a221cc322b652;
-            UnityTexture2D _Property_376a554a278e4b248fe49f73a5be369d_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-            float4 _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_376a554a278e4b248fe49f73a5be369d_Out_0_Texture2D.tex, _Property_376a554a278e4b248fe49f73a5be369d_Out_0_Texture2D.samplerstate, _Property_376a554a278e4b248fe49f73a5be369d_Out_0_Texture2D.GetTransformedUV(IN.uv0.xy) );
-            float _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_R_4_Float = _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4.r;
-            float _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_G_5_Float = _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4.g;
-            float _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_B_6_Float = _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4.b;
-            float _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_A_7_Float = _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_RGBA_0_Vector4.a;
-            float _Multiply_bbdbdb91e7484aeb9810ad897288ad4b_Out_2_Float;
-            Unity_Multiply_float_float(_Property_6baf05fe7de8474c8e542f9212786377_Out_0_Float, _SampleTexture2D_4055e7ac9e484f778c07f95bf07c59e9_A_7_Float, _Multiply_bbdbdb91e7484aeb9810ad897288ad4b_Out_2_Float);
-            surface.BaseColor = _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
+            float _Property_322703ae8b76402888957e49b59013ec_Out_0_Float = _Metallic;
+            float _Property_02e0ef0402ea4cebae354bf1f0c82e72_Out_0_Float = _Smoothness;
+            surface.BaseColor = IsGammaSpace() ? float3(0.5, 0.5, 0.5) : SRGBToLinear(float3(0.5, 0.5, 0.5));
             surface.NormalTS = IN.TangentSpaceNormal;
             surface.Emission = float3(0, 0, 0);
-            surface.Metallic = _Property_02304ee70eb647659b9bf6e49f23c8bd_Out_0_Float;
-            surface.Smoothness = _Multiply_bbdbdb91e7484aeb9810ad897288ad4b_Out_2_Float;
+            surface.Metallic = _Property_322703ae8b76402888957e49b59013ec_Out_0_Float;
+            surface.Smoothness = _Property_02e0ef0402ea4cebae354bf1f0c82e72_Out_0_Float;
             surface.Occlusion = float(1);
             return surface;
         }
@@ -1038,7 +824,6 @@ Shader "Shader Graphs/Wiggle"
             output.ObjectSpaceNormal =                          input.normalOS;
             output.ObjectSpaceTangent =                         input.tangentOS.xyz;
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -1072,7 +857,6 @@ Shader "Shader Graphs/Wiggle"
             #endif
         
         
-            output.uv0 = input.texCoord0;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -1110,7 +894,7 @@ Shader "Shader Graphs/Wiggle"
             }
         
         // Render State
-        Cull Off
+        Cull Back
         ZTest LEqual
         ZWrite On
         ColorMask 0
@@ -1139,7 +923,6 @@ Shader "Shader Graphs/Wiggle"
         #define _NORMAL_DROPOFF_TS 1
         #define ATTRIBUTES_NEED_NORMAL
         #define ATTRIBUTES_NEED_TANGENT
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX_NORMAL_OUTPUT
         #define FEATURES_GRAPH_VERTEX_TANGENT_OUTPUT
         #define VARYINGS_NEED_NORMAL_WS
@@ -1205,7 +988,6 @@ Shader "Shader Graphs/Wiggle"
              float3 ObjectSpaceNormal;
              float3 ObjectSpaceTangent;
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
@@ -1272,28 +1054,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -1310,21 +1077,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -1340,30 +1093,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             description.Normal = IN.ObjectSpaceNormal;
             description.Tangent = IN.ObjectSpaceTangent;
             return description;
@@ -1404,7 +1134,6 @@ Shader "Shader Graphs/Wiggle"
             output.ObjectSpaceNormal =                          input.normalOS;
             output.ObjectSpaceTangent =                         input.tangentOS.xyz;
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -1473,7 +1202,7 @@ Shader "Shader Graphs/Wiggle"
             }
         
         // Render State
-        Cull Off
+        Cull Back
         ZTest LEqual
         ZWrite On
         ColorMask RG
@@ -1500,7 +1229,6 @@ Shader "Shader Graphs/Wiggle"
         
         #define _NORMALMAP 1
         #define _NORMAL_DROPOFF_TS 1
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX
         /* WARNING: $splice Could not find named fragment 'PassInstancing' */
         #define SHADERPASS SHADERPASS_MOTION_VECTORS
@@ -1559,7 +1287,6 @@ Shader "Shader Graphs/Wiggle"
         struct VertexDescriptionInputs
         {
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
@@ -1623,28 +1350,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -1661,21 +1373,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -1689,30 +1387,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             return description;
         }
         
@@ -1749,7 +1424,6 @@ Shader "Shader Graphs/Wiggle"
             ZERO_INITIALIZE(VertexDescriptionInputs, output);
         
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -1818,7 +1492,7 @@ Shader "Shader Graphs/Wiggle"
             }
         
         // Render State
-        Cull Off
+        Cull Back
         ZTest LEqual
         ZWrite On
         ColorMask R
@@ -1847,7 +1521,6 @@ Shader "Shader Graphs/Wiggle"
         #define _NORMAL_DROPOFF_TS 1
         #define ATTRIBUTES_NEED_NORMAL
         #define ATTRIBUTES_NEED_TANGENT
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX_NORMAL_OUTPUT
         #define FEATURES_GRAPH_VERTEX_TANGENT_OUTPUT
         #define FEATURES_GRAPH_VERTEX
@@ -1911,7 +1584,6 @@ Shader "Shader Graphs/Wiggle"
              float3 ObjectSpaceNormal;
              float3 ObjectSpaceTangent;
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
@@ -1975,28 +1647,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -2013,21 +1670,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -2043,30 +1686,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             description.Normal = IN.ObjectSpaceNormal;
             description.Tangent = IN.ObjectSpaceTangent;
             return description;
@@ -2107,7 +1727,6 @@ Shader "Shader Graphs/Wiggle"
             output.ObjectSpaceNormal =                          input.normalOS;
             output.ObjectSpaceTangent =                         input.tangentOS.xyz;
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -2176,7 +1795,7 @@ Shader "Shader Graphs/Wiggle"
             }
         
         // Render State
-        Cull Off
+        Cull Back
         ZTest LEqual
         ZWrite On
         
@@ -2205,7 +1824,6 @@ Shader "Shader Graphs/Wiggle"
         #define ATTRIBUTES_NEED_NORMAL
         #define ATTRIBUTES_NEED_TANGENT
         #define ATTRIBUTES_NEED_TEXCOORD1
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX_NORMAL_OUTPUT
         #define FEATURES_GRAPH_VERTEX_TANGENT_OUTPUT
         #define VARYINGS_NEED_NORMAL_WS
@@ -2276,7 +1894,6 @@ Shader "Shader Graphs/Wiggle"
              float3 ObjectSpaceNormal;
              float3 ObjectSpaceTangent;
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
@@ -2346,28 +1963,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -2384,21 +1986,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -2414,30 +2002,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             description.Normal = IN.ObjectSpaceNormal;
             description.Tangent = IN.ObjectSpaceTangent;
             return description;
@@ -2480,7 +2045,6 @@ Shader "Shader Graphs/Wiggle"
             output.ObjectSpaceNormal =                          input.normalOS;
             output.ObjectSpaceTangent =                         input.tangentOS.xyz;
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -2579,7 +2143,6 @@ Shader "Shader Graphs/Wiggle"
         #define ATTRIBUTES_NEED_TEXCOORD1
         #define ATTRIBUTES_NEED_TEXCOORD2
         #define ATTRIBUTES_NEED_INSTANCEID
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX_NORMAL_OUTPUT
         #define FEATURES_GRAPH_VERTEX_TANGENT_OUTPUT
         #define VARYINGS_NEED_TEXCOORD0
@@ -2647,14 +2210,12 @@ Shader "Shader Graphs/Wiggle"
         };
         struct SurfaceDescriptionInputs
         {
-             float4 uv0;
         };
         struct VertexDescriptionInputs
         {
              float3 ObjectSpaceNormal;
              float3 ObjectSpaceTangent;
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
@@ -2727,28 +2288,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -2765,31 +2311,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
-        
-        void Unity_Multiply_float3_float3(float3 A, float3 B, out float3 Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Lerp_float3(float3 A, float3 B, float3 T, out float3 Out)
-        {
-            Out = lerp(A, B, T);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -2805,30 +2327,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             description.Normal = IN.ObjectSpaceNormal;
             description.Tangent = IN.ObjectSpaceTangent;
             return description;
@@ -2853,29 +2352,7 @@ Shader "Shader Graphs/Wiggle"
         SurfaceDescription SurfaceDescriptionFunction(SurfaceDescriptionInputs IN)
         {
             SurfaceDescription surface = (SurfaceDescription)0;
-            UnityTexture2D _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_f1501a0998c642b79ace66ac93266000);
-            float4 _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.tex, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.samplerstate, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.GetTransformedUV(IN.uv0.xy) );
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.r;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.g;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.b;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.a;
-            float3 _Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3 = float3(_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float);
-            UnityTexture2D _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_fe15ad9678c146b584141fd68467b19c);
-            float _Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float2 _Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2 = float2(_Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float, float(0));
-            float4 _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.tex, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.samplerstate, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.GetTransformedUV(_Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2) );
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_R_4_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.r;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_G_5_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.g;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_B_6_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.b;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_A_7_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.a;
-            float3 _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, (_SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.xyz), _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3);
-            float3 _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3;
-            Unity_Lerp_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3, (_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float.xxx), _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3);
-            float4 _Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4 = Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-            float3 _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3, (_Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4.xyz), _Multiply_67234ad010694730941597912c319956_Out_2_Vector3);
-            surface.BaseColor = _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
+            surface.BaseColor = IsGammaSpace() ? float3(0.5, 0.5, 0.5) : SRGBToLinear(float3(0.5, 0.5, 0.5));
             surface.Emission = float3(0, 0, 0);
             return surface;
         }
@@ -2895,7 +2372,6 @@ Shader "Shader Graphs/Wiggle"
             output.ObjectSpaceNormal =                          input.normalOS;
             output.ObjectSpaceTangent =                         input.tangentOS.xyz;
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -2928,7 +2404,6 @@ Shader "Shader Graphs/Wiggle"
             #endif
         
         
-            output.uv0 = input.texCoord0;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -2990,7 +2465,6 @@ Shader "Shader Graphs/Wiggle"
         #define _NORMAL_DROPOFF_TS 1
         #define ATTRIBUTES_NEED_NORMAL
         #define ATTRIBUTES_NEED_TANGENT
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX_NORMAL_OUTPUT
         #define FEATURES_GRAPH_VERTEX_TANGENT_OUTPUT
         #define FEATURES_GRAPH_VERTEX
@@ -3056,7 +2530,6 @@ Shader "Shader Graphs/Wiggle"
              float3 ObjectSpaceNormal;
              float3 ObjectSpaceTangent;
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
@@ -3120,28 +2593,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -3158,21 +2616,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -3188,30 +2632,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             description.Normal = IN.ObjectSpaceNormal;
             description.Tangent = IN.ObjectSpaceTangent;
             return description;
@@ -3252,7 +2673,6 @@ Shader "Shader Graphs/Wiggle"
             output.ObjectSpaceNormal =                          input.normalOS;
             output.ObjectSpaceTangent =                         input.tangentOS.xyz;
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -3321,7 +2741,7 @@ Shader "Shader Graphs/Wiggle"
             }
         
         // Render State
-        Cull Off
+        Cull Back
         
         // Debug
         // <None>
@@ -3346,11 +2766,8 @@ Shader "Shader Graphs/Wiggle"
         #define _NORMAL_DROPOFF_TS 1
         #define ATTRIBUTES_NEED_NORMAL
         #define ATTRIBUTES_NEED_TANGENT
-        #define ATTRIBUTES_NEED_TEXCOORD0
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX_NORMAL_OUTPUT
         #define FEATURES_GRAPH_VERTEX_TANGENT_OUTPUT
-        #define VARYINGS_NEED_TEXCOORD0
         #define FEATURES_GRAPH_VERTEX
         /* WARNING: $splice Could not find named fragment 'PassInstancing' */
         #define SHADERPASS SHADERPASS_DEPTHONLY
@@ -3386,7 +2803,6 @@ Shader "Shader Graphs/Wiggle"
              float3 positionOS : POSITION;
              float3 normalOS : NORMAL;
              float4 tangentOS : TANGENT;
-             float4 uv0 : TEXCOORD0;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(ATTRIBUTES_NEED_INSTANCEID)
              uint instanceID : INSTANCEID_SEMANTIC;
             #endif
@@ -3394,7 +2810,6 @@ Shader "Shader Graphs/Wiggle"
         struct Varyings
         {
              float4 positionCS : SV_POSITION;
-             float4 texCoord0;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
              uint instanceID : CUSTOM_INSTANCE_ID;
             #endif
@@ -3410,19 +2825,16 @@ Shader "Shader Graphs/Wiggle"
         };
         struct SurfaceDescriptionInputs
         {
-             float4 uv0;
         };
         struct VertexDescriptionInputs
         {
              float3 ObjectSpaceNormal;
              float3 ObjectSpaceTangent;
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
              float4 positionCS : SV_POSITION;
-             float4 texCoord0 : INTERP0;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
              uint instanceID : CUSTOM_INSTANCE_ID;
             #endif
@@ -3442,7 +2854,6 @@ Shader "Shader Graphs/Wiggle"
             PackedVaryings output;
             ZERO_INITIALIZE(PackedVaryings, output);
             output.positionCS = input.positionCS;
-            output.texCoord0.xyzw = input.texCoord0;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
             output.instanceID = input.instanceID;
             #endif
@@ -3462,7 +2873,6 @@ Shader "Shader Graphs/Wiggle"
         {
             Varyings output;
             output.positionCS = input.positionCS;
-            output.texCoord0 = input.texCoord0.xyzw;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
             output.instanceID = input.instanceID;
             #endif
@@ -3484,28 +2894,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -3522,31 +2917,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
-        
-        void Unity_Multiply_float3_float3(float3 A, float3 B, out float3 Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Lerp_float3(float3 A, float3 B, float3 T, out float3 Out)
-        {
-            Out = lerp(A, B, T);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -3562,30 +2933,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             description.Normal = IN.ObjectSpaceNormal;
             description.Tangent = IN.ObjectSpaceTangent;
             return description;
@@ -3609,29 +2957,7 @@ Shader "Shader Graphs/Wiggle"
         SurfaceDescription SurfaceDescriptionFunction(SurfaceDescriptionInputs IN)
         {
             SurfaceDescription surface = (SurfaceDescription)0;
-            UnityTexture2D _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_f1501a0998c642b79ace66ac93266000);
-            float4 _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.tex, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.samplerstate, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.GetTransformedUV(IN.uv0.xy) );
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.r;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.g;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.b;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.a;
-            float3 _Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3 = float3(_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float);
-            UnityTexture2D _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_fe15ad9678c146b584141fd68467b19c);
-            float _Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float2 _Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2 = float2(_Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float, float(0));
-            float4 _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.tex, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.samplerstate, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.GetTransformedUV(_Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2) );
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_R_4_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.r;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_G_5_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.g;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_B_6_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.b;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_A_7_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.a;
-            float3 _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, (_SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.xyz), _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3);
-            float3 _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3;
-            Unity_Lerp_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3, (_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float.xxx), _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3);
-            float4 _Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4 = Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-            float3 _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3, (_Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4.xyz), _Multiply_67234ad010694730941597912c319956_Out_2_Vector3);
-            surface.BaseColor = _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
+            surface.BaseColor = IsGammaSpace() ? float3(0.5, 0.5, 0.5) : SRGBToLinear(float3(0.5, 0.5, 0.5));
             return surface;
         }
         
@@ -3650,7 +2976,6 @@ Shader "Shader Graphs/Wiggle"
             output.ObjectSpaceNormal =                          input.normalOS;
             output.ObjectSpaceTangent =                         input.tangentOS.xyz;
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -3683,7 +3008,6 @@ Shader "Shader Graphs/Wiggle"
             #endif
         
         
-            output.uv0 = input.texCoord0;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -3720,7 +3044,7 @@ Shader "Shader Graphs/Wiggle"
             }
         
         // Render State
-        Cull Off
+        Cull Back
         Blend One Zero
         ZTest LEqual
         ZWrite On
@@ -3748,11 +3072,8 @@ Shader "Shader Graphs/Wiggle"
         #define _NORMAL_DROPOFF_TS 1
         #define ATTRIBUTES_NEED_NORMAL
         #define ATTRIBUTES_NEED_TANGENT
-        #define ATTRIBUTES_NEED_TEXCOORD0
-        #define GRAPH_VERTEX_USES_TIME_PARAMETERS_INPUT
         #define FEATURES_GRAPH_VERTEX_NORMAL_OUTPUT
         #define FEATURES_GRAPH_VERTEX_TANGENT_OUTPUT
-        #define VARYINGS_NEED_TEXCOORD0
         #define FEATURES_GRAPH_VERTEX
         /* WARNING: $splice Could not find named fragment 'PassInstancing' */
         #define SHADERPASS SHADERPASS_2D
@@ -3785,7 +3106,6 @@ Shader "Shader Graphs/Wiggle"
              float3 positionOS : POSITION;
              float3 normalOS : NORMAL;
              float4 tangentOS : TANGENT;
-             float4 uv0 : TEXCOORD0;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(ATTRIBUTES_NEED_INSTANCEID)
              uint instanceID : INSTANCEID_SEMANTIC;
             #endif
@@ -3793,7 +3113,6 @@ Shader "Shader Graphs/Wiggle"
         struct Varyings
         {
              float4 positionCS : SV_POSITION;
-             float4 texCoord0;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
              uint instanceID : CUSTOM_INSTANCE_ID;
             #endif
@@ -3809,19 +3128,16 @@ Shader "Shader Graphs/Wiggle"
         };
         struct SurfaceDescriptionInputs
         {
-             float4 uv0;
         };
         struct VertexDescriptionInputs
         {
              float3 ObjectSpaceNormal;
              float3 ObjectSpaceTangent;
              float3 ObjectSpacePosition;
-             float3 TimeParameters;
         };
         struct PackedVaryings
         {
              float4 positionCS : SV_POSITION;
-             float4 texCoord0 : INTERP0;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
              uint instanceID : CUSTOM_INSTANCE_ID;
             #endif
@@ -3841,7 +3157,6 @@ Shader "Shader Graphs/Wiggle"
             PackedVaryings output;
             ZERO_INITIALIZE(PackedVaryings, output);
             output.positionCS = input.positionCS;
-            output.texCoord0.xyzw = input.texCoord0;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
             output.instanceID = input.instanceID;
             #endif
@@ -3861,7 +3176,6 @@ Shader "Shader Graphs/Wiggle"
         {
             Varyings output;
             output.positionCS = input.positionCS;
-            output.texCoord0 = input.texCoord0.xyzw;
             #if UNITY_ANY_INSTANCING_ENABLED || defined(VARYINGS_NEED_INSTANCEID)
             output.instanceID = input.instanceID;
             #endif
@@ -3883,28 +3197,13 @@ Shader "Shader Graphs/Wiggle"
         
         // Graph Properties
         CBUFFER_START(UnityPerMaterial)
-        float4 Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-        float4 Texture2D_f1501a0998c642b79ace66ac93266000_TexelSize;
-        float4 Texture2D_e893cbba98cb45f681fd897db3d0819d_TexelSize;
-        float4 Texture2D_fe15ad9678c146b584141fd68467b19c_TexelSize;
-        float Vector1_3b44777b43364ca68a0a221cc322b652;
-        float Vector1_ddb141b7d6f34b07baac880f6fd87e70;
-        float Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-        float Vector1_613a6726b8ab4f9ab7314943d91bc344;
-        float Vector1_69db3926cfb44e73a5be98ada8013b3c;
-        float Vector1_7932143712d4466bb0127e93a7311228;
+        float _Smoothness;
+        float _Metallic;
         UNITY_TEXTURE_STREAMING_DEBUG_VARS;
         CBUFFER_END
         
         
         // Object and Global properties
-        SAMPLER(SamplerState_Linear_Repeat);
-        TEXTURE2D(Texture2D_f1501a0998c642b79ace66ac93266000);
-        SAMPLER(samplerTexture2D_f1501a0998c642b79ace66ac93266000);
-        TEXTURE2D(Texture2D_e893cbba98cb45f681fd897db3d0819d);
-        SAMPLER(samplerTexture2D_e893cbba98cb45f681fd897db3d0819d);
-        TEXTURE2D(Texture2D_fe15ad9678c146b584141fd68467b19c);
-        SAMPLER(samplerTexture2D_fe15ad9678c146b584141fd68467b19c);
         
         // Graph Includes
         // GraphIncludes: <None>
@@ -3921,31 +3220,7 @@ Shader "Shader Graphs/Wiggle"
         #endif
         
         // Graph Functions
-        
-        void Unity_Add_float(float A, float B, out float Out)
-        {
-            Out = A + B;
-        }
-        
-        void Unity_Multiply_float_float(float A, float B, out float Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Sine_float(float In, out float Out)
-        {
-            Out = sin(In);
-        }
-        
-        void Unity_Multiply_float3_float3(float3 A, float3 B, out float3 Out)
-        {
-            Out = A * B;
-        }
-        
-        void Unity_Lerp_float3(float3 A, float3 B, float3 T, out float3 Out)
-        {
-            Out = lerp(A, B, T);
-        }
+        // GraphFunctions: <None>
         
         // Custom interpolators pre vertex
         /* WARNING: $splice Could not find named fragment 'CustomInterpolatorPreVertex' */
@@ -3961,30 +3236,7 @@ Shader "Shader Graphs/Wiggle"
         VertexDescription VertexDescriptionFunction(VertexDescriptionInputs IN)
         {
             VertexDescription description = (VertexDescription)0;
-            float _Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float;
-            Unity_Add_float(_Property_3bdd946e6ed2440eb274304b8854337d_Out_0_Float, IN.TimeParameters.x, _Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float);
-            float _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float = Vector1_613a6726b8ab4f9ab7314943d91bc344;
-            float _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float;
-            Unity_Multiply_float_float(_Add_d55e8cd7759c4ff7ba80bf0d3ee9c873_Out_2_Float, _Property_3f8a50dbae814377b348984227319ab2_Out_0_Float, _Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float);
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float = IN.ObjectSpacePosition[0];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float = IN.ObjectSpacePosition[1];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float = IN.ObjectSpacePosition[2];
-            float _Split_668d8971d6ae4e1c9be83d407ac3bfa9_A_4_Float = 0;
-            float _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float = Vector1_2b27bdfdb65f40b3bbd106395116c08e;
-            float _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float;
-            Unity_Multiply_float_float(_Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float, _Property_8b11852545be4a218f584a5dcc329d3a_Out_0_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float);
-            float _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float;
-            Unity_Add_float(_Multiply_3fb32b110927489c8fc700a91e1dc001_Out_2_Float, _Multiply_5c1a0ee84a174b6a866712678cdfe274_Out_2_Float, _Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float);
-            float _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float;
-            Unity_Sine_float(_Add_0771eecb3c794f68ba9fafc647f44c31_Out_2_Float, _Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float);
-            float _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float = Vector1_69db3926cfb44e73a5be98ada8013b3c;
-            float _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float;
-            Unity_Multiply_float_float(_Sine_3e7f3ec939194a7eab3162b37e2c57c3_Out_1_Float, _Property_fd9a8d2825594a6eadd3b69b3e3fc22d_Out_0_Float, _Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float);
-            float _Add_51d142f1b3094192938a59c800475b64_Out_2_Float;
-            Unity_Add_float(_Multiply_772e4789f871414da2cd41fdc3264780_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_R_1_Float, _Add_51d142f1b3094192938a59c800475b64_Out_2_Float);
-            float3 _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3 = float3(_Add_51d142f1b3094192938a59c800475b64_Out_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_G_2_Float, _Split_668d8971d6ae4e1c9be83d407ac3bfa9_B_3_Float);
-            description.Position = _Vector3_e0133c0f0b3c454d87dab0aa60073a9b_Out_0_Vector3;
+            description.Position = IN.ObjectSpacePosition;
             description.Normal = IN.ObjectSpaceNormal;
             description.Tangent = IN.ObjectSpaceTangent;
             return description;
@@ -4008,29 +3260,7 @@ Shader "Shader Graphs/Wiggle"
         SurfaceDescription SurfaceDescriptionFunction(SurfaceDescriptionInputs IN)
         {
             SurfaceDescription surface = (SurfaceDescription)0;
-            UnityTexture2D _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_f1501a0998c642b79ace66ac93266000);
-            float4 _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.tex, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.samplerstate, _Property_0499e12ab87745c797674fe9f2a3ca6e_Out_0_Texture2D.GetTransformedUV(IN.uv0.xy) );
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.r;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.g;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.b;
-            float _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float = _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_RGBA_0_Vector4.a;
-            float3 _Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3 = float3(_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_R_4_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_G_5_Float, _SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_B_6_Float);
-            UnityTexture2D _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D = UnityBuildTexture2DStructNoScale(Texture2D_fe15ad9678c146b584141fd68467b19c);
-            float _Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float = Vector1_7932143712d4466bb0127e93a7311228;
-            float2 _Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2 = float2(_Property_0b3a4818b27544359b96f9a534150c8a_Out_0_Float, float(0));
-            float4 _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4 = SAMPLE_TEXTURE2D(_Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.tex, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.samplerstate, _Property_974cb29e8db340fc98510c10448be2e2_Out_0_Texture2D.GetTransformedUV(_Vector2_77ffcfb05db84bee8c290f90ec0199b5_Out_0_Vector2) );
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_R_4_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.r;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_G_5_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.g;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_B_6_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.b;
-            float _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_A_7_Float = _SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.a;
-            float3 _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, (_SampleTexture2D_fc008b995cc942d7a6e91b2927965b13_RGBA_0_Vector4.xyz), _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3);
-            float3 _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3;
-            Unity_Lerp_float3(_Vector3_47d2b0430b8649ba8a8127039671161b_Out_0_Vector3, _Multiply_682eceb2af1e479385aa5352484f1baa_Out_2_Vector3, (_SampleTexture2D_0efe128a9843452a974c2b74585f2d0f_A_7_Float.xxx), _Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3);
-            float4 _Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4 = Color_6fad55456a0f4d8e8cbf7e73a8860e75;
-            float3 _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
-            Unity_Multiply_float3_float3(_Lerp_c755a8ff86da4ab3a30222535521cd81_Out_3_Vector3, (_Property_877ce669ce9a425ab23abe299df2afa7_Out_0_Vector4.xyz), _Multiply_67234ad010694730941597912c319956_Out_2_Vector3);
-            surface.BaseColor = _Multiply_67234ad010694730941597912c319956_Out_2_Vector3;
+            surface.BaseColor = IsGammaSpace() ? float3(0.5, 0.5, 0.5) : SRGBToLinear(float3(0.5, 0.5, 0.5));
             return surface;
         }
         
@@ -4049,7 +3279,6 @@ Shader "Shader Graphs/Wiggle"
             output.ObjectSpaceNormal =                          input.normalOS;
             output.ObjectSpaceTangent =                         input.tangentOS.xyz;
             output.ObjectSpacePosition =                        input.positionOS;
-            output.TimeParameters =                             _TimeParameters.xyz;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif
@@ -4082,7 +3311,6 @@ Shader "Shader Graphs/Wiggle"
             #endif
         
         
-            output.uv0 = input.texCoord0;
         #if UNITY_ANY_INSTANCING_ENABLED
         #else // TODO: XR support for procedural instancing because in this case UNITY_ANY_INSTANCING_ENABLED is not defined and instanceID is incorrect.
         #endif

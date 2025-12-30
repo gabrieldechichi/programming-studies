@@ -63,7 +63,7 @@ static const char *fish_fs =
     "@group(2) @binding(4) var metallic_sampler: sampler;\n"
     "@group(2) @binding(5) var metallic_texture: texture_2d<f32>;\n"
     "\n"
-    "const LIGHT_DIR: vec3<f32> = vec3<f32>(0.0, 0.0, 1.0);\n"
+    "const LIGHT_DIR: vec3<f32> = vec3<f32>(0.5, 0.8, 0.3);\n"
     "const LIGHT_COLOR: vec3<f32> = vec3<f32>(0.663, 0.973, 1.0);\n"
     "const LIGHT_INTENSITY: f32 = 1.5;\n"
     "const AMBIENT_COLOR: vec3<f32> = vec3<f32>(0.2, 0.2, 0.2);\n"
