@@ -89,9 +89,11 @@ global GpuTexture g_albedo_tex = {0};
 global GpuTexture g_normal_tex = {0};
 global f32 g_rotation;
 
-void app_init(AppMemory *memory) {
+void app_init(AppMemory *memory)
+{
   UNUSED(memory);
-  if (!is_main_thread()) {
+  if (!is_main_thread())
+  {
     return;
   }
 
@@ -107,16 +109,20 @@ void app_init(AppMemory *memory) {
   g_file_op = os_start_read_file("cube.hasset", tctx->task_system);
 }
 
-void app_update_and_render(AppMemory *memory) {
-  if (!is_main_thread()) {
+void app_update_and_render(AppMemory *memory)
+{
+  if (!is_main_thread())
+  {
     return;
   }
 
   local_persist b32 loaded = false;
 
-  if (!loaded) {
+  if (!loaded)
+  {
     OsFileReadState state = os_check_read_file(g_file_op);
-    if (state != OS_FILE_READ_STATE_COMPLETED) {
+    if (state != OS_FILE_READ_STATE_COMPLETED)
+    {
       return;
     }
 
@@ -138,26 +144,19 @@ void app_update_and_render(AppMemory *memory) {
             (GpuShaderDesc){
                 .vs_code = textured_vs,
                 .fs_code = textured_fs,
-                .uniform_blocks =
-                    {
-                        GPU_UNIFORM_DESC_VERTEX(GlobalUniforms, 0),
-                    },
-                .uniform_block_count = 1,
-                .texture_bindings =
-                    {
-                        GPU_TEXTURE_BINDING_FRAG(1, 0),
-                        GPU_TEXTURE_BINDING_FRAG(3, 2),
-                    },
-                .texture_binding_count = 2,
+                .uniform_blocks = FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+                                                     GPU_UNIFORM_DESC_VERTEX(GlobalUniforms, 0), ),
+                .texture_bindings = FIXED_ARRAY_DEFINE(GpuTextureBindingDesc,
+                                                       GPU_TEXTURE_BINDING_FRAG(1, 0),
+                                                       GPU_TEXTURE_BINDING_FRAG(3, 2), ),
             },
         .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
         .primitive = GPU_PRIMITIVE_TRIANGLES,
         .depth_test = true,
         .depth_write = true,
-        .properties = ARRAY_FROM_ELEMENTS(MaterialPropertyDesc,
-            {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
-            {.name = "normal", .type = MAT_PROP_TEXTURE, .binding = 1},
-        ),
+        .properties = FIXED_ARRAY_DEFINE(MaterialPropertyDesc,
+                                         {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
+                                         {.name = "normal", .type = MAT_PROP_TEXTURE, .binding = 1}, ),
     });
 
     material_set_texture(g_material, "albedo", g_albedo_tex);

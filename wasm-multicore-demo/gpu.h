@@ -57,12 +57,9 @@ typedef struct {
 typedef struct { u8 _unused; } GpuBufferSlot;
 typedef struct { u8 _unused; } GpuTextureSlot;
 typedef struct {
-    GpuUniformBlockDesc uniform_blocks[GPU_MAX_UNIFORMBLOCK_SLOTS];
-    u32 uniform_block_count;
-    GpuStorageBufferDesc storage_buffers[GPU_MAX_STORAGE_BUFFER_SLOTS];
-    u32 storage_buffer_count;
-    GpuTextureBindingDesc texture_bindings[GPU_MAX_TEXTURE_SLOTS];
-    u32 texture_binding_count;
+    FixedArray(GpuUniformBlockDesc, GPU_MAX_UNIFORMBLOCK_SLOTS) uniform_blocks;
+    FixedArray(GpuStorageBufferDesc, GPU_MAX_STORAGE_BUFFER_SLOTS) storage_buffers;
+    FixedArray(GpuTextureBindingDesc, GPU_MAX_TEXTURE_SLOTS) texture_bindings;
 } GpuShaderSlot;
 typedef struct {
     GpuShader shader;
@@ -108,14 +105,11 @@ typedef struct {
 } GpuBufferDesc;
 
 typedef struct {
-    const char *vs_code;  // WGSL source
-    const char *fs_code;  // WGSL source
-    GpuUniformBlockDesc uniform_blocks[GPU_MAX_UNIFORMBLOCK_SLOTS];
-    u32 uniform_block_count;
-    GpuStorageBufferDesc storage_buffers[GPU_MAX_STORAGE_BUFFER_SLOTS];
-    u32 storage_buffer_count;
-    GpuTextureBindingDesc texture_bindings[GPU_MAX_TEXTURE_SLOTS];
-    u32 texture_binding_count;
+    const char *vs_code;
+    const char *fs_code;
+    FixedArray(GpuUniformBlockDesc, GPU_MAX_UNIFORMBLOCK_SLOTS) uniform_blocks;
+    FixedArray(GpuStorageBufferDesc, GPU_MAX_STORAGE_BUFFER_SLOTS) storage_buffers;
+    FixedArray(GpuTextureBindingDesc, GPU_MAX_TEXTURE_SLOTS) texture_bindings;
 } GpuShaderDesc;
 
 typedef struct {
@@ -128,8 +122,7 @@ typedef struct {
 
 typedef struct {
     u32 stride;
-    GpuVertexAttr attrs[GPU_MAX_VERTEX_ATTRS];
-    u32 attr_count;
+    FixedArray(GpuVertexAttr, GPU_MAX_VERTEX_ATTRS) attrs;
 } GpuVertexLayout;
 
 typedef struct {
@@ -144,14 +137,11 @@ typedef struct {
 #define GPU_MAX_VERTEX_BUFFERS 4
 
 typedef struct {
-    GpuBuffer vertex_buffers[GPU_MAX_VERTEX_BUFFERS];
-    u32 vertex_buffer_count;
+    FixedArray(GpuBuffer, GPU_MAX_VERTEX_BUFFERS) vertex_buffers;
     GpuBuffer index_buffer;
     GpuIndexFormat index_format;
-    GpuBuffer storage_buffers[GPU_MAX_STORAGE_BUFFER_SLOTS];
-    u32 storage_buffer_count;
-    GpuTexture textures[GPU_MAX_TEXTURE_SLOTS];
-    u32 texture_count;
+    FixedArray(GpuBuffer, GPU_MAX_STORAGE_BUFFER_SLOTS) storage_buffers;
+    FixedArray(GpuTexture, GPU_MAX_TEXTURE_SLOTS) textures;
 } GpuBindings;
 
 //todo: unions?

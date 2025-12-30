@@ -64,7 +64,7 @@ typedef struct {
   b32 depth_test;
   b32 depth_write;
 
-  StaticArray(MaterialPropertyDesc, MAX_MATERIAL_PROPERTIES) properties;
+  FixedArray(MaterialPropertyDesc, MAX_MATERIAL_PROPERTIES) properties;
 } MaterialDesc;
 
 typedef struct {
@@ -85,7 +85,7 @@ typedef struct {
   GpuShader shader;
   GpuPipeline pipeline;
 
-  StaticArray(MaterialProperty, MAX_MATERIAL_PROPERTIES) properties;
+  FixedArray(MaterialProperty, MAX_MATERIAL_PROPERTIES) properties;
 } Material;
 TYPED_HANDLE_DEFINE(Material);
 HANDLE_ARRAY_DEFINE(Material);

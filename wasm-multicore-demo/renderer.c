@@ -293,14 +293,13 @@ void renderer_end_frame(void) {
         }
 
         GpuBindings bindings = {
-            .vertex_buffers = {mesh->vbuf},
-            .vertex_buffer_count = 1,
+            .vertex_buffers = {.items = {mesh->vbuf}, .len = 1},
             .index_buffer = mesh->ibuf,
             .index_format = mesh->index_format,
-            .texture_count = mat_texture_count,
+            .textures = {.len = mat_texture_count},
         };
         for (u32 t = 0; t < mat_texture_count; t++) {
-          bindings.textures[t] = mat_textures[t];
+          bindings.textures.items[t] = mat_textures[t];
         }
         gpu_apply_bindings(&bindings);
 
@@ -353,14 +352,11 @@ void renderer_end_frame(void) {
           gpu_apply_uniforms(prop->binding, data, size);
         }
 
-        // Apply vertex/index buffer bindings with storage buffer for instance data
         gpu_apply_bindings(&(GpuBindings){
-            .vertex_buffers = {mesh->vbuf},
-            .vertex_buffer_count = 1,
+            .vertex_buffers = {.items = {mesh->vbuf}, .len = 1},
             .index_buffer = mesh->ibuf,
             .index_format = mesh->index_format,
-            .storage_buffers = {ib->buffer},
-            .storage_buffer_count = 1,
+            .storage_buffers = {.items = {ib->buffer}, .len = 1},
         });
 
         gpu_draw_indexed(mesh->index_count, ib->instance_count);

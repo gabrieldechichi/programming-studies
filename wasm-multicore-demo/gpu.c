@@ -198,17 +198,17 @@ void gpu_destroy_buffer(GpuBuffer buf) {
 
 GpuShader gpu_make_shader(GpuShaderDesc *desc) {
   GpuShaderSlot slot = {0};
-  slot.uniform_block_count = desc->uniform_block_count;
-  for (u32 i = 0; i < desc->uniform_block_count; i++) {
-    slot.uniform_blocks[i] = desc->uniform_blocks[i];
+  slot.uniform_blocks.len = desc->uniform_blocks.len;
+  for (u32 i = 0; i < desc->uniform_blocks.len; i++) {
+    slot.uniform_blocks.items[i] = desc->uniform_blocks.items[i];
   }
-  slot.storage_buffer_count = desc->storage_buffer_count;
-  for (u32 i = 0; i < desc->storage_buffer_count; i++) {
-    slot.storage_buffers[i] = desc->storage_buffers[i];
+  slot.storage_buffers.len = desc->storage_buffers.len;
+  for (u32 i = 0; i < desc->storage_buffers.len; i++) {
+    slot.storage_buffers.items[i] = desc->storage_buffers.items[i];
   }
-  slot.texture_binding_count = desc->texture_binding_count;
-  for (u32 i = 0; i < desc->texture_binding_count; i++) {
-    slot.texture_bindings[i] = desc->texture_bindings[i];
+  slot.texture_bindings.len = desc->texture_bindings.len;
+  for (u32 i = 0; i < desc->texture_bindings.len; i++) {
+    slot.texture_bindings.items[i] = desc->texture_bindings.items[i];
   }
 
   GpuShader handle = ha_add(GpuShaderSlot, &gpu_state.shaders, slot);
@@ -233,56 +233,56 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
 
   GpuPipelineSlot slot = {
       .shader = desc->shader,
-      .uniform_block_count = shader_slot->uniform_block_count,
-      .storage_buffer_count = shader_slot->storage_buffer_count,
-      .texture_binding_count = shader_slot->texture_binding_count,
+      .uniform_block_count = (u32)shader_slot->uniform_blocks.len,
+      .storage_buffer_count = (u32)shader_slot->storage_buffers.len,
+      .texture_binding_count = (u32)shader_slot->texture_bindings.len,
   };
   GpuPipeline handle = ha_add(GpuPipelineSlot, &gpu_state.pipelines, slot);
 
   u32 attr_formats[GPU_MAX_VERTEX_ATTRS];
   u32 attr_offsets[GPU_MAX_VERTEX_ATTRS];
   u32 attr_locations[GPU_MAX_VERTEX_ATTRS];
-  for (u32 i = 0; i < desc->vertex_layout.attr_count; i++) {
-    attr_formats[i] = desc->vertex_layout.attrs[i].format;
-    attr_offsets[i] = desc->vertex_layout.attrs[i].offset;
-    attr_locations[i] = desc->vertex_layout.attrs[i].shader_location;
+  for (u32 i = 0; i < desc->vertex_layout.attrs.len; i++) {
+    attr_formats[i] = desc->vertex_layout.attrs.items[i].format;
+    attr_offsets[i] = desc->vertex_layout.attrs.items[i].offset;
+    attr_locations[i] = desc->vertex_layout.attrs.items[i].shader_location;
   }
 
   u32 ub_stages[GPU_MAX_UNIFORMBLOCK_SLOTS];
   u32 ub_sizes[GPU_MAX_UNIFORMBLOCK_SLOTS];
   u32 ub_bindings[GPU_MAX_UNIFORMBLOCK_SLOTS];
-  for (u32 i = 0; i < shader_slot->uniform_block_count; i++) {
-    ub_stages[i] = shader_slot->uniform_blocks[i].stage;
-    ub_sizes[i] = shader_slot->uniform_blocks[i].size;
-    ub_bindings[i] = shader_slot->uniform_blocks[i].binding;
+  for (u32 i = 0; i < shader_slot->uniform_blocks.len; i++) {
+    ub_stages[i] = shader_slot->uniform_blocks.items[i].stage;
+    ub_sizes[i] = shader_slot->uniform_blocks.items[i].size;
+    ub_bindings[i] = shader_slot->uniform_blocks.items[i].binding;
   }
 
   u32 sb_stages[GPU_MAX_STORAGE_BUFFER_SLOTS];
   u32 sb_bindings[GPU_MAX_STORAGE_BUFFER_SLOTS];
   u32 sb_readonly[GPU_MAX_STORAGE_BUFFER_SLOTS];
-  for (u32 i = 0; i < shader_slot->storage_buffer_count; i++) {
-    sb_stages[i] = shader_slot->storage_buffers[i].stage;
-    sb_bindings[i] = shader_slot->storage_buffers[i].binding;
-    sb_readonly[i] = shader_slot->storage_buffers[i].readonly;
+  for (u32 i = 0; i < shader_slot->storage_buffers.len; i++) {
+    sb_stages[i] = shader_slot->storage_buffers.items[i].stage;
+    sb_bindings[i] = shader_slot->storage_buffers.items[i].binding;
+    sb_readonly[i] = shader_slot->storage_buffers.items[i].readonly;
   }
 
   u32 tex_stages[GPU_MAX_TEXTURE_SLOTS];
   u32 tex_sampler_bindings[GPU_MAX_TEXTURE_SLOTS];
   u32 tex_texture_bindings[GPU_MAX_TEXTURE_SLOTS];
-  for (u32 i = 0; i < shader_slot->texture_binding_count; i++) {
-    tex_stages[i] = shader_slot->texture_bindings[i].stage;
-    tex_sampler_bindings[i] = shader_slot->texture_bindings[i].sampler_binding;
-    tex_texture_bindings[i] = shader_slot->texture_bindings[i].texture_binding;
+  for (u32 i = 0; i < shader_slot->texture_bindings.len; i++) {
+    tex_stages[i] = shader_slot->texture_bindings.items[i].stage;
+    tex_sampler_bindings[i] = shader_slot->texture_bindings.items[i].sampler_binding;
+    tex_texture_bindings[i] = shader_slot->texture_bindings.items[i].texture_binding;
   }
 
   js_gpu_make_pipeline(handle.idx, desc->shader.idx, desc->vertex_layout.stride,
-                       desc->vertex_layout.attr_count, attr_formats,
+                       (u32)desc->vertex_layout.attrs.len, attr_formats,
                        attr_offsets, attr_locations,
-                       shader_slot->uniform_block_count, ub_stages, ub_sizes,
+                       (u32)shader_slot->uniform_blocks.len, ub_stages, ub_sizes,
                        ub_bindings,
-                       shader_slot->storage_buffer_count, sb_stages,
+                       (u32)shader_slot->storage_buffers.len, sb_stages,
                        sb_bindings, sb_readonly,
-                       shader_slot->texture_binding_count, tex_stages,
+                       (u32)shader_slot->texture_bindings.len, tex_stages,
                        tex_sampler_bindings, tex_texture_bindings,
                        desc->primitive, desc->depth_test,
                        desc->depth_write);
@@ -326,26 +326,26 @@ void gpu_apply_bindings(GpuBindings *bindings) {
   assert(pip_slot != NULL);
 
   u32 vb_indices[GPU_MAX_VERTEX_BUFFERS];
-  for (u32 i = 0; i < bindings->vertex_buffer_count; i++) {
-    vb_indices[i] = bindings->vertex_buffers[i].idx;
+  for (u32 i = 0; i < bindings->vertex_buffers.len; i++) {
+    vb_indices[i] = bindings->vertex_buffers.items[i].idx;
   }
 
   u32 sb_indices[GPU_MAX_STORAGE_BUFFER_SLOTS];
-  for (u32 i = 0; i < bindings->storage_buffer_count; i++) {
-    sb_indices[i] = bindings->storage_buffers[i].idx;
+  for (u32 i = 0; i < bindings->storage_buffers.len; i++) {
+    sb_indices[i] = bindings->storage_buffers.items[i].idx;
   }
 
   u32 tex_indices[GPU_MAX_TEXTURE_SLOTS];
-  for (u32 i = 0; i < bindings->texture_count; i++) {
-    tex_indices[i] = bindings->textures[i].idx;
+  for (u32 i = 0; i < bindings->textures.len; i++) {
+    tex_indices[i] = bindings->textures.items[i].idx;
   }
 
-  js_gpu_apply_bindings(bindings->vertex_buffer_count, vb_indices,
+  js_gpu_apply_bindings((u32)bindings->vertex_buffers.len, vb_indices,
                         bindings->index_buffer.idx, bindings->index_format,
                         gpu_state.uniforms.gpu_buf.idx,
                         pip_slot->uniform_block_count, gpu_state.uniform_offsets,
-                        bindings->storage_buffer_count, sb_indices,
-                        bindings->texture_count, tex_indices);
+                        (u32)bindings->storage_buffers.len, sb_indices,
+                        (u32)bindings->textures.len, tex_indices);
 }
 
 void gpu_draw(u32 vertex_count, u32 instance_count) {
