@@ -14,6 +14,7 @@ static const char *fish_vs =
     "    view: mat4x4<f32>,\n"
     "    proj: mat4x4<f32>,\n"
     "    view_proj: mat4x4<f32>,\n"
+    "    camera_pos: vec3<f32>,\n"
     "};\n"
     "\n"
     "@group(0) @binding(0) var<uniform> global: GlobalUniforms;\n"
@@ -62,8 +63,10 @@ static const char *fish_fs =
     "@group(2) @binding(4) var metallic_sampler: sampler;\n"
     "@group(2) @binding(5) var metallic_texture: texture_2d<f32>;\n"
     "\n"
-    "const LIGHT_DIR: vec3<f32> = vec3<f32>(0.5, 0.8, 0.3);\n"
-    "const AMBIENT: f32 = 0.1;\n"
+    "const LIGHT_DIR: vec3<f32> = vec3<f32>(0.0, 0.0, 1.0);\n"
+    "const LIGHT_COLOR: vec3<f32> = vec3<f32>(0.663, 0.973, 1.0);\n"
+    "const LIGHT_INTENSITY: f32 = 1.5;\n"
+    "const AMBIENT_COLOR: vec3<f32> = vec3<f32>(0.2, 0.2, 0.2);\n"
     "const PI: f32 = 3.14159265359;\n"
     "\n"
     "struct FragmentInput {\n"
@@ -110,7 +113,7 @@ static const char *fish_fs =
     "    let roughness = 1.0 - (material.smoothness * metallic_sample.a);\n"
     "\n"
     "    let n = normalize(in.world_normal);\n"
-    "    let v = normalize(-in.world_pos);\n"
+    "    let v = normalize(global.camera_pos - in.world_pos);\n"
     "    let l = normalize(LIGHT_DIR);\n"
     "    let h = normalize(v + l);\n"
     "\n"
@@ -131,10 +134,10 @@ static const char *fish_fs =
     "    let kd = (1.0 - ks) * (1.0 - metallic_val);\n"
     "\n"
     "    let diffuse = kd * base_color / PI;\n"
-    "    let radiance = vec3<f32>(1.0);\n"
+    "    let radiance = LIGHT_COLOR * LIGHT_INTENSITY;\n"
     "\n"
     "    let lo = (diffuse + specular) * radiance * n_dot_l;\n"
-    "    let ambient = AMBIENT * base_color;\n"
+    "    let ambient = AMBIENT_COLOR * base_color;\n"
     "    let color = ambient + lo;\n"
     "\n"
     "    let mapped = color / (color + vec3<f32>(1.0));\n"
@@ -217,7 +220,7 @@ void app_update_and_render(AppMemory *memory)
                 .vs_code = fish_vs,
                 .fs_code = fish_fs,
                 .uniform_blocks = FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
-                                                     GPU_UNIFORM_DESC_VERTEX(GlobalUniforms, 0),
+                                                     {.stage = GPU_STAGE_VERTEX_FRAGMENT, .size = sizeof(GlobalUniforms), .binding = 0},
                                                      GPU_UNIFORM_DESC_FRAG(MaterialUniforms, 1), ),
                 .texture_bindings = FIXED_ARRAY_DEFINE(GpuTextureBindingDesc,
                                                        GPU_TEXTURE_BINDING_FRAG(1, 0),

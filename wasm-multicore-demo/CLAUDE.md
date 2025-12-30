@@ -22,4 +22,4 @@ This project uses a unity build system:
 - NEVER use C standard library. See`/lib` for any library code you need, or write it yourself
 - NEVER use `malloc`/`calloc`/`alloca` - every system in the game has allocators
 - NEVER use of printf for logging. Use LOG_INFO, LOG_WARN and LOG_ERROR, with just % as a formatter, and FMT_STR, FMT_UINT wrapping the value.
-- NEVER EVER add comments to the code. NO COMMENTS.
+- USE COMMENTS SPARINGLY, DO NOT COMMENT every line.

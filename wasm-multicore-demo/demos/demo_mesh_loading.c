@@ -78,7 +78,7 @@ static const char *textured_fs =
     "    let light_dir = normalize(LIGHT_DIR);\n"
     "    let ndotl = max(dot(world_normal, light_dir), 0.0);\n"
     "    let diffuse = AMBIENT + (1.0 - AMBIENT) * ndotl;\n"
-    "    return vec4<f32>(albedo * diffuse, 1.0);\n"
+    "    return vec4<f32>(albedo, 1.0);\n"
     "}\n";
 
 global OsFileOp *g_file_op;
@@ -99,14 +99,14 @@ void app_init(AppMemory *memory)
 
   AppContext *app_ctx = app_ctx_current();
 
-  g_camera = camera_init(VEC3(0, 0, 5), VEC3(0, 0, 0), 45.0f);
+  g_camera = camera_init(VEC3(0, 0, 1.5), VEC3(0, 0, 0), 60.0f);
   renderer_init(&app_ctx->arena, app_ctx->num_threads);
 
-  g_albedo_tex = gpu_make_texture("cube_albedo.png");
-  g_normal_tex = gpu_make_texture("cube_normal.png");
+  g_albedo_tex = gpu_make_texture("fishAlbedo2.png");
+  // g_normal_tex = gpu_make_texture("cube_normal.png");
 
   ThreadContext *tctx = tctx_current();
-  g_file_op = os_start_read_file("cube.hasset", tctx->task_system);
+  g_file_op = os_start_read_file("fish.hasset", tctx->task_system);
 }
 
 void app_update_and_render(AppMemory *memory)
@@ -177,7 +177,10 @@ void app_update_and_render(AppMemory *memory)
 
   mat4 model;
   glm_mat4_identity(model);
-  glm_rotate_y(model, g_rotation, model);
+  // glm_rotate_y(model, g_rotation, model);
+  // glm_rotate_y(model, g_rotation, model);
+  // glm_scale(model, VEC3(0.01, 0.01, 0.01));
+  mat_trs_euler(VEC3_ZERO, VEC3(RAD(90), RAD(55), 0), VEC3(0.01, 0.01, 0.01), model);
 
   renderer_draw_mesh(g_mesh, g_material, model);
 

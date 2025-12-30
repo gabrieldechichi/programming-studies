@@ -11,6 +11,8 @@ typedef struct {
   mat4 view;
   mat4 proj;
   mat4 view_proj;
+  vec3 camera_pos;
+  f32 _pad;
 } GlobalUniforms;
 
 #define GPU_UNIFORM_DESC_VERTEX(_type, _binding)                               \

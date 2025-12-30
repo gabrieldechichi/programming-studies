@@ -14,11 +14,11 @@ typedef struct {
   HandleArray_Material materials;
   HandleArray_InstanceBuffer instance_buffers;
 
-  // Per-frame state
-  // todo: move to camera uniforms, send to shader
+  // Per-frame camera state
   mat4 view;
   mat4 proj;
   mat4 view_proj;
+  vec3 camera_pos;
 
   // Per-thread command queues (no atomics needed)
   u8 thread_count;
@@ -185,6 +185,11 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   memcpy(g_renderer.proj, proj, sizeof(mat4));
   mat4_mul(proj, view, g_renderer.view_proj);
 
+  // Extract camera position from inverse view matrix
+  mat4 view_inv;
+  glm_mat4_inv(view, view_inv);
+  glm_vec3_copy((vec3){view_inv[3][0], view_inv[3][1], view_inv[3][2]}, g_renderer.camera_pos);
+
   // Reset all thread command arrays
   for (u8 i = 0; i < g_renderer.thread_count; i++) {
     g_renderer.thread_cmds[i].len = 0;
@@ -262,13 +267,14 @@ void renderer_end_frame(void) {
         memcpy(globals.view, g_renderer.view, sizeof(mat4));
         memcpy(globals.proj, g_renderer.proj, sizeof(mat4));
         memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
+        glm_vec3_copy(g_renderer.camera_pos, globals.camera_pos);
 
-        // Set uniform data for slot 0 (GlobalUniforms)
         gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 
         GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
         u32 mat_texture_count = 0;
 
+        // Pack material properties by binding
         u8 uniform_pack_buf[256];
         u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
         u16 binding_max_size[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
@@ -349,9 +355,11 @@ void renderer_end_frame(void) {
         memcpy(globals.view, g_renderer.view, sizeof(mat4));
         memcpy(globals.proj, g_renderer.proj, sizeof(mat4));
         memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
+        glm_vec3_copy(g_renderer.camera_pos, globals.camera_pos);
 
         gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 
+        // Pack material properties by binding
         u8 uniform_pack_buf[256];
         u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
         u16 binding_max_size[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
