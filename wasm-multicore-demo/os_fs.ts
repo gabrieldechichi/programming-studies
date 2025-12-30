@@ -52,7 +52,7 @@ export function createFileSystemFunctions(memory: WebAssembly.Memory) {
 
     pendingFileReads.set(op.id, op);
 
-    fetch(toAbsolutePath(fileName))
+    fetch(fileName)
       .then((response) => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
