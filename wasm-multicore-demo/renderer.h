@@ -136,7 +136,8 @@ typedef struct {
 
 arr_define(RenderCmd);
 
-void renderer_init(ArenaAllocator *arena, u8 thread_count);
+void renderer_init(ArenaAllocator *arena, u8 thread_count, u32 canvas_width, u32 canvas_height);
+void renderer_resize(u32 width, u32 height);
 
 GpuMesh_Handle renderer_upload_mesh(MeshDesc *desc);
 

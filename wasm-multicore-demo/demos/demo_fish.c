@@ -165,7 +165,6 @@ global f32 g_rotation;
 
 void app_init(AppMemory *memory)
 {
-  UNUSED(memory);
   if (!is_main_thread())
   {
     return;
@@ -174,7 +173,7 @@ void app_init(AppMemory *memory)
   AppContext *app_ctx = app_ctx_current();
 
   g_camera = camera_init(VEC3(0, 0, 5), VEC3(0, 0, 0), 45.0f);
-  renderer_init(&app_ctx->arena, app_ctx->num_threads);
+  renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height);
 
   g_albedo_tex = gpu_make_texture("fishAlbedo2.png");
   g_tint_tex = gpu_make_texture("tints.png");

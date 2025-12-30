@@ -26,11 +26,16 @@ typedef struct {
   DynArray(RenderCmd) thread_cmds[32]; // MAX_THREADS
 
   GpuTexture placeholder_texture;
+
+  // HDR render target
+  GpuRenderTarget hdr_target;
+  u32 canvas_width;
+  u32 canvas_height;
 } RendererState;
 
 global RendererState g_renderer;
 
-void renderer_init(ArenaAllocator *arena, u8 thread_count) {
+void renderer_init(ArenaAllocator *arena, u8 thread_count, u32 canvas_width, u32 canvas_height) {
   Allocator alloc = make_arena_allocator(arena);
 
   gpu_init(arena, GPU_UNIFORM_BUFFER_SIZE);
@@ -56,6 +61,17 @@ void renderer_init(ArenaAllocator *arena, u8 thread_count) {
   u8 placeholder_pixels[4] = {255, 255, 255, 255};
 #endif
   g_renderer.placeholder_texture = gpu_make_texture_data(1, 1, placeholder_pixels);
+
+  g_renderer.canvas_width = canvas_width;
+  g_renderer.canvas_height = canvas_height;
+  g_renderer.hdr_target = gpu_make_render_target(canvas_width, canvas_height, GPU_TEXTURE_FORMAT_RGBA16F);
+}
+
+void renderer_resize(u32 width, u32 height) {
+  if (width == g_renderer.canvas_width && height == g_renderer.canvas_height) return;
+  g_renderer.canvas_width = width;
+  g_renderer.canvas_height = height;
+  gpu_resize_render_target(g_renderer.hdr_target, width, height);
 }
 
 GpuMesh_Handle renderer_upload_mesh(MeshDesc *desc) {
@@ -195,10 +211,11 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
     g_renderer.thread_cmds[i].len = 0;
   }
 
-  // Begin GPU pass (also resets internal uniform buffer)
+  // Begin GPU pass to HDR render target
   gpu_begin_pass(&(GpuPassDesc){
       .clear_color = clear_color,
       .clear_depth = 1.0f,
+      .render_target = g_renderer.hdr_target,
   });
 }
 
@@ -407,5 +424,9 @@ void renderer_end_frame(void) {
   }
 
   gpu_end_pass();
+
+  // Blit HDR framebuffer to screen
+  gpu_blit_to_screen(g_renderer.hdr_target);
+
   gpu_commit(); // Flushes uniforms internally before submit
 }

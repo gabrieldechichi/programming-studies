@@ -31,6 +31,7 @@ void worker_loop(void *arg) {
 
 WASM_EXPORT(wasm_main)
 int wasm_main(AppMemory *memory) {
+  LOG_INFO("wasm_main: memory=%, canvas=%x%", FMT_UINT((u32)(size_t)memory), FMT_UINT((u32)memory->canvas_width), FMT_UINT((u32)memory->canvas_height));
   LOG_INFO("Initializing...");
 
   g_memory = memory;
@@ -72,7 +73,9 @@ int wasm_main(AppMemory *memory) {
             ARENA_ALLOC_ARRAY(&g_app_ctx.arena, u8, KB(64)), KB(64)),
     };
     worker_data[i] = (WorkerData){.ctx = &thread_contexts[i]};
+  LOG_INFO("BEFORE: wasm_main: memory=%, canvas=%x%", FMT_UINT((u32)(size_t)memory), FMT_UINT((u32)memory->canvas_width), FMT_UINT((u32)memory->canvas_height));
     threads[i] = thread_launch(worker_loop, &worker_data[i]);
+  LOG_INFO("AFTER wasm_main: memory=%, canvas=%x%", FMT_UINT((u32)(size_t)memory), FMT_UINT((u32)memory->canvas_width), FMT_UINT((u32)memory->canvas_height));
   }
 
   // Sync with workers for init phase

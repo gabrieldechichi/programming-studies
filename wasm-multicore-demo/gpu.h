@@ -19,6 +19,7 @@ typedef Handle GpuBuffer;
 typedef Handle GpuShader;
 typedef Handle GpuPipeline;
 typedef Handle GpuTexture;
+typedef Handle GpuRenderTarget;
 
 #define GPU_INVALID_HANDLE INVALID_HANDLE
 
@@ -68,10 +69,22 @@ typedef struct {
     u32 texture_binding_count; // cached from shader
 } GpuPipelineSlot;
 
+typedef enum {
+    GPU_TEXTURE_FORMAT_RGBA8 = 0,
+    GPU_TEXTURE_FORMAT_RGBA16F = 1,
+} GpuTextureFormat;
+
+typedef struct {
+    u32 width;
+    u32 height;
+    GpuTextureFormat format;
+} GpuRenderTargetSlot;
+
 HANDLE_ARRAY_DEFINE(GpuBufferSlot);
 HANDLE_ARRAY_DEFINE(GpuTextureSlot);
 HANDLE_ARRAY_DEFINE(GpuShaderSlot);
 HANDLE_ARRAY_DEFINE(GpuPipelineSlot);
+HANDLE_ARRAY_DEFINE(GpuRenderTargetSlot);
 
 // Enums
 typedef enum {
@@ -152,6 +165,7 @@ typedef struct {
 typedef struct {
     GpuColor clear_color;
     f32 clear_depth;
+    GpuRenderTarget render_target;  // GPU_INVALID_HANDLE = render to screen
 } GpuPassDesc;
 
 typedef struct {
@@ -191,5 +205,11 @@ GpuTexture gpu_make_texture(const char *path);
 GpuTexture gpu_make_texture_data(u32 width, u32 height, u8 *data);
 b32 gpu_texture_is_ready(GpuTexture tex);
 void gpu_destroy_texture(GpuTexture tex);
+
+// Render targets
+GpuRenderTarget gpu_make_render_target(u32 width, u32 height, GpuTextureFormat format);
+void gpu_resize_render_target(GpuRenderTarget rt, u32 width, u32 height);
+void gpu_destroy_render_target(GpuRenderTarget rt);
+void gpu_blit_to_screen(GpuRenderTarget rt);
 
 #endif

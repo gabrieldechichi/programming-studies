@@ -17,6 +17,7 @@ typedef struct {
   HandleArray_GpuTextureSlot textures;
   HandleArray_GpuShaderSlot shaders;
   HandleArray_GpuPipelineSlot pipelines;
+  HandleArray_GpuRenderTargetSlot render_targets;
 
   // Uniform management (internal)
   GpuUniformBuffer uniforms;
@@ -62,7 +63,7 @@ WASM_IMPORT(js_gpu_destroy_pipeline)
 void js_gpu_destroy_pipeline(u32 idx);
 
 WASM_IMPORT(js_gpu_begin_pass)
-void js_gpu_begin_pass(f32 r, f32 g, f32 b, f32 a, f32 depth);
+void js_gpu_begin_pass(f32 r, f32 g, f32 b, f32 a, f32 depth, u32 rt_idx);
 
 WASM_IMPORT(js_gpu_apply_pipeline)
 void js_gpu_apply_pipeline(u32 handle_idx);
@@ -102,6 +103,19 @@ u32 js_gpu_texture_is_ready(u32 idx);
 WASM_IMPORT(js_gpu_destroy_texture)
 void js_gpu_destroy_texture(u32 idx);
 
+// Render target functions
+WASM_IMPORT(js_gpu_make_render_target)
+void js_gpu_make_render_target(u32 idx, u32 width, u32 height, u32 format);
+
+WASM_IMPORT(js_gpu_resize_render_target)
+void js_gpu_resize_render_target(u32 idx, u32 width, u32 height);
+
+WASM_IMPORT(js_gpu_destroy_render_target)
+void js_gpu_destroy_render_target(u32 idx);
+
+WASM_IMPORT(js_gpu_blit_to_screen)
+void js_gpu_blit_to_screen(u32 rt_idx);
+
 // =============================================================================
 // Global State
 // =============================================================================
@@ -112,6 +126,7 @@ local_persist GpuStateInternal gpu_state;
 #define GPU_INITIAL_TEXTURE_CAPACITY 32
 #define GPU_INITIAL_SHADER_CAPACITY 16
 #define GPU_INITIAL_PIPELINE_CAPACITY 16
+#define GPU_INITIAL_RENDER_TARGET_CAPACITY 8
 
 // =============================================================================
 // Internal Helpers
@@ -163,6 +178,8 @@ void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size) {
       ha_init(GpuShaderSlot, &alloc, GPU_INITIAL_SHADER_CAPACITY);
   gpu_state.pipelines =
       ha_init(GpuPipelineSlot, &alloc, GPU_INITIAL_PIPELINE_CAPACITY);
+  gpu_state.render_targets =
+      ha_init(GpuRenderTargetSlot, &alloc, GPU_INITIAL_RENDER_TARGET_CAPACITY);
 
   // Initialize internal uniform buffer
   uniform_buffer_init(&gpu_state.uniforms, arena, uniform_buffer_size);
@@ -303,9 +320,12 @@ void gpu_begin_pass(GpuPassDesc *desc) {
     gpu_state.uniform_offsets[i] = 0;
   }
 
+  u32 rt_idx = handle_equals(desc->render_target, INVALID_HANDLE)
+      ? 0xFFFFFFFF
+      : desc->render_target.idx;
   js_gpu_begin_pass(desc->clear_color.r, desc->clear_color.g,
                     desc->clear_color.b, desc->clear_color.a,
-                    desc->clear_depth);
+                    desc->clear_depth, rt_idx);
 }
 
 void gpu_apply_pipeline(GpuPipeline pip) {
@@ -388,4 +408,36 @@ void gpu_destroy_texture(GpuTexture tex) {
     return;
   js_gpu_destroy_texture(tex.idx);
   ha_remove(GpuTextureSlot, &gpu_state.textures, tex);
+}
+
+GpuRenderTarget gpu_make_render_target(u32 width, u32 height, GpuTextureFormat format) {
+  GpuRenderTargetSlot slot = {
+      .width = width,
+      .height = height,
+      .format = format,
+  };
+  GpuRenderTarget handle = ha_add(GpuRenderTargetSlot, &gpu_state.render_targets, slot);
+  js_gpu_make_render_target(handle.idx, width, height, format);
+  return handle;
+}
+
+void gpu_resize_render_target(GpuRenderTarget rt, u32 width, u32 height) {
+  GpuRenderTargetSlot *slot = ha_get(GpuRenderTargetSlot, &gpu_state.render_targets, rt);
+  if (!slot) return;
+  slot->width = width;
+  slot->height = height;
+  js_gpu_resize_render_target(rt.idx, width, height);
+}
+
+void gpu_destroy_render_target(GpuRenderTarget rt) {
+  if (!ha_is_valid(GpuRenderTargetSlot, &gpu_state.render_targets, rt))
+    return;
+  js_gpu_destroy_render_target(rt.idx);
+  ha_remove(GpuRenderTargetSlot, &gpu_state.render_targets, rt);
+}
+
+void gpu_blit_to_screen(GpuRenderTarget rt) {
+  if (!ha_is_valid(GpuRenderTargetSlot, &gpu_state.render_targets, rt))
+    return;
+  js_gpu_blit_to_screen(rt.idx);
 }

@@ -114,7 +114,6 @@ static const char *pbr_fs =
     "    let ambient = AMBIENT * diffuse_color;\n"
     "\n"
     "    let final_color = ambient + direct;\n"
-    "    let gamma_corrected = pow(final_color, vec3<f32>(1.0 / 2.2));\n"
     "    return vec4<f32>(final_color, 1.0);\n"
     "}\n";
 
@@ -137,16 +136,17 @@ global f32 g_rotation;
 
 void app_init(AppMemory *memory)
 {
-  UNUSED(memory);
   if (!is_main_thread())
   {
     return;
   }
 
+  memory->canvas_width = 2880;
+  memory->canvas_height = 980;
   AppContext *app_ctx = app_ctx_current();
 
   g_camera = camera_init(VEC3(0, 0, 1.5), VEC3(0, 0, 0), 60.0f);
-  renderer_init(&app_ctx->arena, app_ctx->num_threads);
+  renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height);
 
   g_albedo_tex = gpu_make_texture("fishAlbedo2.png");
   g_tint_tex = gpu_make_texture("tints.png");
@@ -162,6 +162,8 @@ void app_update_and_render(AppMemory *memory)
   {
     return;
   }
+  memory->canvas_width = 2880;
+  memory->canvas_height = 980;
 
   local_persist b32 loaded = false;
 

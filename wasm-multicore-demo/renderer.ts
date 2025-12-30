@@ -17,6 +17,22 @@ const pipelines: (GPURenderPipeline | null)[] = [];
 const textures: (GPUTexture | null)[] = [];
 const samplers: (GPUSampler | null)[] = [];
 
+// Render targets: color texture + depth texture
+interface RenderTarget {
+    colorTexture: GPUTexture;
+    depthTexture: GPUTexture;
+    format: GPUTextureFormat;
+}
+const renderTargets: (RenderTarget | null)[] = [];
+
+// Scene render format (used for pipeline creation) - set when first HDR target is created
+let sceneRenderFormat: GPUTextureFormat = "bgra8unorm";
+
+// Blit resources (created lazily)
+let blitPipeline: GPURenderPipeline | null = null;
+let blitSampler: GPUSampler | null = null;
+let blitBindGroupLayout: GPUBindGroupLayout | null = null;
+
 
 // Per-pipeline bind group layouts: [0] = uniforms (group 0), [1] = storage (group 1), [2] = textures (group 2)
 const pipelineBindGroupLayouts: [GPUBindGroupLayout | null, GPUBindGroupLayout | null, GPUBindGroupLayout | null][] = [];
@@ -112,6 +128,45 @@ const PRIMITIVE_TOPOLOGIES: GPUPrimitiveTopology[] = [
     "triangle-list", // GPU_PRIMITIVE_TRIANGLES
     "line-list",     // GPU_PRIMITIVE_LINES
 ];
+
+const TEXTURE_FORMATS: GPUTextureFormat[] = [
+    "rgba8unorm",  // GPU_TEXTURE_FORMAT_RGBA8
+    "rgba16float", // GPU_TEXTURE_FORMAT_RGBA16F
+];
+
+const BLIT_SHADER = `
+@group(0) @binding(0) var blitSampler: sampler;
+@group(0) @binding(1) var blitTexture: texture_2d<f32>;
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+    // Fullscreen triangle
+    var pos = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0)
+    );
+    var uv = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(2.0, 1.0),
+        vec2<f32>(0.0, -1.0)
+    );
+    var output: VertexOutput;
+    output.position = vec4<f32>(pos[vertexIndex], 0.0, 1.0);
+    output.uv = uv[vertexIndex];
+    return output;
+}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(blitTexture, blitSampler, input.uv);
+}
+`;
 
 // Map GpuShaderStage enum to WebGPU shader stage flags
 function stageToGPU(stage: number): GPUShaderStageFlags {
@@ -435,7 +490,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 fragment: {
                     module: shaderModule,
                     entryPoint: "fs_main",
-                    targets: [{ format: renderer.format }],
+                    targets: [{ format: sceneRenderFormat }],
                 },
                 primitive: {
                     topology: PRIMITIVE_TOPOLOGIES[primitive],
@@ -462,26 +517,34 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             delete pipelineTexInfo[handleIdx];
         },
 
-        js_gpu_begin_pass: (r: number, g: number, b: number, a: number, depth: number) => {
+        js_gpu_begin_pass: (r: number, g: number, b: number, a: number, depth: number, rtIdx: number) => {
             if (!renderer) return;
 
-            //todo: cache command encoder??
             currentEncoder = renderer.device.createCommandEncoder();
 
-            //todo: cache view
-            const textureView = renderer.context.getCurrentTexture().createView();
+            let colorView: GPUTextureView;
+            let depthView: GPUTextureView;
+
+            if (rtIdx !== 0xFFFFFFFF && renderTargets[rtIdx]) {
+                const rt = renderTargets[rtIdx]!;
+                colorView = rt.colorTexture.createView();
+                depthView = rt.depthTexture.createView();
+            } else {
+                colorView = renderer.context.getCurrentTexture().createView();
+                depthView = renderer.depthTexture.createView();
+            }
 
             currentPass = currentEncoder.beginRenderPass({
                 colorAttachments: [
                     {
-                        view: textureView,
+                        view: colorView,
                         clearValue: { r, g, b, a },
                         loadOp: "clear",
                         storeOp: "store",
                     },
                 ],
                 depthStencilAttachment: {
-                    view: renderer.depthTexture.createView(),
+                    view: depthView,
                     depthClearValue: depth,
                     depthLoadOp: "clear",
                     depthStoreOp: "store",
@@ -671,6 +734,127 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                     }
                 }
             }
+        },
+
+        js_gpu_make_render_target: (idx: number, width: number, height: number, format: number) => {
+            if (!renderer) return;
+
+            const gpuFormat = TEXTURE_FORMATS[format];
+            sceneRenderFormat = gpuFormat;
+
+            const colorTexture = renderer.device.createTexture({
+                size: [width, height],
+                format: gpuFormat,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            });
+
+            const depthTexture = renderer.device.createTexture({
+                size: [width, height],
+                format: "depth24plus",
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            });
+
+            renderTargets[idx] = {
+                colorTexture,
+                depthTexture,
+                format: gpuFormat,
+            };
+        },
+
+        js_gpu_resize_render_target: (idx: number, width: number, height: number) => {
+            if (!renderer) return;
+            const rt = renderTargets[idx];
+            if (!rt) return;
+
+            rt.colorTexture.destroy();
+            rt.depthTexture.destroy();
+
+            rt.colorTexture = renderer.device.createTexture({
+                size: [width, height],
+                format: rt.format,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            });
+
+            rt.depthTexture = renderer.device.createTexture({
+                size: [width, height],
+                format: "depth24plus",
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            });
+        },
+
+        js_gpu_destroy_render_target: (idx: number) => {
+            const rt = renderTargets[idx];
+            if (rt) {
+                rt.colorTexture.destroy();
+                rt.depthTexture.destroy();
+                renderTargets[idx] = null;
+            }
+        },
+
+        js_gpu_blit_to_screen: (rtIdx: number) => {
+            if (!renderer || !currentEncoder) return;
+            const rt = renderTargets[rtIdx];
+            if (!rt) return;
+
+            // Create blit resources lazily
+            if (!blitPipeline) {
+                const shaderModule = renderer.device.createShaderModule({ code: BLIT_SHADER });
+
+                blitBindGroupLayout = renderer.device.createBindGroupLayout({
+                    entries: [
+                        { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+                        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+                    ],
+                });
+
+                blitSampler = renderer.device.createSampler({
+                    minFilter: "linear",
+                    magFilter: "linear",
+                });
+
+                blitPipeline = renderer.device.createRenderPipeline({
+                    layout: renderer.device.createPipelineLayout({
+                        bindGroupLayouts: [blitBindGroupLayout],
+                    }),
+                    vertex: {
+                        module: shaderModule,
+                        entryPoint: "vs_main",
+                    },
+                    fragment: {
+                        module: shaderModule,
+                        entryPoint: "fs_main",
+                        targets: [{ format: renderer.format }],
+                    },
+                    primitive: {
+                        topology: "triangle-list",
+                    },
+                });
+            }
+
+            const bindGroup = renderer.device.createBindGroup({
+                layout: blitBindGroupLayout!,
+                entries: [
+                    { binding: 0, resource: blitSampler! },
+                    { binding: 1, resource: rt.colorTexture.createView() },
+                ],
+            });
+
+            const textureView = renderer.context.getCurrentTexture().createView();
+
+            const blitPass = currentEncoder.beginRenderPass({
+                colorAttachments: [
+                    {
+                        view: textureView,
+                        loadOp: "clear",
+                        storeOp: "store",
+                    },
+                ],
+            });
+
+            blitPass.setPipeline(blitPipeline);
+            blitPass.setBindGroup(0, bindGroup);
+            blitPass.draw(3);
+            blitPass.end();
         },
     };
 }
