@@ -380,6 +380,9 @@ void renderer_end_frame(void) {
 
         gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 
+        GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
+        u32 mat_texture_count = 0;
+
         // Pack material properties by binding
         u8 uniform_pack_buf[256];
         u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
@@ -387,23 +390,30 @@ void renderer_end_frame(void) {
 
         for (u8 p = 0; p < material->properties.len; p++) {
           MaterialProperty *prop = &material->properties.items[p];
-          if (prop->type == MAT_PROP_TEXTURE) continue;
-          void *data;
-          u32 size;
-          switch (prop->type) {
-            case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
-            case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
-            case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
-            case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
-            case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
-            default: continue;
-          }
-          assert(prop->offset + size <= sizeof(uniform_pack_buf));
-          memcpy(uniform_pack_buf + prop->offset, data, size);
-          binding_used[prop->binding] = 1;
-          u16 end = prop->offset + size;
-          if (end > binding_max_size[prop->binding]) {
-            binding_max_size[prop->binding] = end;
+          if (prop->type == MAT_PROP_TEXTURE) {
+            GpuTexture tex = prop->tex;
+            if (!gpu_texture_is_ready(tex)) {
+              tex = g_renderer.placeholder_texture;
+            }
+            mat_textures[mat_texture_count++] = tex;
+          } else {
+            void *data;
+            u32 size;
+            switch (prop->type) {
+              case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
+              case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
+              case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
+              case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
+              case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
+              default: continue;
+            }
+            assert(prop->offset + size <= sizeof(uniform_pack_buf));
+            memcpy(uniform_pack_buf + prop->offset, data, size);
+            binding_used[prop->binding] = 1;
+            u16 end = prop->offset + size;
+            if (end > binding_max_size[prop->binding]) {
+              binding_max_size[prop->binding] = end;
+            }
           }
         }
 
@@ -413,12 +423,17 @@ void renderer_end_frame(void) {
           }
         }
 
-        gpu_apply_bindings(&(GpuBindings){
+        GpuBindings bindings = {
             .vertex_buffers = {.items = {mesh->vbuf}, .len = 1},
             .index_buffer = mesh->ibuf,
             .index_format = mesh->index_format,
             .storage_buffers = {.items = {ib->buffer}, .len = 1},
-        });
+            .textures = {.len = mat_texture_count},
+        };
+        for (u32 t = 0; t < mat_texture_count; t++) {
+          bindings.textures.items[t] = mat_textures[t];
+        }
+        gpu_apply_bindings(&bindings);
 
         gpu_draw_indexed(mesh->index_count, ib->instance_count);
         break;

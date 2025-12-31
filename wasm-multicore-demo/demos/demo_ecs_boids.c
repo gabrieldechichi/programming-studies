@@ -11,12 +11,16 @@
 #include "flycam.h"
 #include "input.h"
 #include "app.h"
+#include "mesh.h"
+#include "shaders/fish_instanced_vs.h"
+#include "shaders/fish_fs.h"
 
 #define VERTEX_STRIDE 40
 #define VERTEX_NORMAL_OFFSET 12
 #define VERTEX_COLOR_OFFSET 24
 
-#define NUM_BOIDS 100000
+// #define NUM_BOIDS 100000
+#define NUM_BOIDS 10000
 #define NUM_TARGETS 2
 #define NUM_OBSTACLES 1
 
@@ -29,6 +33,7 @@
 #define BOID_TARGET_WEIGHT 2.0f
 #define BOID_OBSTACLE_AVERSION_DISTANCE 30.0f
 #define BOID_MOVE_SPEED 25.0f
+// #define BOID_MOVE_SPEED 0.5f
 
 typedef struct {
   f32 x, y, z;
@@ -84,6 +89,17 @@ typedef struct {
   BoidBucketEntry entries[MAX_PER_BUCKET];
 } BoidBucket;
 
+typedef struct {
+  vec4 tint_color;
+  f32 tint_offset;
+  f32 metallic;
+  f32 smoothness;
+  f32 wave_frequency;
+  f32 wave_speed;
+  f32 wave_distance;
+  f32 wave_offset;
+} MaterialUniforms;
+
 #include "./Shark_animation.c"
 #include "./Target01_animation.c"
 #include "./Target02_animation.c"
@@ -102,6 +118,14 @@ global Material_Handle g_obstacle_material;
 global Material_Handle g_target_material;
 global InstanceBuffer_Handle g_instance_buffer;
 global mat4 g_instance_data[NUM_BOIDS];
+
+global OsFileOp *g_file_op;
+global b32 g_fish_loaded = false;
+global GpuMesh_Handle g_fish_mesh;
+global Material_Handle g_fish_material;
+global GpuTexture g_albedo_tex = {0};
+global GpuTexture g_tint_tex = {0};
+global GpuTexture g_metallic_gloss_tex = {0};
 
 global vec3 g_target_positions[NUM_TARGETS];
 global vec3 g_obstacle_positions[NUM_OBSTACLES];
@@ -579,10 +603,16 @@ void BuildMatricesSystem(EcsIter *it) {
     vec3 pos = {positions[i].x, positions[i].y, positions[i].z};
     vec3 dir = {headings[i].x, headings[i].y, headings[i].z};
 
-    quaternion rot;
-    quat_look_at_dir(dir, rot);
+    quaternion heading_rot;
+    quat_look_at_dir(dir, heading_rot);
 
-    vec3 scale = {0.2f, 0.2f, 1.0f};
+    quaternion fish_orient;
+    quat_from_euler(VEC3(RAD(90), RAD(180), 0), fish_orient);
+
+    quaternion rot;
+    glm_quat_mul(heading_rot, fish_orient, rot);
+
+    vec3 scale = {0.01f, 0.01f, 0.01f};
     mat_trs(pos, rot, scale, *model);
   }
 }
@@ -609,7 +639,14 @@ void app_init(AppMemory *memory) {
 
   g_input = input_init();
   g_camera = camera_init(VEC3(0, 11.6, 0.4), VEC3(-0.4f, 0, 0), 45.0f);
-  renderer_init(&app_ctx->arena, app_ctx->num_threads);
+  renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height);
+
+  g_albedo_tex = gpu_make_texture("fishAlbedo2.png");
+  g_tint_tex = gpu_make_texture("tints.png");
+  g_metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
+
+  ThreadContext *tctx = tctx_current();
+  g_file_op = os_start_read_file("fish.hasset", tctx->task_system);
 
   g_cube_mesh = renderer_upload_mesh(&(MeshDesc){
       .vertices = cube_vertices,
@@ -625,36 +662,23 @@ void app_init(AppMemory *memory) {
           (GpuShaderDesc){
               .vs_code = simple_vs,
               .fs_code = default_fs,
-              .uniform_blocks =
-                  {
-                      {.stage = GPU_STAGE_VERTEX,
-                       .size = sizeof(GlobalUniforms),
-                       .binding = 0},
-                      {.stage = GPU_STAGE_VERTEX,
-                       .size = sizeof(vec4),
-                       .binding = 1},
-                  },
-              .uniform_block_count = 2,
+              .uniform_blocks = FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+                  {.stage = GPU_STAGE_VERTEX, .size = sizeof(GlobalUniforms), .binding = 0},
+                  {.stage = GPU_STAGE_VERTEX, .size = sizeof(vec4), .binding = 1}, ),
           },
       .vertex_layout =
           {
               .stride = VERTEX_STRIDE,
-              .attrs =
-                  {
-                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
-                      {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},
-                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2},
-                  },
-              .attr_count = 3,
+              .attrs = FIXED_ARRAY_DEFINE(GpuVertexAttr,
+                  {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
+                  {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},
+                  {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2}, ),
           },
       .primitive = GPU_PRIMITIVE_TRIANGLES,
       .depth_test = true,
       .depth_write = true,
-      .properties =
-          {
-              {.name = "color", .type = MAT_PROP_VEC4, .binding = 1},
-          },
-      .property_count = 1,
+      .properties = FIXED_ARRAY_DEFINE(MaterialPropertyDesc,
+          {.name = "color", .type = MAT_PROP_VEC4, .binding = 1}, ),
   });
   material_set_vec4(g_obstacle_material, "color",
                     (vec4){1.0f, 0.2f, 0.2f, 1.0f});
@@ -664,36 +688,23 @@ void app_init(AppMemory *memory) {
           (GpuShaderDesc){
               .vs_code = simple_vs,
               .fs_code = default_fs,
-              .uniform_blocks =
-                  {
-                      {.stage = GPU_STAGE_VERTEX,
-                       .size = sizeof(GlobalUniforms),
-                       .binding = 0},
-                      {.stage = GPU_STAGE_VERTEX,
-                       .size = sizeof(vec4),
-                       .binding = 1},
-                  },
-              .uniform_block_count = 2,
+              .uniform_blocks = FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+                  {.stage = GPU_STAGE_VERTEX, .size = sizeof(GlobalUniforms), .binding = 0},
+                  {.stage = GPU_STAGE_VERTEX, .size = sizeof(vec4), .binding = 1}, ),
           },
       .vertex_layout =
           {
               .stride = VERTEX_STRIDE,
-              .attrs =
-                  {
-                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
-                      {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},
-                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2},
-                  },
-              .attr_count = 3,
+              .attrs = FIXED_ARRAY_DEFINE(GpuVertexAttr,
+                  {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
+                  {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},
+                  {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2}, ),
           },
       .primitive = GPU_PRIMITIVE_TRIANGLES,
       .depth_test = true,
       .depth_write = true,
-      .properties =
-          {
-              {.name = "color", .type = MAT_PROP_VEC4, .binding = 1},
-          },
-      .property_count = 1,
+      .properties = FIXED_ARRAY_DEFINE(MaterialPropertyDesc,
+          {.name = "color", .type = MAT_PROP_VEC4, .binding = 1}, ),
   });
   material_set_vec4(g_target_material, "color", (vec4){0.2f, 1.0f, 0.3f, 1.0f});
 
@@ -873,43 +884,25 @@ void app_init(AppMemory *memory) {
           (GpuShaderDesc){
               .vs_code = instanced_vs,
               .fs_code = default_fs,
-              .uniform_blocks =
-                  {
-                      {.stage = GPU_STAGE_VERTEX,
-                       .size = sizeof(GlobalUniforms),
-                       .binding = 0},
-                      {.stage = GPU_STAGE_VERTEX,
-                       .size = sizeof(vec4),
-                       .binding = 1},
-                  },
-              .uniform_block_count = 2,
-              .storage_buffers =
-                  {
-                      {.stage = GPU_STAGE_VERTEX,
-                       .binding = 0,
-                       .readonly = true},
-                  },
-              .storage_buffer_count = 1,
+              .uniform_blocks = FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+                  {.stage = GPU_STAGE_VERTEX, .size = sizeof(GlobalUniforms), .binding = 0},
+                  {.stage = GPU_STAGE_VERTEX, .size = sizeof(vec4), .binding = 1}, ),
+              .storage_buffers = FIXED_ARRAY_DEFINE(GpuStorageBufferDesc,
+                  {.stage = GPU_STAGE_VERTEX, .binding = 0, .readonly = true}, ),
           },
       .vertex_layout =
           {
               .stride = VERTEX_STRIDE,
-              .attrs =
-                  {
-                      {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
-                      {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},
-                      {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2},
-                  },
-              .attr_count = 3,
+              .attrs = FIXED_ARRAY_DEFINE(GpuVertexAttr,
+                  {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
+                  {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},
+                  {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2}, ),
           },
       .primitive = GPU_PRIMITIVE_TRIANGLES,
       .depth_test = true,
       .depth_write = true,
-      .properties =
-          {
-              {.name = "color", .type = MAT_PROP_VEC4, .binding = 1},
-          },
-      .property_count = 1,
+      .properties = FIXED_ARRAY_DEFINE(MaterialPropertyDesc,
+          {.name = "color", .type = MAT_PROP_VEC4, .binding = 1}, ),
   });
 
   material_set_vec4(g_cube_material, "color", (vec4){0.2f, 0.6f, 1.0f, 1.0f});
@@ -926,6 +919,80 @@ void app_update_and_render(AppMemory *memory) {
   }
 
   if (is_main_thread()) {
+    if (!g_fish_loaded) {
+      OsFileReadState state = os_check_read_file(g_file_op);
+      if (state == OS_FILE_READ_STATE_COMPLETED) {
+        AppContext *app_ctx = app_ctx_current();
+        Allocator alloc = make_arena_allocator(&app_ctx->arena);
+
+        PlatformFileData file_data = {0};
+        os_get_file_data(g_file_op, &file_data, &alloc);
+
+        ModelBlobAsset *model = (ModelBlobAsset *)file_data.buffer;
+        MeshBlobAsset *mesh_asset =
+            (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
+
+        MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
+        g_fish_mesh = renderer_upload_mesh(&mesh_desc);
+
+        g_fish_material = renderer_create_material(&(MaterialDesc){
+            .shader_desc =
+                (GpuShaderDesc){
+                    .vs_code = (const char *)fish_instanced_vs,
+                    .fs_code = (const char *)fish_fs,
+                    .uniform_blocks = FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+                                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT, .size = sizeof(GlobalUniforms), .binding = 0},
+                                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT, .size = sizeof(MaterialUniforms), .binding = 1}, ),
+                    .storage_buffers = FIXED_ARRAY_DEFINE(GpuStorageBufferDesc,
+                        {.stage = GPU_STAGE_VERTEX, .binding = 0, .readonly = true}, ),
+                    .texture_bindings = FIXED_ARRAY_DEFINE(GpuTextureBindingDesc,
+                                                           GPU_TEXTURE_BINDING_FRAG(1, 0),
+                                                           GPU_TEXTURE_BINDING_FRAG(3, 2),
+                                                           GPU_TEXTURE_BINDING_FRAG(5, 4), ),
+                },
+            .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
+            .primitive = GPU_PRIMITIVE_TRIANGLES,
+            .depth_test = true,
+            .depth_write = true,
+            .properties = FIXED_ARRAY_DEFINE(MaterialPropertyDesc,
+                                             {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
+                                             {.name = "tint", .type = MAT_PROP_TEXTURE, .binding = 1},
+                                             {.name = "metallic_gloss", .type = MAT_PROP_TEXTURE, .binding = 2},
+                                             {.name = "tint_color", .type = MAT_PROP_VEC4, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, tint_color)},
+                                             {.name = "tint_offset", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, tint_offset)},
+                                             {.name = "metallic", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, metallic)},
+                                             {.name = "smoothness", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, smoothness)},
+                                             {.name = "wave_frequency", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_frequency)},
+                                             {.name = "wave_speed", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_speed)},
+                                             {.name = "wave_distance", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_distance)},
+                                             {.name = "wave_offset", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_offset)}, ),
+        });
+
+        material_set_texture(g_fish_material, "albedo", g_albedo_tex);
+        material_set_texture(g_fish_material, "tint", g_tint_tex);
+        material_set_texture(g_fish_material, "metallic_gloss", g_metallic_gloss_tex);
+        material_set_vec4(g_fish_material, "tint_color", (vec4){1.0f, 1.0f, 1.0f, 1.0f});
+        material_set_float(g_fish_material, "tint_offset", 0.0f);
+        material_set_float(g_fish_material, "metallic", 0.636f);
+        material_set_float(g_fish_material, "smoothness", 0.848f);
+        material_set_float(g_fish_material, "wave_frequency", 0.03f);
+        material_set_float(g_fish_material, "wave_speed", 10.0f);
+        material_set_float(g_fish_material, "wave_distance", 5.0f);
+        material_set_float(g_fish_material, "wave_offset", 0.0f);
+
+        g_fish_loaded = true;
+        LOG_INFO("Fish mesh loaded");
+      }
+    }
+
     input_update(&g_input, &memory->input_events, memory->total_time);
     flycam_update(&g_fly_cam, &g_camera, &g_input, memory->dt);
     camera_update(&g_camera, memory->canvas_width, memory->canvas_height);
@@ -937,11 +1004,16 @@ void app_update_and_render(AppMemory *memory) {
   ecs_progress(&g_world, memory->dt);
 
   if (is_main_thread()) {
-
     renderer_update_instance_buffer(g_instance_buffer, g_instance_data,
                                     NUM_BOIDS);
-    renderer_draw_mesh_instanced(g_cube_mesh, g_cube_material,
-                                 g_instance_buffer);
+
+    if (g_fish_loaded) {
+      renderer_draw_mesh_instanced(g_fish_mesh, g_fish_material,
+                                   g_instance_buffer);
+    } else {
+      renderer_draw_mesh_instanced(g_cube_mesh, g_cube_material,
+                                   g_instance_buffer);
+    }
 
     renderer_end_frame();
     input_end_frame(&g_input);
