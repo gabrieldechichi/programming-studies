@@ -12,6 +12,7 @@
 #include "input.h"
 #include "app.h"
 #include "mesh.h"
+#include "shaders/fish_vs.h"
 #include "shaders/fish_instanced_vs.h"
 #include "shaders/fish_fs.h"
 
@@ -20,7 +21,7 @@
 #define VERTEX_COLOR_OFFSET 24
 
 // #define NUM_BOIDS 100000
-#define NUM_BOIDS 10000
+#define NUM_BOIDS 25000
 #define NUM_TARGETS 2
 #define NUM_OBSTACLES 1
 
@@ -129,6 +130,17 @@ global GpuTexture g_metallic_gloss_tex = {0};
 
 global vec3 g_target_positions[NUM_TARGETS];
 global vec3 g_obstacle_positions[NUM_OBSTACLES];
+global EcsEntity g_target_entities[NUM_TARGETS];
+global EcsEntity g_obstacle_entities[NUM_OBSTACLES];
+global EcsEntity g_mesh_renderer_id;
+global Material_Handle g_fish_noninst_material;
+
+global OsFileOp *g_shark_file_op;
+global b32 g_shark_loaded = false;
+global GpuMesh_Handle g_shark_mesh;
+global Material_Handle g_shark_material;
+global GpuTexture g_shark_albedo_tex = {0};
+global GpuTexture g_shark_metallic_gloss_tex = {0};
 
 static const char *simple_vs =
     "struct GlobalUniforms {\n"
@@ -306,8 +318,6 @@ void PlayAnimationsSystem(EcsIter *it) {
 }
 
 void DrawMeshesSystem(EcsIter *it) {
-  // if (!is_main_thread()) return;
-
   Position *positions = ecs_field(it, Position, 0);
   AnimationPlayer *players = ecs_field(it, AnimationPlayer, 1);
   MeshRenderer *renderers = ecs_field(it, MeshRenderer, 2);
@@ -317,8 +327,14 @@ void DrawMeshesSystem(EcsIter *it) {
     AnimationPlayer *player = &players[i];
     MeshRenderer *renderer = &renderers[i];
 
+    versor anim_rot;
+    sample_animation_rotation(player->clip, player->current_time, anim_rot);
+
+    quaternion fish_orient;
+    quat_from_euler(VEC3(RAD(90), RAD(180), 0), fish_orient);
+
     versor rot;
-    sample_animation_rotation(player->clip, player->current_time, rot);
+    glm_quat_mul(anim_rot, fish_orient, rot);
 
     mat4 model;
     glm_mat4_identity(model);
@@ -636,6 +652,7 @@ void app_init(AppMemory *memory) {
   ECS_COMPONENT(&g_world, ObstacleTag);
   ECS_COMPONENT(&g_world, AnimationPlayer);
   ECS_COMPONENT(&g_world, MeshRenderer);
+  g_mesh_renderer_id = ecs_id(MeshRenderer);
 
   g_input = input_init();
   g_camera = camera_init(VEC3(0, 11.6, 0.4), VEC3(-0.4f, 0, 0), 45.0f);
@@ -645,8 +662,12 @@ void app_init(AppMemory *memory) {
   g_tint_tex = gpu_make_texture("tints.png");
   g_metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
 
+  g_shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
+  g_shark_metallic_gloss_tex = gpu_make_texture("SharkMetallicGloss.png");
+
   ThreadContext *tctx = tctx_current();
   g_file_op = os_start_read_file("fish.hasset", tctx->task_system);
+  g_shark_file_op = os_start_read_file("shark.hasset", tctx->task_system);
 
   g_cube_mesh = renderer_upload_mesh(&(MeshDesc){
       .vertices = cube_vertices,
@@ -747,6 +768,7 @@ void app_init(AppMemory *memory) {
                                                            &Target02_animation};
   for (i32 i = 0; i < NUM_TARGETS; i++) {
     EcsEntity e = ecs_entity_new(&g_world);
+    g_target_entities[i] = e;
 
     vec3 initial_pos;
     sample_animation_position(target_clips[i], 0.0f, initial_pos);
@@ -774,6 +796,7 @@ void app_init(AppMemory *memory) {
 
   for (i32 i = 0; i < NUM_OBSTACLES; i++) {
     EcsEntity e = ecs_entity_new(&g_world);
+    g_obstacle_entities[i] = e;
 
     vec3 initial_pos;
     sample_animation_position(&Shark_animation, 0.0f, initial_pos);
@@ -988,8 +1011,147 @@ void app_update_and_render(AppMemory *memory) {
         material_set_float(g_fish_material, "wave_distance", 5.0f);
         material_set_float(g_fish_material, "wave_offset", 0.0f);
 
+        g_fish_noninst_material = renderer_create_material(&(MaterialDesc){
+            .shader_desc =
+                (GpuShaderDesc){
+                    .vs_code = (const char *)fish_vs,
+                    .fs_code = (const char *)fish_fs,
+                    .uniform_blocks = FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+                                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT, .size = sizeof(GlobalUniforms), .binding = 0},
+                                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT, .size = sizeof(MaterialUniforms), .binding = 1}, ),
+                    .texture_bindings = FIXED_ARRAY_DEFINE(GpuTextureBindingDesc,
+                                                           GPU_TEXTURE_BINDING_FRAG(1, 0),
+                                                           GPU_TEXTURE_BINDING_FRAG(3, 2),
+                                                           GPU_TEXTURE_BINDING_FRAG(5, 4), ),
+                },
+            .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
+            .primitive = GPU_PRIMITIVE_TRIANGLES,
+            .depth_test = true,
+            .depth_write = true,
+            .properties = FIXED_ARRAY_DEFINE(MaterialPropertyDesc,
+                                             {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
+                                             {.name = "tint", .type = MAT_PROP_TEXTURE, .binding = 1},
+                                             {.name = "metallic_gloss", .type = MAT_PROP_TEXTURE, .binding = 2},
+                                             {.name = "tint_color", .type = MAT_PROP_VEC4, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, tint_color)},
+                                             {.name = "tint_offset", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, tint_offset)},
+                                             {.name = "metallic", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, metallic)},
+                                             {.name = "smoothness", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, smoothness)},
+                                             {.name = "wave_frequency", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_frequency)},
+                                             {.name = "wave_speed", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_speed)},
+                                             {.name = "wave_distance", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_distance)},
+                                             {.name = "wave_offset", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_offset)}, ),
+        });
+        material_set_texture(g_fish_noninst_material, "albedo", g_albedo_tex);
+        material_set_texture(g_fish_noninst_material, "tint", g_tint_tex);
+        material_set_texture(g_fish_noninst_material, "metallic_gloss", g_metallic_gloss_tex);
+        material_set_vec4(g_fish_noninst_material, "tint_color", (vec4){1.0f, 1.0f, 1.0f, 1.0f});
+        material_set_float(g_fish_noninst_material, "tint_offset", 0.0f);
+        material_set_float(g_fish_noninst_material, "metallic", 0.636f);
+        material_set_float(g_fish_noninst_material, "smoothness", 0.848f);
+        material_set_float(g_fish_noninst_material, "wave_frequency", 0.03f);
+        material_set_float(g_fish_noninst_material, "wave_speed", 10.0f);
+        material_set_float(g_fish_noninst_material, "wave_distance", 5.0f);
+        material_set_float(g_fish_noninst_material, "wave_offset", 0.0f);
+
+        for (i32 i = 0; i < NUM_TARGETS; i++) {
+          MeshRenderer mr = {
+              .mesh = g_fish_mesh,
+              .material = g_fish_noninst_material,
+              .scale = {0.01f, 0.01f, 0.01f},
+          };
+          ecs_set_ptr(&g_world, g_target_entities[i], g_mesh_renderer_id, &mr);
+        }
+
         g_fish_loaded = true;
         LOG_INFO("Fish mesh loaded");
+      }
+    }
+
+    if (!g_shark_loaded) {
+      OsFileReadState state = os_check_read_file(g_shark_file_op);
+      if (state == OS_FILE_READ_STATE_COMPLETED) {
+        AppContext *app_ctx = app_ctx_current();
+        Allocator alloc = make_arena_allocator(&app_ctx->arena);
+
+        PlatformFileData file_data = {0};
+        os_get_file_data(g_shark_file_op, &file_data, &alloc);
+
+        ModelBlobAsset *model = (ModelBlobAsset *)file_data.buffer;
+        MeshBlobAsset *mesh_asset =
+            (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
+
+        MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
+        g_shark_mesh = renderer_upload_mesh(&mesh_desc);
+
+        g_shark_material = renderer_create_material(&(MaterialDesc){
+            .shader_desc =
+                (GpuShaderDesc){
+                    .vs_code = (const char *)fish_vs,
+                    .fs_code = (const char *)fish_fs,
+                    .uniform_blocks = FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+                                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT, .size = sizeof(GlobalUniforms), .binding = 0},
+                                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT, .size = sizeof(MaterialUniforms), .binding = 1}, ),
+                    .texture_bindings = FIXED_ARRAY_DEFINE(GpuTextureBindingDesc,
+                                                           GPU_TEXTURE_BINDING_FRAG(1, 0),
+                                                           GPU_TEXTURE_BINDING_FRAG(3, 2),
+                                                           GPU_TEXTURE_BINDING_FRAG(5, 4), ),
+                },
+            .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
+            .primitive = GPU_PRIMITIVE_TRIANGLES,
+            .depth_test = true,
+            .depth_write = true,
+            .properties = FIXED_ARRAY_DEFINE(MaterialPropertyDesc,
+                                             {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
+                                             {.name = "tint", .type = MAT_PROP_TEXTURE, .binding = 1},
+                                             {.name = "metallic_gloss", .type = MAT_PROP_TEXTURE, .binding = 2},
+                                             {.name = "tint_color", .type = MAT_PROP_VEC4, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, tint_color)},
+                                             {.name = "tint_offset", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, tint_offset)},
+                                             {.name = "metallic", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, metallic)},
+                                             {.name = "smoothness", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, smoothness)},
+                                             {.name = "wave_frequency", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_frequency)},
+                                             {.name = "wave_speed", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_speed)},
+                                             {.name = "wave_distance", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_distance)},
+                                             {.name = "wave_offset", .type = MAT_PROP_FLOAT, .binding = 1,
+                                              .offset = offsetof(MaterialUniforms, wave_offset)}, ),
+        });
+        material_set_texture(g_shark_material, "albedo", g_shark_albedo_tex);
+        material_set_texture(g_shark_material, "tint", g_tint_tex);
+        material_set_texture(g_shark_material, "metallic_gloss", g_shark_metallic_gloss_tex);
+        material_set_vec4(g_shark_material, "tint_color", (vec4){1.0f, 1.0f, 1.0f, 1.0f});
+        material_set_float(g_shark_material, "tint_offset", 0.0f);
+        material_set_float(g_shark_material, "metallic", 0.063f);
+        material_set_float(g_shark_material, "smoothness", 1.0f);
+        material_set_float(g_shark_material, "wave_frequency", 0.75f);
+        material_set_float(g_shark_material, "wave_speed", 10.0f);
+        material_set_float(g_shark_material, "wave_distance", 5.0f);
+        material_set_float(g_shark_material, "wave_offset", 0.0f);
+
+        for (i32 i = 0; i < NUM_OBSTACLES; i++) {
+          MeshRenderer mr = {
+              .mesh = g_shark_mesh,
+              .material = g_shark_material,
+              .scale = {0.01f, 0.01f, 0.01f},
+          };
+          ecs_set_ptr(&g_world, g_obstacle_entities[i], g_mesh_renderer_id, &mr);
+        }
+
+        g_shark_loaded = true;
+        LOG_INFO("Shark mesh loaded");
       }
     }
 

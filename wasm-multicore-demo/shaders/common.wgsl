@@ -29,8 +29,8 @@ struct FragmentInput {
     @location(2) world_position: vec3<f32>,
 };
 
-const LIGHT_DIR: vec3<f32> = vec3<f32>(0.0, 0.0, 1.0);
-const LIGHT_COLOR: vec3<f32> = vec3<f32>(1.5, 1.5, 1.5);
+const LIGHT_DIR: vec3<f32> = vec3<f32>(0, 0.901, -0.433);
+const LIGHT_COLOR: vec3<f32> = vec3<f32>(1.5, 1.5, 1.5) * 10.0f;
 const AMBIENT: vec3<f32> = vec3<f32>(0.2, 0.2, 0.2);
 const DIELECTRIC_F0: f32 = 0.04;
 
