@@ -60,12 +60,17 @@ SRC = main.c
 TEST_SRC = test_main.c
 OUT_DIR = out
 
-all: dirs wasm js
+all: dirs build_shaders wasm js
 
 dirs:
 	powershell -Command "if (!(Test-Path $(OUT_DIR))) { New-Item -ItemType Directory -Path $(OUT_DIR) }"
 
-wasm:
+build_shaders:
+	./out/shader_compiler.exe --input shaders/fish_vs.wgsl --output shaders/fish_vs.h --name fish_vs
+	./out/shader_compiler.exe --input shaders/fish_instanced_vs.wgsl --output shaders/fish_instanced_vs.h --name fish_instanced_vs
+	./out/shader_compiler.exe --input shaders/fish_fs.wgsl --output shaders/fish_fs.h --name fish_fs
+
+wasm: build_shaders
 	$(CC) $(CFLAGS) $(SRC) -o $(OUT_DIR)/wasm.wasm $(LDFLAGS)
 
 test: dirs
@@ -94,4 +99,4 @@ SHADER_COMPILER_LIBS = dbghelp.lib shlwapi.lib
 shader_compiler: dirs
 	cl $(SHADER_COMPILER_CFLAGS) shader_compiler.c /link $(SHADER_COMPILER_LIBS)
 
-.PHONY: all dirs wasm js clean run test exporter shader_compiler
+.PHONY: all dirs build_shaders wasm js clean run test exporter shader_compiler
