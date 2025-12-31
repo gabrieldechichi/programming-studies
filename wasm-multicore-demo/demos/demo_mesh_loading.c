@@ -50,7 +50,7 @@ static const char *pbr_vs =
     "@vertex\n"
     "fn vs_main(in: VertexInput) -> VertexOutput {\n"
     "    var out: VertexOutput;\n"
-    "    let wiggle_input = (global.time + material.wave_offset) * material.wave_speed + in.position.z * material.wave_frequency;\n"
+    "    let wiggle_input = (global.time + material.wave_offset) * material.wave_speed + in.position.y * material.wave_frequency;\n"
     "    let x_offset = sin(wiggle_input) * material.wave_distance;\n"
     "    let wiggled_pos = vec3<f32>(in.position.x + x_offset, in.position.y, in.position.z);\n"
     "    let world_pos = global.model * vec4<f32>(wiggled_pos, 1.0);\n"
@@ -144,7 +144,6 @@ global GpuTexture g_albedo_tex = {0};
 global GpuTexture g_tint_tex = {0};
 global GpuTexture g_metallic_gloss_tex = {0};
 global f32 g_rotation;
-global f32 g_time;
 
 void app_init(AppMemory *memory)
 {
@@ -242,9 +241,9 @@ void app_update_and_render(AppMemory *memory)
     material_set_float(g_material, "tint_offset", 0.0f);
     material_set_float(g_material, "metallic", 0.636f);
     material_set_float(g_material, "smoothness", 0.848f);
-    material_set_float(g_material, "wave_frequency", 2.0f);
+    material_set_float(g_material, "wave_frequency", 0.03f);
     material_set_float(g_material, "wave_speed", 10.0f);
-    material_set_float(g_material, "wave_distance", 0.3f);
+    material_set_float(g_material, "wave_distance", 3.0f);
     material_set_float(g_material, "wave_offset", 0.0f);
 
     char *name = string_blob_get(mesh_asset, mesh_asset->name);
@@ -254,12 +253,11 @@ void app_update_and_render(AppMemory *memory)
   }
 
   g_rotation += memory->dt * 0.5f;
-  g_time += memory->dt;
 
   camera_update(&g_camera, memory->canvas_width, memory->canvas_height);
 
   renderer_begin_frame(g_camera.view, g_camera.proj,
-                       (GpuColor){0.1f, 0.1f, 0.15f, 1.0f}, g_time);
+                       (GpuColor){0.1f, 0.1f, 0.15f, 1.0f}, memory->total_time);
 
   mat4 model;
   glm_mat4_identity(model);
