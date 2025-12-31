@@ -931,7 +931,7 @@ void app_update_and_render(AppMemory *memory) {
     camera_update(&g_camera, memory->canvas_width, memory->canvas_height);
 
     renderer_begin_frame(g_camera.view, g_camera.proj,
-                         (GpuColor){0.05f, 0.05f, 0.1f, 1.0f});
+                         (GpuColor){0.05f, 0.05f, 0.1f, 1.0f}, memory->total_time);
   }
 
   ecs_progress(&g_world, memory->dt);

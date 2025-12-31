@@ -181,7 +181,7 @@ void wasm_frame(void) {
 
   // Begin frame (clears, sets view/proj, resets cmd queue)
   if (is_main_thread()) {
-    renderer_begin_frame(view, proj, (GpuColor){0.05f, 0.05f, 0.08f, 1.0f});
+    renderer_begin_frame(view, proj, (GpuColor){0.05f, 0.05f, 0.08f, 1.0f}, 0.0f);
   }
 
   // Sync with workers - start parallel work

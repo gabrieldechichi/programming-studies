@@ -19,6 +19,7 @@ typedef struct {
   mat4 proj;
   mat4 view_proj;
   vec3 camera_pos;
+  f32 time;
 
   // Per-thread command queues (no atomics needed)
   u8 thread_count;
@@ -191,7 +192,7 @@ void renderer_update_instance_buffer(InstanceBuffer_Handle handle, void *data,
 }
 
 // todo: separate call for camera uniforms
-void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
+void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color, f32 time) {
   debug_assert_msg(
       is_main_thread(),
       "renderer_begin_frame can only be called from the main thread");
@@ -200,6 +201,7 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color) {
   memcpy(g_renderer.view, view, sizeof(mat4));
   memcpy(g_renderer.proj, proj, sizeof(mat4));
   mat4_mul(proj, view, g_renderer.view_proj);
+  g_renderer.time = time;
 
   // Extract camera position from inverse view matrix
   mat4 view_inv;
@@ -285,6 +287,7 @@ void renderer_end_frame(void) {
         memcpy(globals.proj, g_renderer.proj, sizeof(mat4));
         memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
         glm_vec3_copy(g_renderer.camera_pos, globals.camera_pos);
+        globals.time = g_renderer.time;
 
         gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 
@@ -373,6 +376,7 @@ void renderer_end_frame(void) {
         memcpy(globals.proj, g_renderer.proj, sizeof(mat4));
         memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
         glm_vec3_copy(g_renderer.camera_pos, globals.camera_pos);
+        globals.time = g_renderer.time;
 
         gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 

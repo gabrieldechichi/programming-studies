@@ -196,7 +196,7 @@ void app_update_and_render(AppMemory* memory) {
     camera_update(&g_state.camera, memory->canvas_width, memory->canvas_height);
 
     renderer_begin_frame(g_state.camera.view, g_state.camera.proj,
-                         (GpuColor){0.1f, 0.1f, 0.15f, 1.0f});
+                         (GpuColor){0.1f, 0.1f, 0.15f, 1.0f}, memory->total_time);
 
     renderer_update_instance_buffer(g_state.instance_buffer,
                                     g_state.instance_data, tctx->thread_count);

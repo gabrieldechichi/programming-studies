@@ -12,7 +12,7 @@ typedef struct {
   mat4 proj;
   mat4 view_proj;
   vec3 camera_pos;
-  f32 _pad;
+  f32 time;
 } GlobalUniforms;
 
 #define GPU_UNIFORM_DESC_VERTEX(_type, _binding)                               \
@@ -36,7 +36,7 @@ typedef struct {
   GpuIndexFormat index_format;
 } MeshDesc;
 
-#define MAX_MATERIAL_PROPERTIES 8
+#define MAX_MATERIAL_PROPERTIES 16
 
 typedef enum {
   MAT_PROP_FLOAT,
@@ -155,7 +155,7 @@ void material_set_texture(Material_Handle mat, const char *name,
                           GpuTexture tex);
 
 // Main thread only: called before parallel work begins
-void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color);
+void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color, f32 time);
 
 // Thread safe, lock-free append to command queue
 void renderer_draw_mesh(GpuMesh_Handle mesh, Material_Handle material,

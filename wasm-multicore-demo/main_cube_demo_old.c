@@ -598,7 +598,7 @@ void wasm_frame(AppMemory *memory) {
   // Begin frame (clears, sets view/proj, resets cmd queue)
   if (is_main_thread()) {
     renderer_begin_frame(g_camera.view, g_camera.proj,
-                         (GpuColor){0.1f, 0.1f, 0.15f, 1.0f});
+                         (GpuColor){0.1f, 0.1f, 0.15f, 1.0f}, total_time);
   }
 
   // Fixed timestep: accumulate real time, step physics in fixed increments

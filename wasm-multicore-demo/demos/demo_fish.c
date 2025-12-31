@@ -162,6 +162,7 @@ global GpuTexture g_albedo_tex = {0};
 global GpuTexture g_tint_tex = {0};
 global GpuTexture g_metallic_tex = {0};
 global f32 g_rotation;
+global f32 g_time;
 
 void app_init(AppMemory *memory)
 {
@@ -259,11 +260,12 @@ void app_update_and_render(AppMemory *memory)
   }
 
   g_rotation += memory->dt * 0.5f;
+  g_time += memory->dt;
 
   camera_update(&g_camera, memory->canvas_width, memory->canvas_height);
 
   renderer_begin_frame(g_camera.view, g_camera.proj,
-                       (GpuColor){0.1f, 0.1f, 0.15f, 1.0f});
+                       (GpuColor){0.1f, 0.1f, 0.15f, 1.0f}, g_time);
 
   mat4 model;
   mat_trs_euler(VEC3_ZERO, VEC3(RAD(90), RAD(45), 0), VEC3(0.01, 0.01, 0.01), model);
