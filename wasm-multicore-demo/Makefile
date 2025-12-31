@@ -88,4 +88,10 @@ EXPORTER_LIBS = dbghelp.lib shlwapi.lib
 exporter: dirs
 	cl $(EXPORTER_CFLAGS) exporter.c /link $(EXPORTER_LIBS)
 
-.PHONY: all dirs wasm js clean run test exporter
+SHADER_COMPILER_CFLAGS = /nologo /W3 /std:c11 /I. /Fe:$(OUT_DIR)/shader_compiler.exe /Fo:$(OUT_DIR)/ /DWIN32 /DCOMPILER_MSVC /DDEBUG
+SHADER_COMPILER_LIBS = dbghelp.lib shlwapi.lib
+
+shader_compiler: dirs
+	cl $(SHADER_COMPILER_CFLAGS) shader_compiler.c /link $(SHADER_COMPILER_LIBS)
+
+.PHONY: all dirs wasm js clean run test exporter shader_compiler

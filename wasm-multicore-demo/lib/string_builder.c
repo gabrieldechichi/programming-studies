@@ -1,4 +1,5 @@
 #include "string_builder.h"
+#include "assert.h"
 #include "lib/string.h"
 #include "lib/fmt.h"
 
@@ -31,6 +32,7 @@ i32 sb_append_len(StringBuilder *sb, const char *str, u32 len) {
       sb->len += available;
       sb->buffer[sb->len] = '\0';
     }
+    debug_assert_msg(false, "Failed to append to string buffer. Required: % bytes, Available: % bytes, Total: % kb", FMT_UINT(len), FMT_UINT(available), FMT_UINT(BYTES_TO_KB(sb->size)));
     return -1; // Indicate truncation
   }
 
