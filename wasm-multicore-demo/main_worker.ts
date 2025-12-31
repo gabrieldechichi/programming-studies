@@ -301,9 +301,26 @@ const INPUT_LEN_OFFSET = 28;
 const INPUT_EVENTS_OFFSET = 32;
 const INPUT_EVENT_SIZE = 16; // Each AppInputEvent is 16 bytes
 
-// Initialize AppMemory struct - set heap and heap_size fields
+function writeAppMemoryFrameData(
+    heapBase: number,
+    dt: number,
+    totalTime: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+): void {
+    const view = new DataView(memory.buffer);
+    view.setFloat32(heapBase + 0, dt, true);
+    view.setFloat32(heapBase + 4, totalTime, true);
+    view.setFloat32(heapBase + 8, canvasWidth, true);
+    view.setFloat32(heapBase + 12, canvasHeight, true);
+    view.setFloat32(heapBase + 16, dpr, true);
+}
+
+// Initialize AppMemory struct
 {
     const view = new DataView(memory.buffer);
+    writeAppMemoryFrameData(heap, 0, 0, canvas.width, canvas.height, currentDpr);
     view.setUint32(heap + 352, heap + APP_MEMORY_SIZE, true); // heap pointer
     view.setUint32(heap + 356, TOTAL_HEAP_SIZE - APP_MEMORY_SIZE, true); // heap_size
 }
@@ -357,15 +374,10 @@ if (wasm_frame) {
         const totalTimeSec = (time.nowMs - time.startMs) / 1000;
         const dtSec = time.dt / 1000;
 
-        // Write frame data to AppMemory struct
-        const view = new DataView(memory.buffer);
-        view.setFloat32(heap + 0, dtSec, true);           // dt
-        view.setFloat32(heap + 4, totalTimeSec, true);    // total_time
-        view.setFloat32(heap + 8, canvas.width, true);    // canvas_width
-        view.setFloat32(heap + 12, canvas.height, true);  // canvas_height
-        view.setFloat32(heap + 16, currentDpr, true);     // dpr
+        writeAppMemoryFrameData(heap, dtSec, totalTimeSec, canvas.width, canvas.height, currentDpr);
 
         // Write input events to AppMemory struct
+        const view = new DataView(memory.buffer);
         view.setFloat32(heap + INPUT_MOUSE_X_OFFSET, inputBuffer.mouseX, true);
         view.setFloat32(heap + INPUT_MOUSE_Y_OFFSET, inputBuffer.mouseY, true);
         view.setUint32(heap + INPUT_LEN_OFFSET, inputBuffer.events.length, true);
