@@ -63,9 +63,11 @@ self.onmessage = async (e) => {
         }
 
         try {
-            // Set this worker's stack pointer to its dedicated stack region
-            const set_stack_pointer = wasmInstance.exports.set_stack_pointer as (sp: number) => void;
-            set_stack_pointer(stackTop);
+            // Set __stack_pointer directly via the exported global BEFORE any WASM call.
+            // Each worker instance starts with __stack_pointer pointing to the main thread's stack.
+            // Calling any WASM function before setting this corrupts the main thread's stack.
+            const stackPointerGlobal = wasmInstance.exports.__stack_pointer as WebAssembly.Global;
+            stackPointerGlobal.value = stackTop;
 
             // Initialize TLS for this worker
             if (tlsBase !== undefined && tlsBase !== 0) {

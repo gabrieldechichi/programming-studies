@@ -153,8 +153,6 @@ void app_init(AppMemory *memory)
     return;
   }
 
-  memory->canvas_width = 2880;
-  memory->canvas_height = 980;
   AppContext *app_ctx = app_ctx_current();
 
   g_camera = camera_init(VEC3(0, 0, 1.5), VEC3(0, 0, 0), 60.0f);
@@ -174,8 +172,6 @@ void app_update_and_render(AppMemory *memory)
   {
     return;
   }
-  memory->canvas_width = 2880;
-  memory->canvas_height = 980;
 
   local_persist b32 loaded = false;
 

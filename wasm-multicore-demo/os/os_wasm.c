@@ -944,15 +944,6 @@ void os_rw_mutex_drop_w(RWMutex m) {
   }
 }
 
-// Set the __stack_pointer global - used by workers to set their own stack
-WASM_EXPORT(set_stack_pointer)
-void set_stack_pointer(u32 sp) {
-  __asm__("local.get %0\n"
-          "global.set __stack_pointer\n"
-          :
-          : "r"(sp));
-}
-
 WASM_EXPORT(os_get_heap_base)
 void *os_get_heap_base(void) {
   // Memory layout after __heap_base:

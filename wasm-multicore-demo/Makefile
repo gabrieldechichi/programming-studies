@@ -43,12 +43,14 @@ CFLAGS = --target=wasm32-wasi-threads \
 # --shared-memory requires --max-memory (shared memory can't grow)
 # --export-table needed for indirect function calls (function pointers) from JS
 # --export TLS symbols for thread-local storage support
+# --export=__stack_pointer allows JS to set stack pointer before any WASM call
 # --gc-sections removes unused code/data (works with -ffunction/data-sections)
 # --lto-O3 sets LTO optimization level
 LDFLAGS = -Wl,--no-entry -Wl,--export-table -Wl,--import-memory \
 		  -Wl,--shared-memory -Wl,--max-memory=4294967296 \
 		  -Wl,--allow-undefined -Wl,--export=__wasm_init_tls \
 		  -Wl,--export=__tls_size -Wl,--export=__tls_align \
+		  -Wl,--export=__stack_pointer \
 		  -Wl,--gc-sections -Wl,--lto-O3 \
 		  --sysroot ./wasi-sdk/win32/share/wasi-sysroot \
 		  -resource-dir ./wasi-sdk/win32/lib/clang/21 \
