@@ -79,7 +79,6 @@ typedef struct ThreadContext {
   u64 *broadcast_memory;
   Barrier *barrier;
   ArenaAllocator temp_arena;
-  TaskSystem *task_system;
 } ThreadContext;
 
 i8 os_core_count();

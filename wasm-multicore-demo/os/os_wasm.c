@@ -986,8 +986,7 @@ struct OsFileOp {
   i32 op_id;
 };
 
-OsFileOp *os_start_read_file(const char *file_path, TaskSystem *task_system) {
-  UNUSED(task_system);
+OsFileOp *os_start_read_file(const char *file_path) {
   i32 path_len = (i32)str_len(file_path);
   i32 op_id = _os_start_read_file(file_path, path_len);
   if (op_id <= 0) {

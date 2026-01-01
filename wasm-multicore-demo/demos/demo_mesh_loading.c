@@ -47,8 +47,7 @@ void app_init(AppMemory *memory)
   g_tint_tex = gpu_make_texture("tints.png");
   g_metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
 
-  ThreadContext *tctx = tctx_current();
-  g_file_op = os_start_read_file("fish.hasset", tctx->task_system);
+  g_file_op = os_start_read_file("fish.hasset");
 }
 
 void app_update_and_render(AppMemory *memory)

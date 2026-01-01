@@ -859,7 +859,7 @@ void app_init(AppMemory *memory) {
                 (u32)memory->canvas_width, (u32)memory->canvas_height);
 
   ThreadContext *tctx = tctx_current();
-  asset_system_init(&state.assets, tctx->task_system, 64);
+  asset_system_init(&state.assets, 64);
 
   state.fish_albedo_tex = gpu_make_texture("fishAlbedo2.png");
   state.fish_tint_tex = gpu_make_texture("tints.png");

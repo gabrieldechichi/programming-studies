@@ -163,9 +163,7 @@ Barrier os_barrier_alloc(u32 count);
 void os_barrier_release(Barrier b);
 void os_barrier_wait(Barrier b);
 
-typedef struct TaskSystem TaskSystem;
-
-OsFileOp *os_start_read_file(const char *file_path, TaskSystem *task_system);
+OsFileOp *os_start_read_file(const char *file_path);
 OsFileReadState os_check_read_file(OsFileOp *op);
 i32 os_get_file_size(OsFileOp *op);
 b32 os_get_file_data(OsFileOp *op, _out_ PlatformFileData *data,

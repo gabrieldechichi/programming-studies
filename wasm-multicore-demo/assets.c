@@ -3,7 +3,7 @@
 #include "lib/assert.h"
 #include "lib/thread_context.h"
 
-void asset_system_init(AssetSystem *s, TaskSystem *tasks,
+void asset_system_init(AssetSystem *s,
                        u32 max_assets) {
   debug_assert(s);
   debug_assert(max_assets > 0);
@@ -11,7 +11,6 @@ void asset_system_init(AssetSystem *s, TaskSystem *tasks,
   AppContext *app_ctx = app_ctx_current();
   Allocator alloc = make_arena_allocator(&app_ctx->arena);
   s->allocator = alloc;
-  s->task_system = tasks;
   s->loaders.len = 0;
   s->entries = ha_init(AssetEntry, &s->allocator, max_assets);
   s->pending_loads = dyn_arr_new_alloc(&s->allocator, Handle, max_assets);
@@ -74,7 +73,7 @@ Handle _asset_load(AssetSystem *s, AssetTypeId type_id, const char *path,
   entry.callback = cb;
   entry.callback_user_data = user_data;
 
-  entry.file_op = os_start_read_file(path, s->task_system);
+  entry.file_op = os_start_read_file(path);
   if (!entry.file_op) {
     LOG_ERROR("Failed to start loading asset: %", FMT_STR(path));
     entry.state = ASSET_STATE_FAILED;
@@ -115,7 +114,7 @@ Handle asset_load_blob(AssetSystem *s, const char *path, AssetLoadedCallback cb,
   entry.callback = cb;
   entry.callback_user_data = user_data;
 
-  entry.file_op = os_start_read_file(path, s->task_system);
+  entry.file_op = os_start_read_file(path);
   if (!entry.file_op) {
     LOG_ERROR("Failed to start loading blob asset: %", FMT_STR(path));
     entry.state = ASSET_STATE_FAILED;

@@ -35,8 +35,7 @@ void app_init(AppMemory *memory) {
     LOG_INFO("Asset loading demo initialized");
     LOG_INFO("Starting to load cube.hasset...");
 
-    ThreadContext *tctx = tctx_current();
-    g_state.file_op = os_start_read_file("cube.hasset", tctx->task_system);
+    g_state.file_op = os_start_read_file("cube.hasset");
     if (g_state.file_op) {
         g_state.load_state = LOAD_STATE_LOADING;
     } else {

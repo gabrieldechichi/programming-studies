@@ -1145,8 +1145,7 @@ PlatformFileData os_read_file(const char *file_path, Allocator *allocator) {
   return result;
 }
 
-OsFileOp *os_start_read_file(const char *file_path, TaskSystem *task_system) {
-  UNUSED(task_system);
+OsFileOp *os_start_read_file(const char *file_path) {
 
   OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_FILE_OP);
   if (!entity)

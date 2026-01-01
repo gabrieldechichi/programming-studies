@@ -71,7 +71,7 @@ void entrypoint(void) {
     for (u64 i = range.min; i < range.max; i++) {
         AsyncFileLoad *load = &g_loads[i];
         load->path = g_files.paths[i];
-        load->op = os_start_read_file(g_files.paths[i], NULL);
+        load->op = os_start_read_file(g_files.paths[i]);
         load->completed = false;
         load->error = false;
 

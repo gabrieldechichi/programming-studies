@@ -59,10 +59,9 @@ typedef struct {
   FixedArray(AssetLoader, ASSET_MAX_LOADERS) loaders;
   DynArray(Handle) pending_loads;
   Allocator allocator;
-  TaskSystem *task_system;
 } AssetSystem;
 
-void asset_system_init(AssetSystem *s, TaskSystem *tasks, u32 max_assets);
+void asset_system_init(AssetSystem *s, u32 max_assets);
 void _asset_register_loader(AssetSystem *s, AssetTypeId type, AssetLoadFn load, void *user_data);
 Handle _asset_load(AssetSystem *s, AssetTypeId type, const char *path, AssetLoadedCallback cb, void *user_data);
 Handle asset_load_blob(AssetSystem *s, const char *path, AssetLoadedCallback cb, void *user_data);
