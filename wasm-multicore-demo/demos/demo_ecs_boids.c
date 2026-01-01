@@ -58,9 +58,16 @@ typedef struct {
 } AnimationPlayer;
 
 typedef struct {
+  mat4 value;
+} LocalToWorld;
+
+typedef struct {
+  f32 x, y, z;
+} Scale;
+
+typedef struct {
   GpuMesh_Handle mesh;
   Material_Handle material;
-  vec3 scale;
 } MeshRenderer;
 
 typedef struct {
@@ -117,6 +124,8 @@ global vec3 g_obstacle_positions[NUM_OBSTACLES];
 global EcsEntity g_target_entities[NUM_TARGETS];
 global EcsEntity g_obstacle_entities[NUM_OBSTACLES];
 global EcsEntity g_mesh_renderer_id;
+global EcsEntity g_scale_id;
+global EcsEntity g_local_to_world_id;
 global Material_Handle g_fish_noninst_material;
 
 global OsFileOp *g_shark_file_op;
@@ -203,15 +212,16 @@ void PlayAnimationsSystem(EcsIter *it) {
   }
 }
 
-void DrawMeshesSystem(EcsIter *it) {
+void BuildAnimatedTransformSystem(EcsIter *it) {
   Position *positions = ecs_field(it, Position, 0);
   AnimationPlayer *players = ecs_field(it, AnimationPlayer, 1);
-  MeshRenderer *renderers = ecs_field(it, MeshRenderer, 2);
+  Scale *scales = ecs_field(it, Scale, 2);
+  LocalToWorld *transforms = ecs_field(it, LocalToWorld, 3);
 
   for (i32 i = 0; i < it->count; i++) {
     Position *pos = &positions[i];
     AnimationPlayer *player = &players[i];
-    MeshRenderer *renderer = &renderers[i];
+    Scale *scale = &scales[i];
 
     versor anim_rot;
     sample_animation_rotation(player->clip, player->current_time, anim_rot);
@@ -228,9 +238,19 @@ void DrawMeshesSystem(EcsIter *it) {
     mat4 rot_mat;
     glm_quat_mat4(rot, rot_mat);
     glm_mat4_mul(model, rot_mat, model);
-    glm_scale(model, renderer->scale);
+    glm_scale(model, (vec3){scale->x, scale->y, scale->z});
 
-    renderer_draw_mesh(renderer->mesh, renderer->material, model);
+    glm_mat4_copy(model, transforms[i].value);
+  }
+}
+
+void RenderMeshSystem(EcsIter *it) {
+  LocalToWorld *transforms = ecs_field(it, LocalToWorld, 0);
+  MeshRenderer *renderers = ecs_field(it, MeshRenderer, 1);
+
+  for (i32 i = 0; i < it->count; i++) {
+    renderer_draw_mesh(renderers[i].mesh, renderers[i].material,
+                       transforms[i].value);
   }
 }
 
@@ -535,8 +555,12 @@ void app_init(AppMemory *memory) {
   ECS_COMPONENT(&g_world, BoidIndex);
   ECS_COMPONENT(&g_world, BoidTag);
   ECS_COMPONENT(&g_world, AnimationPlayer);
+  ECS_COMPONENT(&g_world, LocalToWorld);
+  ECS_COMPONENT(&g_world, Scale);
   ECS_COMPONENT(&g_world, MeshRenderer);
   g_mesh_renderer_id = ecs_id(MeshRenderer);
+  g_scale_id = ecs_id(Scale);
+  g_local_to_world_id = ecs_id(LocalToWorld);
 
   g_input = input_init();
   g_camera = camera_init(VEC3(0, 11.6, 0.4), VEC3(-0.4f, 0, 0), 45.0f);
@@ -644,16 +668,28 @@ void app_init(AppMemory *memory) {
                                 .name = "PlayAnimationsSystem",
                             });
 
-  EcsTerm draw_meshes_terms[] = {
+  EcsTerm build_animated_transform_terms[] = {
       ecs_term_in(ecs_id(Position)),
       ecs_term_in(ecs_id(AnimationPlayer)),
+      ecs_term_in(ecs_id(Scale)),
+      ecs_term_inout(ecs_id(LocalToWorld)),
+  };
+  ecs_system_init(&g_world, &(EcsSystemDesc){
+                                .terms = build_animated_transform_terms,
+                                .term_count = 4,
+                                .callback = BuildAnimatedTransformSystem,
+                                .name = "BuildAnimatedTransformSystem",
+                            });
+
+  EcsTerm render_mesh_terms[] = {
+      ecs_term_in(ecs_id(LocalToWorld)),
       ecs_term_in(ecs_id(MeshRenderer)),
   };
   ecs_system_init(&g_world, &(EcsSystemDesc){
-                                .terms = draw_meshes_terms,
-                                .term_count = 3,
-                                .callback = DrawMeshesSystem,
-                                .name = "DrawMeshesSystem",
+                                .terms = render_mesh_terms,
+                                .term_count = 2,
+                                .callback = RenderMeshSystem,
+                                .name = "RenderMeshSystem",
                             });
 
   EcsTerm insert_boids_terms[] = {
@@ -903,9 +939,12 @@ void app_update_and_render(AppMemory *memory) {
           MeshRenderer mr = {
               .mesh = g_fish_mesh,
               .material = g_fish_noninst_material,
-              .scale = {0.01f, 0.01f, 0.01f},
           };
+          Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
+          LocalToWorld ltw = {0};
           ecs_set_ptr(&g_world, g_target_entities[i], g_mesh_renderer_id, &mr);
+          ecs_set_ptr(&g_world, g_target_entities[i], g_scale_id, &s);
+          ecs_set_ptr(&g_world, g_target_entities[i], g_local_to_world_id, &ltw);
         }
 
         g_fish_loaded = true;
@@ -1009,10 +1048,14 @@ void app_update_and_render(AppMemory *memory) {
           MeshRenderer mr = {
               .mesh = g_shark_mesh,
               .material = g_shark_material,
-              .scale = {0.01f, 0.01f, 0.01f},
           };
+          Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
+          LocalToWorld ltw = {0};
           ecs_set_ptr(&g_world, g_obstacle_entities[i], g_mesh_renderer_id,
                       &mr);
+          ecs_set_ptr(&g_world, g_obstacle_entities[i], g_scale_id, &s);
+          ecs_set_ptr(&g_world, g_obstacle_entities[i], g_local_to_world_id,
+                      &ltw);
         }
 
         g_shark_loaded = true;
