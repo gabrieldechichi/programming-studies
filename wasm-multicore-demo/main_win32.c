@@ -27,4 +27,5 @@
 #include "entrypoint_win32.c"
 
 // Demo
-#include "demos/demo_hello_world.c"
+// #include "demos/demo_hello_world.c"
+#include "demos/demo_input.c"

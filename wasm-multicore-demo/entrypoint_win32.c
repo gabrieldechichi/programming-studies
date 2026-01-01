@@ -7,6 +7,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <timeapi.h>
+#include <stdio.h>
 
 // Force discrete GPU on laptops
 __declspec(dllexport) DWORD NvOptimusEnablement = 0x01;
@@ -18,6 +19,9 @@ global AppMemory *g_memory;
 global AppContext g_app_ctx;
 global b32 g_running;
 global HWND g_hwnd;
+global b32 g_mouse_locked;
+global b32 g_prev_mouse_buttons[3];
+global POINT g_mouse_lock_center;
 
 typedef struct {
     ThreadContext *ctx;
@@ -138,12 +142,21 @@ internal void win32_process_pending_messages(AppInputEvents *events) {
     }
 }
 
-internal void win32_poll_mouse(AppInputEvents *events, HWND hwnd) {
+internal void win32_poll_mouse(AppInputEvents *events, HWND hwnd, f32 dpr) {
     POINT mouse_p;
     GetCursorPos(&mouse_p);
-    ScreenToClient(hwnd, &mouse_p);
-    events->mouse_x = (f32)mouse_p.x;
-    events->mouse_y = (f32)mouse_p.y;
+
+    if (g_mouse_locked) {
+        f32 dx = (f32)(mouse_p.x - g_mouse_lock_center.x) / dpr;
+        f32 dy = (f32)(mouse_p.y - g_mouse_lock_center.y) / dpr;
+        events->mouse_x += dx;
+        events->mouse_y += dy;
+        SetCursorPos(g_mouse_lock_center.x, g_mouse_lock_center.y);
+    } else {
+        ScreenToClient(hwnd, &mouse_p);
+        events->mouse_x = (f32)mouse_p.x / dpr;
+        events->mouse_y = (f32)mouse_p.y / dpr;
+    }
 
     struct { int vk; App_InputButtonType btn; } mouse_buttons[] = {
         { VK_LBUTTON, MOUSE_LEFT },
@@ -153,8 +166,10 @@ internal void win32_poll_mouse(AppInputEvents *events, HWND hwnd) {
 
     for (u32 i = 0; i < ARRAY_SIZE(mouse_buttons); i++) {
         b32 is_down = (GetKeyState(mouse_buttons[i].vk) & (1 << 15)) != 0;
-        // TODO: track previous state for pressed/released this frame
-        UNUSED(is_down);
+        if (is_down != g_prev_mouse_buttons[i]) {
+            win32_add_key_event(events, mouse_buttons[i].btn, is_down);
+            g_prev_mouse_buttons[i] = is_down;
+        }
     }
 }
 
@@ -231,9 +246,50 @@ internal HWND win32_create_window(HINSTANCE instance, i32 width, i32 height) {
     return hwnd;
 }
 
+void os_quit(void) {
+    g_running = false;
+    PostQuitMessage(0);
+}
+
+void os_lock_mouse(b32 lock) {
+    if (lock == g_mouse_locked) return;
+
+    g_mouse_locked = lock;
+    if (lock) {
+        RECT client_rect;
+        GetClientRect(g_hwnd, &client_rect);
+        POINT center = {
+            (client_rect.right - client_rect.left) / 2,
+            (client_rect.bottom - client_rect.top) / 2
+        };
+        ClientToScreen(g_hwnd, &center);
+        g_mouse_lock_center = center;
+        SetCursorPos(center.x, center.y);
+
+        RECT clip_rect;
+        GetWindowRect(g_hwnd, &clip_rect);
+        ClipCursor(&clip_rect);
+        ShowCursor(FALSE);
+    } else {
+        ClipCursor(NULL);
+        ShowCursor(TRUE);
+    }
+}
+
+b32 os_is_mouse_locked(void) {
+    return g_mouse_locked;
+}
+
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int show_cmd) {
     UNUSED(prev_instance);
     UNUSED(cmd_line);
+
+    // Attach console for debug output
+    if (AttachConsole(ATTACH_PARENT_PROCESS) || AllocConsole()) {
+        FILE *dummy;
+        freopen_s(&dummy, "CONOUT$", "w", stdout);
+        freopen_s(&dummy, "CONOUT$", "w", stderr);
+    }
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
@@ -243,6 +299,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, 
 
     os_init();
     os_time_init();
+    os_install_crash_handler();
 
     i32 initial_width = 1280;
     i32 initial_height = 720;
@@ -326,7 +383,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, 
 
         memory.input_events.len = 0;
         win32_process_pending_messages(&memory.input_events);
-        win32_poll_mouse(&memory.input_events, g_hwnd);
+        win32_poll_mouse(&memory.input_events, g_hwnd, memory.dpr);
 
         if (!g_running) break;
 
