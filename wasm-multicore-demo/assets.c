@@ -1,48 +1,51 @@
 #include "assets.h"
+#include "context.h"
 #include "lib/assert.h"
-#include "lib/string.h"
+#include "lib/thread_context.h"
 
-void asset_system_init(AssetSystem *s, Allocator *alloc, TaskSystem *tasks,
+void asset_system_init(AssetSystem *s, TaskSystem *tasks,
                        u32 max_assets) {
   debug_assert(s);
-  debug_assert(alloc);
   debug_assert(max_assets > 0);
 
+  AppContext *app_ctx = app_ctx_current();
+  Allocator alloc = make_arena_allocator(&app_ctx->arena);
   s->allocator = alloc;
   s->task_system = tasks;
-  s->loader_count = 0;
-  s->entries = ha_init(AssetEntry, alloc, max_assets);
-  s->pending_loads = dyn_arr_new_alloc(alloc, Handle, max_assets);
+  s->loaders.len = 0;
+  s->entries = ha_init(AssetEntry, &s->allocator, max_assets);
+  s->pending_loads = dyn_arr_new_alloc(&s->allocator, Handle, max_assets);
 }
 
 internal AssetLoader *asset_find_loader(AssetSystem *s, AssetTypeId type_id) {
-  for (u32 i = 0; i < s->loader_count; i++) {
-    if (s->loaders[i].type_id == type_id) {
-      return &s->loaders[i];
+  for (u32 i = 0; i < s->loaders.len; i++) {
+    if (s->loaders.items[i].type_id == type_id) {
+      return &s->loaders.items[i];
     }
   }
   return NULL;
 }
 
-void asset_register_loader(AssetSystem *s, AssetTypeId type_id, AssetInitFn init,
-                           AssetLoadFn load, void *user_data) {
+void _asset_register_loader(AssetSystem *s, AssetTypeId type_id, AssetInitFn init,
+                            AssetLoadFn load, void *user_data) {
   debug_assert(s);
   debug_assert(load);
-  debug_assert(s->loader_count < ASSET_MAX_LOADERS);
 
   AssetLoader *existing = asset_find_loader(s, type_id);
   debug_assert_msg(!existing, "Loader already registered for type %",
                    FMT_UINT(type_id));
 
-  AssetLoader *loader = &s->loaders[s->loader_count++];
-  loader->type_id = type_id;
-  loader->init_fn = init;
-  loader->load_fn = load;
-  loader->user_data = user_data;
+  AssetLoader loader = {
+      .type_id = type_id,
+      .init_fn = init,
+      .load_fn = load,
+      .user_data = user_data,
+  };
+  fixed_arr_append(s->loaders, loader);
 }
 
-Handle asset_load(AssetSystem *s, AssetTypeId type_id, const char *path,
-                  AssetLoadedCallback cb, void *user_data) {
+Handle _asset_load(AssetSystem *s, AssetTypeId type_id, const char *path,
+                   AssetLoadedCallback cb, void *user_data) {
   debug_assert(s);
   debug_assert(path);
 
@@ -72,7 +75,7 @@ Handle asset_load(AssetSystem *s, AssetTypeId type_id, const char *path,
   entry.callback_user_data = user_data;
 
   if (loader->init_fn) {
-    entry.data = loader->init_fn(s->allocator, loader->user_data);
+    entry.data = loader->init_fn(&s->allocator, loader->user_data);
   }
 
   entry.file_op = os_start_read_file(path, s->task_system);
@@ -107,8 +110,17 @@ b32 asset_is_ready(AssetSystem *s, Handle h) {
   return entry && entry->state == ASSET_STATE_READY;
 }
 
-void asset_system_update(AssetSystem *s, Allocator *temp_alloc) {
+void asset_system_update(AssetSystem *s) {
   debug_assert(s);
+
+  // We don't expect many assets to poll each frame, so we only run on main
+  // thread to avoid synchronization overhead
+  if (!is_main_thread()) {
+    return;
+  }
+
+  ThreadContext *tctx = tctx_current();
+  Allocator temp_alloc = make_arena_allocator(&tctx->temp_arena);
 
   for (i32 i = (i32)s->pending_loads.len - 1; i >= 0; i--) {
     Handle handle = s->pending_loads.items[i];
@@ -124,13 +136,13 @@ void asset_system_update(AssetSystem *s, Allocator *temp_alloc) {
     if (file_state == OS_FILE_READ_STATE_COMPLETED) {
       PlatformFileData file_data = {0};
 
-      if (os_get_file_data(entry->file_op, &file_data, temp_alloc)) {
+      if (os_get_file_data(entry->file_op, &file_data, &temp_alloc)) {
         AssetLoader *loader = asset_find_loader(s, entry->type_id);
 
         if (loader && loader->load_fn) {
           void *asset_data = loader->load_fn(file_data.buffer,
                                              file_data.buffer_len,
-                                             s->allocator, entry->data);
+                                             &s->allocator, entry->data);
           if (asset_data) {
             entry->data = asset_data;
             entry->state = ASSET_STATE_READY;

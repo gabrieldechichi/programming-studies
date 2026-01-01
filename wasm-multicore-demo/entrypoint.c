@@ -61,7 +61,7 @@ int wasm_main(AppMemory *memory) {
       .thread_count = g_app_ctx.num_threads,
       .barrier = &frame_barrier,
       .temp_arena = arena_from_buffer(
-          ARENA_ALLOC_ARRAY(&g_app_ctx.arena, u8, KB(64)), KB(64)),
+          ARENA_ALLOC_ARRAY(&g_app_ctx.arena, u8, MB(16)), MB(16)),
   };
   tctx_set_current(&main_thread_ctx);
 
@@ -72,7 +72,7 @@ int wasm_main(AppMemory *memory) {
         .thread_count = g_app_ctx.num_threads,
         .barrier = &frame_barrier,
         .temp_arena = arena_from_buffer(
-            ARENA_ALLOC_ARRAY(&g_app_ctx.arena, u8, KB(64)), KB(64)),
+            ARENA_ALLOC_ARRAY(&g_app_ctx.arena, u8, MB(16)), MB(16)),
     };
     worker_data[i] = (WorkerData){.ctx = &thread_contexts[i]};
     threads[i] = thread_launch(worker_loop, &worker_data[i]);

@@ -13,6 +13,9 @@
 typedef u32 AssetTypeId;
 #define ASSET_TYPE(name) (fnv1a_hash(#name))
 
+// Declares an asset type - creates compile-time checkable symbol
+#define ASSET_TYPE_DECLARE(name) enum { _asset_type_##name##_exists = 1 }
+
 typedef enum {
   ASSET_STATE_NONE = 0,
   ASSET_STATE_LOADING,
@@ -45,18 +48,26 @@ HANDLE_ARRAY_DEFINE(AssetEntry);
 
 typedef struct {
   HandleArray_AssetEntry entries;
-  AssetLoader loaders[ASSET_MAX_LOADERS];
-  u32 loader_count;
-  Handle_DynArray pending_loads;
-  Allocator *allocator;
+  FixedArray(AssetLoader, ASSET_MAX_LOADERS) loaders;
+  DynArray(Handle) pending_loads;
+  Allocator allocator;
   TaskSystem *task_system;
 } AssetSystem;
 
-void asset_system_init(AssetSystem *s, Allocator *alloc, TaskSystem *tasks, u32 max_assets);
-void asset_register_loader(AssetSystem *s, AssetTypeId type, AssetInitFn init, AssetLoadFn load, void *user_data);
-Handle asset_load(AssetSystem *s, AssetTypeId type, const char *path, AssetLoadedCallback cb, void *user_data);
+void asset_system_init(AssetSystem *s, TaskSystem *tasks, u32 max_assets);
+void _asset_register_loader(AssetSystem *s, AssetTypeId type, AssetInitFn init, AssetLoadFn load, void *user_data);
+Handle _asset_load(AssetSystem *s, AssetTypeId type, const char *path, AssetLoadedCallback cb, void *user_data);
 void *asset_get(AssetSystem *s, Handle h);
 b32 asset_is_ready(AssetSystem *s, Handle h);
-void asset_system_update(AssetSystem *s, Allocator *temp_alloc);
+void asset_system_update(AssetSystem *s);
+
+// Type-safe macros - validates type_name was declared with ASSET_TYPE_DECLARE
+#define asset_register_loader(sys, type_name, init, load, user_data)           \
+  ((void)_asset_type_##type_name##_exists,                                     \
+   _asset_register_loader(sys, ASSET_TYPE(type_name), init, load, user_data))
+
+#define asset_load(sys, type_name, path, cb, user_data)                        \
+  ((void)_asset_type_##type_name##_exists,                                     \
+   _asset_load(sys, ASSET_TYPE(type_name), path, cb, user_data))
 
 #endif

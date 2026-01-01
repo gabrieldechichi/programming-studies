@@ -34,6 +34,20 @@
     _type items[_len];          \
   }
 
+#define fixed_arr_cap(xs) (sizeof((xs).items) / sizeof((xs).items[0]))
+
+#define fixed_arr_append(xs, x)                                                \
+  do {                                                                         \
+    debug_assert_msg((xs).len < fixed_arr_cap(xs),                             \
+                     "Fixed array capacity overflow");                         \
+    if ((xs).len < fixed_arr_cap(xs)) {                                        \
+      (xs).items[(xs).len] = (x);                                              \
+      (xs).len++;                                                              \
+    }                                                                          \
+  } while (0)
+
+#define fixed_arr_foreach(xs, type, e) foreach((xs).items, (xs).len, type, e)
+
 /* append element to array (asserts if over capacity) */
 #define arr_append(xs, x)                                                     \
   do                                                                          \

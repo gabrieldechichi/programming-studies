@@ -16,6 +16,8 @@
 #include "shaders/fish_instanced_vs.h"
 #include "shaders/fish_fs.h"
 
+ASSET_TYPE_DECLARE(Model);
+
 // #define NUM_BOIDS 100000
 #define NUM_BOIDS 25000
 #define NUM_TARGETS 2
@@ -865,10 +867,8 @@ void app_init(AppMemory *memory) {
                 (u32)memory->canvas_width, (u32)memory->canvas_height);
 
   ThreadContext *tctx = tctx_current();
-  Allocator alloc = make_arena_allocator(&app_ctx->arena);
-  asset_system_init(&state.assets, &alloc, tctx->task_system, 64);
-  asset_register_loader(&state.assets, ASSET_TYPE(Model), NULL,
-                        load_model_asset, NULL);
+  asset_system_init(&state.assets, tctx->task_system, 64);
+  asset_register_loader(&state.assets, Model, NULL, load_model_asset, NULL);
 
   state.fish_albedo_tex = gpu_make_texture("fishAlbedo2.png");
   state.fish_tint_tex = gpu_make_texture("tints.png");
@@ -876,10 +876,8 @@ void app_init(AppMemory *memory) {
   state.shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
   state.shark_metallic_gloss_tex = gpu_make_texture("SharkMetallicGloss.png");
 
-  asset_load(&state.assets, ASSET_TYPE(Model), "fish.hasset", on_fish_loaded,
-             NULL);
-  asset_load(&state.assets, ASSET_TYPE(Model), "shark.hasset", on_shark_loaded,
-             NULL);
+  asset_load(&state.assets, Model, "fish.hasset", on_fish_loaded, NULL);
+  asset_load(&state.assets, Model, "shark.hasset", on_shark_loaded, NULL);
 
   f32 spawn_radius = 15.0f;
   f32 spawn_center_x = 20.0f;
@@ -1063,12 +1061,9 @@ void app_update_and_render(AppMemory *memory) {
     state.buckets[i].count = 0;
   }
 
+  asset_system_update(&state.assets);
+
   if (is_main_thread()) {
-
-    AppContext *app_ctx = app_ctx_current();
-    Allocator temp_alloc = make_arena_allocator(&app_ctx->arena);
-    asset_system_update(&state.assets, &temp_alloc);
-
     input_update(&state.input, &memory->input_events, memory->total_time);
     flycam_update(&state.fly_cam, &state.camera, &state.input, memory->dt);
     camera_update(&state.camera, memory->canvas_width, memory->canvas_height);
