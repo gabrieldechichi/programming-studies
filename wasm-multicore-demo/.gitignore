@@ -3,3 +3,4 @@ out
 node_modules
 wasi-sdk/
 crashes/
+vc140.pdb

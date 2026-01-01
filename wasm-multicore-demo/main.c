@@ -27,7 +27,17 @@
 #include "ecs/ecs_entity.c"
 #include "ecs/ecs_table.c"
 #include "assets.c"
+
+
+#ifdef WIN32
+#include "entrypoint_win32.c"
+#endif
+#ifdef WASM
 #include "entrypoint.c"
+#endif
+
+
+
 // #include "demos/demo_mesh_loading.c"
 // #include "demos/demo_fish.c"
 // #include "demos/demo_asset_loading.c"

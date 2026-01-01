@@ -168,9 +168,9 @@ force_inline void mat4_lookat(vec3 eye, vec3 center, vec3 up, _out_ mat4 dest) {
   glm_lookat(eye, center, up, dest);
 }
 
-force_inline void mat4_perspective(f32 fovy, f32 aspect, f32 near, f32 far,
+force_inline void mat4_perspective(f32 fovy, f32 aspect, f32 near_plane, f32 far_plane,
                                    _out_ mat4 dest) {
-  glm_perspective(fovy, aspect, near, far, dest);
+  glm_perspective(fovy, aspect, near_plane, far_plane, dest);
 }
 
 force_inline void mat4_translate(mat4 mat, vec3 v) { glm_translate(mat, v); }
@@ -276,8 +276,8 @@ typedef struct {
       Plane right;
       Plane bottom;
       Plane top;
-      Plane near;
-      Plane far;
+      Plane near_plane;
+      Plane far_plane;
     };
     Plane planes[6];
   };
