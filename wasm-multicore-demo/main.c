@@ -26,6 +26,7 @@
 #include "context.c"
 #include "ecs/ecs_entity.c"
 #include "ecs/ecs_table.c"
+#include "assets.c"
 #include "entrypoint.c"
 // #include "demos/demo_mesh_loading.c"
 // #include "demos/demo_fish.c"
