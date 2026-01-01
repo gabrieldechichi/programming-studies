@@ -26,7 +26,7 @@ void camera_update_uniforms(Camera *camera, f32 canvas_width, f32 canvas_height)
   f32 aspect = canvas_width / canvas_height;
   f32 fov = camera->fov > 0 ? camera->fov : 60;
 
-  glm_perspective(glm_rad(fov), aspect, 0.1f, 10000.0f, camera->proj);
+  glm_perspective(glm_rad(fov), aspect, 0.3f, 1000.0f, camera->proj);
 
   glm_mat4_mul(camera->proj, camera->view, camera->view_proj);
 }

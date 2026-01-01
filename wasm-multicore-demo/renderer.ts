@@ -87,7 +87,7 @@ export async function createRenderer(canvas: OffscreenCanvas): Promise<Renderer>
         throw new Error("Failed to get WebGPU context");
     }
 
-    const format = navigator.gpu.getPreferredCanvasFormat();
+    const format: GPUTextureFormat = "bgra8unorm"; // No automatic gamma correction
     context.configure({
         device,
         format,
@@ -173,15 +173,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     color = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
 
     // Contrast (around mid-gray)
-    color = (color - 0.5) * CONTRAST + 0.5;
+    // color = (color - 0.5) * CONTRAST + 0.5;
 
     // Saturation
-    let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
-    color = mix(vec3<f32>(luminance), color, SATURATION);
+    // let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
+    // color = mix(vec3<f32>(luminance), color, SATURATION);
 
     // Gamma correction
     // color = pow(color, vec3<f32>(1.0 / 1.5));
-
+    
     return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 `;

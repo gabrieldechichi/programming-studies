@@ -30,8 +30,8 @@ struct FragmentInput {
 };
 
 const LIGHT_DIR: vec3<f32> = vec3<f32>(0, 0.901, 0.433);
-const LIGHT_COLOR: vec3<f32> = vec3<f32>( 169.0f, 248.0f, 255.0f) * (2.0f / 255f);
-const AMBIENT: vec3<f32> = vec3<f32>(1.0) * 0.25;
+const LIGHT_COLOR: vec3<f32> = vec3<f32>( 169.0f, 248.0f, 255.0f) * (1.5f / 255f);
+const AMBIENT: vec3<f32> = vec3<f32>(1.0) * 0.2;
 const DIELECTRIC_F0: f32 = 0.04;
 
 fn pbr_lighting(

@@ -1,3 +1,5 @@
+#include "fog.wgsl"
+
 @group(2) @binding(0) var albedo_sampler: sampler;
 @group(2) @binding(1) var albedo_texture: texture_2d<f32>;
 @group(2) @binding(2) var tint_sampler: sampler;
@@ -18,5 +20,5 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4<f32> {
     let smoothness = metallic_gloss.a * material.smoothness;
 
     let final_color = pbr_lighting(base_color, metallic, smoothness, in.world_normal, in.world_position);
-    return vec4<f32>(final_color, 1.0);
+    return vec4<f32>(apply_fog(final_color, in.world_position), 1.0);
 }
