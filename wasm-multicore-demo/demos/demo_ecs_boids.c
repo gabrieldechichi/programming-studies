@@ -16,8 +16,6 @@
 #include "shaders/fish_instanced_vs.h"
 #include "shaders/fish_fs.h"
 
-ASSET_TYPE_DECLARE(Model);
-
 // #define NUM_BOIDS 100000
 #define NUM_BOIDS 25000
 #define NUM_TARGETS 2
@@ -136,12 +134,6 @@ global GameState state = {0};
 ECS_COMPONENT_DECLARE(MeshRenderer);
 ECS_COMPONENT_DECLARE(Scale);
 ECS_COMPONENT_DECLARE(LocalToWorld);
-
-void *load_model_asset(u8 *buffer, u32 len, Allocator *alloc, void *init_data) {
-  UNUSED(alloc);
-  UNUSED(init_data);
-  return (void *)buffer;
-}
 
 void on_fish_loaded(Handle asset, void *data, void *user_data) {
   UNUSED(asset);
@@ -868,7 +860,6 @@ void app_init(AppMemory *memory) {
 
   ThreadContext *tctx = tctx_current();
   asset_system_init(&state.assets, tctx->task_system, 64);
-  asset_register_loader(&state.assets, Model, NULL, load_model_asset, NULL);
 
   state.fish_albedo_tex = gpu_make_texture("fishAlbedo2.png");
   state.fish_tint_tex = gpu_make_texture("tints.png");
@@ -876,8 +867,8 @@ void app_init(AppMemory *memory) {
   state.shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
   state.shark_metallic_gloss_tex = gpu_make_texture("SharkMetallicGloss.png");
 
-  asset_load(&state.assets, Model, "fish.hasset", on_fish_loaded, NULL);
-  asset_load(&state.assets, Model, "shark.hasset", on_shark_loaded, NULL);
+  asset_load_blob(&state.assets, "fish.hasset", on_fish_loaded, NULL);
+  asset_load_blob(&state.assets, "shark.hasset", on_shark_loaded, NULL);
 
   f32 spawn_radius = 15.0f;
   f32 spawn_center_x = 20.0f;

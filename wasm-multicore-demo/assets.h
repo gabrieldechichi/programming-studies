@@ -12,6 +12,7 @@
 
 typedef u32 AssetTypeId;
 #define ASSET_TYPE(name) (fnv1a_hash(#name))
+#define ASSET_TYPE_BLOB 0
 
 // Declares an asset type - creates compile-time checkable symbol
 #define ASSET_TYPE_DECLARE(name) enum { _asset_type_##name##_exists = 1 }
@@ -23,13 +24,19 @@ typedef enum {
   ASSET_STATE_FAILED
 } AssetState;
 
+typedef struct {
+  u8 *buffer;
+  u32 len;
+  const char *path;
+  u32 path_hash;
+  AssetTypeId type_id;
+} AssetLoadContext;
+
 typedef void (*AssetLoadedCallback)(Handle asset, void *data, void *user_data);
-typedef void *(*AssetInitFn)(Allocator *alloc, void *user_data);
-typedef void *(*AssetLoadFn)(u8 *buffer, u32 len, Allocator *alloc, void *init_data);
+typedef void *(*AssetLoadFn)(AssetLoadContext *ctx);
 
 typedef struct {
   AssetTypeId type_id;
-  AssetInitFn init_fn;
   AssetLoadFn load_fn;
   void *user_data;
 } AssetLoader;
@@ -37,6 +44,7 @@ typedef struct {
 typedef struct {
   AssetTypeId type_id;
   AssetState state;
+  const char *path;
   u32 path_hash;
   OsFileOp *file_op;
   void *data;
@@ -55,16 +63,17 @@ typedef struct {
 } AssetSystem;
 
 void asset_system_init(AssetSystem *s, TaskSystem *tasks, u32 max_assets);
-void _asset_register_loader(AssetSystem *s, AssetTypeId type, AssetInitFn init, AssetLoadFn load, void *user_data);
+void _asset_register_loader(AssetSystem *s, AssetTypeId type, AssetLoadFn load, void *user_data);
 Handle _asset_load(AssetSystem *s, AssetTypeId type, const char *path, AssetLoadedCallback cb, void *user_data);
+Handle asset_load_blob(AssetSystem *s, const char *path, AssetLoadedCallback cb, void *user_data);
 void *asset_get(AssetSystem *s, Handle h);
 b32 asset_is_ready(AssetSystem *s, Handle h);
 void asset_system_update(AssetSystem *s);
 
 // Type-safe macros - validates type_name was declared with ASSET_TYPE_DECLARE
-#define asset_register_loader(sys, type_name, init, load, user_data)           \
+#define asset_register_loader(sys, type_name, load, user_data)                 \
   ((void)_asset_type_##type_name##_exists,                                     \
-   _asset_register_loader(sys, ASSET_TYPE(type_name), init, load, user_data))
+   _asset_register_loader(sys, ASSET_TYPE(type_name), load, user_data))
 
 #define asset_load(sys, type_name, path, cb, user_data)                        \
   ((void)_asset_type_##type_name##_exists,                                     \

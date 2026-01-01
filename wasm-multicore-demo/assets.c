@@ -26,7 +26,7 @@ internal AssetLoader *asset_find_loader(AssetSystem *s, AssetTypeId type_id) {
   return NULL;
 }
 
-void _asset_register_loader(AssetSystem *s, AssetTypeId type_id, AssetInitFn init,
+void _asset_register_loader(AssetSystem *s, AssetTypeId type_id,
                             AssetLoadFn load, void *user_data) {
   debug_assert(s);
   debug_assert(load);
@@ -37,7 +37,6 @@ void _asset_register_loader(AssetSystem *s, AssetTypeId type_id, AssetInitFn ini
 
   AssetLoader loader = {
       .type_id = type_id,
-      .init_fn = init,
       .load_fn = load,
       .user_data = user_data,
   };
@@ -70,17 +69,55 @@ Handle _asset_load(AssetSystem *s, AssetTypeId type_id, const char *path,
   AssetEntry entry = {0};
   entry.type_id = type_id;
   entry.state = ASSET_STATE_LOADING;
+  entry.path = path;
   entry.path_hash = path_hash;
   entry.callback = cb;
   entry.callback_user_data = user_data;
 
-  if (loader->init_fn) {
-    entry.data = loader->init_fn(&s->allocator, loader->user_data);
-  }
-
   entry.file_op = os_start_read_file(path, s->task_system);
   if (!entry.file_op) {
     LOG_ERROR("Failed to start loading asset: %", FMT_STR(path));
+    entry.state = ASSET_STATE_FAILED;
+  }
+
+  Handle handle = ha_add(AssetEntry, &s->entries, entry);
+
+  if (entry.state == ASSET_STATE_LOADING) {
+    dyn_arr_append(s->pending_loads, handle);
+  }
+
+  return handle;
+}
+
+Handle asset_load_blob(AssetSystem *s, const char *path, AssetLoadedCallback cb,
+                       void *user_data) {
+  debug_assert(s);
+  debug_assert(path);
+
+  u32 path_hash = fnv1a_hash(path);
+
+  ha_foreach_handle(s->entries, h) {
+    AssetEntry *entry = ha_get(AssetEntry, &s->entries, h);
+    if (entry && entry->path_hash == path_hash &&
+        entry->type_id == ASSET_TYPE_BLOB) {
+      if (entry->state == ASSET_STATE_READY && cb) {
+        cb(h, entry->data, user_data);
+      }
+      return h;
+    }
+  }
+
+  AssetEntry entry = {0};
+  entry.type_id = ASSET_TYPE_BLOB;
+  entry.state = ASSET_STATE_LOADING;
+  entry.path = path;
+  entry.path_hash = path_hash;
+  entry.callback = cb;
+  entry.callback_user_data = user_data;
+
+  entry.file_op = os_start_read_file(path, s->task_system);
+  if (!entry.file_op) {
+    LOG_ERROR("Failed to start loading blob asset: %", FMT_STR(path));
     entry.state = ASSET_STATE_FAILED;
   }
 
@@ -137,25 +174,36 @@ void asset_system_update(AssetSystem *s) {
       PlatformFileData file_data = {0};
 
       if (os_get_file_data(entry->file_op, &file_data, &temp_alloc)) {
-        AssetLoader *loader = asset_find_loader(s, entry->type_id);
+        void *asset_data = NULL;
 
-        if (loader && loader->load_fn) {
-          void *asset_data = loader->load_fn(file_data.buffer,
-                                             file_data.buffer_len,
-                                             &s->allocator, entry->data);
-          if (asset_data) {
-            entry->data = asset_data;
-            entry->state = ASSET_STATE_READY;
-
-            if (entry->callback) {
-              entry->callback(handle, entry->data, entry->callback_user_data);
-            }
+        if (entry->type_id == ASSET_TYPE_BLOB) {
+          asset_data = file_data.buffer;
+        } else {
+          AssetLoader *loader = asset_find_loader(s, entry->type_id);
+          if (loader && loader->load_fn) {
+            AssetLoadContext ctx = {
+                .buffer = file_data.buffer,
+                .len = file_data.buffer_len,
+                .path = entry->path,
+                .path_hash = entry->path_hash,
+                .type_id = entry->type_id,
+            };
+            asset_data = loader->load_fn(&ctx);
           } else {
-            LOG_ERROR("Loader failed for asset type %", FMT_UINT(entry->type_id));
-            entry->state = ASSET_STATE_FAILED;
+            LOG_ERROR("No loader found for asset type %",
+                      FMT_UINT(entry->type_id));
+          }
+        }
+
+        if (asset_data) {
+          entry->data = asset_data;
+          entry->state = ASSET_STATE_READY;
+
+          if (entry->callback) {
+            entry->callback(handle, entry->data, entry->callback_user_data);
           }
         } else {
-          LOG_ERROR("No loader found for asset type %", FMT_UINT(entry->type_id));
+          LOG_ERROR("Loader failed for asset type %", FMT_UINT(entry->type_id));
           entry->state = ASSET_STATE_FAILED;
         }
       } else {
