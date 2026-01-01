@@ -95,7 +95,6 @@ int wasm_init(AppMemory *memory)
 WASM_EXPORT(wasm_frame)
 void wasm_frame(AppMemory *memory)
 {
-
   lane_sync(); // Release workers - they can now read g_memory
 
   app_update_and_render(memory);
