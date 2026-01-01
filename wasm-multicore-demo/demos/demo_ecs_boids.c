@@ -100,42 +100,46 @@ typedef struct {
 #include "./Target01_animation.c"
 #include "./Target02_animation.c"
 
-global BoidBucket g_buckets[GRID_SIZE];
+typedef struct {
+  EcsWorld world;
+  EcsEntity mesh_renderer_id;
+  EcsEntity scale_id;
+  EcsEntity local_to_world_id;
 
-global EcsWorld g_world;
-global InputSystem g_input = {0};
-global Camera g_camera;
-global FlyCameraCtrl g_fly_cam = {.camera_pos = {0.0f, 11.6f, 40.4f},
-                                  .move_speed = 400.0f};
+  InputSystem input;
+  Camera camera;
+  FlyCameraCtrl fly_cam;
 
-global InstanceBuffer_Handle g_instance_buffer;
-global mat4 g_instance_data[NUM_BOIDS];
+  BoidBucket buckets[GRID_SIZE];
 
-global OsFileOp *g_file_op;
-global b32 g_fish_loaded = false;
-global GpuMesh_Handle g_fish_mesh;
-global Material_Handle g_fish_material;
-global GpuTexture g_albedo_tex = {0};
-global GpuTexture g_tint_tex = {0};
-global GpuTexture g_metallic_gloss_tex = {0};
+  InstanceBuffer_Handle instance_buffer;
+  mat4 instance_data[NUM_BOIDS];
 
-global vec3 g_target_positions[NUM_TARGETS];
-global vec3 g_obstacle_positions[NUM_OBSTACLES];
-global EcsEntity g_target_entities[NUM_TARGETS];
-global EcsEntity g_obstacle_entities[NUM_OBSTACLES];
-global EcsEntity g_mesh_renderer_id;
-global EcsEntity g_scale_id;
-global EcsEntity g_local_to_world_id;
-global Material_Handle g_fish_noninst_material;
+  OsFileOp *fish_file_op;
+  b32 fish_loaded;
+  GpuMesh_Handle fish_mesh;
+  Material_Handle fish_material;
+  Material_Handle fish_noninst_material;
+  GpuTexture albedo_tex;
+  GpuTexture tint_tex;
+  GpuTexture metallic_gloss_tex;
 
-global OsFileOp *g_shark_file_op;
-global b32 g_shark_loaded = false;
-global GpuMesh_Handle g_shark_mesh;
-global Material_Handle g_shark_material;
-global GpuTexture g_shark_albedo_tex = {0};
-global GpuTexture g_shark_metallic_gloss_tex = {0};
+  OsFileOp *shark_file_op;
+  b32 shark_loaded;
+  GpuMesh_Handle shark_mesh;
+  Material_Handle shark_material;
+  GpuTexture shark_albedo_tex;
+  GpuTexture shark_metallic_gloss_tex;
 
-global f32 g_total_time = 0.0f;
+  vec3 target_positions[NUM_TARGETS];
+  vec3 obstacle_positions[NUM_OBSTACLES];
+  EcsEntity target_entities[NUM_TARGETS];
+  EcsEntity obstacle_entities[NUM_OBSTACLES];
+
+  f32 total_time;
+} GameState;
+
+global GameState state = {0};
 
 void sample_animation_position(const SampledAnimationClip *clip, f32 time,
                                vec3 out_pos) {
@@ -266,10 +270,10 @@ void InsertBoidsSystem(EcsIter *it) {
 
     u32 hash = spatial_hash_3f(px, py, pz, CELL_SIZE) % GRID_SIZE;
 
-    u32 slot = ins_atomic_u32_inc_eval(&g_buckets[hash].count) - 1;
+    u32 slot = ins_atomic_u32_inc_eval(&state.buckets[hash].count) - 1;
 
     if (slot < MAX_PER_BUCKET) {
-      BoidBucketEntry *entry = &g_buckets[hash].entries[slot];
+      BoidBucketEntry *entry = &state.buckets[hash].entries[slot];
       entry->px = px;
       entry->py = py;
       entry->pz = pz;
@@ -283,7 +287,7 @@ void InsertBoidsSystem(EcsIter *it) {
 void MergeCellsSystem(EcsIter *it) {
   for (i32 i = 0; i < it->count; i++) {
     i32 bucket_idx = it->offset + i;
-    BoidBucket *bucket = &g_buckets[bucket_idx];
+    BoidBucket *bucket = &state.buckets[bucket_idx];
     if (bucket->count == 0)
       continue;
 
@@ -316,9 +320,9 @@ void MergeCellsSystem(EcsIter *it) {
     f32 nearest_target_dist_sq = 1e18f;
     i32 nearest_target_idx = 0;
     for (i32 t = 0; t < NUM_TARGETS; t++) {
-      f32 dx = g_target_positions[t][0] - first_px;
-      f32 dy = g_target_positions[t][1] - first_py;
-      f32 dz = g_target_positions[t][2] - first_pz;
+      f32 dx = state.target_positions[t][0] - first_px;
+      f32 dy = state.target_positions[t][1] - first_py;
+      f32 dz = state.target_positions[t][2] - first_pz;
       f32 dist_sq = dx * dx + dy * dy + dz * dz;
       if (dist_sq < nearest_target_dist_sq) {
         nearest_target_dist_sq = dist_sq;
@@ -330,9 +334,9 @@ void MergeCellsSystem(EcsIter *it) {
     f32 nearest_obs_dist_sq = 1e18f;
     i32 nearest_obs_idx = 0;
     for (i32 o = 0; o < NUM_OBSTACLES; o++) {
-      f32 dx = g_obstacle_positions[o][0] - first_px;
-      f32 dy = g_obstacle_positions[o][1] - first_py;
-      f32 dz = g_obstacle_positions[o][2] - first_pz;
+      f32 dx = state.obstacle_positions[o][0] - first_px;
+      f32 dy = state.obstacle_positions[o][1] - first_py;
+      f32 dz = state.obstacle_positions[o][2] - first_pz;
       f32 dist_sq = dx * dx + dy * dy + dz * dz;
       if (dist_sq < nearest_obs_dist_sq) {
         nearest_obs_dist_sq = dist_sq;
@@ -361,7 +365,7 @@ void SteerBoidsSystem(EcsIter *it) {
     f32 forward_z = headings[i].z;
 
     u32 hash = spatial_hash_3f(px, py, pz, CELL_SIZE) % GRID_SIZE;
-    BoidBucket *bucket = &g_buckets[hash];
+    BoidBucket *bucket = &state.buckets[hash];
     u32 count = bucket->count;
     if (count > MAX_PER_BUCKET)
       count = MAX_PER_BUCKET;
@@ -391,15 +395,15 @@ void SteerBoidsSystem(EcsIter *it) {
     f32 inv_count = 1.0f / (f32)neighbor_count;
 
     i32 nearest_obstacle_idx = bucket->nearest_obstacle_idx;
-    f32 nearest_obstacle_x = g_obstacle_positions[nearest_obstacle_idx][0];
-    f32 nearest_obstacle_y = g_obstacle_positions[nearest_obstacle_idx][1];
-    f32 nearest_obstacle_z = g_obstacle_positions[nearest_obstacle_idx][2];
+    f32 nearest_obstacle_x = state.obstacle_positions[nearest_obstacle_idx][0];
+    f32 nearest_obstacle_y = state.obstacle_positions[nearest_obstacle_idx][1];
+    f32 nearest_obstacle_z = state.obstacle_positions[nearest_obstacle_idx][2];
     f32 nearest_obstacle_dist = bucket->nearest_obstacle_dist;
 
     i32 nearest_target_idx = bucket->nearest_target_idx;
-    f32 nearest_target_x = g_target_positions[nearest_target_idx][0];
-    f32 nearest_target_y = g_target_positions[nearest_target_idx][1];
-    f32 nearest_target_z = g_target_positions[nearest_target_idx][2];
+    f32 nearest_target_x = state.target_positions[nearest_target_idx][0];
+    f32 nearest_target_y = state.target_positions[nearest_target_idx][1];
+    f32 nearest_target_z = state.target_positions[nearest_target_idx][2];
 
     f32 avg_align_x = alignment_x * inv_count;
     f32 avg_align_y = alignment_y * inv_count;
@@ -519,7 +523,7 @@ void BuildMatricesSystem(EcsIter *it) {
 
   for (i32 i = 0; i < it->count; i++) {
     u32 idx = indices[i].index;
-    mat4 *model = &g_instance_data[idx];
+    mat4 *model = &state.instance_data[idx];
 
     vec3 pos = {positions[i].x, positions[i].y, positions[i].z};
     vec3 dir = {headings[i].x, headings[i].y, headings[i].z};
@@ -547,43 +551,47 @@ void app_init(AppMemory *memory) {
 
   AppContext *app_ctx = app_ctx_current();
 
-  ecs_world_init(&g_world, &app_ctx->arena);
-  ecs_store_init(&g_world);
+  ecs_world_init(&state.world, &app_ctx->arena);
+  ecs_store_init(&state.world);
 
-  ECS_COMPONENT(&g_world, Position);
-  ECS_COMPONENT(&g_world, Heading);
-  ECS_COMPONENT(&g_world, BoidIndex);
-  ECS_COMPONENT(&g_world, BoidTag);
-  ECS_COMPONENT(&g_world, AnimationPlayer);
-  ECS_COMPONENT(&g_world, LocalToWorld);
-  ECS_COMPONENT(&g_world, Scale);
-  ECS_COMPONENT(&g_world, MeshRenderer);
-  g_mesh_renderer_id = ecs_id(MeshRenderer);
-  g_scale_id = ecs_id(Scale);
-  g_local_to_world_id = ecs_id(LocalToWorld);
+  ECS_COMPONENT(&state.world, Position);
+  ECS_COMPONENT(&state.world, Heading);
+  ECS_COMPONENT(&state.world, BoidIndex);
+  ECS_COMPONENT(&state.world, BoidTag);
+  ECS_COMPONENT(&state.world, AnimationPlayer);
+  ECS_COMPONENT(&state.world, LocalToWorld);
+  ECS_COMPONENT(&state.world, Scale);
+  ECS_COMPONENT(&state.world, MeshRenderer);
+  state.mesh_renderer_id = ecs_id(MeshRenderer);
+  state.scale_id = ecs_id(Scale);
+  state.local_to_world_id = ecs_id(LocalToWorld);
 
-  g_input = input_init();
-  g_camera = camera_init(VEC3(0, 11.6, 0.4), VEC3(-0.4f, 0, 0), 45.0f);
+  state.input = input_init();
+  state.camera = camera_init(VEC3(0, 11.6, 0.4), VEC3(-0.4f, 0, 0), 45.0f);
+  state.fly_cam.camera_pos[0] = 0.0f;
+  state.fly_cam.camera_pos[1] = 11.6f;
+  state.fly_cam.camera_pos[2] = 40.4f;
+  state.fly_cam.move_speed = 400.0f;
   renderer_init(&app_ctx->arena, app_ctx->num_threads,
                 (u32)memory->canvas_width, (u32)memory->canvas_height);
 
-  g_albedo_tex = gpu_make_texture("fishAlbedo2.png");
-  g_tint_tex = gpu_make_texture("tints.png");
-  g_metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
+  state.albedo_tex = gpu_make_texture("fishAlbedo2.png");
+  state.tint_tex = gpu_make_texture("tints.png");
+  state.metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
 
-  g_shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
-  g_shark_metallic_gloss_tex = gpu_make_texture("SharkMetallicGloss.png");
+  state.shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
+  state.shark_metallic_gloss_tex = gpu_make_texture("SharkMetallicGloss.png");
 
   ThreadContext *tctx = tctx_current();
-  g_file_op = os_start_read_file("fish.hasset", tctx->task_system);
-  g_shark_file_op = os_start_read_file("shark.hasset", tctx->task_system);
+  state.fish_file_op = os_start_read_file("fish.hasset", tctx->task_system);
+  state.shark_file_op = os_start_read_file("shark.hasset", tctx->task_system);
 
   f32 spawn_radius = 15.0f;
   f32 spawn_center_x = 20.0f;
   f32 spawn_center_y = 5.0f;
   f32 spawn_center_z = -120.0f;
   for (i32 i = 0; i < NUM_BOIDS; i++) {
-    EcsEntity e = ecs_entity_new(&g_world);
+    EcsEntity e = ecs_entity_new(&state.world);
 
     UnityRandom rng = unity_random_new((u32)(i + 1) * 0x9F6ABC1u);
     f32 rx = unity_random_next_f32(&rng) - 0.5f;
@@ -607,61 +615,61 @@ void app_init(AppMemory *memory) {
     f32 py = spawn_center_y + hy * spawn_radius;
     f32 pz = spawn_center_z + hz * spawn_radius;
 
-    ecs_set(&g_world, e, Position, {.x = px, .y = py, .z = pz});
-    ecs_set(&g_world, e, Heading, {.x = hx, .y = hy, .z = hz});
-    ecs_set(&g_world, e, BoidIndex, {.index = (u32)i});
-    ecs_add(&g_world, e, ecs_id(BoidTag));
+    ecs_set(&state.world, e, Position, {.x = px, .y = py, .z = pz});
+    ecs_set(&state.world, e, Heading, {.x = hx, .y = hy, .z = hz});
+    ecs_set(&state.world, e, BoidIndex, {.index = (u32)i});
+    ecs_add(&state.world, e, ecs_id(BoidTag));
   }
 
   const SampledAnimationClip *target_clips[NUM_TARGETS] = {&Target01_animation,
                                                            &Target02_animation};
   for (i32 i = 0; i < NUM_TARGETS; i++) {
-    EcsEntity e = ecs_entity_new(&g_world);
-    g_target_entities[i] = e;
+    EcsEntity e = ecs_entity_new(&state.world);
+    state.target_entities[i] = e;
 
     vec3 initial_pos;
     sample_animation_position(target_clips[i], 0.0f, initial_pos);
 
-    ecs_set(&g_world, e, Position,
+    ecs_set(&state.world, e, Position,
             {.x = initial_pos[0], .y = initial_pos[1], .z = initial_pos[2]});
-    ecs_set(&g_world, e, AnimationPlayer,
+    ecs_set(&state.world, e, AnimationPlayer,
             {
                 .clip = target_clips[i],
                 .current_time = 0.0f,
-                .dest_position = &g_target_positions[i],
+                .dest_position = &state.target_positions[i],
             });
 
-    g_target_positions[i][0] = initial_pos[0];
-    g_target_positions[i][1] = initial_pos[1];
-    g_target_positions[i][2] = initial_pos[2];
+    state.target_positions[i][0] = initial_pos[0];
+    state.target_positions[i][1] = initial_pos[1];
+    state.target_positions[i][2] = initial_pos[2];
   }
 
   for (i32 i = 0; i < NUM_OBSTACLES; i++) {
-    EcsEntity e = ecs_entity_new(&g_world);
-    g_obstacle_entities[i] = e;
+    EcsEntity e = ecs_entity_new(&state.world);
+    state.obstacle_entities[i] = e;
 
     vec3 initial_pos;
     sample_animation_position(&Shark_animation, 0.0f, initial_pos);
 
-    ecs_set(&g_world, e, Position,
+    ecs_set(&state.world, e, Position,
             {.x = initial_pos[0], .y = initial_pos[1], .z = initial_pos[2]});
-    ecs_set(&g_world, e, AnimationPlayer,
+    ecs_set(&state.world, e, AnimationPlayer,
             {
                 .clip = &Shark_animation,
                 .current_time = 0.0f,
-                .dest_position = &g_obstacle_positions[i],
+                .dest_position = &state.obstacle_positions[i],
             });
 
-    g_obstacle_positions[i][0] = initial_pos[0];
-    g_obstacle_positions[i][1] = initial_pos[1];
-    g_obstacle_positions[i][2] = initial_pos[2];
+    state.obstacle_positions[i][0] = initial_pos[0];
+    state.obstacle_positions[i][1] = initial_pos[1];
+    state.obstacle_positions[i][2] = initial_pos[2];
   }
 
   EcsTerm play_animations_terms[] = {
       ecs_term_inout(ecs_id(Position)),
       ecs_term_inout(ecs_id(AnimationPlayer)),
   };
-  ecs_system_init(&g_world, &(EcsSystemDesc){
+  ecs_system_init(&state.world, &(EcsSystemDesc){
                                 .terms = play_animations_terms,
                                 .term_count = 2,
                                 .callback = PlayAnimationsSystem,
@@ -674,7 +682,7 @@ void app_init(AppMemory *memory) {
       ecs_term_in(ecs_id(Scale)),
       ecs_term_inout(ecs_id(LocalToWorld)),
   };
-  ecs_system_init(&g_world, &(EcsSystemDesc){
+  ecs_system_init(&state.world, &(EcsSystemDesc){
                                 .terms = build_animated_transform_terms,
                                 .term_count = 4,
                                 .callback = BuildAnimatedTransformSystem,
@@ -685,7 +693,7 @@ void app_init(AppMemory *memory) {
       ecs_term_in(ecs_id(LocalToWorld)),
       ecs_term_in(ecs_id(MeshRenderer)),
   };
-  ecs_system_init(&g_world, &(EcsSystemDesc){
+  ecs_system_init(&state.world, &(EcsSystemDesc){
                                 .terms = render_mesh_terms,
                                 .term_count = 2,
                                 .callback = RenderMeshSystem,
@@ -699,7 +707,7 @@ void app_init(AppMemory *memory) {
       ecs_term_none(ecs_id(BoidTag)),
   };
   EcsSystem *insert_boids_sys =
-      ecs_system_init(&g_world, &(EcsSystemDesc){
+      ecs_system_init(&state.world, &(EcsSystemDesc){
                                     .terms = insert_boids_terms,
                                     .term_count = 4,
                                     .callback = InsertBoidsSystem,
@@ -708,7 +716,7 @@ void app_init(AppMemory *memory) {
                                 });
 
   EcsSystem *merge_cells_sys =
-      ecs_system_init(&g_world, &(EcsSystemDesc){
+      ecs_system_init(&state.world, &(EcsSystemDesc){
                                     .iter_mode = ECS_ITER_RANGE,
                                     .iter_count = GRID_SIZE,
                                     .callback = MergeCellsSystem,
@@ -723,7 +731,7 @@ void app_init(AppMemory *memory) {
       ecs_term_none(ecs_id(BoidTag)),
   };
   EcsSystem *steer_boids_sys =
-      ecs_system_init(&g_world, &(EcsSystemDesc){
+      ecs_system_init(&state.world, &(EcsSystemDesc){
                                     .terms = steer_boids_terms,
                                     .term_count = 3,
                                     .callback = SteerBoidsSystem,
@@ -737,14 +745,14 @@ void app_init(AppMemory *memory) {
       ecs_term_in(ecs_id(BoidIndex)),
       ecs_term_none(ecs_id(BoidTag)),
   };
-  ecs_system_init(&g_world, &(EcsSystemDesc){
+  ecs_system_init(&state.world, &(EcsSystemDesc){
                                 .terms = build_matrices_terms,
                                 .term_count = 4,
                                 .callback = BuildMatricesSystem,
                                 .name = "BuildMatricesSystem",
                             });
 
-  g_instance_buffer = renderer_create_instance_buffer(&(InstanceBufferDesc){
+  state.instance_buffer = renderer_create_instance_buffer(&(InstanceBufferDesc){
       .stride = sizeof(mat4),
       .max_instances = NUM_BOIDS,
   });
@@ -753,31 +761,31 @@ void app_init(AppMemory *memory) {
 }
 
 void app_update_and_render(AppMemory *memory) {
-  g_total_time = memory->total_time;
+  state.total_time = memory->total_time;
 
   Range_u64 range = lane_range(GRID_SIZE);
   for (u64 i = range.min; i < range.max; i++) {
-    g_buckets[i].count = 0;
+    state.buckets[i].count = 0;
   }
 
   if (is_main_thread()) {
-    if (!g_fish_loaded) {
-      OsFileReadState state = os_check_read_file(g_file_op);
-      if (state == OS_FILE_READ_STATE_COMPLETED) {
+    if (!state.fish_loaded) {
+      OsFileReadState file_state = os_check_read_file(state.fish_file_op);
+      if (file_state == OS_FILE_READ_STATE_COMPLETED) {
         AppContext *app_ctx = app_ctx_current();
         Allocator alloc = make_arena_allocator(&app_ctx->arena);
 
         PlatformFileData file_data = {0};
-        os_get_file_data(g_file_op, &file_data, &alloc);
+        os_get_file_data(state.fish_file_op, &file_data, &alloc);
 
         ModelBlobAsset *model = (ModelBlobAsset *)file_data.buffer;
         MeshBlobAsset *mesh_asset =
             (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
 
         MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
-        g_fish_mesh = renderer_upload_mesh(&mesh_desc);
+        state.fish_mesh = renderer_upload_mesh(&mesh_desc);
 
-        g_fish_material = renderer_create_material(&(MaterialDesc){
+        state.fish_material = renderer_create_material(&(MaterialDesc){
             .shader_desc =
                 (GpuShaderDesc){
                     .vs_code = (const char *)fish_instanced_vs,
@@ -845,21 +853,21 @@ void app_update_and_render(AppMemory *memory) {
                  .offset = offsetof(MaterialUniforms, wave_offset)}, ),
         });
 
-        material_set_texture(g_fish_material, "albedo", g_albedo_tex);
-        material_set_texture(g_fish_material, "tint", g_tint_tex);
-        material_set_texture(g_fish_material, "metallic_gloss",
-                             g_metallic_gloss_tex);
-        material_set_vec4(g_fish_material, "tint_color",
+        material_set_texture(state.fish_material, "albedo", state.albedo_tex);
+        material_set_texture(state.fish_material, "tint", state.tint_tex);
+        material_set_texture(state.fish_material, "metallic_gloss",
+                             state.metallic_gloss_tex);
+        material_set_vec4(state.fish_material, "tint_color",
                           (vec4){1.0f, 1.0f, 1.0f, 1.0f});
-        material_set_float(g_fish_material, "tint_offset", 0.0f);
-        material_set_float(g_fish_material, "metallic", 0.636f);
-        material_set_float(g_fish_material, "smoothness", 0.848f);
-        material_set_float(g_fish_material, "wave_frequency", 0.03f);
-        material_set_float(g_fish_material, "wave_speed", 10.0f);
-        material_set_float(g_fish_material, "wave_distance", 5.0f);
-        material_set_float(g_fish_material, "wave_offset", 0.0f);
+        material_set_float(state.fish_material, "tint_offset", 0.0f);
+        material_set_float(state.fish_material, "metallic", 0.636f);
+        material_set_float(state.fish_material, "smoothness", 0.848f);
+        material_set_float(state.fish_material, "wave_frequency", 0.03f);
+        material_set_float(state.fish_material, "wave_speed", 10.0f);
+        material_set_float(state.fish_material, "wave_distance", 5.0f);
+        material_set_float(state.fish_material, "wave_offset", 0.0f);
 
-        g_fish_noninst_material = renderer_create_material(&(MaterialDesc){
+        state.fish_noninst_material = renderer_create_material(&(MaterialDesc){
             .shader_desc =
                 (GpuShaderDesc){
                     .vs_code = (const char *)fish_vs,
@@ -921,54 +929,54 @@ void app_update_and_render(AppMemory *memory) {
                  .binding = 1,
                  .offset = offsetof(MaterialUniforms, wave_offset)}, ),
         });
-        material_set_texture(g_fish_noninst_material, "albedo", g_albedo_tex);
-        material_set_texture(g_fish_noninst_material, "tint", g_tint_tex);
-        material_set_texture(g_fish_noninst_material, "metallic_gloss",
-                             g_metallic_gloss_tex);
-        material_set_vec4(g_fish_noninst_material, "tint_color",
+        material_set_texture(state.fish_noninst_material, "albedo", state.albedo_tex);
+        material_set_texture(state.fish_noninst_material, "tint", state.tint_tex);
+        material_set_texture(state.fish_noninst_material, "metallic_gloss",
+                             state.metallic_gloss_tex);
+        material_set_vec4(state.fish_noninst_material, "tint_color",
                           (vec4){1.0f, 1.0f, 1.0f, 1.0f});
-        material_set_float(g_fish_noninst_material, "tint_offset", 0.0f);
-        material_set_float(g_fish_noninst_material, "metallic", 0.636f);
-        material_set_float(g_fish_noninst_material, "smoothness", 0.848f);
-        material_set_float(g_fish_noninst_material, "wave_frequency", 0.03f);
-        material_set_float(g_fish_noninst_material, "wave_speed", 10.0f);
-        material_set_float(g_fish_noninst_material, "wave_distance", 5.0f);
-        material_set_float(g_fish_noninst_material, "wave_offset", 0.0f);
+        material_set_float(state.fish_noninst_material, "tint_offset", 0.0f);
+        material_set_float(state.fish_noninst_material, "metallic", 0.636f);
+        material_set_float(state.fish_noninst_material, "smoothness", 0.848f);
+        material_set_float(state.fish_noninst_material, "wave_frequency", 0.03f);
+        material_set_float(state.fish_noninst_material, "wave_speed", 10.0f);
+        material_set_float(state.fish_noninst_material, "wave_distance", 5.0f);
+        material_set_float(state.fish_noninst_material, "wave_offset", 0.0f);
 
         for (i32 i = 0; i < NUM_TARGETS; i++) {
           MeshRenderer mr = {
-              .mesh = g_fish_mesh,
-              .material = g_fish_noninst_material,
+              .mesh = state.fish_mesh,
+              .material = state.fish_noninst_material,
           };
           Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
           LocalToWorld ltw = {0};
-          ecs_set_ptr(&g_world, g_target_entities[i], g_mesh_renderer_id, &mr);
-          ecs_set_ptr(&g_world, g_target_entities[i], g_scale_id, &s);
-          ecs_set_ptr(&g_world, g_target_entities[i], g_local_to_world_id, &ltw);
+          ecs_set_ptr(&state.world, state.target_entities[i], state.mesh_renderer_id, &mr);
+          ecs_set_ptr(&state.world, state.target_entities[i], state.scale_id, &s);
+          ecs_set_ptr(&state.world, state.target_entities[i], state.local_to_world_id, &ltw);
         }
 
-        g_fish_loaded = true;
+        state.fish_loaded = true;
         LOG_INFO("Fish mesh loaded");
       }
     }
 
-    if (!g_shark_loaded) {
-      OsFileReadState state = os_check_read_file(g_shark_file_op);
-      if (state == OS_FILE_READ_STATE_COMPLETED) {
+    if (!state.shark_loaded) {
+      OsFileReadState file_state = os_check_read_file(state.shark_file_op);
+      if (file_state == OS_FILE_READ_STATE_COMPLETED) {
         AppContext *app_ctx = app_ctx_current();
         Allocator alloc = make_arena_allocator(&app_ctx->arena);
 
         PlatformFileData file_data = {0};
-        os_get_file_data(g_shark_file_op, &file_data, &alloc);
+        os_get_file_data(state.shark_file_op, &file_data, &alloc);
 
         ModelBlobAsset *model = (ModelBlobAsset *)file_data.buffer;
         MeshBlobAsset *mesh_asset =
             (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
 
         MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
-        g_shark_mesh = renderer_upload_mesh(&mesh_desc);
+        state.shark_mesh = renderer_upload_mesh(&mesh_desc);
 
-        g_shark_material = renderer_create_material(&(MaterialDesc){
+        state.shark_material = renderer_create_material(&(MaterialDesc){
             .shader_desc =
                 (GpuShaderDesc){
                     .vs_code = (const char *)fish_vs,
@@ -1030,60 +1038,60 @@ void app_update_and_render(AppMemory *memory) {
                  .binding = 1,
                  .offset = offsetof(MaterialUniforms, wave_offset)}, ),
         });
-        material_set_texture(g_shark_material, "albedo", g_shark_albedo_tex);
-        material_set_texture(g_shark_material, "tint", g_tint_tex);
-        material_set_texture(g_shark_material, "metallic_gloss",
-                             g_shark_metallic_gloss_tex);
-        material_set_vec4(g_shark_material, "tint_color",
+        material_set_texture(state.shark_material, "albedo", state.shark_albedo_tex);
+        material_set_texture(state.shark_material, "tint", state.tint_tex);
+        material_set_texture(state.shark_material, "metallic_gloss",
+                             state.shark_metallic_gloss_tex);
+        material_set_vec4(state.shark_material, "tint_color",
                           (vec4){1.0f, 1.0f, 1.0f, 1.0f});
-        material_set_float(g_shark_material, "tint_offset", 0.0f);
-        material_set_float(g_shark_material, "metallic", 0.063f);
-        material_set_float(g_shark_material, "smoothness", 1.0f);
-        material_set_float(g_shark_material, "wave_frequency", 0.75f);
-        material_set_float(g_shark_material, "wave_speed", 10.0f);
-        material_set_float(g_shark_material, "wave_distance", 5.0f);
-        material_set_float(g_shark_material, "wave_offset", 0.0f);
+        material_set_float(state.shark_material, "tint_offset", 0.0f);
+        material_set_float(state.shark_material, "metallic", 0.063f);
+        material_set_float(state.shark_material, "smoothness", 1.0f);
+        material_set_float(state.shark_material, "wave_frequency", 0.75f);
+        material_set_float(state.shark_material, "wave_speed", 10.0f);
+        material_set_float(state.shark_material, "wave_distance", 5.0f);
+        material_set_float(state.shark_material, "wave_offset", 0.0f);
 
         for (i32 i = 0; i < NUM_OBSTACLES; i++) {
           MeshRenderer mr = {
-              .mesh = g_shark_mesh,
-              .material = g_shark_material,
+              .mesh = state.shark_mesh,
+              .material = state.shark_material,
           };
           Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
           LocalToWorld ltw = {0};
-          ecs_set_ptr(&g_world, g_obstacle_entities[i], g_mesh_renderer_id,
+          ecs_set_ptr(&state.world, state.obstacle_entities[i], state.mesh_renderer_id,
                       &mr);
-          ecs_set_ptr(&g_world, g_obstacle_entities[i], g_scale_id, &s);
-          ecs_set_ptr(&g_world, g_obstacle_entities[i], g_local_to_world_id,
+          ecs_set_ptr(&state.world, state.obstacle_entities[i], state.scale_id, &s);
+          ecs_set_ptr(&state.world, state.obstacle_entities[i], state.local_to_world_id,
                       &ltw);
         }
 
-        g_shark_loaded = true;
+        state.shark_loaded = true;
         LOG_INFO("Shark mesh loaded");
       }
     }
 
-    input_update(&g_input, &memory->input_events, memory->total_time);
-    flycam_update(&g_fly_cam, &g_camera, &g_input, memory->dt);
-    camera_update(&g_camera, memory->canvas_width, memory->canvas_height);
+    input_update(&state.input, &memory->input_events, memory->total_time);
+    flycam_update(&state.fly_cam, &state.camera, &state.input, memory->dt);
+    camera_update(&state.camera, memory->canvas_width, memory->canvas_height);
 
-    renderer_begin_frame(g_camera.view, g_camera.proj,
+    renderer_begin_frame(state.camera.view, state.camera.proj,
                          (GpuColor){2.0f / 255.0f, 94.0f / 255.0f, 131.0f / 255.0f, 1.0f},
                          memory->total_time);
   }
 
-  ecs_progress(&g_world, memory->dt);
+  ecs_progress(&state.world, memory->dt);
 
   if (is_main_thread()) {
-    renderer_update_instance_buffer(g_instance_buffer, g_instance_data,
+    renderer_update_instance_buffer(state.instance_buffer, state.instance_data,
                                     NUM_BOIDS);
 
-    if (g_fish_loaded) {
-      renderer_draw_mesh_instanced(g_fish_mesh, g_fish_material,
-                                   g_instance_buffer);
+    if (state.fish_loaded) {
+      renderer_draw_mesh_instanced(state.fish_mesh, state.fish_material,
+                                   state.instance_buffer);
     }
 
     renderer_end_frame();
-    input_end_frame(&g_input);
+    input_end_frame(&state.input);
   }
 }
