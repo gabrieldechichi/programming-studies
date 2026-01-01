@@ -110,9 +110,6 @@ typedef struct {
   OsFileOp *fish_file_op;
   GpuMesh_Handle fish_mesh;
   Material_Handle fish_material;
-  GpuTexture albedo_tex;
-  GpuTexture tint_tex;
-  GpuTexture metallic_gloss_tex;
 
   OsFileOp *shark_file_op;
 
@@ -564,10 +561,6 @@ void app_init(AppMemory *memory) {
   renderer_init(&app_ctx->arena, app_ctx->num_threads,
                 (u32)memory->canvas_width, (u32)memory->canvas_height);
 
-  state.albedo_tex = gpu_make_texture("fishAlbedo2.png");
-  state.tint_tex = gpu_make_texture("tints.png");
-  state.metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
-
   ThreadContext *tctx = tctx_current();
   state.fish_file_op = os_start_read_file("fish.hasset", tctx->task_system);
   state.shark_file_op = os_start_read_file("shark.hasset", tctx->task_system);
@@ -746,6 +739,336 @@ void app_init(AppMemory *memory) {
   LOG_INFO("Boids demo initialized: % boids", FMT_UINT(NUM_BOIDS));
 }
 
+void handle_loading() {
+  if (!is_main_thread()) {
+    return;
+  }
+
+  local_persist b32 did_load_textures = false;
+  local_persist GpuTexture albedo_tex;
+  local_persist GpuTexture tint_tex;
+  local_persist GpuTexture metallic_gloss_tex;
+
+  local_persist GpuTexture shark_albedo_tex;
+  local_persist GpuTexture shark_metallic_gloss_tex;
+
+  if (!did_load_textures) {
+    albedo_tex = gpu_make_texture("fishAlbedo2.png");
+    tint_tex = gpu_make_texture("tints.png");
+    metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
+    shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
+    shark_metallic_gloss_tex = gpu_make_texture("SharkMetallicGloss.png");
+    did_load_textures = true;
+  }
+
+  local_persist b32 fish_loaded = false;
+  if (!fish_loaded) {
+    OsFileReadState file_state = os_check_read_file(state.fish_file_op);
+    if (file_state == OS_FILE_READ_STATE_COMPLETED) {
+      AppContext *app_ctx = app_ctx_current();
+      Allocator alloc = make_arena_allocator(&app_ctx->arena);
+
+      PlatformFileData file_data = {0};
+      os_get_file_data(state.fish_file_op, &file_data, &alloc);
+
+      ModelBlobAsset *model = (ModelBlobAsset *)file_data.buffer;
+      MeshBlobAsset *mesh_asset =
+          (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
+
+      MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
+      state.fish_mesh = renderer_upload_mesh(&mesh_desc);
+
+      state.fish_material = renderer_create_material(&(MaterialDesc){
+          .shader_desc =
+              (GpuShaderDesc){
+                  .vs_code = (const char *)fish_instanced_vs,
+                  .fs_code = (const char *)fish_fs,
+                  .uniform_blocks =
+                      FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT,
+                                          .size = sizeof(GlobalUniforms),
+                                          .binding = 0},
+                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT,
+                                          .size = sizeof(MaterialUniforms),
+                                          .binding = 1}, ),
+                  .storage_buffers =
+                      FIXED_ARRAY_DEFINE(GpuStorageBufferDesc,
+                                         {.stage = GPU_STAGE_VERTEX,
+                                          .binding = 0,
+                                          .readonly = true}, ),
+                  .texture_bindings = FIXED_ARRAY_DEFINE(
+                      GpuTextureBindingDesc, GPU_TEXTURE_BINDING_FRAG(1, 0),
+                      GPU_TEXTURE_BINDING_FRAG(3, 2),
+                      GPU_TEXTURE_BINDING_FRAG(5, 4), ),
+              },
+          .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
+          .primitive = GPU_PRIMITIVE_TRIANGLES,
+          .depth_test = true,
+          .depth_write = true,
+          .properties = FIXED_ARRAY_DEFINE(
+              MaterialPropertyDesc,
+              {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
+              {.name = "tint", .type = MAT_PROP_TEXTURE, .binding = 1},
+              {.name = "metallic_gloss",
+               .type = MAT_PROP_TEXTURE,
+               .binding = 2},
+              {.name = "tint_color",
+               .type = MAT_PROP_VEC4,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, tint_color)},
+              {.name = "tint_offset",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, tint_offset)},
+              {.name = "metallic",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, metallic)},
+              {.name = "smoothness",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, smoothness)},
+              {.name = "wave_frequency",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, wave_frequency)},
+              {.name = "wave_speed",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, wave_speed)},
+              {.name = "wave_distance",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, wave_distance)},
+              {.name = "wave_offset",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, wave_offset)}, ),
+      });
+
+      material_set_texture(state.fish_material, "albedo", albedo_tex);
+      material_set_texture(state.fish_material, "tint", tint_tex);
+      material_set_texture(state.fish_material, "metallic_gloss",
+                           metallic_gloss_tex);
+      material_set_vec4(state.fish_material, "tint_color",
+                        (vec4){1.0f, 1.0f, 1.0f, 1.0f});
+      material_set_float(state.fish_material, "tint_offset", 0.0f);
+      material_set_float(state.fish_material, "metallic", 0.636f);
+      material_set_float(state.fish_material, "smoothness", 0.848f);
+      material_set_float(state.fish_material, "wave_frequency", 0.03f);
+      material_set_float(state.fish_material, "wave_speed", 10.0f);
+      material_set_float(state.fish_material, "wave_distance", 5.0f);
+      material_set_float(state.fish_material, "wave_offset", 0.0f);
+
+      Material_Handle fish_noninst_material =
+          renderer_create_material(&(MaterialDesc){
+              .shader_desc =
+                  (GpuShaderDesc){
+                      .vs_code = (const char *)fish_vs,
+                      .fs_code = (const char *)fish_fs,
+                      .uniform_blocks = FIXED_ARRAY_DEFINE(
+                          GpuUniformBlockDesc,
+                          {.stage = GPU_STAGE_VERTEX_FRAGMENT,
+                           .size = sizeof(GlobalUniforms),
+                           .binding = 0},
+                          {.stage = GPU_STAGE_VERTEX_FRAGMENT,
+                           .size = sizeof(MaterialUniforms),
+                           .binding = 1}, ),
+                      .texture_bindings = FIXED_ARRAY_DEFINE(
+                          GpuTextureBindingDesc, GPU_TEXTURE_BINDING_FRAG(1, 0),
+                          GPU_TEXTURE_BINDING_FRAG(3, 2),
+                          GPU_TEXTURE_BINDING_FRAG(5, 4), ),
+                  },
+              .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
+              .primitive = GPU_PRIMITIVE_TRIANGLES,
+              .depth_test = true,
+              .depth_write = true,
+              .properties = FIXED_ARRAY_DEFINE(
+                  MaterialPropertyDesc,
+                  {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
+                  {.name = "tint", .type = MAT_PROP_TEXTURE, .binding = 1},
+                  {.name = "metallic_gloss",
+                   .type = MAT_PROP_TEXTURE,
+                   .binding = 2},
+                  {.name = "tint_color",
+                   .type = MAT_PROP_VEC4,
+                   .binding = 1,
+                   .offset = offsetof(MaterialUniforms, tint_color)},
+                  {.name = "tint_offset",
+                   .type = MAT_PROP_FLOAT,
+                   .binding = 1,
+                   .offset = offsetof(MaterialUniforms, tint_offset)},
+                  {.name = "metallic",
+                   .type = MAT_PROP_FLOAT,
+                   .binding = 1,
+                   .offset = offsetof(MaterialUniforms, metallic)},
+                  {.name = "smoothness",
+                   .type = MAT_PROP_FLOAT,
+                   .binding = 1,
+                   .offset = offsetof(MaterialUniforms, smoothness)},
+                  {.name = "wave_frequency",
+                   .type = MAT_PROP_FLOAT,
+                   .binding = 1,
+                   .offset = offsetof(MaterialUniforms, wave_frequency)},
+                  {.name = "wave_speed",
+                   .type = MAT_PROP_FLOAT,
+                   .binding = 1,
+                   .offset = offsetof(MaterialUniforms, wave_speed)},
+                  {.name = "wave_distance",
+                   .type = MAT_PROP_FLOAT,
+                   .binding = 1,
+                   .offset = offsetof(MaterialUniforms, wave_distance)},
+                  {.name = "wave_offset",
+                   .type = MAT_PROP_FLOAT,
+                   .binding = 1,
+                   .offset = offsetof(MaterialUniforms, wave_offset)}, ),
+          });
+      material_set_texture(fish_noninst_material, "albedo", albedo_tex);
+      material_set_texture(fish_noninst_material, "tint", tint_tex);
+      material_set_texture(fish_noninst_material, "metallic_gloss",
+                           metallic_gloss_tex);
+      material_set_vec4(fish_noninst_material, "tint_color",
+                        (vec4){1.0f, 1.0f, 1.0f, 1.0f});
+      material_set_float(fish_noninst_material, "tint_offset", 0.0f);
+      material_set_float(fish_noninst_material, "metallic", 0.636f);
+      material_set_float(fish_noninst_material, "smoothness", 0.848f);
+      material_set_float(fish_noninst_material, "wave_frequency", 0.03f);
+      material_set_float(fish_noninst_material, "wave_speed", 10.0f);
+      material_set_float(fish_noninst_material, "wave_distance", 5.0f);
+      material_set_float(fish_noninst_material, "wave_offset", 0.0f);
+
+      for (i32 i = 0; i < NUM_TARGETS; i++) {
+        MeshRenderer mr = {
+            .mesh = state.fish_mesh,
+            .material = fish_noninst_material,
+        };
+        Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
+        LocalToWorld ltw = {0};
+        ecs_set_ptr(&state.world, state.target_entities[i],
+                    ecs_id(MeshRenderer), &mr);
+        ecs_set_ptr(&state.world, state.target_entities[i], ecs_id(Scale), &s);
+        ecs_set_ptr(&state.world, state.target_entities[i],
+                    ecs_id(LocalToWorld), &ltw);
+      }
+
+      fish_loaded = true;
+    }
+  }
+
+  local_persist b32 shark_loaded = false;
+  if (!shark_loaded) {
+    OsFileReadState file_state = os_check_read_file(state.shark_file_op);
+    if (file_state == OS_FILE_READ_STATE_COMPLETED) {
+      AppContext *app_ctx = app_ctx_current();
+      Allocator alloc = make_arena_allocator(&app_ctx->arena);
+
+      PlatformFileData file_data = {0};
+      os_get_file_data(state.shark_file_op, &file_data, &alloc);
+
+      ModelBlobAsset *model = (ModelBlobAsset *)file_data.buffer;
+      MeshBlobAsset *mesh_asset =
+          (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
+
+      MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
+      GpuMesh_Handle shark_mesh = renderer_upload_mesh(&mesh_desc);
+
+      Material_Handle shark_material = renderer_create_material(&(MaterialDesc){
+          .shader_desc =
+              (GpuShaderDesc){
+                  .vs_code = (const char *)fish_vs,
+                  .fs_code = (const char *)fish_fs,
+                  .uniform_blocks =
+                      FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT,
+                                          .size = sizeof(GlobalUniforms),
+                                          .binding = 0},
+                                         {.stage = GPU_STAGE_VERTEX_FRAGMENT,
+                                          .size = sizeof(MaterialUniforms),
+                                          .binding = 1}, ),
+                  .texture_bindings = FIXED_ARRAY_DEFINE(
+                      GpuTextureBindingDesc, GPU_TEXTURE_BINDING_FRAG(1, 0),
+                      GPU_TEXTURE_BINDING_FRAG(3, 2),
+                      GPU_TEXTURE_BINDING_FRAG(5, 4), ),
+              },
+          .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
+          .primitive = GPU_PRIMITIVE_TRIANGLES,
+          .depth_test = true,
+          .depth_write = true,
+          .properties = FIXED_ARRAY_DEFINE(
+              MaterialPropertyDesc,
+              {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
+              {.name = "tint", .type = MAT_PROP_TEXTURE, .binding = 1},
+              {.name = "metallic_gloss",
+               .type = MAT_PROP_TEXTURE,
+               .binding = 2},
+              {.name = "tint_color",
+               .type = MAT_PROP_VEC4,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, tint_color)},
+              {.name = "tint_offset",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, tint_offset)},
+              {.name = "metallic",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, metallic)},
+              {.name = "smoothness",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, smoothness)},
+              {.name = "wave_frequency",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, wave_frequency)},
+              {.name = "wave_speed",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, wave_speed)},
+              {.name = "wave_distance",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, wave_distance)},
+              {.name = "wave_offset",
+               .type = MAT_PROP_FLOAT,
+               .binding = 1,
+               .offset = offsetof(MaterialUniforms, wave_offset)}, ),
+      });
+
+      material_set_texture(shark_material, "albedo", shark_albedo_tex);
+      material_set_texture(shark_material, "tint", tint_tex);
+      material_set_texture(shark_material, "metallic_gloss",
+                           shark_metallic_gloss_tex);
+      material_set_vec4(shark_material, "tint_color",
+                        (vec4){1.0f, 1.0f, 1.0f, 1.0f});
+      material_set_float(shark_material, "tint_offset", 0.0f);
+      material_set_float(shark_material, "metallic", 0.063f);
+      material_set_float(shark_material, "smoothness", 1.0f);
+      material_set_float(shark_material, "wave_frequency", 0.75f);
+      material_set_float(shark_material, "wave_speed", 10.0f);
+      material_set_float(shark_material, "wave_distance", 5.0f);
+      material_set_float(shark_material, "wave_offset", 0.0f);
+
+      for (i32 i = 0; i < NUM_OBSTACLES; i++) {
+        MeshRenderer mr = {
+            .mesh = shark_mesh,
+            .material = shark_material,
+        };
+        Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
+        LocalToWorld ltw = {0};
+        ecs_set_ptr(&state.world, state.obstacle_entities[i],
+                    ecs_id(MeshRenderer), &mr);
+        ecs_set_ptr(&state.world, state.obstacle_entities[i], ecs_id(Scale),
+                    &s);
+        ecs_set_ptr(&state.world, state.obstacle_entities[i],
+                    ecs_id(LocalToWorld), &ltw);
+      }
+
+      shark_loaded = true;
+    }
+  }
+}
+
 void app_update_and_render(AppMemory *memory) {
   state.total_time = memory->total_time;
 
@@ -754,319 +1077,9 @@ void app_update_and_render(AppMemory *memory) {
     state.buckets[i].count = 0;
   }
 
+  handle_loading();
+
   if (is_main_thread()) {
-    local_persist b32 fish_loaded = false;
-    if (!fish_loaded) {
-      OsFileReadState file_state = os_check_read_file(state.fish_file_op);
-      if (file_state == OS_FILE_READ_STATE_COMPLETED) {
-        AppContext *app_ctx = app_ctx_current();
-        Allocator alloc = make_arena_allocator(&app_ctx->arena);
-
-        PlatformFileData file_data = {0};
-        os_get_file_data(state.fish_file_op, &file_data, &alloc);
-
-        ModelBlobAsset *model = (ModelBlobAsset *)file_data.buffer;
-        MeshBlobAsset *mesh_asset =
-            (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
-
-        MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
-        state.fish_mesh = renderer_upload_mesh(&mesh_desc);
-
-        state.fish_material = renderer_create_material(&(MaterialDesc){
-            .shader_desc =
-                (GpuShaderDesc){
-                    .vs_code = (const char *)fish_instanced_vs,
-                    .fs_code = (const char *)fish_fs,
-                    .uniform_blocks =
-                        FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
-                                           {.stage = GPU_STAGE_VERTEX_FRAGMENT,
-                                            .size = sizeof(GlobalUniforms),
-                                            .binding = 0},
-                                           {.stage = GPU_STAGE_VERTEX_FRAGMENT,
-                                            .size = sizeof(MaterialUniforms),
-                                            .binding = 1}, ),
-                    .storage_buffers =
-                        FIXED_ARRAY_DEFINE(GpuStorageBufferDesc,
-                                           {.stage = GPU_STAGE_VERTEX,
-                                            .binding = 0,
-                                            .readonly = true}, ),
-                    .texture_bindings = FIXED_ARRAY_DEFINE(
-                        GpuTextureBindingDesc, GPU_TEXTURE_BINDING_FRAG(1, 0),
-                        GPU_TEXTURE_BINDING_FRAG(3, 2),
-                        GPU_TEXTURE_BINDING_FRAG(5, 4), ),
-                },
-            .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
-            .primitive = GPU_PRIMITIVE_TRIANGLES,
-            .depth_test = true,
-            .depth_write = true,
-            .properties = FIXED_ARRAY_DEFINE(
-                MaterialPropertyDesc,
-                {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
-                {.name = "tint", .type = MAT_PROP_TEXTURE, .binding = 1},
-                {.name = "metallic_gloss",
-                 .type = MAT_PROP_TEXTURE,
-                 .binding = 2},
-                {.name = "tint_color",
-                 .type = MAT_PROP_VEC4,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, tint_color)},
-                {.name = "tint_offset",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, tint_offset)},
-                {.name = "metallic",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, metallic)},
-                {.name = "smoothness",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, smoothness)},
-                {.name = "wave_frequency",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_frequency)},
-                {.name = "wave_speed",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_speed)},
-                {.name = "wave_distance",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_distance)},
-                {.name = "wave_offset",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_offset)}, ),
-        });
-
-        material_set_texture(state.fish_material, "albedo", state.albedo_tex);
-        material_set_texture(state.fish_material, "tint", state.tint_tex);
-        material_set_texture(state.fish_material, "metallic_gloss",
-                             state.metallic_gloss_tex);
-        material_set_vec4(state.fish_material, "tint_color",
-                          (vec4){1.0f, 1.0f, 1.0f, 1.0f});
-        material_set_float(state.fish_material, "tint_offset", 0.0f);
-        material_set_float(state.fish_material, "metallic", 0.636f);
-        material_set_float(state.fish_material, "smoothness", 0.848f);
-        material_set_float(state.fish_material, "wave_frequency", 0.03f);
-        material_set_float(state.fish_material, "wave_speed", 10.0f);
-        material_set_float(state.fish_material, "wave_distance", 5.0f);
-        material_set_float(state.fish_material, "wave_offset", 0.0f);
-
-        Material_Handle fish_noninst_material = renderer_create_material(&(
-            MaterialDesc){
-            .shader_desc =
-                (GpuShaderDesc){
-                    .vs_code = (const char *)fish_vs,
-                    .fs_code = (const char *)fish_fs,
-                    .uniform_blocks =
-                        FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
-                                           {.stage = GPU_STAGE_VERTEX_FRAGMENT,
-                                            .size = sizeof(GlobalUniforms),
-                                            .binding = 0},
-                                           {.stage = GPU_STAGE_VERTEX_FRAGMENT,
-                                            .size = sizeof(MaterialUniforms),
-                                            .binding = 1}, ),
-                    .texture_bindings = FIXED_ARRAY_DEFINE(
-                        GpuTextureBindingDesc, GPU_TEXTURE_BINDING_FRAG(1, 0),
-                        GPU_TEXTURE_BINDING_FRAG(3, 2),
-                        GPU_TEXTURE_BINDING_FRAG(5, 4), ),
-                },
-            .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
-            .primitive = GPU_PRIMITIVE_TRIANGLES,
-            .depth_test = true,
-            .depth_write = true,
-            .properties = FIXED_ARRAY_DEFINE(
-                MaterialPropertyDesc,
-                {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
-                {.name = "tint", .type = MAT_PROP_TEXTURE, .binding = 1},
-                {.name = "metallic_gloss",
-                 .type = MAT_PROP_TEXTURE,
-                 .binding = 2},
-                {.name = "tint_color",
-                 .type = MAT_PROP_VEC4,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, tint_color)},
-                {.name = "tint_offset",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, tint_offset)},
-                {.name = "metallic",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, metallic)},
-                {.name = "smoothness",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, smoothness)},
-                {.name = "wave_frequency",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_frequency)},
-                {.name = "wave_speed",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_speed)},
-                {.name = "wave_distance",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_distance)},
-                {.name = "wave_offset",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_offset)}, ),
-        });
-        material_set_texture(fish_noninst_material, "albedo", state.albedo_tex);
-        material_set_texture(fish_noninst_material, "tint", state.tint_tex);
-        material_set_texture(fish_noninst_material, "metallic_gloss",
-                             state.metallic_gloss_tex);
-        material_set_vec4(fish_noninst_material, "tint_color",
-                          (vec4){1.0f, 1.0f, 1.0f, 1.0f});
-        material_set_float(fish_noninst_material, "tint_offset", 0.0f);
-        material_set_float(fish_noninst_material, "metallic", 0.636f);
-        material_set_float(fish_noninst_material, "smoothness", 0.848f);
-        material_set_float(fish_noninst_material, "wave_frequency", 0.03f);
-        material_set_float(fish_noninst_material, "wave_speed", 10.0f);
-        material_set_float(fish_noninst_material, "wave_distance", 5.0f);
-        material_set_float(fish_noninst_material, "wave_offset", 0.0f);
-
-        for (i32 i = 0; i < NUM_TARGETS; i++) {
-          MeshRenderer mr = {
-              .mesh = state.fish_mesh,
-              .material = fish_noninst_material,
-          };
-          Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
-          LocalToWorld ltw = {0};
-          ecs_set_ptr(&state.world, state.target_entities[i],
-                      ecs_id(MeshRenderer), &mr);
-          ecs_set_ptr(&state.world, state.target_entities[i], ecs_id(Scale),
-                      &s);
-          ecs_set_ptr(&state.world, state.target_entities[i],
-                      ecs_id(LocalToWorld), &ltw);
-        }
-
-        fish_loaded = true;
-      }
-    }
-
-    local_persist b32 shark_loaded = false;
-    if (!shark_loaded) {
-      OsFileReadState file_state = os_check_read_file(state.shark_file_op);
-      if (file_state == OS_FILE_READ_STATE_COMPLETED) {
-        AppContext *app_ctx = app_ctx_current();
-        Allocator alloc = make_arena_allocator(&app_ctx->arena);
-
-        PlatformFileData file_data = {0};
-        os_get_file_data(state.shark_file_op, &file_data, &alloc);
-
-        ModelBlobAsset *model = (ModelBlobAsset *)file_data.buffer;
-        MeshBlobAsset *mesh_asset =
-            (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
-
-        MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
-        GpuMesh_Handle shark_mesh = renderer_upload_mesh(&mesh_desc);
-
-        Material_Handle shark_material = renderer_create_material(&(
-            MaterialDesc){
-            .shader_desc =
-                (GpuShaderDesc){
-                    .vs_code = (const char *)fish_vs,
-                    .fs_code = (const char *)fish_fs,
-                    .uniform_blocks =
-                        FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
-                                           {.stage = GPU_STAGE_VERTEX_FRAGMENT,
-                                            .size = sizeof(GlobalUniforms),
-                                            .binding = 0},
-                                           {.stage = GPU_STAGE_VERTEX_FRAGMENT,
-                                            .size = sizeof(MaterialUniforms),
-                                            .binding = 1}, ),
-                    .texture_bindings = FIXED_ARRAY_DEFINE(
-                        GpuTextureBindingDesc, GPU_TEXTURE_BINDING_FRAG(1, 0),
-                        GPU_TEXTURE_BINDING_FRAG(3, 2),
-                        GPU_TEXTURE_BINDING_FRAG(5, 4), ),
-                },
-            .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
-            .primitive = GPU_PRIMITIVE_TRIANGLES,
-            .depth_test = true,
-            .depth_write = true,
-            .properties = FIXED_ARRAY_DEFINE(
-                MaterialPropertyDesc,
-                {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},
-                {.name = "tint", .type = MAT_PROP_TEXTURE, .binding = 1},
-                {.name = "metallic_gloss",
-                 .type = MAT_PROP_TEXTURE,
-                 .binding = 2},
-                {.name = "tint_color",
-                 .type = MAT_PROP_VEC4,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, tint_color)},
-                {.name = "tint_offset",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, tint_offset)},
-                {.name = "metallic",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, metallic)},
-                {.name = "smoothness",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, smoothness)},
-                {.name = "wave_frequency",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_frequency)},
-                {.name = "wave_speed",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_speed)},
-                {.name = "wave_distance",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_distance)},
-                {.name = "wave_offset",
-                 .type = MAT_PROP_FLOAT,
-                 .binding = 1,
-                 .offset = offsetof(MaterialUniforms, wave_offset)}, ),
-        });
-
-        GpuTexture shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
-        GpuTexture shark_metallic_gloss_tex =
-            gpu_make_texture("SharkMetallicGloss.png");
-        material_set_texture(shark_material, "albedo", shark_albedo_tex);
-        material_set_texture(shark_material, "tint", state.tint_tex);
-        material_set_texture(shark_material, "metallic_gloss",
-                             shark_metallic_gloss_tex);
-        material_set_vec4(shark_material, "tint_color",
-                          (vec4){1.0f, 1.0f, 1.0f, 1.0f});
-        material_set_float(shark_material, "tint_offset", 0.0f);
-        material_set_float(shark_material, "metallic", 0.063f);
-        material_set_float(shark_material, "smoothness", 1.0f);
-        material_set_float(shark_material, "wave_frequency", 0.75f);
-        material_set_float(shark_material, "wave_speed", 10.0f);
-        material_set_float(shark_material, "wave_distance", 5.0f);
-        material_set_float(shark_material, "wave_offset", 0.0f);
-
-        for (i32 i = 0; i < NUM_OBSTACLES; i++) {
-          MeshRenderer mr = {
-              .mesh = shark_mesh,
-              .material = shark_material,
-          };
-          Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
-          LocalToWorld ltw = {0};
-          ecs_set_ptr(&state.world, state.obstacle_entities[i],
-                      ecs_id(MeshRenderer), &mr);
-          ecs_set_ptr(&state.world, state.obstacle_entities[i], ecs_id(Scale),
-                      &s);
-          ecs_set_ptr(&state.world, state.obstacle_entities[i],
-                      ecs_id(LocalToWorld), &ltw);
-        }
-
-        shark_loaded = true;
-      }
-    }
-
     input_update(&state.input, &memory->input_events, memory->total_time);
     flycam_update(&state.fly_cam, &state.camera, &state.input, memory->dt);
     camera_update(&state.camera, memory->canvas_width, memory->canvas_height);
