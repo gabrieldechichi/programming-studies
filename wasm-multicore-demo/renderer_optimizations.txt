@@ -37,7 +37,7 @@ everything that is going on.
 
   Thread Model (main.c)
 
-  Initialization (wasm_main):
+  Initialization (wasm_init):
   1. Initializes GPU and allocates 16MB arena from heap
   2. Creates 1024 cubes arranged in an 8x8 grid with different rotation
   rates
@@ -225,7 +225,7 @@ everything that is going on.
   └─────────────────────────────────────────────────────────────────────┘
 
   ---
-  2. Initialization (main.c:wasm_main)
+  2. Initialization (main.c:wasm_init)
 
   Step 1: GPU Initialization
 

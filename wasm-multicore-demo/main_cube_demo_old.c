@@ -25,7 +25,8 @@
 #include "flycam.h"
 #include "flycam.c"
 
-typedef struct {
+typedef struct
+{
   f32 dt;
   f32 total_time;
   f32 canvas_width;
@@ -63,13 +64,15 @@ global FlyCameraCtrl g_flycam;
 
 // Bucket entry for spatial hash grid - stores position for cache-friendly
 // collision checks
-typedef struct {
+typedef struct
+{
   f32 px, py, pz; // Position (unpacked for cache efficiency)
   u32 cube_idx;   // Link back to full CubeData
 } BucketEntry;
 
 // Fixed-size bucket for cache-friendly traversal
-typedef struct {
+typedef struct
+{
   u32 count;
   BucketEntry entries[MAX_PER_BUCKET];
 } Bucket;
@@ -137,7 +140,8 @@ static const char *default_fs =
     "    return vec4<f32>(material_color.rgb * diffuse, material_color.a);\n"
     "}\n";
 
-typedef struct {
+typedef struct
+{
   vec3 position;
   vec3 velocity;
   f32 rotation_rate;
@@ -154,7 +158,8 @@ global mat4 g_instance_data[NUM_CUBES]; // CPU-side instance matrices
 global Barrier frame_barrier;
 global ThreadContext main_thread_ctx;
 
-typedef struct {
+typedef struct
+{
   ThreadContext *ctx;
 } WorkerData;
 
@@ -163,18 +168,22 @@ typedef struct {
 // =============================================================================
 
 // Clear grid buckets (parallel)
-void collision_clear_grid(void) {
+void collision_clear_grid(void)
+{
   Range_u64 range = lane_range(GRID_SIZE);
-  for (u64 i = range.min; i < range.max; i++) {
+  for (u64 i = range.min; i < range.max; i++)
+  {
     g_buckets[i].count = 0;
   }
 }
 
 // Insert cubes into grid (parallel with atomics)
-void collision_insert_cubes(void) {
+void collision_insert_cubes(void)
+{
   Range_u64 range = lane_range(NUM_CUBES);
 
-  for (u64 i = range.min; i < range.max; i++) {
+  for (u64 i = range.min; i < range.max; i++)
+  {
     CubeData *cube = &cubes[i];
     u32 hash = spatial_hash_3f(cube->position[0], cube->position[1],
                                cube->position[2], CELL_SIZE) %
@@ -183,7 +192,8 @@ void collision_insert_cubes(void) {
     // Atomic increment to get our slot
     u32 slot = ins_atomic_u32_inc_eval(&g_buckets[hash].count) - 1;
 
-    if (slot < MAX_PER_BUCKET) {
+    if (slot < MAX_PER_BUCKET)
+    {
       BucketEntry *entry = &g_buckets[hash].entries[slot];
       entry->px = cube->position[0];
       entry->py = cube->position[1];
@@ -196,7 +206,8 @@ void collision_insert_cubes(void) {
 
 // Check collision between two cubes, update only cube A (parallel-safe)
 force_inline void resolve_collision(u32 idx_a, f32 ax, f32 ay, f32 az,
-                                    u32 idx_b, f32 bx, f32 by, f32 bz) {
+                                    u32 idx_b, f32 bx, f32 by, f32 bz)
+{
   // Skip self
   if (idx_a == idx_b)
     return;
@@ -249,10 +260,12 @@ force_inline void resolve_collision(u32 idx_a, f32 ax, f32 ay, f32 az,
 }
 
 // Detect and respond to collisions (parallel)
-void collision_detect_and_respond(void) {
+void collision_detect_and_respond(void)
+{
   Range_u64 range = lane_range(NUM_CUBES);
 
-  for (u64 i = range.min; i < range.max; i++) {
+  for (u64 i = range.min; i < range.max; i++)
+  {
     CubeData *cube = &cubes[i];
     f32 px = cube->position[0];
     f32 py = cube->position[1];
@@ -263,9 +276,12 @@ void collision_detect_and_respond(void) {
     spatial_cell_coords(px, py, pz, CELL_SIZE, &cx, &cy, &cz);
 
     // Check 27 neighboring cells (including own cell)
-    for (i32 dx = -1; dx <= 1; dx++) {
-      for (i32 dy = -1; dy <= 1; dy++) {
-        for (i32 dz = -1; dz <= 1; dz++) {
+    for (i32 dx = -1; dx <= 1; dx++)
+    {
+      for (i32 dy = -1; dy <= 1; dy++)
+      {
+        for (i32 dz = -1; dz <= 1; dz++)
+        {
           u32 hash = spatial_hash_3i(cx + dx, cy + dy, cz + dz) % GRID_SIZE;
           Bucket *bucket = &g_buckets[hash];
 
@@ -274,7 +290,8 @@ void collision_detect_and_respond(void) {
           if (count > MAX_PER_BUCKET)
             count = MAX_PER_BUCKET;
 
-          for (u32 j = 0; j < count; j++) {
+          for (u32 j = 0; j < count; j++)
+          {
             BucketEntry *entry = &bucket->entries[j];
             resolve_collision((u32)i, px, py, pz, entry->cube_idx, entry->px,
                               entry->py, entry->pz);
@@ -286,12 +303,14 @@ void collision_detect_and_respond(void) {
 }
 
 // Integrate velocity and handle boundary collisions (parallel)
-void collision_integrate_and_boundary(f32 dt) {
+void collision_integrate_and_boundary(f32 dt)
+{
   Range_u64 range = lane_range(NUM_CUBES);
   f32 bound_min = -BOUNDS + CUBE_RADIUS;
   f32 bound_max = BOUNDS - CUBE_RADIUS;
 
-  for (u64 i = range.min; i < range.max; i++) {
+  for (u64 i = range.min; i < range.max; i++)
+  {
     CubeData *cube = &cubes[i];
 
     // Integrate position
@@ -300,13 +319,17 @@ void collision_integrate_and_boundary(f32 dt) {
     cube->position[2] += cube->velocity[2] * dt;
 
     // Boundary collision (reflect velocity)
-    for (u32 axis = 0; axis < 3; axis++) {
-      if (cube->position[axis] < bound_min) {
+    for (u32 axis = 0; axis < 3; axis++)
+    {
+      if (cube->position[axis] < bound_min)
+      {
         cube->position[axis] = bound_min;
-        cube->velocity[axis] = -cube->velocity[axis] * RESTITUTION ;
-      } else if (cube->position[axis] > bound_max) {
+        cube->velocity[axis] = -cube->velocity[axis] * RESTITUTION;
+      }
+      else if (cube->position[axis] > bound_max)
+      {
         cube->position[axis] = bound_max;
-        cube->velocity[axis] = -cube->velocity[axis]* RESTITUTION ;
+        cube->velocity[axis] = -cube->velocity[axis] * RESTITUTION;
       }
     }
   }
@@ -316,7 +339,8 @@ void collision_integrate_and_boundary(f32 dt) {
 // Frame Update - called by all threads
 // =============================================================================
 
-void app_update_and_render(f32 dt) {
+void app_update_and_render(f32 dt)
+{
   // Phase 1: Clear grid
   collision_clear_grid();
   lane_sync();
@@ -335,7 +359,8 @@ void app_update_and_render(f32 dt) {
 
   // Phase 5: Build instance matrices
   Range_u64 range = lane_range(NUM_CUBES);
-  for (u64 i = range.min; i < range.max; i++) {
+  for (u64 i = range.min; i < range.max; i++)
+  {
     CubeData *cube = &cubes[i];
 
     mat4 *model = &g_instance_data[i];
@@ -364,18 +389,22 @@ global u32 g_frame_time_idx = 0;
 global f32 g_avg_dt = 0.016f;
 
 WASM_EXPORT(wasm_get_fps)
-f32 wasm_get_fps(void) {
-  if (g_avg_dt > 0.0001f) {
+f32 wasm_get_fps(void)
+{
+  if (g_avg_dt > 0.0001f)
+  {
     return 1.0f / g_avg_dt;
   }
   return 0.0f;
 }
 
-void worker_loop(void *arg) {
+void worker_loop(void *arg)
+{
   WorkerData *data = (WorkerData *)arg;
   tctx_set_current(data->ctx);
 
-  for (;;) {
+  for (;;)
+  {
     // Barrier 1: Wait for main thread to call renderer_begin_frame()
     lane_sync();
 
@@ -391,11 +420,13 @@ void worker_loop(void *arg) {
 // Initialization
 // =============================================================================
 
-void init_cubes(PCG32_State *rng) {
+void init_cubes(PCG32_State *rng)
+{
   // Pack cubes in a small volume at center, then explode outward
   f32 pack_size = 10.0f; // Initial packed volume: 20m x 20m x 20m
 
-  for (u32 i = 0; i < NUM_CUBES; i++) {
+  for (u32 i = 0; i < NUM_CUBES; i++)
+  {
     // Random position in packed volume
     cubes[i].position[0] = pcg32_next_f32_range(rng, -pack_size, pack_size);
     cubes[i].position[1] = pcg32_next_f32_range(rng, -pack_size, pack_size);
@@ -407,12 +438,15 @@ void init_cubes(PCG32_State *rng) {
     f32 dz = cubes[i].position[2];
     f32 len = sqrtf(dx * dx + dy * dy + dz * dz);
 
-    if (len > 0.001f) {
+    if (len > 0.001f)
+    {
       f32 inv_len = CUBE_SPEED / len;
       cubes[i].velocity[0] = dx * inv_len;
       cubes[i].velocity[1] = dy * inv_len;
       cubes[i].velocity[2] = dz * inv_len;
-    } else {
+    }
+    else
+    {
       // Cube at center: random direction
       cubes[i].velocity[0] =
           pcg32_next_f32_range(rng, -1.0f, 1.0f) * CUBE_SPEED;
@@ -427,8 +461,9 @@ void init_cubes(PCG32_State *rng) {
   }
 }
 
-WASM_EXPORT(wasm_main)
-int wasm_main(AppMemory *memory) {
+WASM_EXPORT(wasm_init)
+int wasm_init(AppMemory *memory)
+{
   LOG_INFO("Initializing GPU...");
 
   // Setup arena allocator from heap (JS sets memory->heap and memory->heap_size)
@@ -546,7 +581,8 @@ int wasm_main(AppMemory *memory) {
   material_set_vec4(g_cube_material, "color", (vec4){1.0f, 0.0f, 0.0f, 1.0f});
 
   // Spawn worker threads (indices 1..N-1)
-  for (u8 i = 1; i < NUM_WORKERS; i++) {
+  for (u8 i = 1; i < NUM_WORKERS; i++)
+  {
     thread_contexts[i] = (ThreadContext){
         .thread_idx = i,
         .thread_count = NUM_WORKERS,
@@ -564,7 +600,8 @@ int wasm_main(AppMemory *memory) {
 }
 
 WASM_EXPORT(wasm_frame)
-void wasm_frame(AppMemory *memory) {
+void wasm_frame(AppMemory *memory)
+{
   f32 dt = memory->dt;
   f32 total_time = memory->total_time;
   f32 canvas_width = memory->canvas_width;
@@ -574,7 +611,8 @@ void wasm_frame(AppMemory *memory) {
   g_frame_times[g_frame_time_idx] = dt;
   g_frame_time_idx = (g_frame_time_idx + 1) % FPS_SAMPLE_COUNT;
   f32 sum = 0.0f;
-  for (u32 i = 0; i < FPS_SAMPLE_COUNT; i++) {
+  for (u32 i = 0; i < FPS_SAMPLE_COUNT; i++)
+  {
     sum += g_frame_times[i];
   }
   g_avg_dt = sum / (f32)FPS_SAMPLE_COUNT;
@@ -588,7 +626,8 @@ void wasm_frame(AppMemory *memory) {
   g_time = total_time;
 
   // Cap dt to prevent spiral of death (e.g., if tab was backgrounded)
-  if (dt > MAX_FRAME_TIME) {
+  if (dt > MAX_FRAME_TIME)
+  {
     dt = MAX_FRAME_TIME;
   }
 
@@ -596,7 +635,8 @@ void wasm_frame(AppMemory *memory) {
   camera_update(&g_camera, canvas_width, canvas_height);
 
   // Begin frame (clears, sets view/proj, resets cmd queue)
-  if (is_main_thread()) {
+  if (is_main_thread())
+  {
     renderer_begin_frame(g_camera.view, g_camera.proj,
                          (GpuColor){0.1f, 0.1f, 0.15f, 1.0f}, total_time);
   }
@@ -613,7 +653,8 @@ void wasm_frame(AppMemory *memory) {
   // Each step uses exactly FIXED_DT for deterministic simulation
   // Use do-while to guarantee at least one step (workers are waiting at
   // lane_sync)
-  do {
+  do
+  {
     g_dt = FIXED_DT; // Workers see fixed dt
 
     // Sync with workers - start parallel physics step
@@ -630,12 +671,14 @@ void wasm_frame(AppMemory *memory) {
   } while (g_accumulator >= FIXED_DT && step_count < max_steps);
 
   // If we hit max steps, drain remaining accumulator to prevent buildup
-  if (step_count >= max_steps && g_accumulator > FIXED_DT) {
+  if (step_count >= max_steps && g_accumulator > FIXED_DT)
+  {
     g_accumulator = 0.0f;
   }
 
   // Main thread: upload instance data and issue single instanced draw call
-  if (is_main_thread()) {
+  if (is_main_thread())
+  {
     renderer_update_instance_buffer(g_instance_buffer, g_instance_data,
                                     NUM_CUBES);
     renderer_draw_mesh_instanced(g_cube_mesh, g_cube_material,

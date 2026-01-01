@@ -14,7 +14,8 @@
 
 #define NUM_CUBES 64
 
-typedef struct {
+typedef struct
+{
   vec3 position;
   f32 rotation_rate;
 } CubeData;
@@ -26,7 +27,8 @@ global f32 g_time = 0.0f;
 global Barrier frame_barrier;
 global ThreadContext main_thread_ctx;
 
-typedef struct {
+typedef struct
+{
   ThreadContext *ctx;
 } WorkerData;
 
@@ -34,13 +36,15 @@ typedef struct {
 // Frame Update - called by all threads
 // =============================================================================
 
-void app_update_and_render(void) {
+void app_update_and_render(void)
+{
   LOG_INFO("Thread %: update and render start",
            FMT_UINT(tctx_current()->thread_idx));
   // Each thread processes a range of cubes
   Range_u64 range = lane_range(NUM_CUBES);
 
-  for (u64 i = range.min; i < range.max; i++) {
+  for (u64 i = range.min; i < range.max; i++)
+  {
     CubeData *cube = &cubes[i];
 
     // Build model matrix for this cube
@@ -69,11 +73,13 @@ void app_update_and_render(void) {
            FMT_UINT(tctx_current()->thread_idx), FMT_UINT((range.max - range.min)));
 }
 
-void worker_loop(void *arg) {
+void worker_loop(void *arg)
+{
   WorkerData *data = (WorkerData *)arg;
   tctx_set_current(data->ctx);
 
-  for (;;) {
+  for (;;)
+  {
     // Barrier 1: Wait for main thread to call renderer_begin_frame()
     lane_sync();
 
@@ -93,13 +99,15 @@ void worker_loop(void *arg) {
 // Initialization
 // =============================================================================
 
-void init_cubes(void) {
+void init_cubes(void)
+{
   // Arrange cubes in a grid
   u32 grid_size = 8; // 8x8 = 64 cubes
   f32 spacing = 2.5f;
   f32 offset = (grid_size - 1) * spacing * 0.5f;
 
-  for (u32 i = 0; i < NUM_CUBES; i++) {
+  for (u32 i = 0; i < NUM_CUBES; i++)
+  {
     u32 x = i % grid_size;
     u32 z = i / grid_size;
 
@@ -112,8 +120,9 @@ void init_cubes(void) {
   }
 }
 
-WASM_EXPORT(wasm_main)
-int wasm_main(void) {
+WASM_EXPORT(wasm_init)
+int wasm_init(void)
+{
   LOG_INFO("Initializing GPU...");
   gpu_init();
 
@@ -151,7 +160,8 @@ int wasm_main(void) {
   tctx_set_current(&main_thread_ctx);
 
   // Spawn worker threads (indices 1..N-1)
-  for (u8 i = 1; i < NUM_WORKERS; i++) {
+  for (u8 i = 1; i < NUM_WORKERS; i++)
+  {
     thread_contexts[i] = (ThreadContext){
         .thread_idx = i,
         .thread_count = NUM_WORKERS,
@@ -169,7 +179,8 @@ int wasm_main(void) {
 }
 
 WASM_EXPORT(wasm_frame)
-void wasm_frame(void) {
+void wasm_frame(void)
+{
   LOG_INFO("Main thread: frame start");
   // Update time
   g_time += 0.016f; // ~60fps
@@ -180,7 +191,8 @@ void wasm_frame(void) {
   glm_perspective(RAD(45.0f), 16.0f / 9.0f, 0.1f, 100.0f, proj);
 
   // Begin frame (clears, sets view/proj, resets cmd queue)
-  if (is_main_thread()) {
+  if (is_main_thread())
+  {
     renderer_begin_frame(view, proj, (GpuColor){0.05f, 0.05f, 0.08f, 1.0f}, 0.0f);
   }
 
@@ -196,7 +208,8 @@ void wasm_frame(void) {
   LOG_INFO("Main thread: update and render - all threads done");
 
   // End frame (main thread processes cmd queue, issues GPU calls)
-  if (is_main_thread()) {
+  if (is_main_thread())
+  {
     renderer_end_frame();
   }
   LOG_INFO("Main thread: renderer_end_frame done");

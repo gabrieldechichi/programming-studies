@@ -266,14 +266,14 @@ for (const info of workerPool) {
     });
 }
 
-// Initialize renderer BEFORE wasm_main so GPU is ready
+// Initialize renderer BEFORE wasm_init so GPU is ready
 const { canvas, dpr } = await canvasReady;
 canvasRef = canvas;  // Store reference for resize handling
 currentDpr = dpr;
 renderer = await createRenderer(canvas);
 console.log("[Main Worker] WebGPU renderer initialized");
 
-const wasm_main = instance.exports.wasm_main as (memory: number) => number;
+const wasm_init = instance.exports.wasm_init as (memory: number) => number;
 const wasm_frame = instance.exports.wasm_frame as ((memory: number) => void) | undefined;
 
 const heap = (instance.exports.os_get_heap_base as () => number)();
@@ -325,7 +325,7 @@ function writeAppMemoryFrameData(
     view.setUint32(heap + 356, TOTAL_HEAP_SIZE - APP_MEMORY_SIZE, true); // heap_size
 }
 
-const result = wasm_main(heap);
+const result = wasm_init(heap);
 
 // Render loop - call WASM frame function if it exists
 if (wasm_frame) {
@@ -394,8 +394,8 @@ if (wasm_frame) {
                 view.setUint32(eventOffset + 4, event.keyType ?? 0, true); // key.type
                 // bytes 8-15 are padding
             } else if (event.type === InputEventType.INPUT_EVENT_TOUCH_START ||
-                       event.type === InputEventType.INPUT_EVENT_TOUCH_END ||
-                       event.type === InputEventType.INPUT_EVENT_TOUCH_MOVE) {
+                event.type === InputEventType.INPUT_EVENT_TOUCH_END ||
+                event.type === InputEventType.INPUT_EVENT_TOUCH_MOVE) {
                 view.setUint32(eventOffset + 4, event.touchId ?? 0, true);  // touch.id
                 view.setFloat32(eventOffset + 8, event.touchX ?? 0, true);  // touch.x
                 view.setFloat32(eventOffset + 12, event.touchY ?? 0, true); // touch.y

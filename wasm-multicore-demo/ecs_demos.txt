@@ -423,9 +423,9 @@ _os_log_info, and so on)? can them be shared?
        259 -      });
        260 -  }
        261 -  
-       262 -  const wasm_main = instance.exports.wasm_main as () => 
+       262 -  const wasm_init = instance.exports.wasm_init as () => 
            - number;
-       263 -  const result = wasm_main();
+       263 -  const result = wasm_init();
        264 -  
        265 -  // Notify main thread
        266 -  self.postMessage({ type: "done", result });
@@ -650,9 +650,9 @@ _os_log_info, and so on)? can them be shared?
        187 +      });
        188 +  }
        189 +  
-       190 +  const wasm_main = instance.exports.wasm_main as () => 
+       190 +  const wasm_init = instance.exports.wasm_init as () => 
            + number;
-       191 +  const result = wasm_main();
+       191 +  const result = wasm_init();
        192 +  
        193 +  // Notify main thread
        194 +  self.postMessage({ type: "done", result });

@@ -12,14 +12,16 @@
 
 local_shared int seen[NUM_THREADS];
 
-void app_entrypoint(void) {
+void app_entrypoint(void)
+{
   u8 idx = tctx_current()->thread_idx;
   seen[idx]++;
   LOG_INFO("Thread % running", FMT_UINT(idx));
 }
 
-WASM_EXPORT(wasm_main)
-int wasm_main(void) {
+WASM_EXPORT(wasm_init)
+int wasm_init(void)
+{
   LOG_INFO("Testing thread indices with % threads", FMT_UINT(NUM_THREADS));
 
   // Setup arena allocator from heap
@@ -29,14 +31,17 @@ int wasm_main(void) {
   mcr_run(NUM_THREADS, KB(64), app_entrypoint, &arena);
 
   int errors = 0;
-  for (int i = 0; i < NUM_THREADS; i++) {
-    if (seen[i] != 1) {
+  for (int i = 0; i < NUM_THREADS; i++)
+  {
+    if (seen[i] != 1)
+    {
       LOG_ERROR("Error: thread % ran % times", FMT_UINT(i), FMT_UINT(seen[i]));
       errors++;
     }
   }
 
-  if (errors == 0) {
+  if (errors == 0)
+  {
     LOG_INFO("All thread indices 0-% are unique!", FMT_UINT(NUM_THREADS - 1));
   }
 

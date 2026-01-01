@@ -37,7 +37,7 @@ everything that is going on.
 
   Thread Model (main.c)
 
-  Initialization (wasm_main):
+  Initialization (wasm_init):
   1. Initializes GPU and allocates 16MB arena from heap
   2. Creates 1024 cubes arranged in an 8x8 grid with different rotation
   rates
@@ -225,7 +225,7 @@ everything that is going on.
   └─────────────────────────────────────────────────────────────────────┘
 
   ---
-  2. Initialization (main.c:wasm_main)
+  2. Initialization (main.c:wasm_init)
 
   Step 1: GPU Initialization
 
@@ -1309,7 +1309,7 @@ verify it.
 
   global Mesh_Handle g_cube_mesh;
 
-  void wasm_main(void) {
+  void wasm_init(void) {
       // ... existing init ...
 
       // Upload cube mesh
@@ -1781,7 +1781,7 @@ verify it.
        64    }
        65    
 
-● Now update wasm_main to upload the cube mesh:
+● Now update wasm_init to upload the cube mesh:
 
 ● Update(main.c)
   ⎿  Error editing file
@@ -1919,7 +1919,7 @@ verify it.
 
   - Added #include "cube.h"
   - Added global Mesh_Handle g_cube_mesh
-  - Added mesh upload call in wasm_main()
+  - Added mesh upload call in wasm_init()
   - Updated renderer_draw_mesh() call to pass g_cube_mesh
 
   API Usage

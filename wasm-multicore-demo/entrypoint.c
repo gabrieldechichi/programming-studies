@@ -8,11 +8,13 @@ global ThreadContext main_thread_ctx;
 global AppMemory *g_memory;
 global AppContext g_app_ctx;
 
-typedef struct {
+typedef struct
+{
   ThreadContext *ctx;
 } WorkerData;
 
-void worker_loop(void *arg) {
+void worker_loop(void *arg)
+{
   WorkerData *data = (WorkerData *)arg;
   tctx_set_current(data->ctx);
 
@@ -21,7 +23,8 @@ void worker_loop(void *arg) {
   arena_reset(&tctx_current()->temp_arena);
   lane_sync(); // Init done
 
-  for (;;) {
+  for (;;)
+  {
     lane_sync(); // Wait for frame start (main sets g_memory before this)
     app_update_and_render(g_memory);
     arena_reset(&tctx_current()->temp_arena);
@@ -29,9 +32,10 @@ void worker_loop(void *arg) {
   }
 }
 
-WASM_EXPORT(wasm_main)
-int wasm_main(AppMemory *memory) {
-  LOG_INFO("wasm_main: memory=%, canvas=%x%", FMT_UINT((u32)(size_t)memory),
+WASM_EXPORT(wasm_init)
+int wasm_init(AppMemory *memory)
+{
+  LOG_INFO("wasm_init: memory=%, canvas=%x%", FMT_UINT((u32)(size_t)memory),
            FMT_UINT((u32)memory->canvas_width),
            FMT_UINT((u32)memory->canvas_height));
   LOG_INFO("Initializing...");
@@ -66,7 +70,8 @@ int wasm_main(AppMemory *memory) {
   tctx_set_current(&main_thread_ctx);
 
   // Spawn worker threads (indices 1..N-1)
-  for (u8 i = 1; i < g_app_ctx.num_threads; i++) {
+  for (u8 i = 1; i < g_app_ctx.num_threads; i++)
+  {
     thread_contexts[i] = (ThreadContext){
         .thread_idx = i,
         .thread_count = g_app_ctx.num_threads,
@@ -88,7 +93,8 @@ int wasm_main(AppMemory *memory) {
 }
 
 WASM_EXPORT(wasm_frame)
-void wasm_frame(AppMemory *memory) {
+void wasm_frame(AppMemory *memory)
+{
 
   lane_sync(); // Release workers - they can now read g_memory
 

@@ -20,7 +20,8 @@
 
 global AppContext g_test_app_ctx;
 
-void register_tests(void) {
+void register_tests(void)
+{
     REGISTER_TEST(test_ecs);
     REGISTER_TEST(test_ecs_components);
     REGISTER_TEST(test_ecs_tables);
@@ -34,8 +35,10 @@ void register_tests(void) {
     REGISTER_TEST_MULTICORE(test_ecs_entity_index_multi);
 }
 
-void test_main(void) {
-    if (is_main_thread()) {
+void test_main(void)
+{
+    if (is_main_thread())
+    {
         register_tests();
     }
     lane_sync();
@@ -46,8 +49,9 @@ void test_main(void) {
     test_runner_print_results();
 }
 
-WASM_EXPORT(wasm_main)
-int wasm_main(AppMemory *memory) {
+WASM_EXPORT(wasm_init)
+int wasm_init(AppMemory *memory)
+{
     LOG_INFO("=== Test Runner Starting ===");
 
     g_test_app_ctx.arena = arena_from_buffer(memory->heap, memory->heap_size);
@@ -65,6 +69,7 @@ int wasm_main(AppMemory *memory) {
 }
 
 WASM_EXPORT(wasm_frame)
-void wasm_frame(AppMemory *memory) {
+void wasm_frame(AppMemory *memory)
+{
     UNUSED(memory);
 }
