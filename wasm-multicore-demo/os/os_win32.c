@@ -73,6 +73,8 @@ struct OsWin32Entity {
       char file_path[MAX_PATH];
       u8 *buffer;
       u32 buffer_len;
+      OVERLAPPED overlapped;
+      HANDLE file_handle;
     } file_op;
   };
 };
@@ -136,6 +138,8 @@ typedef struct {
 
   PFN_NtQueryDirectoryFile NtQueryDirectoryFile;
   PFN_NtDelayExecution NtDelayExecution;
+
+  HANDLE iocp;
 } OsWin32State;
 
 global OsWin32State os_w32_state = {0};
@@ -210,6 +214,8 @@ void os_init(void) {
     os_w32_state.NtQueryDirectoryFile = (PFN_NtQueryDirectoryFile)GetProcAddress(ntdll, "NtQueryDirectoryFile");
     os_w32_state.NtDelayExecution = (PFN_NtDelayExecution)GetProcAddress(ntdll, "NtDelayExecution");
   }
+
+  os_w32_state.iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
 
   os_w32_state.initialized = true;
 }
@@ -1139,61 +1145,8 @@ PlatformFileData os_read_file(const char *file_path, Allocator *allocator) {
   return result;
 }
 
-struct OsFileOp {
-  OsWin32Entity *entity;
-};
-
-internal void file_read_worker(void *data) {
-  OsWin32Entity *entity = (OsWin32Entity *)data;
-
-  HANDLE file =
-      CreateFileA(entity->file_op.file_path, GENERIC_READ, FILE_SHARE_READ,
-                  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-  if (file == INVALID_HANDLE_VALUE) {
-    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
-    return;
-  }
-
-  LARGE_INTEGER file_size;
-  if (!GetFileSizeEx(file, &file_size)) {
-    CloseHandle(file);
-    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
-    return;
-  }
-
-  if (file_size.QuadPart < 0 || file_size.QuadPart > UINT32_MAX) {
-    CloseHandle(file);
-    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
-    return;
-  }
-
-  // todo: solution to not allocate here
-  u8 *buffer = os_allocate_memory((size_t)file_size.QuadPart);
-  if (!buffer) {
-    CloseHandle(file);
-    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
-    return;
-  }
-
-  DWORD bytes_read;
-  BOOL read_success =
-      ReadFile(file, buffer, (DWORD)file_size.QuadPart, &bytes_read, NULL);
-  CloseHandle(file);
-
-  if (read_success && bytes_read == (DWORD)file_size.QuadPart) {
-    entity->file_op.buffer = buffer;
-    entity->file_op.buffer_len = (u32)file_size.QuadPart;
-    ins_atomic_store_release(&entity->file_op.state,
-                             OS_FILE_READ_STATE_COMPLETED);
-  } else {
-    os_free_memory(buffer, file_size.QuadPart);
-    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
-  }
-}
-
 OsFileOp *os_start_read_file(const char *file_path, TaskSystem *task_system) {
-  if (!task_system)
-    return NULL;
+  UNUSED(task_system);
 
   OsWin32Entity *entity = os_w32_entity_alloc(OS_W32_ENTITY_FILE_OP);
   if (!entity)
@@ -1209,8 +1162,55 @@ OsFileOp *os_start_read_file(const char *file_path, TaskSystem *task_system) {
   entity->file_op.state = OS_FILE_READ_STATE_IN_PROGRESS;
   entity->file_op.buffer = NULL;
   entity->file_op.buffer_len = 0;
+  memset(&entity->file_op.overlapped, 0, sizeof(OVERLAPPED));
+  entity->file_op.file_handle = INVALID_HANDLE_VALUE;
 
-  task_schedule(task_system, file_read_worker, entity);
+  HANDLE file = CreateFileA(file_path, GENERIC_READ, FILE_SHARE_READ, NULL,
+                            OPEN_EXISTING,
+                            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+  if (file == INVALID_HANDLE_VALUE) {
+    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+    return (OsFileOp *)entity;
+  }
+
+  LARGE_INTEGER file_size;
+  if (!GetFileSizeEx(file, &file_size) || file_size.QuadPart < 0 ||
+      file_size.QuadPart > UINT32_MAX) {
+    CloseHandle(file);
+    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+    return (OsFileOp *)entity;
+  }
+
+  u8 *buffer = os_allocate_memory((size_t)file_size.QuadPart);
+  if (!buffer) {
+    CloseHandle(file);
+    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+    return (OsFileOp *)entity;
+  }
+
+  entity->file_op.file_handle = file;
+  entity->file_op.buffer = buffer;
+  entity->file_op.buffer_len = (u32)file_size.QuadPart;
+
+  if (!CreateIoCompletionPort(file, os_w32_state.iocp, (ULONG_PTR)entity, 0)) {
+    CloseHandle(file);
+    os_free_memory(buffer, file_size.QuadPart);
+    entity->file_op.buffer = NULL;
+    entity->file_op.file_handle = INVALID_HANDLE_VALUE;
+    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+    return (OsFileOp *)entity;
+  }
+
+  BOOL read_result = ReadFile(file, buffer, (DWORD)file_size.QuadPart, NULL,
+                              &entity->file_op.overlapped);
+  if (!read_result && GetLastError() != ERROR_IO_PENDING) {
+    CloseHandle(file);
+    os_free_memory(buffer, file_size.QuadPart);
+    entity->file_op.buffer = NULL;
+    entity->file_op.file_handle = INVALID_HANDLE_VALUE;
+    ins_atomic_store_release(&entity->file_op.state, OS_FILE_READ_STATE_ERROR);
+    return (OsFileOp *)entity;
+  }
 
   return (OsFileOp *)entity;
 }
@@ -1218,6 +1218,20 @@ OsFileOp *os_start_read_file(const char *file_path, TaskSystem *task_system) {
 OsFileReadState os_check_read_file(OsFileOp *op) {
   if (!op)
     return OS_FILE_READ_STATE_ERROR;
+
+  DWORD bytes;
+  ULONG_PTR key;
+  OVERLAPPED *ov;
+  while (GetQueuedCompletionStatus(os_w32_state.iocp, &bytes, &key, &ov, 0)) {
+    OsWin32Entity *completed = (OsWin32Entity *)key;
+    if (completed->file_op.file_handle != INVALID_HANDLE_VALUE) {
+      CloseHandle(completed->file_op.file_handle);
+      completed->file_op.file_handle = INVALID_HANDLE_VALUE;
+    }
+    ins_atomic_store_release(&completed->file_op.state,
+                             OS_FILE_READ_STATE_COMPLETED);
+  }
+
   OsWin32Entity *entity = (OsWin32Entity *)op;
   return ins_atomic_load_acquire(&entity->file_op.state);
 }
@@ -1241,6 +1255,11 @@ b32 os_get_file_data(OsFileOp *op, _out_ PlatformFileData *data,
 
   if (state != OS_FILE_READ_STATE_COMPLETED || !entity->file_op.buffer) {
     return false;
+  }
+
+  if (entity->file_op.file_handle != INVALID_HANDLE_VALUE) {
+    CloseHandle(entity->file_op.file_handle);
+    entity->file_op.file_handle = INVALID_HANDLE_VALUE;
   }
 
   data->buffer_len = entity->file_op.buffer_len;

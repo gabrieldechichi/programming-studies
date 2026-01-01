@@ -99,4 +99,10 @@ SHADER_COMPILER_LIBS = dbghelp.lib shlwapi.lib
 shader_compiler: dirs
 	cl $(SHADER_COMPILER_CFLAGS) shader_compiler.c /link $(SHADER_COMPILER_LIBS)
 
-.PHONY: all dirs build_shaders wasm js clean run test exporter shader_compiler
+ASYNC_FILE_TEST_CFLAGS = /nologo /W3 /std:c11 /I. /Fe:$(OUT_DIR)/async_file_test.exe /Fo:$(OUT_DIR)/ /DWIN32 /DCOMPILER_MSVC /DDEBUG
+ASYNC_FILE_TEST_LIBS = dbghelp.lib shlwapi.lib
+
+async_file_test: dirs
+	cl $(ASYNC_FILE_TEST_CFLAGS) async_file_test.c /link $(ASYNC_FILE_TEST_LIBS)
+
+.PHONY: all dirs build_shaders wasm js clean run test exporter shader_compiler async_file_test
