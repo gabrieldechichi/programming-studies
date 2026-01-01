@@ -5,7 +5,6 @@
 #include "lib/math.h"
 #include "lib/hash.h"
 #include "lib/random.h"
-#include "cube.h"
 #include "renderer.h"
 #include "camera.h"
 #include "flycam.h"
@@ -15,10 +14,6 @@
 #include "shaders/fish_vs.h"
 #include "shaders/fish_instanced_vs.h"
 #include "shaders/fish_fs.h"
-
-#define VERTEX_STRIDE 40
-#define VERTEX_NORMAL_OFFSET 12
-#define VERTEX_COLOR_OFFSET 24
 
 // #define NUM_BOIDS 100000
 #define NUM_BOIDS 25000
@@ -48,12 +43,6 @@ typedef struct {
 typedef struct {
   u8 dummy;
 } BoidTag;
-typedef struct {
-  u8 dummy;
-} TargetTag;
-typedef struct {
-  u8 dummy;
-} ObstacleTag;
 
 typedef struct {
   f32 sample_rate;
@@ -77,7 +66,6 @@ typedef struct {
 typedef struct {
   f32 px, py, pz;
   f32 hx, hy, hz;
-  u32 boid_idx;
 } BoidBucketEntry;
 
 typedef struct {
@@ -113,10 +101,6 @@ global Camera g_camera;
 global FlyCameraCtrl g_fly_cam = {.camera_pos = {0.0f, 11.6f, 40.4f},
                                   .move_speed = 400.0f};
 
-global GpuMesh_Handle g_cube_mesh;
-global Material_Handle g_cube_material;
-global Material_Handle g_obstacle_material;
-global Material_Handle g_target_material;
 global InstanceBuffer_Handle g_instance_buffer;
 global mat4 g_instance_data[NUM_BOIDS];
 
@@ -142,105 +126,7 @@ global Material_Handle g_shark_material;
 global GpuTexture g_shark_albedo_tex = {0};
 global GpuTexture g_shark_metallic_gloss_tex = {0};
 
-static const char *simple_vs =
-    "struct GlobalUniforms {\n"
-    "    model: mat4x4<f32>,\n"
-    "    view: mat4x4<f32>,\n"
-    "    proj: mat4x4<f32>,\n"
-    "    view_proj: mat4x4<f32>,\n"
-    "};\n"
-    "\n"
-    "@group(0) @binding(0) var<uniform> global: GlobalUniforms;\n"
-    "@group(0) @binding(1) var<uniform> color: vec4<f32>;\n"
-    "\n"
-    "struct VertexInput {\n"
-    "    @location(0) position: vec3<f32>,\n"
-    "    @location(1) normal: vec3<f32>,\n"
-    "    @location(2) vertex_color: vec4<f32>,\n"
-    "};\n"
-    "\n"
-    "struct VertexOutput {\n"
-    "    @builtin(position) position: vec4<f32>,\n"
-    "    @location(0) world_normal: vec3<f32>,\n"
-    "    @location(1) material_color: vec4<f32>,\n"
-    "};\n"
-    "\n"
-    "@vertex\n"
-    "fn vs_main(in: VertexInput) -> VertexOutput {\n"
-    "    var out: VertexOutput;\n"
-    "    let mvp = global.view_proj * global.model;\n"
-    "    out.position = mvp * vec4<f32>(in.position, 1.0);\n"
-    "    let normal_matrix = mat3x3<f32>(global.model[0].xyz, "
-    "global.model[1].xyz, "
-    "global.model[2].xyz);\n"
-    "    out.world_normal = normalize(normal_matrix * in.normal);\n"
-    "    out.material_color = color;\n"
-    "    return out;\n"
-    "}\n";
-
-static const char *instanced_vs =
-    "struct GlobalUniforms {\n"
-    "    model: mat4x4<f32>,\n"
-    "    view: mat4x4<f32>,\n"
-    "    proj: mat4x4<f32>,\n"
-    "    view_proj: mat4x4<f32>,\n"
-    "};\n"
-    "\n"
-    "struct InstanceData {\n"
-    "    model: mat4x4<f32>,\n"
-    "};\n"
-    "\n"
-    "@group(0) @binding(0) var<uniform> global: GlobalUniforms;\n"
-    "@group(0) @binding(1) var<uniform> color: vec4<f32>;\n"
-    "@group(1) @binding(0) var<storage, read> instances: array<InstanceData>;\n"
-    "\n"
-    "struct VertexInput {\n"
-    "    @location(0) position: vec3<f32>,\n"
-    "    @location(1) normal: vec3<f32>,\n"
-    "    @location(2) vertex_color: vec4<f32>,\n"
-    "};\n"
-    "\n"
-    "struct VertexOutput {\n"
-    "    @builtin(position) position: vec4<f32>,\n"
-    "    @location(0) world_normal: vec3<f32>,\n"
-    "    @location(1) material_color: vec4<f32>,\n"
-    "};\n"
-    "\n"
-    "@vertex\n"
-    "fn vs_main(@builtin(instance_index) instance_idx: u32, in: VertexInput) "
-    "-> VertexOutput {\n"
-    "    var out: VertexOutput;\n"
-    "    let model = instances[instance_idx].model;\n"
-    "    let mvp = global.view_proj * model;\n"
-    "    out.position = mvp * vec4<f32>(in.position, 1.0);\n"
-    "    let normal_matrix = mat3x3<f32>(model[0].xyz, model[1].xyz, "
-    "model[2].xyz);\n"
-    "    out.world_normal = normalize(normal_matrix * in.normal);\n"
-    "    out.material_color = color;\n"
-    "    return out;\n"
-    "}\n";
-
-static const char *default_fs =
-    "const LIGHT_DIR: vec3<f32> = vec3<f32>(0.5, 0.8, 0.3);\n"
-    "const AMBIENT: f32 = 0.15;\n"
-    "\n"
-    "@fragment\n"
-    "fn fs_main(@location(0) world_normal: vec3<f32>, @location(1) "
-    "material_color: vec4<f32>) "
-    "-> @location(0) vec4<f32> {\n"
-    "    let light_dir = normalize(LIGHT_DIR);\n"
-    "    let n = normalize(world_normal);\n"
-    "    let ndotl = max(dot(n, light_dir), 0.0);\n"
-    "    let diffuse = AMBIENT + (1.0 - AMBIENT) * ndotl;\n"
-    "    return vec4<f32>(material_color.rgb * diffuse, material_color.a);\n"
-    "}\n";
-
 global f32 g_total_time = 0.0f;
-
-void ecs_world_init_full(EcsWorld *world, ArenaAllocator *arena) {
-  ecs_world_init(world, arena);
-  ecs_store_init(world);
-}
 
 void sample_animation_position(const SampledAnimationClip *clip, f32 time,
                                vec3 out_pos) {
@@ -370,7 +256,6 @@ void InsertBoidsSystem(EcsIter *it) {
       entry->hx = headings[i].x;
       entry->hy = headings[i].y;
       entry->hz = headings[i].z;
-      entry->boid_idx = indices[i].index;
     }
   }
 }
@@ -642,14 +527,13 @@ void app_init(AppMemory *memory) {
 
   AppContext *app_ctx = app_ctx_current();
 
-  ecs_world_init_full(&g_world, &app_ctx->arena);
+  ecs_world_init(&g_world, &app_ctx->arena);
+  ecs_store_init(&g_world);
 
   ECS_COMPONENT(&g_world, Position);
   ECS_COMPONENT(&g_world, Heading);
   ECS_COMPONENT(&g_world, BoidIndex);
   ECS_COMPONENT(&g_world, BoidTag);
-  ECS_COMPONENT(&g_world, TargetTag);
-  ECS_COMPONENT(&g_world, ObstacleTag);
   ECS_COMPONENT(&g_world, AnimationPlayer);
   ECS_COMPONENT(&g_world, MeshRenderer);
   g_mesh_renderer_id = ecs_id(MeshRenderer);
@@ -669,78 +553,6 @@ void app_init(AppMemory *memory) {
   ThreadContext *tctx = tctx_current();
   g_file_op = os_start_read_file("fish.hasset", tctx->task_system);
   g_shark_file_op = os_start_read_file("shark.hasset", tctx->task_system);
-
-  g_cube_mesh = renderer_upload_mesh(&(MeshDesc){
-      .vertices = cube_vertices,
-      .vertex_size = sizeof(cube_vertices),
-      .indices = cube_indices,
-      .index_size = sizeof(cube_indices),
-      .index_count = CUBE_INDEX_COUNT,
-      .index_format = GPU_INDEX_FORMAT_U16,
-  });
-
-  g_obstacle_material = renderer_create_material(&(MaterialDesc){
-      .shader_desc =
-          (GpuShaderDesc){
-              .vs_code = simple_vs,
-              .fs_code = default_fs,
-              .uniform_blocks =
-                  FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
-                                     {.stage = GPU_STAGE_VERTEX,
-                                      .size = sizeof(GlobalUniforms),
-                                      .binding = 0},
-                                     {.stage = GPU_STAGE_VERTEX,
-                                      .size = sizeof(vec4),
-                                      .binding = 1}, ),
-          },
-      .vertex_layout =
-          {
-              .stride = VERTEX_STRIDE,
-              .attrs = FIXED_ARRAY_DEFINE(
-                  GpuVertexAttr, {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
-                  {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},
-                  {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2}, ),
-          },
-      .primitive = GPU_PRIMITIVE_TRIANGLES,
-      .depth_test = true,
-      .depth_write = true,
-      .properties = FIXED_ARRAY_DEFINE(
-          MaterialPropertyDesc,
-          {.name = "color", .type = MAT_PROP_VEC4, .binding = 1}, ),
-  });
-  material_set_vec4(g_obstacle_material, "color",
-                    (vec4){1.0f, 0.2f, 0.2f, 1.0f});
-
-  g_target_material = renderer_create_material(&(MaterialDesc){
-      .shader_desc =
-          (GpuShaderDesc){
-              .vs_code = simple_vs,
-              .fs_code = default_fs,
-              .uniform_blocks =
-                  FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
-                                     {.stage = GPU_STAGE_VERTEX,
-                                      .size = sizeof(GlobalUniforms),
-                                      .binding = 0},
-                                     {.stage = GPU_STAGE_VERTEX,
-                                      .size = sizeof(vec4),
-                                      .binding = 1}, ),
-          },
-      .vertex_layout =
-          {
-              .stride = VERTEX_STRIDE,
-              .attrs = FIXED_ARRAY_DEFINE(
-                  GpuVertexAttr, {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
-                  {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},
-                  {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2}, ),
-          },
-      .primitive = GPU_PRIMITIVE_TRIANGLES,
-      .depth_test = true,
-      .depth_write = true,
-      .properties = FIXED_ARRAY_DEFINE(
-          MaterialPropertyDesc,
-          {.name = "color", .type = MAT_PROP_VEC4, .binding = 1}, ),
-  });
-  material_set_vec4(g_target_material, "color", (vec4){0.2f, 1.0f, 0.3f, 1.0f});
 
   f32 spawn_radius = 15.0f;
   f32 spawn_center_x = 20.0f;
@@ -794,13 +606,6 @@ void app_init(AppMemory *memory) {
                 .current_time = 0.0f,
                 .dest_position = &g_target_positions[i],
             });
-    ecs_set(&g_world, e, MeshRenderer,
-            {
-                .mesh = g_cube_mesh,
-                .material = g_target_material,
-                .scale = {2.0f, 2.0f, 2.0f},
-            });
-    ecs_add(&g_world, e, ecs_id(TargetTag));
 
     g_target_positions[i][0] = initial_pos[0];
     g_target_positions[i][1] = initial_pos[1];
@@ -822,13 +627,6 @@ void app_init(AppMemory *memory) {
                 .current_time = 0.0f,
                 .dest_position = &g_obstacle_positions[i],
             });
-    ecs_set(&g_world, e, MeshRenderer,
-            {
-                .mesh = g_cube_mesh,
-                .material = g_obstacle_material,
-                .scale = {2.0f, 2.0f, 6.0f},
-            });
-    ecs_add(&g_world, e, ecs_id(ObstacleTag));
 
     g_obstacle_positions[i][0] = initial_pos[0];
     g_obstacle_positions[i][1] = initial_pos[1];
@@ -914,42 +712,6 @@ void app_init(AppMemory *memory) {
       .stride = sizeof(mat4),
       .max_instances = NUM_BOIDS,
   });
-
-  g_cube_material = renderer_create_material(&(MaterialDesc){
-      .shader_desc =
-          (GpuShaderDesc){
-              .vs_code = instanced_vs,
-              .fs_code = default_fs,
-              .uniform_blocks =
-                  FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
-                                     {.stage = GPU_STAGE_VERTEX,
-                                      .size = sizeof(GlobalUniforms),
-                                      .binding = 0},
-                                     {.stage = GPU_STAGE_VERTEX,
-                                      .size = sizeof(vec4),
-                                      .binding = 1}, ),
-              .storage_buffers = FIXED_ARRAY_DEFINE(GpuStorageBufferDesc,
-                                                    {.stage = GPU_STAGE_VERTEX,
-                                                     .binding = 0,
-                                                     .readonly = true}, ),
-          },
-      .vertex_layout =
-          {
-              .stride = VERTEX_STRIDE,
-              .attrs = FIXED_ARRAY_DEFINE(
-                  GpuVertexAttr, {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
-                  {GPU_VERTEX_FORMAT_FLOAT3, VERTEX_NORMAL_OFFSET, 1},
-                  {GPU_VERTEX_FORMAT_FLOAT4, VERTEX_COLOR_OFFSET, 2}, ),
-          },
-      .primitive = GPU_PRIMITIVE_TRIANGLES,
-      .depth_test = true,
-      .depth_write = true,
-      .properties = FIXED_ARRAY_DEFINE(
-          MaterialPropertyDesc,
-          {.name = "color", .type = MAT_PROP_VEC4, .binding = 1}, ),
-  });
-
-  material_set_vec4(g_cube_material, "color", (vec4){0.2f, 0.6f, 1.0f, 1.0f});
 
   LOG_INFO("Boids demo initialized: % boids", FMT_UINT(NUM_BOIDS));
 }
@@ -1275,9 +1037,6 @@ void app_update_and_render(AppMemory *memory) {
 
     if (g_fish_loaded) {
       renderer_draw_mesh_instanced(g_fish_mesh, g_fish_material,
-                                   g_instance_buffer);
-    } else {
-      renderer_draw_mesh_instanced(g_cube_mesh, g_cube_material,
                                    g_instance_buffer);
     }
 
