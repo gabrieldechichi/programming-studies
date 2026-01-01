@@ -133,8 +133,19 @@ EcsTableRecord* ecs_component_record_get_table(EcsComponentRecord *cr, EcsTable 
 
 #define ecs_id(T) FLECS_ID##T##ID_
 
+#define ECS_COMPONENT_DECLARE(T) \
+    EcsEntity ecs_id(T)
+
+#define ECS_COMPONENT_DEFINE(world, T) \
+    ecs_id(T) = ecs_component_register( \
+        (world), \
+        sizeof(T), \
+        _Alignof(T), \
+        #T \
+    )
+
 #define ECS_COMPONENT(world, T) \
-    EcsEntity ecs_id(T) = ecs_component_register( \
+    ECS_COMPONENT_DECLARE(T) = ecs_component_register( \
         (world), \
         sizeof(T), \
         _Alignof(T), \

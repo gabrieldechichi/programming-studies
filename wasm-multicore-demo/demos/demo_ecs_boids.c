@@ -102,44 +102,36 @@ typedef struct {
 
 typedef struct {
   EcsWorld world;
-  EcsEntity mesh_renderer_id;
-  EcsEntity scale_id;
-  EcsEntity local_to_world_id;
 
   InputSystem input;
   Camera camera;
   FlyCameraCtrl fly_cam;
 
-  BoidBucket buckets[GRID_SIZE];
-
-  InstanceBuffer_Handle instance_buffer;
-  mat4 instance_data[NUM_BOIDS];
-
   OsFileOp *fish_file_op;
-  b32 fish_loaded;
   GpuMesh_Handle fish_mesh;
   Material_Handle fish_material;
-  Material_Handle fish_noninst_material;
   GpuTexture albedo_tex;
   GpuTexture tint_tex;
   GpuTexture metallic_gloss_tex;
 
   OsFileOp *shark_file_op;
-  b32 shark_loaded;
-  GpuMesh_Handle shark_mesh;
-  Material_Handle shark_material;
-  GpuTexture shark_albedo_tex;
-  GpuTexture shark_metallic_gloss_tex;
 
   vec3 target_positions[NUM_TARGETS];
   vec3 obstacle_positions[NUM_OBSTACLES];
   EcsEntity target_entities[NUM_TARGETS];
   EcsEntity obstacle_entities[NUM_OBSTACLES];
+  BoidBucket buckets[GRID_SIZE];
+  mat4 instance_data[NUM_BOIDS];
+  InstanceBuffer_Handle instance_buffer;
 
   f32 total_time;
 } GameState;
 
 global GameState state = {0};
+
+ECS_COMPONENT_DECLARE(MeshRenderer);
+ECS_COMPONENT_DECLARE(Scale);
+ECS_COMPONENT_DECLARE(LocalToWorld);
 
 void sample_animation_position(const SampledAnimationClip *clip, f32 time,
                                vec3 out_pos) {
@@ -559,12 +551,9 @@ void app_init(AppMemory *memory) {
   ECS_COMPONENT(&state.world, BoidIndex);
   ECS_COMPONENT(&state.world, BoidTag);
   ECS_COMPONENT(&state.world, AnimationPlayer);
-  ECS_COMPONENT(&state.world, LocalToWorld);
-  ECS_COMPONENT(&state.world, Scale);
-  ECS_COMPONENT(&state.world, MeshRenderer);
-  state.mesh_renderer_id = ecs_id(MeshRenderer);
-  state.scale_id = ecs_id(Scale);
-  state.local_to_world_id = ecs_id(LocalToWorld);
+  ECS_COMPONENT_DEFINE(&state.world, LocalToWorld);
+  ECS_COMPONENT_DEFINE(&state.world, Scale);
+  ECS_COMPONENT_DEFINE(&state.world, MeshRenderer);
 
   state.input = input_init();
   state.camera = camera_init(VEC3(0, 11.6, 0.4), VEC3(-0.4f, 0, 0), 45.0f);
@@ -578,9 +567,6 @@ void app_init(AppMemory *memory) {
   state.albedo_tex = gpu_make_texture("fishAlbedo2.png");
   state.tint_tex = gpu_make_texture("tints.png");
   state.metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
-
-  state.shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
-  state.shark_metallic_gloss_tex = gpu_make_texture("SharkMetallicGloss.png");
 
   ThreadContext *tctx = tctx_current();
   state.fish_file_op = os_start_read_file("fish.hasset", tctx->task_system);
@@ -670,11 +656,11 @@ void app_init(AppMemory *memory) {
       ecs_term_inout(ecs_id(AnimationPlayer)),
   };
   ecs_system_init(&state.world, &(EcsSystemDesc){
-                                .terms = play_animations_terms,
-                                .term_count = 2,
-                                .callback = PlayAnimationsSystem,
-                                .name = "PlayAnimationsSystem",
-                            });
+                                    .terms = play_animations_terms,
+                                    .term_count = 2,
+                                    .callback = PlayAnimationsSystem,
+                                    .name = "PlayAnimationsSystem",
+                                });
 
   EcsTerm build_animated_transform_terms[] = {
       ecs_term_in(ecs_id(Position)),
@@ -683,22 +669,22 @@ void app_init(AppMemory *memory) {
       ecs_term_inout(ecs_id(LocalToWorld)),
   };
   ecs_system_init(&state.world, &(EcsSystemDesc){
-                                .terms = build_animated_transform_terms,
-                                .term_count = 4,
-                                .callback = BuildAnimatedTransformSystem,
-                                .name = "BuildAnimatedTransformSystem",
-                            });
+                                    .terms = build_animated_transform_terms,
+                                    .term_count = 4,
+                                    .callback = BuildAnimatedTransformSystem,
+                                    .name = "BuildAnimatedTransformSystem",
+                                });
 
   EcsTerm render_mesh_terms[] = {
       ecs_term_in(ecs_id(LocalToWorld)),
       ecs_term_in(ecs_id(MeshRenderer)),
   };
   ecs_system_init(&state.world, &(EcsSystemDesc){
-                                .terms = render_mesh_terms,
-                                .term_count = 2,
-                                .callback = RenderMeshSystem,
-                                .name = "RenderMeshSystem",
-                            });
+                                    .terms = render_mesh_terms,
+                                    .term_count = 2,
+                                    .callback = RenderMeshSystem,
+                                    .name = "RenderMeshSystem",
+                                });
 
   EcsTerm insert_boids_terms[] = {
       ecs_term_in(ecs_id(Position)),
@@ -708,21 +694,21 @@ void app_init(AppMemory *memory) {
   };
   EcsSystem *insert_boids_sys =
       ecs_system_init(&state.world, &(EcsSystemDesc){
-                                    .terms = insert_boids_terms,
-                                    .term_count = 4,
-                                    .callback = InsertBoidsSystem,
-                                    .name = "InsertBoidsSystem",
-                                    .sync_mode = ECS_SYNC_BARRIER,
-                                });
+                                        .terms = insert_boids_terms,
+                                        .term_count = 4,
+                                        .callback = InsertBoidsSystem,
+                                        .name = "InsertBoidsSystem",
+                                        .sync_mode = ECS_SYNC_BARRIER,
+                                    });
 
   EcsSystem *merge_cells_sys =
       ecs_system_init(&state.world, &(EcsSystemDesc){
-                                    .iter_mode = ECS_ITER_RANGE,
-                                    .iter_count = GRID_SIZE,
-                                    .callback = MergeCellsSystem,
-                                    .name = "MergeCellsSystem",
-                                    .sync_mode = ECS_SYNC_BARRIER,
-                                });
+                                        .iter_mode = ECS_ITER_RANGE,
+                                        .iter_count = GRID_SIZE,
+                                        .callback = MergeCellsSystem,
+                                        .name = "MergeCellsSystem",
+                                        .sync_mode = ECS_SYNC_BARRIER,
+                                    });
   ecs_system_depends_on(merge_cells_sys, insert_boids_sys);
 
   EcsTerm steer_boids_terms[] = {
@@ -732,11 +718,11 @@ void app_init(AppMemory *memory) {
   };
   EcsSystem *steer_boids_sys =
       ecs_system_init(&state.world, &(EcsSystemDesc){
-                                    .terms = steer_boids_terms,
-                                    .term_count = 3,
-                                    .callback = SteerBoidsSystem,
-                                    .name = "SteerBoidsSystem",
-                                });
+                                        .terms = steer_boids_terms,
+                                        .term_count = 3,
+                                        .callback = SteerBoidsSystem,
+                                        .name = "SteerBoidsSystem",
+                                    });
   ecs_system_depends_on(steer_boids_sys, merge_cells_sys);
 
   EcsTerm build_matrices_terms[] = {
@@ -746,11 +732,11 @@ void app_init(AppMemory *memory) {
       ecs_term_none(ecs_id(BoidTag)),
   };
   ecs_system_init(&state.world, &(EcsSystemDesc){
-                                .terms = build_matrices_terms,
-                                .term_count = 4,
-                                .callback = BuildMatricesSystem,
-                                .name = "BuildMatricesSystem",
-                            });
+                                    .terms = build_matrices_terms,
+                                    .term_count = 4,
+                                    .callback = BuildMatricesSystem,
+                                    .name = "BuildMatricesSystem",
+                                });
 
   state.instance_buffer = renderer_create_instance_buffer(&(InstanceBufferDesc){
       .stride = sizeof(mat4),
@@ -769,7 +755,8 @@ void app_update_and_render(AppMemory *memory) {
   }
 
   if (is_main_thread()) {
-    if (!state.fish_loaded) {
+    local_persist b32 fish_loaded = false;
+    if (!fish_loaded) {
       OsFileReadState file_state = os_check_read_file(state.fish_file_op);
       if (file_state == OS_FILE_READ_STATE_COMPLETED) {
         AppContext *app_ctx = app_ctx_current();
@@ -867,7 +854,8 @@ void app_update_and_render(AppMemory *memory) {
         material_set_float(state.fish_material, "wave_distance", 5.0f);
         material_set_float(state.fish_material, "wave_offset", 0.0f);
 
-        state.fish_noninst_material = renderer_create_material(&(MaterialDesc){
+        Material_Handle fish_noninst_material = renderer_create_material(&(
+            MaterialDesc){
             .shader_desc =
                 (GpuShaderDesc){
                     .vs_code = (const char *)fish_vs,
@@ -929,38 +917,41 @@ void app_update_and_render(AppMemory *memory) {
                  .binding = 1,
                  .offset = offsetof(MaterialUniforms, wave_offset)}, ),
         });
-        material_set_texture(state.fish_noninst_material, "albedo", state.albedo_tex);
-        material_set_texture(state.fish_noninst_material, "tint", state.tint_tex);
-        material_set_texture(state.fish_noninst_material, "metallic_gloss",
+        material_set_texture(fish_noninst_material, "albedo", state.albedo_tex);
+        material_set_texture(fish_noninst_material, "tint", state.tint_tex);
+        material_set_texture(fish_noninst_material, "metallic_gloss",
                              state.metallic_gloss_tex);
-        material_set_vec4(state.fish_noninst_material, "tint_color",
+        material_set_vec4(fish_noninst_material, "tint_color",
                           (vec4){1.0f, 1.0f, 1.0f, 1.0f});
-        material_set_float(state.fish_noninst_material, "tint_offset", 0.0f);
-        material_set_float(state.fish_noninst_material, "metallic", 0.636f);
-        material_set_float(state.fish_noninst_material, "smoothness", 0.848f);
-        material_set_float(state.fish_noninst_material, "wave_frequency", 0.03f);
-        material_set_float(state.fish_noninst_material, "wave_speed", 10.0f);
-        material_set_float(state.fish_noninst_material, "wave_distance", 5.0f);
-        material_set_float(state.fish_noninst_material, "wave_offset", 0.0f);
+        material_set_float(fish_noninst_material, "tint_offset", 0.0f);
+        material_set_float(fish_noninst_material, "metallic", 0.636f);
+        material_set_float(fish_noninst_material, "smoothness", 0.848f);
+        material_set_float(fish_noninst_material, "wave_frequency", 0.03f);
+        material_set_float(fish_noninst_material, "wave_speed", 10.0f);
+        material_set_float(fish_noninst_material, "wave_distance", 5.0f);
+        material_set_float(fish_noninst_material, "wave_offset", 0.0f);
 
         for (i32 i = 0; i < NUM_TARGETS; i++) {
           MeshRenderer mr = {
               .mesh = state.fish_mesh,
-              .material = state.fish_noninst_material,
+              .material = fish_noninst_material,
           };
           Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
           LocalToWorld ltw = {0};
-          ecs_set_ptr(&state.world, state.target_entities[i], state.mesh_renderer_id, &mr);
-          ecs_set_ptr(&state.world, state.target_entities[i], state.scale_id, &s);
-          ecs_set_ptr(&state.world, state.target_entities[i], state.local_to_world_id, &ltw);
+          ecs_set_ptr(&state.world, state.target_entities[i],
+                      ecs_id(MeshRenderer), &mr);
+          ecs_set_ptr(&state.world, state.target_entities[i], ecs_id(Scale),
+                      &s);
+          ecs_set_ptr(&state.world, state.target_entities[i],
+                      ecs_id(LocalToWorld), &ltw);
         }
 
-        state.fish_loaded = true;
-        LOG_INFO("Fish mesh loaded");
+        fish_loaded = true;
       }
     }
 
-    if (!state.shark_loaded) {
+    local_persist b32 shark_loaded = false;
+    if (!shark_loaded) {
       OsFileReadState file_state = os_check_read_file(state.shark_file_op);
       if (file_state == OS_FILE_READ_STATE_COMPLETED) {
         AppContext *app_ctx = app_ctx_current();
@@ -974,9 +965,10 @@ void app_update_and_render(AppMemory *memory) {
             (MeshBlobAsset *)(file_data.buffer + model->meshes.offset);
 
         MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
-        state.shark_mesh = renderer_upload_mesh(&mesh_desc);
+        GpuMesh_Handle shark_mesh = renderer_upload_mesh(&mesh_desc);
 
-        state.shark_material = renderer_create_material(&(MaterialDesc){
+        Material_Handle shark_material = renderer_create_material(&(
+            MaterialDesc){
             .shader_desc =
                 (GpuShaderDesc){
                     .vs_code = (const char *)fish_vs,
@@ -1038,36 +1030,40 @@ void app_update_and_render(AppMemory *memory) {
                  .binding = 1,
                  .offset = offsetof(MaterialUniforms, wave_offset)}, ),
         });
-        material_set_texture(state.shark_material, "albedo", state.shark_albedo_tex);
-        material_set_texture(state.shark_material, "tint", state.tint_tex);
-        material_set_texture(state.shark_material, "metallic_gloss",
-                             state.shark_metallic_gloss_tex);
-        material_set_vec4(state.shark_material, "tint_color",
+
+        GpuTexture shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
+        GpuTexture shark_metallic_gloss_tex =
+            gpu_make_texture("SharkMetallicGloss.png");
+        material_set_texture(shark_material, "albedo", shark_albedo_tex);
+        material_set_texture(shark_material, "tint", state.tint_tex);
+        material_set_texture(shark_material, "metallic_gloss",
+                             shark_metallic_gloss_tex);
+        material_set_vec4(shark_material, "tint_color",
                           (vec4){1.0f, 1.0f, 1.0f, 1.0f});
-        material_set_float(state.shark_material, "tint_offset", 0.0f);
-        material_set_float(state.shark_material, "metallic", 0.063f);
-        material_set_float(state.shark_material, "smoothness", 1.0f);
-        material_set_float(state.shark_material, "wave_frequency", 0.75f);
-        material_set_float(state.shark_material, "wave_speed", 10.0f);
-        material_set_float(state.shark_material, "wave_distance", 5.0f);
-        material_set_float(state.shark_material, "wave_offset", 0.0f);
+        material_set_float(shark_material, "tint_offset", 0.0f);
+        material_set_float(shark_material, "metallic", 0.063f);
+        material_set_float(shark_material, "smoothness", 1.0f);
+        material_set_float(shark_material, "wave_frequency", 0.75f);
+        material_set_float(shark_material, "wave_speed", 10.0f);
+        material_set_float(shark_material, "wave_distance", 5.0f);
+        material_set_float(shark_material, "wave_offset", 0.0f);
 
         for (i32 i = 0; i < NUM_OBSTACLES; i++) {
           MeshRenderer mr = {
-              .mesh = state.shark_mesh,
-              .material = state.shark_material,
+              .mesh = shark_mesh,
+              .material = shark_material,
           };
           Scale s = {.x = 0.01f, .y = 0.01f, .z = 0.01f};
           LocalToWorld ltw = {0};
-          ecs_set_ptr(&state.world, state.obstacle_entities[i], state.mesh_renderer_id,
-                      &mr);
-          ecs_set_ptr(&state.world, state.obstacle_entities[i], state.scale_id, &s);
-          ecs_set_ptr(&state.world, state.obstacle_entities[i], state.local_to_world_id,
-                      &ltw);
+          ecs_set_ptr(&state.world, state.obstacle_entities[i],
+                      ecs_id(MeshRenderer), &mr);
+          ecs_set_ptr(&state.world, state.obstacle_entities[i], ecs_id(Scale),
+                      &s);
+          ecs_set_ptr(&state.world, state.obstacle_entities[i],
+                      ecs_id(LocalToWorld), &ltw);
         }
 
-        state.shark_loaded = true;
-        LOG_INFO("Shark mesh loaded");
+        shark_loaded = true;
       }
     }
 
@@ -1075,9 +1071,10 @@ void app_update_and_render(AppMemory *memory) {
     flycam_update(&state.fly_cam, &state.camera, &state.input, memory->dt);
     camera_update(&state.camera, memory->canvas_width, memory->canvas_height);
 
-    renderer_begin_frame(state.camera.view, state.camera.proj,
-                         (GpuColor){2.0f / 255.0f, 94.0f / 255.0f, 131.0f / 255.0f, 1.0f},
-                         memory->total_time);
+    renderer_begin_frame(
+        state.camera.view, state.camera.proj,
+        (GpuColor){2.0f / 255.0f, 94.0f / 255.0f, 131.0f / 255.0f, 1.0f},
+        memory->total_time);
   }
 
   ecs_progress(&state.world, memory->dt);
@@ -1086,10 +1083,8 @@ void app_update_and_render(AppMemory *memory) {
     renderer_update_instance_buffer(state.instance_buffer, state.instance_data,
                                     NUM_BOIDS);
 
-    if (state.fish_loaded) {
-      renderer_draw_mesh_instanced(state.fish_mesh, state.fish_material,
-                                   state.instance_buffer);
-    }
+    renderer_draw_mesh_instanced(state.fish_mesh, state.fish_material,
+                                 state.instance_buffer);
 
     renderer_end_frame();
     input_end_frame(&state.input);

@@ -6,7 +6,8 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:shi-yan.github.io)",
       "WebFetch(domain:merveilles.town)",
-      "WebFetch(domain:lld.llvm.org)"
+      "WebFetch(domain:lld.llvm.org)",
+      "WebFetch(domain:www.flecs.dev)"
     ],
     "deny": [],
     "ask": []
