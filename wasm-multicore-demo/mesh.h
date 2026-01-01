@@ -17,18 +17,18 @@ typedef struct
   IndexFormat index_format;
   u32 index_count;
   u32 vertex_count;
-  BlobArray indices;
-  BlobArray positions;
-  BlobArray normals;
-  BlobArray tangents;
-  BlobArray uvs;
+  BlobArray(void) indices; // can be u32 or u16
+  BlobArray(f32) positions;
+  BlobArray(f32) normals;
+  BlobArray(f32) tangents;
+  BlobArray(f32)uvs;
 } MeshBlobAsset;
 
 typedef struct
 {
   BlobAssetHeader header;
   u32 mesh_count;
-  BlobArray meshes;
+  BlobArray(MeshBlobAsset) meshes;
 } ModelBlobAsset;
 
 #ifndef MESH_TYPES_ONLY

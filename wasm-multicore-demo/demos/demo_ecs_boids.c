@@ -143,8 +143,8 @@ void on_fish_loaded(Handle asset, void *data, void *user_data) {
   Allocator alloc = make_arena_allocator(&app_ctx->arena);
 
   ModelBlobAsset *model = (ModelBlobAsset *)data;
-  MeshBlobAsset *mesh_asset =
-      (MeshBlobAsset *)((u8 *)data + model->meshes.offset);
+  assert(model->mesh_count == 1);
+  MeshBlobAsset *mesh_asset = blob_array_get(MeshBlobAsset, model, model->meshes);
 
   MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
   state.fish_mesh = renderer_upload_mesh(&mesh_desc);
@@ -329,8 +329,8 @@ void on_shark_loaded(Handle asset, void *data, void *user_data) {
   Allocator alloc = make_arena_allocator(&app_ctx->arena);
 
   ModelBlobAsset *model = (ModelBlobAsset *)data;
-  MeshBlobAsset *mesh_asset =
-      (MeshBlobAsset *)((u8 *)data + model->meshes.offset);
+  assert(model->mesh_count == 1);
+  MeshBlobAsset *mesh_asset = blob_array_get(MeshBlobAsset, model, model->meshes);
 
   MeshDesc mesh_desc = mesh_asset_to_mesh(mesh_asset, &alloc);
   GpuMesh_Handle shark_mesh = renderer_upload_mesh(&mesh_desc);
