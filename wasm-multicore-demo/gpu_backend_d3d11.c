@@ -28,6 +28,7 @@ static const IID D3D11_IID_ID3D11DeviceContext1 = { 0xbb2c6faa, 0xb5fb, 0x4082, 
 
 typedef struct {
     ID3D11Buffer *buffer;
+    ID3D11ShaderResourceView *srv;
     GpuBufferType type;
 } D3D11Buffer;
 
@@ -272,12 +273,33 @@ void gpu_backend_make_buffer(u32 idx, GpuBufferDesc *desc) {
         case GPU_BUFFER_VERTEX:  buf_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER; break;
         case GPU_BUFFER_INDEX:   buf_desc.BindFlags = D3D11_BIND_INDEX_BUFFER; break;
         case GPU_BUFFER_UNIFORM: buf_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER; break;
-        case GPU_BUFFER_STORAGE: buf_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE; break;
+        case GPU_BUFFER_STORAGE:
+            buf_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            buf_desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+            break;
     }
 
     D3D11_SUBRESOURCE_DATA init_data = {.pSysMem = desc->data};
     ID3D11Device_CreateBuffer(d3d11.device, &buf_desc, desc->data ? &init_data : NULL, &d3d11.buffers[idx].buffer);
     d3d11.buffers[idx].type = desc->type;
+    d3d11.buffers[idx].srv = NULL;
+
+    if (desc->type == GPU_BUFFER_STORAGE) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {
+            .Format = DXGI_FORMAT_R32_TYPELESS,
+            .ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX,
+            .BufferEx = {
+                .FirstElement = 0,
+                .NumElements = desc->size / 4,
+                .Flags = D3D11_BUFFEREX_SRV_FLAG_RAW,
+            },
+        };
+        HRESULT hr = ID3D11Device_CreateShaderResourceView(d3d11.device,
+            (ID3D11Resource *)d3d11.buffers[idx].buffer, &srv_desc, &d3d11.buffers[idx].srv);
+        if (FAILED(hr)) {
+            LOG_ERROR("CreateShaderResourceView for storage buffer failed: %", FMT_UINT(hr));
+        }
+    }
 }
 
 void gpu_backend_update_buffer(u32 idx, void *data, u32 size) {
@@ -290,6 +312,10 @@ void gpu_backend_update_buffer(u32 idx, void *data, u32 size) {
 }
 
 void gpu_backend_destroy_buffer(u32 idx) {
+    if (d3d11.buffers[idx].srv) {
+        ID3D11ShaderResourceView_Release(d3d11.buffers[idx].srv);
+        d3d11.buffers[idx].srv = NULL;
+    }
     if (d3d11.buffers[idx].buffer) {
         ID3D11Buffer_Release(d3d11.buffers[idx].buffer);
         d3d11.buffers[idx].buffer = NULL;
@@ -498,6 +524,14 @@ void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count,
         if (num_constants == 0) num_constants = 16;
         ID3D11DeviceContext1_VSSetConstantBuffers1(d3d11.context1, i, 1, &ub, &first_constant, &num_constants);
         ID3D11DeviceContext1_PSSetConstantBuffers1(d3d11.context1, i, 1, &ub, &first_constant, &num_constants);
+    }
+
+    if (bindings->storage_buffers.len > 0) {
+        ID3D11ShaderResourceView *srvs[GPU_MAX_STORAGE_BUFFER_SLOTS] = {0};
+        for (u32 i = 0; i < bindings->storage_buffers.len; i++) {
+            srvs[i] = d3d11.buffers[bindings->storage_buffers.items[i].idx].srv;
+        }
+        ID3D11DeviceContext_VSSetShaderResources(d3d11.context, 0, bindings->storage_buffers.len, srvs);
     }
 }
 
