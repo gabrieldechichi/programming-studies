@@ -304,14 +304,11 @@ void gpu_backend_make_shader(u32 idx, GpuShaderDesc *desc) {
     const u8 *vs_ptr = (const u8 *)vs_bytecode;
     size_t vs_len = vs_ptr[24] | (vs_ptr[25] << 8) | (vs_ptr[26] << 16) | (vs_ptr[27] << 24);
 
-    LOG_INFO("Creating shader %: VS size=%, FS ptr=%", FMT_UINT(idx), FMT_UINT((u32)vs_len), FMT_UINT((u64)desc->fs_code));
-
     hr = ID3D11Device_CreateVertexShader(d3d11.device, vs_bytecode, vs_len, NULL, &shd->vs);
     if (FAILED(hr)) {
         LOG_ERROR("CreateVertexShader failed: %", FMT_UINT(hr));
         return;
     }
-    LOG_INFO("  VS created: %", FMT_UINT((u64)shd->vs));
 
     shd->vs_blob_len = vs_len;
     shd->vs_blob = (void *)vs_bytecode;
@@ -325,7 +322,6 @@ void gpu_backend_make_shader(u32 idx, GpuShaderDesc *desc) {
         LOG_ERROR("CreatePixelShader failed: %", FMT_UINT(hr));
         return;
     }
-    LOG_INFO("  PS created: %, FS size=%", FMT_UINT((u64)shd->ps), FMT_UINT((u32)fs_len));
 }
 
 void gpu_backend_destroy_shader(u32 idx) {
@@ -340,8 +336,6 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
     D3D11Shader *shd = &d3d11.shaders[desc->shader.idx];
     HRESULT hr;
 
-    LOG_INFO("Creating pipeline %: shader_idx=%, ub_count=%", FMT_UINT(idx), FMT_UINT(desc->shader.idx), FMT_UINT(shader->uniform_blocks.len));
-
     pip->shader_idx = desc->shader.idx;
     pip->topology = d3d11_topology(desc->primitive);
 
@@ -349,7 +343,6 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
         u32 binding = shader->uniform_blocks.items[i].binding;
         u32 size = shader->uniform_blocks.items[i].size;
         pip->ub_sizes[binding] = (size + 255) / 256 * 256;
-        LOG_INFO("  UB[%]: binding=%, size=%, aligned=%", FMT_UINT(i), FMT_UINT(binding), FMT_UINT(size), FMT_UINT(pip->ub_sizes[binding]));
     }
 
     D3D11_INPUT_ELEMENT_DESC input_elems[GPU_MAX_VERTEX_ATTRS];
@@ -367,21 +360,14 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
         };
     }
 
-    LOG_INFO("  Creating input layout: attr_count=%, vs_blob_len=%", FMT_UINT(attr_count), FMT_UINT((u32)shd->vs_blob_len));
-    for (u32 i = 0; i < attr_count; i++) {
-        LOG_INFO("    Attr[%]: sem=%s, offset=%", FMT_UINT(i), FMT_STR(input_elems[i].SemanticName), FMT_UINT(input_elems[i].AlignedByteOffset));
-    }
-
     hr = ID3D11Device_CreateInputLayout(d3d11.device, input_elems, attr_count,
                                          shd->vs_blob, shd->vs_blob_len, &pip->input_layout);
     if (FAILED(hr)) {
         LOG_ERROR("CreateInputLayout failed: % (0x%)", FMT_UINT(hr), FMT_UINT(hr));
         return;
     }
-    LOG_INFO("  Input layout created: %", FMT_UINT((u64)pip->input_layout));
 
     pip->vb_strides[0] = desc->vertex_layout.stride;
-    LOG_INFO("  VB stride: %", FMT_UINT(pip->vb_strides[0]));
 
     D3D11_RASTERIZER_DESC rs_desc = {
         .FillMode = D3D11_FILL_SOLID,
@@ -487,27 +473,13 @@ void gpu_backend_upload_uniforms(u32 buf_idx, void *data, u32 size) {
     gpu_backend_update_buffer(buf_idx, data, size);
 }
 
-static u32 s_bind_log_count = 0;
-
 void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count, u32 *ub_offsets) {
     D3D11Pipeline *pip = &d3d11.pipelines[d3d11.current_pipeline_idx];
-
-    if (s_bind_log_count < 3) {
-        LOG_INFO("apply_bindings: pip=%, vb_count=%, ib=%, ub_idx=%, ub_count=%",
-            FMT_UINT(d3d11.current_pipeline_idx),
-            FMT_UINT(bindings->vertex_buffers.len),
-            FMT_UINT(bindings->index_buffer.idx),
-            FMT_UINT(ub_idx),
-            FMT_UINT(ub_count));
-    }
 
     ID3D11Buffer *vbs[GPU_MAX_VERTEX_BUFFERS] = {0};
     UINT vb_offsets[GPU_MAX_VERTEX_BUFFERS] = {0};
     for (u32 i = 0; i < bindings->vertex_buffers.len; i++) {
         vbs[i] = d3d11.buffers[bindings->vertex_buffers.items[i].idx].buffer;
-        if (s_bind_log_count < 3) {
-            LOG_INFO("  VB[%]: buf_idx=%, ptr=%", FMT_UINT(i), FMT_UINT(bindings->vertex_buffers.items[i].idx), FMT_UINT((u64)vbs[i]));
-        }
     }
     ID3D11DeviceContext_IASetVertexBuffers(d3d11.context, 0, bindings->vertex_buffers.len,
                                             vbs, pip->vb_strides, vb_offsets);
@@ -517,9 +489,6 @@ void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count,
         ID3D11DeviceContext_IASetIndexBuffer(d3d11.context,
             d3d11.buffers[bindings->index_buffer.idx].buffer,
             d3d11.current_index_format, 0);
-        if (s_bind_log_count < 3) {
-            LOG_INFO("  IB: buf_idx=%, ptr=%", FMT_UINT(bindings->index_buffer.idx), FMT_UINT((u64)d3d11.buffers[bindings->index_buffer.idx].buffer));
-        }
     }
 
     ID3D11Buffer *ub = d3d11.buffers[ub_idx].buffer;
@@ -527,31 +496,17 @@ void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count,
         UINT first_constant = ub_offsets[i] / 16;
         UINT num_constants = pip->ub_sizes[i] / 16;
         if (num_constants == 0) num_constants = 16;
-        if (s_bind_log_count < 3) {
-            LOG_INFO("  CB[%]: offset=%, first=%, num=%, ub_size=%", FMT_UINT(i), FMT_UINT(ub_offsets[i]), FMT_UINT(first_constant), FMT_UINT(num_constants), FMT_UINT(pip->ub_sizes[i]));
-        }
         ID3D11DeviceContext1_VSSetConstantBuffers1(d3d11.context1, i, 1, &ub, &first_constant, &num_constants);
         ID3D11DeviceContext1_PSSetConstantBuffers1(d3d11.context1, i, 1, &ub, &first_constant, &num_constants);
     }
-    s_bind_log_count++;
 }
 
-static u32 s_draw_log_count = 0;
-
 void gpu_backend_draw(u32 vertex_count, u32 instance_count) {
-    if (s_draw_log_count < 3) {
-        LOG_INFO("Draw: vertex_count=%, instance_count=%", FMT_UINT(vertex_count), FMT_UINT(instance_count));
-    }
     ID3D11DeviceContext_DrawInstanced(d3d11.context, vertex_count, instance_count, 0, 0);
-    s_draw_log_count++;
 }
 
 void gpu_backend_draw_indexed(u32 index_count, u32 instance_count) {
-    if (s_draw_log_count < 3) {
-        LOG_INFO("DrawIndexed: index_count=%, instance_count=%", FMT_UINT(index_count), FMT_UINT(instance_count));
-    }
     ID3D11DeviceContext_DrawIndexedInstanced(d3d11.context, index_count, instance_count, 0, 0, 0);
-    s_draw_log_count++;
 }
 
 void gpu_backend_load_texture(u32 idx, const char *path) {
