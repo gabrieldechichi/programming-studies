@@ -8,6 +8,8 @@
 #include "gpu_backend.h"
 #include "gpu.h"
 #include "os/os.h"
+#include "lib/thread_context.h"
+#include "stb/stb_image.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -533,6 +535,18 @@ void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count,
         }
         ID3D11DeviceContext_VSSetShaderResources(d3d11.context, 0, bindings->storage_buffers.len, srvs);
     }
+
+    if (bindings->textures.len > 0) {
+        ID3D11ShaderResourceView *srvs[GPU_MAX_TEXTURE_SLOTS] = {0};
+        ID3D11SamplerState *samplers[GPU_MAX_TEXTURE_SLOTS] = {0};
+        for (u32 i = 0; i < bindings->textures.len; i++) {
+            D3D11Texture *tex = &d3d11.textures[bindings->textures.items[i].idx];
+            srvs[i] = tex->srv;
+            samplers[i] = tex->sampler;
+        }
+        ID3D11DeviceContext_PSSetShaderResources(d3d11.context, 0, bindings->textures.len, srvs);
+        ID3D11DeviceContext_PSSetSamplers(d3d11.context, 0, bindings->textures.len, samplers);
+    }
 }
 
 void gpu_backend_draw(u32 vertex_count, u32 instance_count) {
@@ -544,7 +558,24 @@ void gpu_backend_draw_indexed(u32 index_count, u32 instance_count) {
 }
 
 void gpu_backend_load_texture(u32 idx, const char *path) {
-    UNUSED(idx); UNUSED(path);
+    ThreadContext *tctx = tctx_current();
+    Allocator temp_alloc = make_arena_allocator(&tctx->temp_arena);
+
+    PlatformFileData file = os_read_file(path, &temp_alloc);
+    if (!file.success) {
+        LOG_ERROR("Failed to read texture file: %", FMT_STR(path));
+        return;
+    }
+
+    int width, height, channels;
+    u8 *data = stbi_load_from_memory(file.buffer, (int)file.buffer_len, &width, &height, &channels, 4);
+    if (!data) {
+        LOG_ERROR("Failed to decode texture: %", FMT_STR(path));
+        return;
+    }
+
+    gpu_backend_make_texture_data(idx, (u32)width, (u32)height, data);
+    stbi_image_free(data);
 }
 
 void gpu_backend_make_texture_data(u32 idx, u32 width, u32 height, u8 *data) {
