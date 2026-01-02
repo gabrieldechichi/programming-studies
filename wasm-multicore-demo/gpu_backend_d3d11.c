@@ -12,6 +12,9 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
+#include "shaders/blit_vs_d3d11.h"
+#include "shaders/blit_fs_d3d11.h"
+
 static const IID D3D11_IID_IDXGIDevice = { 0x54ec77fa, 0x1377, 0x44e6, {0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c} };
 static const IID D3D11_IID_IDXGIFactory2 = { 0x50c83a1c, 0xe072, 0x4c48, {0x87, 0xb0, 0x36, 0x30, 0xfa, 0x36, 0xa6, 0xd0} };
 static const IID D3D11_IID_ID3D11Texture2D = { 0x6f15aaf2, 0xd208, 0x4e89, {0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c} };
@@ -81,6 +84,14 @@ typedef struct {
     ID3D11DepthStencilView *current_dsv;
     u32 current_rt_width;
     u32 current_rt_height;
+
+    // Blit resources (created lazily)
+    ID3D11VertexShader *blit_vs;
+    ID3D11PixelShader *blit_ps;
+    ID3D11SamplerState *blit_sampler;
+    ID3D11RasterizerState *blit_rasterizer;
+    ID3D11DepthStencilState *blit_depth_stencil;
+    ID3D11BlendState *blit_blend;
 } D3D11State;
 
 local_persist D3D11State d3d11;
@@ -385,24 +396,77 @@ void gpu_backend_destroy_render_target(u32 idx) {
     memset(rt, 0, sizeof(*rt));
 }
 
+internal void d3d11_ensure_blit_resources(void) {
+    if (d3d11.blit_vs) return;
+
+    ID3D11Device_CreateVertexShader(d3d11.device, blit_vs_d3d11, sizeof(blit_vs_d3d11), NULL, &d3d11.blit_vs);
+    ID3D11Device_CreatePixelShader(d3d11.device, blit_fs_d3d11, sizeof(blit_fs_d3d11), NULL, &d3d11.blit_ps);
+
+    D3D11_SAMPLER_DESC sampler_desc = {
+        .Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+        .AddressU = D3D11_TEXTURE_ADDRESS_CLAMP,
+        .AddressV = D3D11_TEXTURE_ADDRESS_CLAMP,
+        .AddressW = D3D11_TEXTURE_ADDRESS_CLAMP,
+        .MaxLOD = D3D11_FLOAT32_MAX,
+    };
+    ID3D11Device_CreateSamplerState(d3d11.device, &sampler_desc, &d3d11.blit_sampler);
+
+    D3D11_RASTERIZER_DESC raster_desc = {
+        .FillMode = D3D11_FILL_SOLID,
+        .CullMode = D3D11_CULL_NONE,
+    };
+    ID3D11Device_CreateRasterizerState(d3d11.device, &raster_desc, &d3d11.blit_rasterizer);
+
+    D3D11_DEPTH_STENCIL_DESC ds_desc = {
+        .DepthEnable = FALSE,
+        .StencilEnable = FALSE,
+    };
+    ID3D11Device_CreateDepthStencilState(d3d11.device, &ds_desc, &d3d11.blit_depth_stencil);
+
+    D3D11_BLEND_DESC blend_desc = {
+        .RenderTarget[0] = {
+            .BlendEnable = FALSE,
+            .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
+        },
+    };
+    ID3D11Device_CreateBlendState(d3d11.device, &blend_desc, &d3d11.blit_blend);
+}
+
 void gpu_backend_blit_to_screen(u32 rt_idx) {
     D3D11RenderTarget *rt = &d3d11.render_targets[rt_idx];
 
-    ID3D11Texture2D *backbuffer;
-    IDXGISwapChain1_GetBuffer(d3d11.swapchain, 0, &D3D11_IID_ID3D11Texture2D, (void **)&backbuffer);
+    d3d11_ensure_blit_resources();
 
-    D3D11_BOX src_box = {
-        .left = 0,
-        .top = 0,
-        .front = 0,
-        .right = rt->width < d3d11.width ? rt->width : d3d11.width,
-        .bottom = rt->height < d3d11.height ? rt->height : d3d11.height,
-        .back = 1,
+    // Set backbuffer as render target
+    ID3D11DeviceContext_OMSetRenderTargets(d3d11.context, 1, &d3d11.backbuffer_rtv, NULL);
+
+    D3D11_VIEWPORT viewport = {
+        .TopLeftX = 0,
+        .TopLeftY = 0,
+        .Width = (f32)d3d11.width,
+        .Height = (f32)d3d11.height,
+        .MinDepth = 0.0f,
+        .MaxDepth = 1.0f,
     };
+    ID3D11DeviceContext_RSSetViewports(d3d11.context, 1, &viewport);
 
-    ID3D11DeviceContext_CopySubresourceRegion(d3d11.context,
-        (ID3D11Resource *)backbuffer, 0, 0, 0, 0,
-        (ID3D11Resource *)rt->texture, 0, &src_box);
+    // Set pipeline state
+    ID3D11DeviceContext_VSSetShader(d3d11.context, d3d11.blit_vs, NULL, 0);
+    ID3D11DeviceContext_PSSetShader(d3d11.context, d3d11.blit_ps, NULL, 0);
+    ID3D11DeviceContext_RSSetState(d3d11.context, d3d11.blit_rasterizer);
+    ID3D11DeviceContext_OMSetDepthStencilState(d3d11.context, d3d11.blit_depth_stencil, 0);
+    ID3D11DeviceContext_OMSetBlendState(d3d11.context, d3d11.blit_blend, NULL, 0xFFFFFFFF);
 
-    ID3D11Texture2D_Release(backbuffer);
+    // Bind HDR texture and sampler
+    ID3D11DeviceContext_PSSetShaderResources(d3d11.context, 0, 1, &rt->srv);
+    ID3D11DeviceContext_PSSetSamplers(d3d11.context, 0, 1, &d3d11.blit_sampler);
+
+    // Draw fullscreen triangle (no vertex buffer needed)
+    ID3D11DeviceContext_IASetPrimitiveTopology(d3d11.context, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D11DeviceContext_IASetInputLayout(d3d11.context, NULL);
+    ID3D11DeviceContext_Draw(d3d11.context, 3, 0);
+
+    // Unbind SRV to avoid hazards
+    ID3D11ShaderResourceView *null_srv = NULL;
+    ID3D11DeviceContext_PSSetShaderResources(d3d11.context, 0, 1, &null_srv);
 }
