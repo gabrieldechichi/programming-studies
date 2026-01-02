@@ -57,6 +57,7 @@ typedef struct {
     D3D11_PRIMITIVE_TOPOLOGY topology;
     UINT vb_strides[GPU_MAX_VERTEX_BUFFERS];
     UINT ub_sizes[GPU_MAX_UNIFORMBLOCK_SLOTS];
+    GpuShaderStage tex_stages[GPU_MAX_TEXTURE_SLOTS];
 } D3D11Pipeline;
 
 typedef struct {
@@ -134,6 +135,53 @@ internal D3D11_PRIMITIVE_TOPOLOGY d3d11_topology(GpuPrimitiveTopology topo) {
     }
 }
 
+internal D3D11_CULL_MODE d3d11_cull_mode(GpuCullMode mode) {
+    switch (mode) {
+        case GPU_CULL_BACK:  return D3D11_CULL_BACK;
+        case GPU_CULL_NONE:  return D3D11_CULL_NONE;
+        case GPU_CULL_FRONT: return D3D11_CULL_FRONT;
+        default: return D3D11_CULL_BACK;
+    }
+}
+
+internal D3D11_COMPARISON_FUNC d3d11_compare_func(GpuCompareFunc func) {
+    switch (func) {
+        case GPU_COMPARE_LESS:          return D3D11_COMPARISON_LESS;
+        case GPU_COMPARE_NEVER:         return D3D11_COMPARISON_NEVER;
+        case GPU_COMPARE_EQUAL:         return D3D11_COMPARISON_EQUAL;
+        case GPU_COMPARE_LESS_EQUAL:    return D3D11_COMPARISON_LESS_EQUAL;
+        case GPU_COMPARE_GREATER:       return D3D11_COMPARISON_GREATER;
+        case GPU_COMPARE_NOT_EQUAL:     return D3D11_COMPARISON_NOT_EQUAL;
+        case GPU_COMPARE_GREATER_EQUAL: return D3D11_COMPARISON_GREATER_EQUAL;
+        case GPU_COMPARE_ALWAYS:        return D3D11_COMPARISON_ALWAYS;
+        default: return D3D11_COMPARISON_LESS;
+    }
+}
+
+internal D3D11_BLEND d3d11_blend_factor(GpuBlendFactor factor) {
+    switch (factor) {
+        case GPU_BLEND_ZERO:                 return D3D11_BLEND_ZERO;
+        case GPU_BLEND_ONE:                  return D3D11_BLEND_ONE;
+        case GPU_BLEND_SRC_COLOR:            return D3D11_BLEND_SRC_COLOR;
+        case GPU_BLEND_ONE_MINUS_SRC_COLOR:  return D3D11_BLEND_INV_SRC_COLOR;
+        case GPU_BLEND_SRC_ALPHA:            return D3D11_BLEND_SRC_ALPHA;
+        case GPU_BLEND_ONE_MINUS_SRC_ALPHA:  return D3D11_BLEND_INV_SRC_ALPHA;
+        case GPU_BLEND_DST_COLOR:            return D3D11_BLEND_DEST_COLOR;
+        case GPU_BLEND_ONE_MINUS_DST_COLOR:  return D3D11_BLEND_INV_DEST_COLOR;
+        case GPU_BLEND_DST_ALPHA:            return D3D11_BLEND_DEST_ALPHA;
+        case GPU_BLEND_ONE_MINUS_DST_ALPHA:  return D3D11_BLEND_INV_DEST_ALPHA;
+        default: return D3D11_BLEND_ONE;
+    }
+}
+
+internal D3D11_BLEND_OP d3d11_blend_op(GpuBlendOp op) {
+    switch (op) {
+        case GPU_BLEND_OP_ADD:              return D3D11_BLEND_OP_ADD;
+        case GPU_BLEND_OP_SUBTRACT:         return D3D11_BLEND_OP_SUBTRACT;
+        case GPU_BLEND_OP_REVERSE_SUBTRACT: return D3D11_BLEND_OP_REV_SUBTRACT;
+        default: return D3D11_BLEND_OP_ADD;
+    }
+}
 
 internal void d3d11_create_backbuffer_views(void) {
     ID3D11Texture2D *backbuffer;
@@ -360,6 +408,10 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
         pip->ub_sizes[binding] = (size + 255) / 256 * 256;
     }
 
+    for (u32 i = 0; i < shader->texture_bindings.len; i++) {
+        pip->tex_stages[i] = shader->texture_bindings.items[i].stage;
+    }
+
     D3D11_INPUT_ELEMENT_DESC input_elems[GPU_MAX_VERTEX_ATTRS];
     u32 attr_count = desc->vertex_layout.attrs.len;
     for (u32 i = 0; i < attr_count; i++) {
@@ -386,8 +438,8 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
 
     D3D11_RASTERIZER_DESC rs_desc = {
         .FillMode = D3D11_FILL_SOLID,
-        .CullMode = D3D11_CULL_BACK,
-        .FrontCounterClockwise = TRUE,
+        .CullMode = d3d11_cull_mode(desc->cull_mode),
+        .FrontCounterClockwise = (desc->face_winding == GPU_FACE_CCW),
         .DepthClipEnable = TRUE,
         .ScissorEnable = FALSE,
     };
@@ -400,7 +452,7 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
     D3D11_DEPTH_STENCIL_DESC ds_desc = {
         .DepthEnable = desc->depth_test,
         .DepthWriteMask = desc->depth_write ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO,
-        .DepthFunc = D3D11_COMPARISON_LESS,
+        .DepthFunc = d3d11_compare_func(desc->depth_compare),
         .StencilEnable = FALSE,
     };
     hr = ID3D11Device_CreateDepthStencilState(d3d11.device, &ds_desc, &pip->depth_stencil);
@@ -409,9 +461,16 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
         return;
     }
 
+    GpuBlendState *blend = &desc->blend;
     D3D11_BLEND_DESC blend_desc = {
         .RenderTarget[0] = {
-            .BlendEnable = FALSE,
+            .BlendEnable = blend->enabled,
+            .SrcBlend = blend->enabled ? d3d11_blend_factor(blend->src_factor) : D3D11_BLEND_ONE,
+            .DestBlend = blend->enabled ? d3d11_blend_factor(blend->dst_factor) : D3D11_BLEND_ZERO,
+            .BlendOp = blend->enabled ? d3d11_blend_op(blend->op) : D3D11_BLEND_OP_ADD,
+            .SrcBlendAlpha = blend->enabled ? d3d11_blend_factor(blend->src_factor_alpha) : D3D11_BLEND_ONE,
+            .DestBlendAlpha = blend->enabled ? d3d11_blend_factor(blend->dst_factor_alpha) : D3D11_BLEND_ZERO,
+            .BlendOpAlpha = blend->enabled ? d3d11_blend_op(blend->op_alpha) : D3D11_BLEND_OP_ADD,
             .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
         },
     };
@@ -524,15 +583,36 @@ void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count,
     }
 
     if (bindings->textures.len > 0) {
-        ID3D11ShaderResourceView *srvs[GPU_MAX_TEXTURE_SLOTS] = {0};
-        ID3D11SamplerState *samplers[GPU_MAX_TEXTURE_SLOTS] = {0};
+        ID3D11ShaderResourceView *vs_srvs[GPU_MAX_TEXTURE_SLOTS] = {0};
+        ID3D11ShaderResourceView *ps_srvs[GPU_MAX_TEXTURE_SLOTS] = {0};
+        ID3D11SamplerState *vs_samplers[GPU_MAX_TEXTURE_SLOTS] = {0};
+        ID3D11SamplerState *ps_samplers[GPU_MAX_TEXTURE_SLOTS] = {0};
+        u32 vs_count = 0, ps_count = 0;
+
         for (u32 i = 0; i < bindings->textures.len; i++) {
             D3D11Texture *tex = &d3d11.textures[bindings->textures.items[i].idx];
-            srvs[i] = tex->srv;
-            samplers[i] = tex->sampler;
+            GpuShaderStage stage = pip->tex_stages[i];
+
+            if (stage & GPU_STAGE_VERTEX) {
+                vs_srvs[i] = tex->srv;
+                vs_samplers[i] = tex->sampler;
+                vs_count = i + 1;
+            }
+            if (stage & GPU_STAGE_FRAGMENT) {
+                ps_srvs[i] = tex->srv;
+                ps_samplers[i] = tex->sampler;
+                ps_count = i + 1;
+            }
         }
-        ID3D11DeviceContext_PSSetShaderResources(d3d11.context, 0, bindings->textures.len, srvs);
-        ID3D11DeviceContext_PSSetSamplers(d3d11.context, 0, bindings->textures.len, samplers);
+
+        if (vs_count > 0) {
+            ID3D11DeviceContext_VSSetShaderResources(d3d11.context, 0, vs_count, vs_srvs);
+            ID3D11DeviceContext_VSSetSamplers(d3d11.context, 0, vs_count, vs_samplers);
+        }
+        if (ps_count > 0) {
+            ID3D11DeviceContext_PSSetShaderResources(d3d11.context, 0, ps_count, ps_srvs);
+            ID3D11DeviceContext_PSSetSamplers(d3d11.context, 0, ps_count, ps_samplers);
+        }
     }
 }
 

@@ -125,6 +125,57 @@ typedef enum {
     GPU_PRIMITIVE_LINES = 1,
 } GpuPrimitiveTopology;
 
+typedef enum {
+    GPU_CULL_BACK = 0,
+    GPU_CULL_NONE = 1,
+    GPU_CULL_FRONT = 2,
+} GpuCullMode;
+
+typedef enum {
+    GPU_FACE_CCW = 0,
+    GPU_FACE_CW = 1,
+} GpuFaceWinding;
+
+typedef enum {
+    GPU_COMPARE_LESS = 0,
+    GPU_COMPARE_NEVER = 1,
+    GPU_COMPARE_EQUAL = 2,
+    GPU_COMPARE_LESS_EQUAL = 3,
+    GPU_COMPARE_GREATER = 4,
+    GPU_COMPARE_NOT_EQUAL = 5,
+    GPU_COMPARE_GREATER_EQUAL = 6,
+    GPU_COMPARE_ALWAYS = 7,
+} GpuCompareFunc;
+
+typedef enum {
+    GPU_BLEND_ZERO = 0,
+    GPU_BLEND_ONE = 1,
+    GPU_BLEND_SRC_COLOR = 2,
+    GPU_BLEND_ONE_MINUS_SRC_COLOR = 3,
+    GPU_BLEND_SRC_ALPHA = 4,
+    GPU_BLEND_ONE_MINUS_SRC_ALPHA = 5,
+    GPU_BLEND_DST_COLOR = 6,
+    GPU_BLEND_ONE_MINUS_DST_COLOR = 7,
+    GPU_BLEND_DST_ALPHA = 8,
+    GPU_BLEND_ONE_MINUS_DST_ALPHA = 9,
+} GpuBlendFactor;
+
+typedef enum {
+    GPU_BLEND_OP_ADD = 0,
+    GPU_BLEND_OP_SUBTRACT = 1,
+    GPU_BLEND_OP_REVERSE_SUBTRACT = 2,
+} GpuBlendOp;
+
+typedef struct {
+    b32 enabled;
+    GpuBlendFactor src_factor;
+    GpuBlendFactor dst_factor;
+    GpuBlendOp op;
+    GpuBlendFactor src_factor_alpha;
+    GpuBlendFactor dst_factor_alpha;
+    GpuBlendOp op_alpha;
+} GpuBlendState;
+
 // Descriptors
 typedef struct GpuBufferDesc {
     GpuBufferType type;
@@ -157,7 +208,10 @@ typedef struct GpuPipelineDesc {
     GpuShader shader;
     GpuVertexLayout vertex_layout;
     GpuPrimitiveTopology primitive;
-    //todo: use flags here
+    GpuCullMode cull_mode;           // default: GPU_CULL_BACK
+    GpuFaceWinding face_winding;     // default: GPU_FACE_CCW
+    GpuCompareFunc depth_compare;    // default: GPU_COMPARE_LESS
+    GpuBlendState blend;             // default: disabled
     b32 depth_test;
     b32 depth_write;
 } GpuPipelineDesc;
