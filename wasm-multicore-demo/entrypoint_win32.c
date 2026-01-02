@@ -22,6 +22,9 @@ global HWND g_hwnd;
 global b32 g_mouse_locked;
 global b32 g_prev_mouse_buttons[3];
 global POINT g_mouse_lock_center;
+global b32 g_fullscreen;
+global WINDOWPLACEMENT g_windowed_placement;
+global DWORD g_windowed_style;
 
 typedef struct {
     ThreadContext *ctx;
@@ -177,9 +180,6 @@ internal LRESULT CALLBACK win32_window_callback(HWND hwnd, UINT msg, WPARAM wpar
     switch (msg) {
         case WM_CLOSE:
             g_running = false;
-            return 0;
-
-        case WM_DESTROY:
             PostQuitMessage(0);
             return 0;
 
@@ -280,6 +280,37 @@ b32 os_is_mouse_locked(void) {
     return g_mouse_locked;
 }
 
+void os_set_fullscreen(b32 fullscreen) {
+    if (fullscreen == g_fullscreen) return;
+
+    if (fullscreen) {
+        g_windowed_placement.length = sizeof(g_windowed_placement);
+        GetWindowPlacement(g_hwnd, &g_windowed_placement);
+        g_windowed_style = GetWindowLongA(g_hwnd, GWL_STYLE);
+
+        MONITORINFO mi = { .cbSize = sizeof(mi) };
+        if (GetMonitorInfoA(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTOPRIMARY), &mi)) {
+            SetWindowLongA(g_hwnd, GWL_STYLE, g_windowed_style & ~WS_OVERLAPPEDWINDOW);
+            SetWindowPos(g_hwnd, HWND_TOP,
+                mi.rcMonitor.left, mi.rcMonitor.top,
+                mi.rcMonitor.right - mi.rcMonitor.left,
+                mi.rcMonitor.bottom - mi.rcMonitor.top,
+                SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        }
+    } else {
+        SetWindowLongA(g_hwnd, GWL_STYLE, g_windowed_style);
+        SetWindowPlacement(g_hwnd, &g_windowed_placement);
+        SetWindowPos(g_hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    }
+
+    g_fullscreen = fullscreen;
+}
+
+b32 os_is_fullscreen(void) {
+    return g_fullscreen;
+}
+
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int show_cmd) {
     UNUSED(prev_instance);
     UNUSED(cmd_line);
@@ -287,8 +318,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, 
     // Attach console for debug output
     if (AttachConsole(ATTACH_PARENT_PROCESS) || AllocConsole()) {
         FILE *dummy;
-        freopen_s(&dummy, "CONOUT$", "w", stdout);
-        freopen_s(&dummy, "CONOUT$", "w", stderr);
+        freopen_s(&dummy, "CON", "w", stdout);
+        freopen_s(&dummy, "CON", "w", stderr);
     }
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -409,6 +440,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, 
     lane_sync();
     lane_sync();
 
+    DestroyWindow(g_hwnd);
     timeEndPeriod(desired_scheduler_ms);
 
     return 0;
