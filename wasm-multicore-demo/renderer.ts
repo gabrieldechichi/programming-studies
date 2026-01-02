@@ -490,7 +490,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             }
 
             const pipelineLayout = renderer.device.createPipelineLayout({
-                bindGroupLayouts: bindGroupLayouts.length > 0 ? bindGroupLayouts : undefined,
+                bindGroupLayouts: bindGroupLayouts,
             });
 
             const pipeline = renderer.device.createRenderPipeline({
@@ -514,13 +514,11 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                     topology: PRIMITIVE_TOPOLOGIES[primitive],
                     cullMode: "back",
                 },
-                depthStencil: depthTest
-                    ? {
-                          format: "depth24plus",
-                          depthWriteEnabled: !!depthWrite,
-                          depthCompare: "less",
-                      }
-                    : undefined,
+                depthStencil: {
+                    format: "depth24plus",
+                    depthWriteEnabled: depthTest ? !!depthWrite : false,
+                    depthCompare: depthTest ? "less" : "always",
+                },
             });
 
             pipelines[idx] = pipeline;

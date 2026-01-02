@@ -2,7 +2,7 @@
 #define NOMINMAX
 #define COBJMACROS
 #include <windows.h>
-#include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi1_2.h>
 
 #include "gpu_backend.h"
@@ -18,6 +18,7 @@
 static const IID D3D11_IID_IDXGIDevice = { 0x54ec77fa, 0x1377, 0x44e6, {0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c} };
 static const IID D3D11_IID_IDXGIFactory2 = { 0x50c83a1c, 0xe072, 0x4c48, {0x87, 0xb0, 0x36, 0x30, 0xfa, 0x36, 0xa6, 0xd0} };
 static const IID D3D11_IID_ID3D11Texture2D = { 0x6f15aaf2, 0xd208, 0x4e89, {0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c} };
+static const IID D3D11_IID_ID3D11DeviceContext1 = { 0xbb2c6faa, 0xb5fb, 0x4082, {0x8e, 0x6b, 0x38, 0x8b, 0x8c, 0xfa, 0x90, 0xe1} };
 
 #define D3D11_MAX_BUFFERS 256
 #define D3D11_MAX_TEXTURES 128
@@ -40,14 +41,19 @@ typedef struct {
 typedef struct {
     ID3D11VertexShader *vs;
     ID3D11PixelShader *ps;
-    ID3D11InputLayout *input_layout;
+    void *vs_blob;
+    size_t vs_blob_len;
 } D3D11Shader;
 
 typedef struct {
     u32 shader_idx;
+    ID3D11InputLayout *input_layout;
     ID3D11RasterizerState *rasterizer;
     ID3D11DepthStencilState *depth_stencil;
     ID3D11BlendState *blend;
+    D3D11_PRIMITIVE_TOPOLOGY topology;
+    UINT vb_strides[GPU_MAX_VERTEX_BUFFERS];
+    UINT ub_sizes[GPU_MAX_UNIFORMBLOCK_SLOTS];
 } D3D11Pipeline;
 
 typedef struct {
@@ -64,6 +70,7 @@ typedef struct {
 typedef struct {
     ID3D11Device *device;
     ID3D11DeviceContext *context;
+    ID3D11DeviceContext1 *context1;
     IDXGISwapChain1 *swapchain;
 
     ID3D11RenderTargetView *backbuffer_rtv;
@@ -85,6 +92,9 @@ typedef struct {
     u32 current_rt_width;
     u32 current_rt_height;
 
+    u32 current_pipeline_idx;
+    DXGI_FORMAT current_index_format;
+
     // Blit resources (created lazily)
     ID3D11VertexShader *blit_vs;
     ID3D11PixelShader *blit_ps;
@@ -95,6 +105,45 @@ typedef struct {
 } D3D11State;
 
 local_persist D3D11State d3d11;
+
+internal DXGI_FORMAT d3d11_vertex_format(GpuVertexFormat fmt) {
+    switch (fmt) {
+        case GPU_VERTEX_FORMAT_FLOAT2: return DXGI_FORMAT_R32G32_FLOAT;
+        case GPU_VERTEX_FORMAT_FLOAT3: return DXGI_FORMAT_R32G32B32_FLOAT;
+        case GPU_VERTEX_FORMAT_FLOAT4: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+        default: return DXGI_FORMAT_UNKNOWN;
+    }
+}
+
+internal DXGI_FORMAT d3d11_index_format(GpuIndexFormat fmt) {
+    switch (fmt) {
+        case GPU_INDEX_FORMAT_U16: return DXGI_FORMAT_R16_UINT;
+        case GPU_INDEX_FORMAT_U32: return DXGI_FORMAT_R32_UINT;
+        default: return DXGI_FORMAT_R16_UINT;
+    }
+}
+
+internal D3D11_PRIMITIVE_TOPOLOGY d3d11_topology(GpuPrimitiveTopology topo) {
+    switch (topo) {
+        case GPU_PRIMITIVE_TRIANGLES: return D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        case GPU_PRIMITIVE_LINES: return D3D11_PRIMITIVE_TOPOLOGY_LINELIST;
+        default: return D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    }
+}
+
+internal const char *d3d11_semantic_name(u32 shader_location) {
+    switch (shader_location) {
+        case 0: return "POSITION";
+        case 1: return "NORMAL";
+        case 2: return "COLOR";
+        case 3: return "TEXCOORD";
+        default: return "TEXCOORD";
+    }
+}
+
+internal UINT d3d11_semantic_index(u32 shader_location) {
+    return (shader_location > 3) ? (shader_location - 3) : 0;
+}
 
 internal void d3d11_create_backbuffer_views(void) {
     ID3D11Texture2D *backbuffer;
@@ -163,6 +212,12 @@ void gpu_backend_init(GpuPlatformDesc *desc) {
         return;
     }
 
+    hr = ID3D11DeviceContext_QueryInterface(d3d11.context, &D3D11_IID_ID3D11DeviceContext1, (void **)&d3d11.context1);
+    if (FAILED(hr)) {
+        LOG_ERROR("Failed to get ID3D11DeviceContext1: %", FMT_UINT(hr));
+        return;
+    }
+
     IDXGIDevice *dxgi_device;
     ID3D11Device_QueryInterface(d3d11.device, &D3D11_IID_IDXGIDevice, (void **)&dxgi_device);
 
@@ -201,6 +256,7 @@ void gpu_backend_init(GpuPlatformDesc *desc) {
 void gpu_backend_shutdown(void) {
     d3d11_release_backbuffer_views();
     if (d3d11.swapchain) IDXGISwapChain1_Release(d3d11.swapchain);
+    if (d3d11.context1) ID3D11DeviceContext1_Release(d3d11.context1);
     if (d3d11.context) ID3D11DeviceContext_Release(d3d11.context);
     if (d3d11.device) ID3D11Device_Release(d3d11.device);
 }
@@ -241,19 +297,137 @@ void gpu_backend_destroy_buffer(u32 idx) {
 }
 
 void gpu_backend_make_shader(u32 idx, GpuShaderDesc *desc) {
-    UNUSED(idx); UNUSED(desc);
+    D3D11Shader *shd = &d3d11.shaders[idx];
+    HRESULT hr;
+
+    const void *vs_bytecode = desc->vs_code;
+    const u8 *vs_ptr = (const u8 *)vs_bytecode;
+    size_t vs_len = vs_ptr[24] | (vs_ptr[25] << 8) | (vs_ptr[26] << 16) | (vs_ptr[27] << 24);
+
+    LOG_INFO("Creating shader %: VS size=%, FS ptr=%", FMT_UINT(idx), FMT_UINT((u32)vs_len), FMT_UINT((u64)desc->fs_code));
+
+    hr = ID3D11Device_CreateVertexShader(d3d11.device, vs_bytecode, vs_len, NULL, &shd->vs);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateVertexShader failed: %", FMT_UINT(hr));
+        return;
+    }
+    LOG_INFO("  VS created: %", FMT_UINT((u64)shd->vs));
+
+    shd->vs_blob_len = vs_len;
+    shd->vs_blob = (void *)vs_bytecode;
+
+    const void *fs_bytecode = desc->fs_code;
+    const u8 *fs_ptr = (const u8 *)fs_bytecode;
+    size_t fs_len = fs_ptr[24] | (fs_ptr[25] << 8) | (fs_ptr[26] << 16) | (fs_ptr[27] << 24);
+
+    hr = ID3D11Device_CreatePixelShader(d3d11.device, fs_bytecode, fs_len, NULL, &shd->ps);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreatePixelShader failed: %", FMT_UINT(hr));
+        return;
+    }
+    LOG_INFO("  PS created: %, FS size=%", FMT_UINT((u64)shd->ps), FMT_UINT((u32)fs_len));
 }
 
 void gpu_backend_destroy_shader(u32 idx) {
-    UNUSED(idx);
+    D3D11Shader *shd = &d3d11.shaders[idx];
+    if (shd->vs) ID3D11VertexShader_Release(shd->vs);
+    if (shd->ps) ID3D11PixelShader_Release(shd->ps);
+    memset(shd, 0, sizeof(*shd));
 }
 
 void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *shader) {
-    UNUSED(idx); UNUSED(desc); UNUSED(shader);
+    D3D11Pipeline *pip = &d3d11.pipelines[idx];
+    D3D11Shader *shd = &d3d11.shaders[desc->shader.idx];
+    HRESULT hr;
+
+    LOG_INFO("Creating pipeline %: shader_idx=%, ub_count=%", FMT_UINT(idx), FMT_UINT(desc->shader.idx), FMT_UINT(shader->uniform_blocks.len));
+
+    pip->shader_idx = desc->shader.idx;
+    pip->topology = d3d11_topology(desc->primitive);
+
+    for (u32 i = 0; i < shader->uniform_blocks.len; i++) {
+        u32 binding = shader->uniform_blocks.items[i].binding;
+        u32 size = shader->uniform_blocks.items[i].size;
+        pip->ub_sizes[binding] = (size + 255) / 256 * 256;
+        LOG_INFO("  UB[%]: binding=%, size=%, aligned=%", FMT_UINT(i), FMT_UINT(binding), FMT_UINT(size), FMT_UINT(pip->ub_sizes[binding]));
+    }
+
+    D3D11_INPUT_ELEMENT_DESC input_elems[GPU_MAX_VERTEX_ATTRS];
+    u32 attr_count = desc->vertex_layout.attrs.len;
+    for (u32 i = 0; i < attr_count; i++) {
+        GpuVertexAttr *attr = &desc->vertex_layout.attrs.items[i];
+        input_elems[i] = (D3D11_INPUT_ELEMENT_DESC){
+            .SemanticName = d3d11_semantic_name(attr->shader_location),
+            .SemanticIndex = d3d11_semantic_index(attr->shader_location),
+            .Format = d3d11_vertex_format(attr->format),
+            .InputSlot = 0,
+            .AlignedByteOffset = attr->offset,
+            .InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
+            .InstanceDataStepRate = 0,
+        };
+    }
+
+    LOG_INFO("  Creating input layout: attr_count=%, vs_blob_len=%", FMT_UINT(attr_count), FMT_UINT((u32)shd->vs_blob_len));
+    for (u32 i = 0; i < attr_count; i++) {
+        LOG_INFO("    Attr[%]: sem=%s, offset=%", FMT_UINT(i), FMT_STR(input_elems[i].SemanticName), FMT_UINT(input_elems[i].AlignedByteOffset));
+    }
+
+    hr = ID3D11Device_CreateInputLayout(d3d11.device, input_elems, attr_count,
+                                         shd->vs_blob, shd->vs_blob_len, &pip->input_layout);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateInputLayout failed: % (0x%)", FMT_UINT(hr), FMT_UINT(hr));
+        return;
+    }
+    LOG_INFO("  Input layout created: %", FMT_UINT((u64)pip->input_layout));
+
+    pip->vb_strides[0] = desc->vertex_layout.stride;
+    LOG_INFO("  VB stride: %", FMT_UINT(pip->vb_strides[0]));
+
+    D3D11_RASTERIZER_DESC rs_desc = {
+        .FillMode = D3D11_FILL_SOLID,
+        .CullMode = D3D11_CULL_BACK,
+        .FrontCounterClockwise = TRUE,
+        .DepthClipEnable = TRUE,
+        .ScissorEnable = FALSE,
+    };
+    hr = ID3D11Device_CreateRasterizerState(d3d11.device, &rs_desc, &pip->rasterizer);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateRasterizerState failed: %", FMT_UINT(hr));
+        return;
+    }
+
+    D3D11_DEPTH_STENCIL_DESC ds_desc = {
+        .DepthEnable = desc->depth_test,
+        .DepthWriteMask = desc->depth_write ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO,
+        .DepthFunc = D3D11_COMPARISON_LESS,
+        .StencilEnable = FALSE,
+    };
+    hr = ID3D11Device_CreateDepthStencilState(d3d11.device, &ds_desc, &pip->depth_stencil);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateDepthStencilState failed: %", FMT_UINT(hr));
+        return;
+    }
+
+    D3D11_BLEND_DESC blend_desc = {
+        .RenderTarget[0] = {
+            .BlendEnable = FALSE,
+            .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
+        },
+    };
+    hr = ID3D11Device_CreateBlendState(d3d11.device, &blend_desc, &pip->blend);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateBlendState failed: %", FMT_UINT(hr));
+        return;
+    }
 }
 
 void gpu_backend_destroy_pipeline(u32 idx) {
-    UNUSED(idx);
+    D3D11Pipeline *pip = &d3d11.pipelines[idx];
+    if (pip->input_layout) ID3D11InputLayout_Release(pip->input_layout);
+    if (pip->rasterizer) ID3D11RasterizerState_Release(pip->rasterizer);
+    if (pip->depth_stencil) ID3D11DepthStencilState_Release(pip->depth_stencil);
+    if (pip->blend) ID3D11BlendState_Release(pip->blend);
+    memset(pip, 0, sizeof(*pip));
 }
 
 void gpu_backend_begin_pass(GpuPassDesc *desc) {
@@ -288,7 +462,18 @@ void gpu_backend_begin_pass(GpuPassDesc *desc) {
 }
 
 void gpu_backend_apply_pipeline(u32 handle_idx) {
-    UNUSED(handle_idx);
+    D3D11Pipeline *pip = &d3d11.pipelines[handle_idx];
+    D3D11Shader *shd = &d3d11.shaders[pip->shader_idx];
+
+    d3d11.current_pipeline_idx = handle_idx;
+
+    ID3D11DeviceContext_IASetInputLayout(d3d11.context, pip->input_layout);
+    ID3D11DeviceContext_IASetPrimitiveTopology(d3d11.context, pip->topology);
+    ID3D11DeviceContext_VSSetShader(d3d11.context, shd->vs, NULL, 0);
+    ID3D11DeviceContext_PSSetShader(d3d11.context, shd->ps, NULL, 0);
+    ID3D11DeviceContext_RSSetState(d3d11.context, pip->rasterizer);
+    ID3D11DeviceContext_OMSetDepthStencilState(d3d11.context, pip->depth_stencil, 0);
+    ID3D11DeviceContext_OMSetBlendState(d3d11.context, pip->blend, NULL, 0xFFFFFFFF);
 }
 
 void gpu_backend_end_pass(void) {
@@ -302,16 +487,71 @@ void gpu_backend_upload_uniforms(u32 buf_idx, void *data, u32 size) {
     gpu_backend_update_buffer(buf_idx, data, size);
 }
 
+static u32 s_bind_log_count = 0;
+
 void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count, u32 *ub_offsets) {
-    UNUSED(bindings); UNUSED(ub_idx); UNUSED(ub_count); UNUSED(ub_offsets);
+    D3D11Pipeline *pip = &d3d11.pipelines[d3d11.current_pipeline_idx];
+
+    if (s_bind_log_count < 3) {
+        LOG_INFO("apply_bindings: pip=%, vb_count=%, ib=%, ub_idx=%, ub_count=%",
+            FMT_UINT(d3d11.current_pipeline_idx),
+            FMT_UINT(bindings->vertex_buffers.len),
+            FMT_UINT(bindings->index_buffer.idx),
+            FMT_UINT(ub_idx),
+            FMT_UINT(ub_count));
+    }
+
+    ID3D11Buffer *vbs[GPU_MAX_VERTEX_BUFFERS] = {0};
+    UINT vb_offsets[GPU_MAX_VERTEX_BUFFERS] = {0};
+    for (u32 i = 0; i < bindings->vertex_buffers.len; i++) {
+        vbs[i] = d3d11.buffers[bindings->vertex_buffers.items[i].idx].buffer;
+        if (s_bind_log_count < 3) {
+            LOG_INFO("  VB[%]: buf_idx=%, ptr=%", FMT_UINT(i), FMT_UINT(bindings->vertex_buffers.items[i].idx), FMT_UINT((u64)vbs[i]));
+        }
+    }
+    ID3D11DeviceContext_IASetVertexBuffers(d3d11.context, 0, bindings->vertex_buffers.len,
+                                            vbs, pip->vb_strides, vb_offsets);
+
+    if (!handle_equals(bindings->index_buffer, INVALID_HANDLE)) {
+        d3d11.current_index_format = d3d11_index_format(bindings->index_format);
+        ID3D11DeviceContext_IASetIndexBuffer(d3d11.context,
+            d3d11.buffers[bindings->index_buffer.idx].buffer,
+            d3d11.current_index_format, 0);
+        if (s_bind_log_count < 3) {
+            LOG_INFO("  IB: buf_idx=%, ptr=%", FMT_UINT(bindings->index_buffer.idx), FMT_UINT((u64)d3d11.buffers[bindings->index_buffer.idx].buffer));
+        }
+    }
+
+    ID3D11Buffer *ub = d3d11.buffers[ub_idx].buffer;
+    for (u32 i = 0; i < ub_count; i++) {
+        UINT first_constant = ub_offsets[i] / 16;
+        UINT num_constants = pip->ub_sizes[i] / 16;
+        if (num_constants == 0) num_constants = 16;
+        if (s_bind_log_count < 3) {
+            LOG_INFO("  CB[%]: offset=%, first=%, num=%, ub_size=%", FMT_UINT(i), FMT_UINT(ub_offsets[i]), FMT_UINT(first_constant), FMT_UINT(num_constants), FMT_UINT(pip->ub_sizes[i]));
+        }
+        ID3D11DeviceContext1_VSSetConstantBuffers1(d3d11.context1, i, 1, &ub, &first_constant, &num_constants);
+        ID3D11DeviceContext1_PSSetConstantBuffers1(d3d11.context1, i, 1, &ub, &first_constant, &num_constants);
+    }
+    s_bind_log_count++;
 }
 
+static u32 s_draw_log_count = 0;
+
 void gpu_backend_draw(u32 vertex_count, u32 instance_count) {
-    UNUSED(vertex_count); UNUSED(instance_count);
+    if (s_draw_log_count < 3) {
+        LOG_INFO("Draw: vertex_count=%, instance_count=%", FMT_UINT(vertex_count), FMT_UINT(instance_count));
+    }
+    ID3D11DeviceContext_DrawInstanced(d3d11.context, vertex_count, instance_count, 0, 0);
+    s_draw_log_count++;
 }
 
 void gpu_backend_draw_indexed(u32 index_count, u32 instance_count) {
-    UNUSED(index_count); UNUSED(instance_count);
+    if (s_draw_log_count < 3) {
+        LOG_INFO("DrawIndexed: index_count=%, instance_count=%", FMT_UINT(index_count), FMT_UINT(instance_count));
+    }
+    ID3D11DeviceContext_DrawIndexedInstanced(d3d11.context, index_count, instance_count, 0, 0, 0);
+    s_draw_log_count++;
 }
 
 void gpu_backend_load_texture(u32 idx, const char *path) {
@@ -319,7 +559,50 @@ void gpu_backend_load_texture(u32 idx, const char *path) {
 }
 
 void gpu_backend_make_texture_data(u32 idx, u32 width, u32 height, u8 *data) {
-    UNUSED(idx); UNUSED(width); UNUSED(height); UNUSED(data);
+    D3D11Texture *tex = &d3d11.textures[idx];
+
+    D3D11_TEXTURE2D_DESC tex_desc = {
+        .Width = width,
+        .Height = height,
+        .MipLevels = 1,
+        .ArraySize = 1,
+        .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+        .SampleDesc = {.Count = 1, .Quality = 0},
+        .Usage = D3D11_USAGE_IMMUTABLE,
+        .BindFlags = D3D11_BIND_SHADER_RESOURCE,
+    };
+
+    D3D11_SUBRESOURCE_DATA init_data = {
+        .pSysMem = data,
+        .SysMemPitch = width * 4,
+    };
+
+    HRESULT hr = ID3D11Device_CreateTexture2D(d3d11.device, &tex_desc, &init_data, &tex->texture);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateTexture2D failed: %", FMT_UINT(hr));
+        return;
+    }
+
+    hr = ID3D11Device_CreateShaderResourceView(d3d11.device, (ID3D11Resource *)tex->texture, NULL, &tex->srv);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateShaderResourceView failed: %", FMT_UINT(hr));
+        return;
+    }
+
+    D3D11_SAMPLER_DESC sampler_desc = {
+        .Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+        .AddressU = D3D11_TEXTURE_ADDRESS_WRAP,
+        .AddressV = D3D11_TEXTURE_ADDRESS_WRAP,
+        .AddressW = D3D11_TEXTURE_ADDRESS_WRAP,
+        .MaxLOD = D3D11_FLOAT32_MAX,
+    };
+    hr = ID3D11Device_CreateSamplerState(d3d11.device, &sampler_desc, &tex->sampler);
+    if (FAILED(hr)) {
+        LOG_ERROR("CreateSamplerState failed: %", FMT_UINT(hr));
+        return;
+    }
+
+    tex->ready = true;
 }
 
 u32 gpu_backend_texture_is_ready(u32 idx) {

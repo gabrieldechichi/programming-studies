@@ -196,6 +196,8 @@ void gpu_apply_bindings(GpuBindings *bindings) {
   GpuPipelineSlot *pip_slot =
       ha_get(GpuPipelineSlot, &gpu_state.pipelines, gpu_state.current_pipeline);
   assert(pip_slot != NULL);
+  // Flush uniform buffer before draw so D3D11 has the data
+  uniform_buffer_flush(&gpu_state.uniforms);
   gpu_backend_apply_bindings(bindings, gpu_state.uniforms.gpu_buf.idx,
                              pip_slot->uniform_block_count, gpu_state.uniform_offsets);
 }
