@@ -68,7 +68,7 @@ void app_init(AppMemory *memory) {
             .stride = sizeof(f32) * 5,
             .attrs = FIXED_ARRAY_DEFINE(GpuVertexAttr,
                 {GPU_VERTEX_FORMAT_FLOAT3, 0, 0},
-                {GPU_VERTEX_FORMAT_FLOAT2, sizeof(f32) * 3, 3},
+                {GPU_VERTEX_FORMAT_FLOAT2, sizeof(f32) * 3, 1},
             ),
         },
         .primitive = GPU_PRIMITIVE_TRIANGLES,

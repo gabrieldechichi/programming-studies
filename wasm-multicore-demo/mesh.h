@@ -43,16 +43,24 @@ MeshDesc mesh_asset_to_mesh(MeshBlobAsset *mesh_asset, Allocator *alloc);
     .attrs = FIXED_ARRAY_DEFINE(GpuVertexAttr,                       \
                                 {.format = GPU_VERTEX_FORMAT_FLOAT3, \
                                  .offset = 0,                        \
-                                 .shader_location = 0},              \
+                                 .shader_location = 0,               \
+                                 .hlsl_sem_name = "POSITION",        \
+                                 .hlsl_sem_index = 0},               \
                                 {.format = GPU_VERTEX_FORMAT_FLOAT3, \
                                  .offset = 12,                       \
-                                 .shader_location = 1},              \
+                                 .shader_location = 1,               \
+                                 .hlsl_sem_name = "NORMAL",          \
+                                 .hlsl_sem_index = 0},               \
                                 {.format = GPU_VERTEX_FORMAT_FLOAT4, \
                                  .offset = 24,                       \
-                                 .shader_location = 2},              \
+                                 .shader_location = 2,               \
+                                 .hlsl_sem_name = "COLOR",           \
+                                 .hlsl_sem_index = 0},               \
                                 {.format = GPU_VERTEX_FORMAT_FLOAT2, \
                                  .offset = 40,                       \
-                                 .shader_location = 3}, ),           \
+                                 .shader_location = 3,               \
+                                 .hlsl_sem_name = "TEXCOORD",        \
+                                 .hlsl_sem_index = 0}, ),            \
   }
 
 #endif

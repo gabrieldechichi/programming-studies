@@ -134,19 +134,6 @@ internal D3D11_PRIMITIVE_TOPOLOGY d3d11_topology(GpuPrimitiveTopology topo) {
     }
 }
 
-internal const char *d3d11_semantic_name(u32 shader_location) {
-    switch (shader_location) {
-        case 0: return "POSITION";
-        case 1: return "NORMAL";
-        case 2: return "COLOR";
-        case 3: return "TEXCOORD";
-        default: return "TEXCOORD";
-    }
-}
-
-internal UINT d3d11_semantic_index(u32 shader_location) {
-    return (shader_location > 3) ? (shader_location - 3) : 0;
-}
 
 internal void d3d11_create_backbuffer_views(void) {
     ID3D11Texture2D *backbuffer;
@@ -378,8 +365,8 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
     for (u32 i = 0; i < attr_count; i++) {
         GpuVertexAttr *attr = &desc->vertex_layout.attrs.items[i];
         input_elems[i] = (D3D11_INPUT_ELEMENT_DESC){
-            .SemanticName = d3d11_semantic_name(attr->shader_location),
-            .SemanticIndex = d3d11_semantic_index(attr->shader_location),
+            .SemanticName = "TEXCOORD",
+            .SemanticIndex = attr->shader_location,
             .Format = d3d11_vertex_format(attr->format),
             .InputSlot = 0,
             .AlignedByteOffset = attr->offset,

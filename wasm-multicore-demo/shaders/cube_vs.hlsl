@@ -10,9 +10,9 @@ cbuffer MaterialUniforms : register(b1) {
 };
 
 struct VertexInput {
-    float3 position : POSITION;
-    float3 normal : NORMAL;
-    float4 vertex_color : COLOR;
+    float3 position : TEXCOORD0;
+    float3 normal : TEXCOORD1;
+    float4 vertex_color : TEXCOORD2;
 };
 
 struct VertexOutput {

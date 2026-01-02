@@ -8,7 +8,7 @@ cbuffer GlobalUniforms : register(b0) {
 };
 
 struct VertexInput {
-    float3 position : POSITION;
+    float3 position : TEXCOORD0;
 };
 
 struct VertexOutput {
