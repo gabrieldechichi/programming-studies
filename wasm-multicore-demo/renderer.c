@@ -39,7 +39,7 @@ global RendererState g_renderer;
 void renderer_init(ArenaAllocator *arena, u8 thread_count, u32 canvas_width, u32 canvas_height) {
   Allocator alloc = make_arena_allocator(arena);
 
-  gpu_init(arena, GPU_UNIFORM_BUFFER_SIZE);
+  gpu_init(arena, GPU_UNIFORM_BUFFER_SIZE, NULL);
   g_renderer.meshes = ha_init(GpuMesh, &alloc, MAX_MESHES);
   g_renderer.materials = ha_init(Material, &alloc, MAX_MATERIALS);
   g_renderer.instance_buffers = ha_init(InstanceBuffer, &alloc, MAX_INSTANCE_BUFFERS);

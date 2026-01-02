@@ -1,4 +1,5 @@
 #include "gpu.h"
+#include "gpu_backend.h"
 #include "lib/handle.h"
 #include "lib/string.h"
 #include "os/os.h"
@@ -24,97 +25,6 @@ typedef struct {
   GpuPipeline current_pipeline;
   u32 uniform_offsets[GPU_MAX_UNIFORMBLOCK_SLOTS];
 } GpuStateInternal;
-
-// =============================================================================
-// JS Imports - implemented in renderer.ts
-// =============================================================================
-
-WASM_IMPORT(js_gpu_init)
-void js_gpu_init(void);
-
-WASM_IMPORT(js_gpu_make_buffer)
-void js_gpu_make_buffer(u32 idx, u32 type, u32 size, void *data);
-
-WASM_IMPORT(js_gpu_update_buffer)
-void js_gpu_update_buffer(u32 idx, void *data, u32 size);
-
-WASM_IMPORT(js_gpu_destroy_buffer)
-void js_gpu_destroy_buffer(u32 idx);
-
-WASM_IMPORT(js_gpu_make_shader)
-void js_gpu_make_shader(u32 idx, const char *vs_code, u32 vs_len,
-                        const char *fs_code, u32 fs_len);
-
-WASM_IMPORT(js_gpu_destroy_shader)
-void js_gpu_destroy_shader(u32 idx);
-
-// Pipeline creation with flat arrays for all bind group entries
-WASM_IMPORT(js_gpu_make_pipeline)
-void js_gpu_make_pipeline(u32 idx, u32 shader_idx, u32 stride, u32 attr_count,
-                          u32 *attr_formats, u32 *attr_offsets,
-                          u32 *attr_locations,
-                          u32 ub_count, u32 *ub_stages, u32 *ub_sizes, u32 *ub_bindings,
-                          u32 sb_count, u32 *sb_stages, u32 *sb_bindings, u32 *sb_readonly,
-                          u32 tex_count, u32 *tex_stages, u32 *tex_sampler_bindings,
-                          u32 *tex_texture_bindings,
-                          u32 primitive, u32 depth_test, u32 depth_write);
-
-WASM_IMPORT(js_gpu_destroy_pipeline)
-void js_gpu_destroy_pipeline(u32 idx);
-
-WASM_IMPORT(js_gpu_begin_pass)
-void js_gpu_begin_pass(f32 r, f32 g, f32 b, f32 a, f32 depth, u32 rt_idx);
-
-WASM_IMPORT(js_gpu_apply_pipeline)
-void js_gpu_apply_pipeline(u32 handle_idx);
-
-WASM_IMPORT(js_gpu_draw)
-void js_gpu_draw(u32 vertex_count, u32 instance_count);
-
-WASM_IMPORT(js_gpu_draw_indexed)
-void js_gpu_draw_indexed(u32 index_count, u32 instance_count);
-
-WASM_IMPORT(js_gpu_end_pass)
-void js_gpu_end_pass(void);
-
-WASM_IMPORT(js_gpu_commit)
-void js_gpu_commit(void);
-
-WASM_IMPORT(js_gpu_upload_uniforms)
-void js_gpu_upload_uniforms(u32 buf_idx, void *data, u32 size);
-
-// Bindings: vertex buffers, index buffer, uniforms, storage buffers, and textures
-WASM_IMPORT(js_gpu_apply_bindings)
-void js_gpu_apply_bindings(u32 vb_count, u32 *vb_indices, u32 ib_idx,
-                           u32 ib_format, u32 uniform_buf_idx, u32 ub_count,
-                           u32 *ub_offsets, u32 sb_count, u32 *sb_indices,
-                           u32 tex_count, u32 *tex_indices);
-
-// Texture functions
-WASM_IMPORT(js_gpu_load_texture)
-void js_gpu_load_texture(u32 idx, const char *path, u32 path_len);
-
-WASM_IMPORT(js_gpu_make_texture_data)
-void js_gpu_make_texture_data(u32 idx, u32 width, u32 height, u8 *data);
-
-WASM_IMPORT(js_gpu_texture_is_ready)
-u32 js_gpu_texture_is_ready(u32 idx);
-
-WASM_IMPORT(js_gpu_destroy_texture)
-void js_gpu_destroy_texture(u32 idx);
-
-// Render target functions
-WASM_IMPORT(js_gpu_make_render_target)
-void js_gpu_make_render_target(u32 idx, u32 width, u32 height, u32 format);
-
-WASM_IMPORT(js_gpu_resize_render_target)
-void js_gpu_resize_render_target(u32 idx, u32 width, u32 height);
-
-WASM_IMPORT(js_gpu_destroy_render_target)
-void js_gpu_destroy_render_target(u32 idx);
-
-WASM_IMPORT(js_gpu_blit_to_screen)
-void js_gpu_blit_to_screen(u32 rt_idx);
 
 // =============================================================================
 // Global State
@@ -155,8 +65,8 @@ local_persist u32 uniform_buffer_append(GpuUniformBuffer *ub, void *data,
 
 local_persist void uniform_buffer_flush(GpuUniformBuffer *ub) {
   if (ub->arena.offset > 0) {
-    js_gpu_upload_uniforms(ub->gpu_buf.idx, ub->arena.buffer,
-                           (u32)ub->arena.offset);
+    gpu_backend_upload_uniforms(ub->gpu_buf.idx, ub->arena.buffer,
+                                (u32)ub->arena.offset);
   }
 }
 
@@ -168,7 +78,7 @@ local_persist void uniform_buffer_reset(GpuUniformBuffer *ub) {
 // Public API
 // =============================================================================
 
-void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size) {
+void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size, GpuPlatformDesc *desc) {
   Allocator alloc = make_arena_allocator(arena);
   gpu_state.buffers =
       ha_init(GpuBufferSlot, &alloc, GPU_INITIAL_BUFFER_CAPACITY);
@@ -190,26 +100,26 @@ void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size) {
     gpu_state.uniform_offsets[i] = 0;
   }
 
-  js_gpu_init();
+  gpu_backend_init(desc);
 }
 
 GpuBuffer gpu_make_buffer(GpuBufferDesc *desc) {
   GpuBufferSlot slot = {0};
   GpuBuffer handle = ha_add(GpuBufferSlot, &gpu_state.buffers, slot);
-  js_gpu_make_buffer(handle.idx, desc->type, desc->size, desc->data);
+  gpu_backend_make_buffer(handle.idx, desc);
   return handle;
 }
 
 void gpu_update_buffer(GpuBuffer buf, void *data, u32 size) {
   if (!ha_is_valid(GpuBufferSlot, &gpu_state.buffers, buf))
     return;
-  js_gpu_update_buffer(buf.idx, data, size);
+  gpu_backend_update_buffer(buf.idx, data, size);
 }
 
 void gpu_destroy_buffer(GpuBuffer buf) {
   if (!ha_is_valid(GpuBufferSlot, &gpu_state.buffers, buf))
     return;
-  js_gpu_destroy_buffer(buf.idx);
+  gpu_backend_destroy_buffer(buf.idx);
   ha_remove(GpuBufferSlot, &gpu_state.buffers, buf);
 }
 
@@ -229,17 +139,14 @@ GpuShader gpu_make_shader(GpuShaderDesc *desc) {
   }
 
   GpuShader handle = ha_add(GpuShaderSlot, &gpu_state.shaders, slot);
-
-  u32 vs_len = str_len(desc->vs_code);
-  u32 fs_len = str_len(desc->fs_code);
-  js_gpu_make_shader(handle.idx, desc->vs_code, vs_len, desc->fs_code, fs_len);
+  gpu_backend_make_shader(handle.idx, desc);
   return handle;
 }
 
 void gpu_destroy_shader(GpuShader shd) {
   if (!ha_is_valid(GpuShaderSlot, &gpu_state.shaders, shd))
     return;
-  js_gpu_destroy_shader(shd.idx);
+  gpu_backend_destroy_shader(shd.idx);
   ha_remove(GpuShaderSlot, &gpu_state.shaders, shd);
 }
 
@@ -255,61 +162,14 @@ GpuPipeline gpu_make_pipeline(GpuPipelineDesc *desc) {
       .texture_binding_count = (u32)shader_slot->texture_bindings.len,
   };
   GpuPipeline handle = ha_add(GpuPipelineSlot, &gpu_state.pipelines, slot);
-
-  u32 attr_formats[GPU_MAX_VERTEX_ATTRS];
-  u32 attr_offsets[GPU_MAX_VERTEX_ATTRS];
-  u32 attr_locations[GPU_MAX_VERTEX_ATTRS];
-  for (u32 i = 0; i < desc->vertex_layout.attrs.len; i++) {
-    attr_formats[i] = desc->vertex_layout.attrs.items[i].format;
-    attr_offsets[i] = desc->vertex_layout.attrs.items[i].offset;
-    attr_locations[i] = desc->vertex_layout.attrs.items[i].shader_location;
-  }
-
-  u32 ub_stages[GPU_MAX_UNIFORMBLOCK_SLOTS];
-  u32 ub_sizes[GPU_MAX_UNIFORMBLOCK_SLOTS];
-  u32 ub_bindings[GPU_MAX_UNIFORMBLOCK_SLOTS];
-  for (u32 i = 0; i < shader_slot->uniform_blocks.len; i++) {
-    ub_stages[i] = shader_slot->uniform_blocks.items[i].stage;
-    ub_sizes[i] = shader_slot->uniform_blocks.items[i].size;
-    ub_bindings[i] = shader_slot->uniform_blocks.items[i].binding;
-  }
-
-  u32 sb_stages[GPU_MAX_STORAGE_BUFFER_SLOTS];
-  u32 sb_bindings[GPU_MAX_STORAGE_BUFFER_SLOTS];
-  u32 sb_readonly[GPU_MAX_STORAGE_BUFFER_SLOTS];
-  for (u32 i = 0; i < shader_slot->storage_buffers.len; i++) {
-    sb_stages[i] = shader_slot->storage_buffers.items[i].stage;
-    sb_bindings[i] = shader_slot->storage_buffers.items[i].binding;
-    sb_readonly[i] = shader_slot->storage_buffers.items[i].readonly;
-  }
-
-  u32 tex_stages[GPU_MAX_TEXTURE_SLOTS];
-  u32 tex_sampler_bindings[GPU_MAX_TEXTURE_SLOTS];
-  u32 tex_texture_bindings[GPU_MAX_TEXTURE_SLOTS];
-  for (u32 i = 0; i < shader_slot->texture_bindings.len; i++) {
-    tex_stages[i] = shader_slot->texture_bindings.items[i].stage;
-    tex_sampler_bindings[i] = shader_slot->texture_bindings.items[i].sampler_binding;
-    tex_texture_bindings[i] = shader_slot->texture_bindings.items[i].texture_binding;
-  }
-
-  js_gpu_make_pipeline(handle.idx, desc->shader.idx, desc->vertex_layout.stride,
-                       (u32)desc->vertex_layout.attrs.len, attr_formats,
-                       attr_offsets, attr_locations,
-                       (u32)shader_slot->uniform_blocks.len, ub_stages, ub_sizes,
-                       ub_bindings,
-                       (u32)shader_slot->storage_buffers.len, sb_stages,
-                       sb_bindings, sb_readonly,
-                       (u32)shader_slot->texture_bindings.len, tex_stages,
-                       tex_sampler_bindings, tex_texture_bindings,
-                       desc->primitive, desc->depth_test,
-                       desc->depth_write);
+  gpu_backend_make_pipeline(handle.idx, desc, shader_slot);
   return handle;
 }
 
 void gpu_destroy_pipeline(GpuPipeline pip) {
   if (!ha_is_valid(GpuPipelineSlot, &gpu_state.pipelines, pip))
     return;
-  js_gpu_destroy_pipeline(pip.idx);
+  gpu_backend_destroy_pipeline(pip.idx);
   ha_remove(GpuPipelineSlot, &gpu_state.pipelines, pip);
 }
 
@@ -319,18 +179,12 @@ void gpu_begin_pass(GpuPassDesc *desc) {
   for (u32 i = 0; i < GPU_MAX_UNIFORMBLOCK_SLOTS; i++) {
     gpu_state.uniform_offsets[i] = 0;
   }
-
-  u32 rt_idx = handle_equals(desc->render_target, INVALID_HANDLE)
-      ? 0xFFFFFFFF
-      : desc->render_target.idx;
-  js_gpu_begin_pass(desc->clear_color.r, desc->clear_color.g,
-                    desc->clear_color.b, desc->clear_color.a,
-                    desc->clear_depth, rt_idx);
+  gpu_backend_begin_pass(desc);
 }
 
 void gpu_apply_pipeline(GpuPipeline pip) {
   gpu_state.current_pipeline = pip;
-  js_gpu_apply_pipeline(pip.idx);
+  gpu_backend_apply_pipeline(pip.idx);
 }
 
 void gpu_apply_uniforms(u32 slot, void *data, u32 size) {
@@ -344,69 +198,49 @@ void gpu_apply_bindings(GpuBindings *bindings) {
   GpuPipelineSlot *pip_slot =
       ha_get(GpuPipelineSlot, &gpu_state.pipelines, gpu_state.current_pipeline);
   assert(pip_slot != NULL);
-
-  u32 vb_indices[GPU_MAX_VERTEX_BUFFERS];
-  for (u32 i = 0; i < bindings->vertex_buffers.len; i++) {
-    vb_indices[i] = bindings->vertex_buffers.items[i].idx;
-  }
-
-  u32 sb_indices[GPU_MAX_STORAGE_BUFFER_SLOTS];
-  for (u32 i = 0; i < bindings->storage_buffers.len; i++) {
-    sb_indices[i] = bindings->storage_buffers.items[i].idx;
-  }
-
-  u32 tex_indices[GPU_MAX_TEXTURE_SLOTS];
-  for (u32 i = 0; i < bindings->textures.len; i++) {
-    tex_indices[i] = bindings->textures.items[i].idx;
-  }
-
-  js_gpu_apply_bindings((u32)bindings->vertex_buffers.len, vb_indices,
-                        bindings->index_buffer.idx, bindings->index_format,
-                        gpu_state.uniforms.gpu_buf.idx,
-                        pip_slot->uniform_block_count, gpu_state.uniform_offsets,
-                        (u32)bindings->storage_buffers.len, sb_indices,
-                        (u32)bindings->textures.len, tex_indices);
+  gpu_backend_apply_bindings(bindings, gpu_state.uniforms.gpu_buf.idx,
+                             pip_slot->uniform_block_count, gpu_state.uniform_offsets);
 }
 
 void gpu_draw(u32 vertex_count, u32 instance_count) {
-  js_gpu_draw(vertex_count, instance_count);
+  gpu_backend_draw(vertex_count, instance_count);
 }
 
 void gpu_draw_indexed(u32 index_count, u32 instance_count) {
-  js_gpu_draw_indexed(index_count, instance_count);
+  gpu_backend_draw_indexed(index_count, instance_count);
 }
 
-void gpu_end_pass(void) { js_gpu_end_pass(); }
+void gpu_end_pass(void) { gpu_backend_end_pass(); }
 
 void gpu_commit(void) {
   uniform_buffer_flush(&gpu_state.uniforms);
-  js_gpu_commit();
+  gpu_backend_commit();
 }
 
 GpuTexture gpu_make_texture(const char *path) {
   GpuTextureSlot slot = {0};
   GpuTexture handle = ha_add(GpuTextureSlot, &gpu_state.textures, slot);
-  js_gpu_load_texture(handle.idx, path, str_len(path));
+  gpu_backend_load_texture(handle.idx, path);
   return handle;
 }
 
 GpuTexture gpu_make_texture_data(u32 width, u32 height, u8 *data) {
   GpuTextureSlot slot = {0};
   GpuTexture handle = ha_add(GpuTextureSlot, &gpu_state.textures, slot);
-  js_gpu_make_texture_data(handle.idx, width, height, data);
+  gpu_backend_make_texture_data(handle.idx, width, height, data);
   return handle;
 }
 
 b32 gpu_texture_is_ready(GpuTexture tex) {
   if (!ha_is_valid(GpuTextureSlot, &gpu_state.textures, tex))
     return false;
-  return js_gpu_texture_is_ready(tex.idx) != 0;
+  return gpu_backend_texture_is_ready(tex.idx) != 0;
 }
 
 void gpu_destroy_texture(GpuTexture tex) {
   if (!ha_is_valid(GpuTextureSlot, &gpu_state.textures, tex))
     return;
-  js_gpu_destroy_texture(tex.idx);
+  gpu_backend_destroy_texture(tex.idx);
   ha_remove(GpuTextureSlot, &gpu_state.textures, tex);
 }
 
@@ -417,7 +251,7 @@ GpuRenderTarget gpu_make_render_target(u32 width, u32 height, GpuTextureFormat f
       .format = format,
   };
   GpuRenderTarget handle = ha_add(GpuRenderTargetSlot, &gpu_state.render_targets, slot);
-  js_gpu_make_render_target(handle.idx, width, height, format);
+  gpu_backend_make_render_target(handle.idx, width, height, format);
   return handle;
 }
 
@@ -426,18 +260,18 @@ void gpu_resize_render_target(GpuRenderTarget rt, u32 width, u32 height) {
   if (!slot) return;
   slot->width = width;
   slot->height = height;
-  js_gpu_resize_render_target(rt.idx, width, height);
+  gpu_backend_resize_render_target(rt.idx, width, height);
 }
 
 void gpu_destroy_render_target(GpuRenderTarget rt) {
   if (!ha_is_valid(GpuRenderTargetSlot, &gpu_state.render_targets, rt))
     return;
-  js_gpu_destroy_render_target(rt.idx);
+  gpu_backend_destroy_render_target(rt.idx);
   ha_remove(GpuRenderTargetSlot, &gpu_state.render_targets, rt);
 }
 
 void gpu_blit_to_screen(GpuRenderTarget rt) {
   if (!ha_is_valid(GpuRenderTargetSlot, &gpu_state.render_targets, rt))
     return;
-  js_gpu_blit_to_screen(rt.idx);
+  gpu_backend_blit_to_screen(rt.idx);
 }

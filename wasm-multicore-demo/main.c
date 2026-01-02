@@ -2,13 +2,20 @@
 #include "lib/string.c"
 #include "lib/common.c"
 #include "lib/memory.c"
+#include "lib/allocator_pool.c"
 #include "lib/string_builder.c"
 #include "lib/thread_context.h"
 #include "os/os.h"
-#include "os/os_wasm.c"
 #include "lib/thread.c"
 #include "lib/thread_context.c"
 #include "lib/multicore_runtime.c"
+
+#ifdef WIN32
+#include "gpu_backend_d3d11.c"
+#endif
+#ifdef WASM
+#include "gpu_backend_webgpu.c"
+#endif
 #include "gpu.c"
 #include "renderer.c"
 #include "mesh.c"
@@ -30,9 +37,11 @@
 
 
 #ifdef WIN32
+#include "os/os_win32.c"
 #include "entrypoint_win32.c"
 #endif
 #ifdef WASM
+#include "os/os_wasm.c"
 #include "entrypoint.c"
 #endif
 

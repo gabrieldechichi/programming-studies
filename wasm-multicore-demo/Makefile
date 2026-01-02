@@ -109,6 +109,6 @@ WIN32_CFLAGS = /nologo /W3 /std:c11 /I. /Fe:$(OUT_DIR)/game.exe /Fo:$(OUT_DIR)/ 
 WIN32_LIBS = user32.lib gdi32.lib dbghelp.lib shlwapi.lib winmm.lib
 
 windows: dirs
-	cl $(WIN32_CFLAGS) main_win32.c /link $(WIN32_LIBS)
+	cl $(WIN32_CFLAGS) main.c /link $(WIN32_LIBS)
 
 .PHONY: all dirs build_shaders wasm js clean run test exporter shader_compiler async_file_test windows

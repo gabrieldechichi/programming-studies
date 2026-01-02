@@ -7,6 +7,21 @@
 #include "lib/math.h"
 #include "lib/memory.h"
 
+// Platform descriptor for GPU initialization
+typedef struct GpuPlatformDesc {
+    void *window_handle;      // HWND on Windows, NULL on WASM
+    u32 width;
+    u32 height;
+    b32 vsync;
+    b32 debug;
+    b32 shader_debug;         // D3D11: compile shaders with debug info
+    u32 max_buffers;          // 0 = use default
+    u32 max_textures;
+    u32 max_shaders;
+    u32 max_pipelines;
+    u32 max_render_targets;
+} GpuPlatformDesc;
+
 // Uniform buffer constants
 #define GPU_UNIFORM_BUFFER_SIZE MB(1)
 //todo: query at runtime
@@ -57,7 +72,7 @@ typedef struct {
 // Resource slot types (stored in handle arrays, actual GPU data lives in JS)
 typedef struct { u8 _unused; } GpuBufferSlot;
 typedef struct { u8 _unused; } GpuTextureSlot;
-typedef struct {
+typedef struct GpuShaderSlot {
     FixedArray(GpuUniformBlockDesc, GPU_MAX_UNIFORMBLOCK_SLOTS) uniform_blocks;
     FixedArray(GpuStorageBufferDesc, GPU_MAX_STORAGE_BUFFER_SLOTS) storage_buffers;
     FixedArray(GpuTextureBindingDesc, GPU_MAX_TEXTURE_SLOTS) texture_bindings;
@@ -111,13 +126,13 @@ typedef enum {
 } GpuPrimitiveTopology;
 
 // Descriptors
-typedef struct {
+typedef struct GpuBufferDesc {
     GpuBufferType type;
     u32 size;
     void *data;  // initial data (NULL for dynamic)
 } GpuBufferDesc;
 
-typedef struct {
+typedef struct GpuShaderDesc {
     const char *vs_code;
     const char *fs_code;
     FixedArray(GpuUniformBlockDesc, GPU_MAX_UNIFORMBLOCK_SLOTS) uniform_blocks;
@@ -138,7 +153,7 @@ typedef struct {
     FixedArray(GpuVertexAttr, GPU_MAX_VERTEX_ATTRS) attrs;
 } GpuVertexLayout;
 
-typedef struct {
+typedef struct GpuPipelineDesc {
     GpuShader shader;
     GpuVertexLayout vertex_layout;
     GpuPrimitiveTopology primitive;
@@ -149,7 +164,7 @@ typedef struct {
 
 #define GPU_MAX_VERTEX_BUFFERS 4
 
-typedef struct {
+typedef struct GpuBindings {
     FixedArray(GpuBuffer, GPU_MAX_VERTEX_BUFFERS) vertex_buffers;
     GpuBuffer index_buffer;
     GpuIndexFormat index_format;
@@ -162,7 +177,7 @@ typedef struct {
     f32 r, g, b, a;
 } GpuColor;
 
-typedef struct {
+typedef struct GpuPassDesc {
     GpuColor clear_color;
     f32 clear_depth;
     GpuRenderTarget render_target;  // GPU_INVALID_HANDLE = render to screen
@@ -179,7 +194,7 @@ TYPED_HANDLE_DEFINE(GpuMesh);   // -> Mesh_Handle
 HANDLE_ARRAY_DEFINE(GpuMesh);   // -> HandleArray_Mesh
 
 // API Functions
-void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size);
+void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size, GpuPlatformDesc *desc);
 
 GpuBuffer gpu_make_buffer(GpuBufferDesc *desc);
 void gpu_update_buffer(GpuBuffer buf, void *data, u32 size);
