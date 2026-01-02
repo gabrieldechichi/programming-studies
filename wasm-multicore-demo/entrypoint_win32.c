@@ -2,6 +2,7 @@
 #include "lib/thread_context.h"
 #include "os/os.h"
 #include "app.h"
+#include "gpu_backend.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -339,6 +340,14 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, 
     if (!g_hwnd) {
         return 1;
     }
+
+    gpu_backend_init(&(GpuPlatformDesc){
+        .window_handle = g_hwnd,
+        .width = (u32)initial_width,
+        .height = (u32)initial_height,
+        .vsync = true,
+        .debug = true,
+    });
 
     u32 dpi = GetDpiForWindow(g_hwnd);
     f32 dpr = (f32)dpi / 96.0f;

@@ -99,8 +99,6 @@ void gpu_init(ArenaAllocator *arena, u32 uniform_buffer_size, GpuPlatformDesc *d
   for (u32 i = 0; i < GPU_MAX_UNIFORMBLOCK_SLOTS; i++) {
     gpu_state.uniform_offsets[i] = 0;
   }
-
-  gpu_backend_init(desc);
 }
 
 GpuBuffer gpu_make_buffer(GpuBufferDesc *desc) {

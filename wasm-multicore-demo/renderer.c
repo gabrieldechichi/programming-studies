@@ -213,11 +213,15 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color, f32 time) 
     g_renderer.thread_cmds[i].len = 0;
   }
 
-  // Begin GPU pass to HDR render target
+  // Begin GPU pass - render directly to backbuffer for now (HDR blit not yet implemented on D3D11)
   gpu_begin_pass(&(GpuPassDesc){
       .clear_color = clear_color,
       .clear_depth = 1.0f,
+#ifdef WIN32
+      .render_target = INVALID_HANDLE,  // TODO: restore hdr_target when blit shader is implemented
+#else
       .render_target = g_renderer.hdr_target,
+#endif
   });
 }
 

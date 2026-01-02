@@ -2,6 +2,7 @@
 #include "lib/thread_context.h"
 #include "os/os.h"
 #include "app.h"
+#include "gpu_backend.h"
 
 global Barrier frame_barrier;
 global ThreadContext main_thread_ctx;
@@ -82,6 +83,11 @@ int wasm_init(AppMemory *memory)
     worker_data[i] = (WorkerData){.ctx = &thread_contexts[i]};
     threads[i] = thread_launch(worker_loop, &worker_data[i]);
   }
+
+  gpu_backend_init(&(GpuPlatformDesc){
+      .width = (u32)memory->canvas_width,
+      .height = (u32)memory->canvas_height,
+  });
 
   // Sync with workers for init phase
   lane_sync();
