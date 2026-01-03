@@ -432,6 +432,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, 
         arena_reset(&tctx_current()->temp_arena);
         lane_sync();
 
+#if 0
+        // Software frame limiting disabled - GPU vsync handles this via Present(1, 0)
         u64 frame_end = os_time_now();
         f32 frame_time_ms = (f32)NS_TO_MS(os_time_diff(frame_end, frame_start));
         if (frame_time_ms < target_frame_time_ms) {
@@ -443,6 +445,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, 
                 // spin
             }
         }
+#endif
     }
 
     g_running = false;
