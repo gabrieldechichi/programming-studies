@@ -327,9 +327,12 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         js_gpu_load_texture: (idx: number, pathPtr: number, pathLen: number) => {
             if (!renderer) return;
 
-            const path = readString(memory, pathPtr, pathLen);
+            let path = readString(memory, pathPtr, pathLen);
             textures[idx] = null;
             samplers[idx] = null;
+
+            //HACK: remove public for now
+            path = path.replace("public/", "")
 
             fetch(path)
                 .then(response => response.blob())
