@@ -36,7 +36,7 @@ typedef struct {
 
 global RendererState g_renderer;
 
-void renderer_init(ArenaAllocator *arena, u8 thread_count, u32 canvas_width, u32 canvas_height) {
+void renderer_init(ArenaAllocator *arena, u8 thread_count, u32 canvas_width, u32 canvas_height, u32 msaa_samples) {
   Allocator alloc = make_arena_allocator(arena);
 
   gpu_init(arena, GPU_UNIFORM_BUFFER_SIZE, NULL);
@@ -65,7 +65,7 @@ void renderer_init(ArenaAllocator *arena, u8 thread_count, u32 canvas_width, u32
 
   g_renderer.canvas_width = canvas_width;
   g_renderer.canvas_height = canvas_height;
-  g_renderer.hdr_target = gpu_make_render_target(canvas_width, canvas_height, GPU_TEXTURE_FORMAT_RGBA16F);
+  g_renderer.hdr_target = gpu_make_render_target(canvas_width, canvas_height, GPU_TEXTURE_FORMAT_RGBA16F, msaa_samples);
 }
 
 void renderer_resize(u32 width, u32 height) {

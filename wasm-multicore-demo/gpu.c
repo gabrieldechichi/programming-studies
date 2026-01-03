@@ -244,14 +244,15 @@ void gpu_destroy_texture(GpuTexture tex) {
   ha_remove(GpuTextureSlot, &gpu_state.textures, tex);
 }
 
-GpuRenderTarget gpu_make_render_target(u32 width, u32 height, GpuTextureFormat format) {
+GpuRenderTarget gpu_make_render_target(u32 width, u32 height, GpuTextureFormat format, u32 sample_count) {
   GpuRenderTargetSlot slot = {
       .width = width,
       .height = height,
+      .sample_count = sample_count,
       .format = format,
   };
   GpuRenderTarget handle = ha_add(GpuRenderTargetSlot, &gpu_state.render_targets, slot);
-  gpu_backend_make_render_target(handle.idx, width, height, format);
+  gpu_backend_make_render_target(handle.idx, width, height, format, sample_count);
   return handle;
 }
 
@@ -260,7 +261,7 @@ void gpu_resize_render_target(GpuRenderTarget rt, u32 width, u32 height) {
   if (!slot) return;
   slot->width = width;
   slot->height = height;
-  gpu_backend_resize_render_target(rt.idx, width, height);
+  gpu_backend_resize_render_target(rt.idx, width, height, slot->sample_count);
 }
 
 void gpu_destroy_render_target(GpuRenderTarget rt) {

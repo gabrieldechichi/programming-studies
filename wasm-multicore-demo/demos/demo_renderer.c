@@ -11,7 +11,7 @@ void app_init(AppMemory *memory) {
   }
 
   AppContext *app_ctx = app_ctx_current();
-  renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height);
+  renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height, 4);
 
   LOG_INFO("Renderer demo initialized");
 }

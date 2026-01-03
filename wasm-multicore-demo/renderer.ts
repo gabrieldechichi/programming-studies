@@ -17,16 +17,19 @@ const pipelines: (GPURenderPipeline | null)[] = [];
 const textures: (GPUTexture | null)[] = [];
 const samplers: (GPUSampler | null)[] = [];
 
-// Render targets: color texture + depth texture
+// Render targets: color texture + depth texture + optional MSAA
 interface RenderTarget {
+    msaaTexture: GPUTexture | null;
     colorTexture: GPUTexture;
     depthTexture: GPUTexture;
     format: GPUTextureFormat;
+    sampleCount: number;
 }
 const renderTargets: (RenderTarget | null)[] = [];
 
-// Scene render format (used for pipeline creation) - set when first HDR target is created
+// Scene render format and sample count (used for pipeline creation) - set when first HDR target is created
 let sceneRenderFormat: GPUTextureFormat = "bgra8unorm";
+let sceneSampleCount: number = 1;
 
 // Blit resources (created lazily)
 let blitPipeline: GPURenderPipeline | null = null;
@@ -598,6 +601,9 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                     depthWriteEnabled: depthTest ? !!depthWrite : false,
                     depthCompare: depthTest ? (COMPARE_FUNCS[depthCompare] || "less") : "always",
                 },
+                multisample: {
+                    count: sceneSampleCount,
+                },
             });
 
             pipelines[idx] = pipeline;
@@ -618,11 +624,17 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             currentEncoder = renderer.device.createCommandEncoder();
 
             let colorView: GPUTextureView;
+            let resolveTarget: GPUTextureView | undefined;
             let depthView: GPUTextureView;
 
             if (rtIdx !== 0xFFFFFFFF && renderTargets[rtIdx]) {
                 const rt = renderTargets[rtIdx]!;
-                colorView = rt.colorTexture.createView();
+                if (rt.msaaTexture) {
+                    colorView = rt.msaaTexture.createView();
+                    resolveTarget = rt.colorTexture.createView();
+                } else {
+                    colorView = rt.colorTexture.createView();
+                }
                 depthView = rt.depthTexture.createView();
             } else {
                 colorView = renderer.context.getCurrentTexture().createView();
@@ -633,9 +645,10 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 colorAttachments: [
                     {
                         view: colorView,
+                        resolveTarget: resolveTarget,
                         clearValue: { r, g, b, a },
                         loadOp: "clear",
-                        storeOp: "store",
+                        storeOp: resolveTarget ? "discard" : "store",
                     },
                 ],
                 depthStencilAttachment: {
@@ -831,11 +844,22 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             }
         },
 
-        js_gpu_make_render_target: (idx: number, width: number, height: number, format: number) => {
+        js_gpu_make_render_target: (idx: number, width: number, height: number, format: number, sampleCount: number) => {
             if (!renderer) return;
 
             const gpuFormat = TEXTURE_FORMATS[format];
             sceneRenderFormat = gpuFormat;
+            sceneSampleCount = sampleCount;
+
+            let msaaTexture: GPUTexture | null = null;
+            if (sampleCount > 1) {
+                msaaTexture = renderer.device.createTexture({
+                    size: [width, height],
+                    format: gpuFormat,
+                    sampleCount: sampleCount,
+                    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+                });
+            }
 
             const colorTexture = renderer.device.createTexture({
                 size: [width, height],
@@ -846,23 +870,39 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             const depthTexture = renderer.device.createTexture({
                 size: [width, height],
                 format: "depth24plus",
+                sampleCount: sampleCount,
                 usage: GPUTextureUsage.RENDER_ATTACHMENT,
             });
 
             renderTargets[idx] = {
+                msaaTexture,
                 colorTexture,
                 depthTexture,
                 format: gpuFormat,
+                sampleCount,
             };
         },
 
-        js_gpu_resize_render_target: (idx: number, width: number, height: number) => {
+        js_gpu_resize_render_target: (idx: number, width: number, height: number, sampleCount: number) => {
             if (!renderer) return;
             const rt = renderTargets[idx];
             if (!rt) return;
 
+            if (rt.msaaTexture) rt.msaaTexture.destroy();
             rt.colorTexture.destroy();
             rt.depthTexture.destroy();
+
+            let msaaTexture: GPUTexture | null = null;
+            if (sampleCount > 1) {
+                msaaTexture = renderer.device.createTexture({
+                    size: [width, height],
+                    format: rt.format,
+                    sampleCount: sampleCount,
+                    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+                });
+            }
+            rt.msaaTexture = msaaTexture;
+            rt.sampleCount = sampleCount;
 
             rt.colorTexture = renderer.device.createTexture({
                 size: [width, height],
@@ -873,6 +913,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             rt.depthTexture = renderer.device.createTexture({
                 size: [width, height],
                 format: "depth24plus",
+                sampleCount: sampleCount,
                 usage: GPUTextureUsage.RENDER_ATTACHMENT,
             });
         },
@@ -880,6 +921,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
         js_gpu_destroy_render_target: (idx: number) => {
             const rt = renderTargets[idx];
             if (rt) {
+                if (rt.msaaTexture) rt.msaaTexture.destroy();
                 rt.colorTexture.destroy();
                 rt.depthTexture.destroy();
                 renderTargets[idx] = null;

@@ -53,8 +53,8 @@ u32 gpu_backend_texture_is_ready(u32 idx);
 void gpu_backend_destroy_texture(u32 idx);
 
 // Render targets
-void gpu_backend_make_render_target(u32 idx, u32 width, u32 height, u32 format);
-void gpu_backend_resize_render_target(u32 idx, u32 width, u32 height);
+void gpu_backend_make_render_target(u32 idx, u32 width, u32 height, u32 format, u32 sample_count);
+void gpu_backend_resize_render_target(u32 idx, u32 width, u32 height, u32 sample_count);
 void gpu_backend_destroy_render_target(u32 idx);
 void gpu_backend_blit_to_screen(u32 rt_idx);
 

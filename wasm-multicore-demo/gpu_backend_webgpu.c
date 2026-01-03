@@ -33,8 +33,8 @@ WASM_IMPORT(js_gpu_load_texture) void js_gpu_load_texture(u32 idx, const char *p
 WASM_IMPORT(js_gpu_make_texture_data) void js_gpu_make_texture_data(u32 idx, u32 width, u32 height, u8 *data);
 WASM_IMPORT(js_gpu_texture_is_ready) u32 js_gpu_texture_is_ready(u32 idx);
 WASM_IMPORT(js_gpu_destroy_texture) void js_gpu_destroy_texture(u32 idx);
-WASM_IMPORT(js_gpu_make_render_target) void js_gpu_make_render_target(u32 idx, u32 width, u32 height, u32 format);
-WASM_IMPORT(js_gpu_resize_render_target) void js_gpu_resize_render_target(u32 idx, u32 width, u32 height);
+WASM_IMPORT(js_gpu_make_render_target) void js_gpu_make_render_target(u32 idx, u32 width, u32 height, u32 format, u32 sample_count);
+WASM_IMPORT(js_gpu_resize_render_target) void js_gpu_resize_render_target(u32 idx, u32 width, u32 height, u32 sample_count);
 WASM_IMPORT(js_gpu_destroy_render_target) void js_gpu_destroy_render_target(u32 idx);
 WASM_IMPORT(js_gpu_blit_to_screen) void js_gpu_blit_to_screen(u32 rt_idx);
 
@@ -191,12 +191,12 @@ void gpu_backend_destroy_texture(u32 idx) {
     js_gpu_destroy_texture(idx);
 }
 
-void gpu_backend_make_render_target(u32 idx, u32 width, u32 height, u32 format) {
-    js_gpu_make_render_target(idx, width, height, format);
+void gpu_backend_make_render_target(u32 idx, u32 width, u32 height, u32 format, u32 sample_count) {
+    js_gpu_make_render_target(idx, width, height, format, sample_count);
 }
 
-void gpu_backend_resize_render_target(u32 idx, u32 width, u32 height) {
-    js_gpu_resize_render_target(idx, width, height);
+void gpu_backend_resize_render_target(u32 idx, u32 width, u32 height, u32 sample_count) {
+    js_gpu_resize_render_target(idx, width, height, sample_count);
 }
 
 void gpu_backend_destroy_render_target(u32 idx) {

@@ -39,7 +39,7 @@ void app_init(AppMemory *memory) {
   g_state.camera = camera_init(VEC3(0, 5, 30), VEC3(0, 0, 0), 45.0f);
 
   // Initialize renderer
-  renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height);
+  renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height, 4);
 
   // Upload cube mesh
   g_state.cube_mesh = renderer_upload_mesh(&(MeshDesc){

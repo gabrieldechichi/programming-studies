@@ -856,7 +856,7 @@ void app_init(AppMemory *memory) {
   state.fly_cam.camera_pos[2] = 40.4f;
   state.fly_cam.move_speed = 400.0f;
   renderer_init(&app_ctx->arena, app_ctx->num_threads,
-                (u32)memory->canvas_width, (u32)memory->canvas_height);
+                (u32)memory->canvas_width, (u32)memory->canvas_height, 4);
 
   ThreadContext *tctx = tctx_current();
   asset_system_init(&state.assets, 64);

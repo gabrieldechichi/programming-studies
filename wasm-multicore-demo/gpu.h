@@ -92,6 +92,7 @@ typedef enum {
 typedef struct {
     u32 width;
     u32 height;
+    u32 sample_count;
     GpuTextureFormat format;
 } GpuRenderTargetSlot;
 
@@ -276,7 +277,7 @@ b32 gpu_texture_is_ready(GpuTexture tex);
 void gpu_destroy_texture(GpuTexture tex);
 
 // Render targets
-GpuRenderTarget gpu_make_render_target(u32 width, u32 height, GpuTextureFormat format);
+GpuRenderTarget gpu_make_render_target(u32 width, u32 height, GpuTextureFormat format, u32 sample_count);
 void gpu_resize_render_target(GpuRenderTarget rt, u32 width, u32 height);
 void gpu_destroy_render_target(GpuRenderTarget rt);
 void gpu_blit_to_screen(GpuRenderTarget rt);

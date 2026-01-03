@@ -22,9 +22,9 @@ void app_init(AppMemory *memory) {
   }
 
   AppContext *app_ctx = app_ctx_current();
-  renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height);
+  renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height, 4);
 
-  g_demo.camera = camera_init(VEC3(0, 0, 3), VEC3(0, 0, 0), 60.0f);
+  g_demo.camera = camera_init(VEC3(0, 0, 1), VEC3(0, 0, 0), 60.0f);
 
   f32 vertices[] = {
       -0.5f, -0.5f, 0.0f,

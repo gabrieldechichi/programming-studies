@@ -64,6 +64,8 @@ typedef struct {
 } D3D11Pipeline;
 
 typedef struct {
+    ID3D11Texture2D *msaa_texture;
+    ID3D11RenderTargetView *msaa_rtv;
     ID3D11Texture2D *texture;
     ID3D11RenderTargetView *rtv;
     ID3D11ShaderResourceView *srv;
@@ -71,6 +73,7 @@ typedef struct {
     ID3D11DepthStencilView *dsv;
     u32 width;
     u32 height;
+    u32 sample_count;
     GpuTextureFormat format;
 } D3D11RenderTarget;
 
@@ -98,6 +101,7 @@ typedef struct {
     ID3D11DepthStencilView *current_dsv;
     u32 current_rt_width;
     u32 current_rt_height;
+    u32 current_rt_idx;
 
     u32 current_pipeline_idx;
     DXGI_FORMAT current_index_format;
@@ -112,6 +116,8 @@ typedef struct {
 } D3D11State;
 
 local_persist D3D11State d3d11;
+
+internal DXGI_FORMAT d3d11_texture_format(GpuTextureFormat format);
 
 internal DXGI_FORMAT d3d11_vertex_format(GpuVertexFormat fmt) {
     switch (fmt) {
@@ -448,6 +454,8 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
         .FrontCounterClockwise = (desc->face_winding == GPU_FACE_CCW),
         .DepthClipEnable = TRUE,
         .ScissorEnable = FALSE,
+        .MultisampleEnable = TRUE,
+        .AntialiasedLineEnable = FALSE,
     };
     hr = ID3D11Device_CreateRasterizerState(d3d11.device, &rs_desc, &pip->rasterizer);
     if (FAILED(hr)) {
@@ -502,12 +510,14 @@ void gpu_backend_begin_pass(GpuPassDesc *desc) {
         d3d11.current_dsv = d3d11.backbuffer_dsv;
         d3d11.current_rt_width = d3d11.width;
         d3d11.current_rt_height = d3d11.height;
+        d3d11.current_rt_idx = 0xFFFFFFFF;
     } else {
         D3D11RenderTarget *rt = &d3d11.render_targets[desc->render_target.idx];
-        d3d11.current_rtv = rt->rtv;
+        d3d11.current_rtv = rt->sample_count > 1 ? rt->msaa_rtv : rt->rtv;
         d3d11.current_dsv = rt->dsv;
         d3d11.current_rt_width = rt->width;
         d3d11.current_rt_height = rt->height;
+        d3d11.current_rt_idx = desc->render_target.idx;
     }
 
     ID3D11DeviceContext_OMSetRenderTargets(d3d11.context, 1, &d3d11.current_rtv, d3d11.current_dsv);
@@ -543,6 +553,16 @@ void gpu_backend_apply_pipeline(u32 handle_idx) {
 }
 
 void gpu_backend_end_pass(void) {
+    if (d3d11.current_rt_idx != 0xFFFFFFFF) {
+        D3D11RenderTarget *rt = &d3d11.render_targets[d3d11.current_rt_idx];
+        if (rt->sample_count > 1) {
+            DXGI_FORMAT resolve_format = d3d11_texture_format(rt->format);
+            ID3D11DeviceContext_ResolveSubresource(d3d11.context,
+                (ID3D11Resource *)rt->texture, 0,
+                (ID3D11Resource *)rt->msaa_texture, 0,
+                resolve_format);
+        }
+    }
 }
 
 void gpu_backend_commit(void) {
@@ -730,13 +750,33 @@ internal DXGI_FORMAT d3d11_texture_format(GpuTextureFormat format) {
     }
 }
 
-void gpu_backend_make_render_target(u32 idx, u32 width, u32 height, u32 format) {
+void gpu_backend_make_render_target(u32 idx, u32 width, u32 height, u32 format, u32 sample_count) {
     D3D11RenderTarget *rt = &d3d11.render_targets[idx];
     rt->width = width;
     rt->height = height;
+    rt->sample_count = sample_count;
     rt->format = (GpuTextureFormat)format;
 
     DXGI_FORMAT dxgi_format = d3d11_texture_format((GpuTextureFormat)format);
+
+    if (sample_count > 1) {
+        D3D11_TEXTURE2D_DESC msaa_desc = {
+            .Width = width,
+            .Height = height,
+            .MipLevels = 1,
+            .ArraySize = 1,
+            .Format = dxgi_format,
+            .SampleDesc = {.Count = sample_count, .Quality = D3D11_STANDARD_MULTISAMPLE_PATTERN},
+            .Usage = D3D11_USAGE_DEFAULT,
+            .BindFlags = D3D11_BIND_RENDER_TARGET,
+        };
+        ID3D11Device_CreateTexture2D(d3d11.device, &msaa_desc, NULL, &rt->msaa_texture);
+        ID3D11Device_CreateRenderTargetView(d3d11.device, (ID3D11Resource *)rt->msaa_texture, NULL, &rt->msaa_rtv);
+        rt->rtv = NULL;
+    } else {
+        rt->msaa_texture = NULL;
+        rt->msaa_rtv = NULL;
+    }
 
     D3D11_TEXTURE2D_DESC tex_desc = {
         .Width = width,
@@ -749,7 +789,9 @@ void gpu_backend_make_render_target(u32 idx, u32 width, u32 height, u32 format) 
         .BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE,
     };
     ID3D11Device_CreateTexture2D(d3d11.device, &tex_desc, NULL, &rt->texture);
-    ID3D11Device_CreateRenderTargetView(d3d11.device, (ID3D11Resource *)rt->texture, NULL, &rt->rtv);
+    if (sample_count == 1) {
+        ID3D11Device_CreateRenderTargetView(d3d11.device, (ID3D11Resource *)rt->texture, NULL, &rt->rtv);
+    }
     ID3D11Device_CreateShaderResourceView(d3d11.device, (ID3D11Resource *)rt->texture, NULL, &rt->srv);
 
     D3D11_TEXTURE2D_DESC depth_desc = {
@@ -758,7 +800,7 @@ void gpu_backend_make_render_target(u32 idx, u32 width, u32 height, u32 format) 
         .MipLevels = 1,
         .ArraySize = 1,
         .Format = DXGI_FORMAT_D24_UNORM_S8_UINT,
-        .SampleDesc = {.Count = 1, .Quality = 0},
+        .SampleDesc = {.Count = sample_count, .Quality = sample_count > 1 ? D3D11_STANDARD_MULTISAMPLE_PATTERN : 0},
         .Usage = D3D11_USAGE_DEFAULT,
         .BindFlags = D3D11_BIND_DEPTH_STENCIL,
     };
@@ -766,20 +808,24 @@ void gpu_backend_make_render_target(u32 idx, u32 width, u32 height, u32 format) 
     ID3D11Device_CreateDepthStencilView(d3d11.device, (ID3D11Resource *)rt->depth_texture, NULL, &rt->dsv);
 }
 
-void gpu_backend_resize_render_target(u32 idx, u32 width, u32 height) {
+void gpu_backend_resize_render_target(u32 idx, u32 width, u32 height, u32 sample_count) {
     D3D11RenderTarget *rt = &d3d11.render_targets[idx];
 
+    if (rt->msaa_rtv) ID3D11RenderTargetView_Release(rt->msaa_rtv);
+    if (rt->msaa_texture) ID3D11Texture2D_Release(rt->msaa_texture);
     if (rt->rtv) ID3D11RenderTargetView_Release(rt->rtv);
     if (rt->srv) ID3D11ShaderResourceView_Release(rt->srv);
     if (rt->texture) ID3D11Texture2D_Release(rt->texture);
     if (rt->dsv) ID3D11DepthStencilView_Release(rt->dsv);
     if (rt->depth_texture) ID3D11Texture2D_Release(rt->depth_texture);
 
-    gpu_backend_make_render_target(idx, width, height, rt->format);
+    gpu_backend_make_render_target(idx, width, height, rt->format, sample_count);
 }
 
 void gpu_backend_destroy_render_target(u32 idx) {
     D3D11RenderTarget *rt = &d3d11.render_targets[idx];
+    if (rt->msaa_rtv) ID3D11RenderTargetView_Release(rt->msaa_rtv);
+    if (rt->msaa_texture) ID3D11Texture2D_Release(rt->msaa_texture);
     if (rt->rtv) ID3D11RenderTargetView_Release(rt->rtv);
     if (rt->srv) ID3D11ShaderResourceView_Release(rt->srv);
     if (rt->texture) ID3D11Texture2D_Release(rt->texture);
