@@ -215,6 +215,7 @@ typedef struct GpuPipelineDesc {
     GpuBlendState blend;             // default: disabled
     b32 depth_test;
     b32 depth_write;
+    b32 color_write_disabled;        // default: false (color writes enabled)
 } GpuPipelineDesc;
 
 #define GPU_MAX_VERTEX_BUFFERS 4
@@ -235,6 +236,7 @@ typedef struct {
 typedef struct GpuPassDesc {
     GpuColor clear_color;
     f32 clear_depth;
+    b32 no_clear;             // if true, skip clearing color and depth
     GpuRenderTarget render_target;  // GPU_INVALID_HANDLE = render to screen
 } GpuPassDesc;
 

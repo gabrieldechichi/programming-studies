@@ -485,7 +485,7 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
             .SrcBlendAlpha = blend->enabled ? d3d11_blend_factor(blend->src_factor_alpha) : D3D11_BLEND_ONE,
             .DestBlendAlpha = blend->enabled ? d3d11_blend_factor(blend->dst_factor_alpha) : D3D11_BLEND_ZERO,
             .BlendOpAlpha = blend->enabled ? d3d11_blend_op(blend->op_alpha) : D3D11_BLEND_OP_ADD,
-            .RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL,
+            .RenderTargetWriteMask = desc->color_write_disabled ? 0 : D3D11_COLOR_WRITE_ENABLE_ALL,
         },
     };
     hr = ID3D11Device_CreateBlendState(d3d11.device, &blend_desc, &pip->blend);
@@ -532,9 +532,11 @@ void gpu_backend_begin_pass(GpuPassDesc *desc) {
     };
     ID3D11DeviceContext_RSSetViewports(d3d11.context, 1, &viewport);
 
-    f32 clear_color[4] = {desc->clear_color.r, desc->clear_color.g, desc->clear_color.b, desc->clear_color.a};
-    ID3D11DeviceContext_ClearRenderTargetView(d3d11.context, d3d11.current_rtv, clear_color);
-    ID3D11DeviceContext_ClearDepthStencilView(d3d11.context, d3d11.current_dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, desc->clear_depth, 0);
+    if (!desc->no_clear) {
+        f32 clear_color[4] = {desc->clear_color.r, desc->clear_color.g, desc->clear_color.b, desc->clear_color.a};
+        ID3D11DeviceContext_ClearRenderTargetView(d3d11.context, d3d11.current_rtv, clear_color);
+        ID3D11DeviceContext_ClearDepthStencilView(d3d11.context, d3d11.current_dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, desc->clear_depth, 0);
+    }
 }
 
 void gpu_backend_apply_pipeline(u32 handle_idx) {

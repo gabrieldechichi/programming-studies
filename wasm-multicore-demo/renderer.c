@@ -3,6 +3,10 @@
 #include "lib/handle.h"
 #include "lib/hash.h"
 #include "lib/thread_context.h"
+#include "mesh.h"
+
+#include "shaders/fish_instanced_depth_vs.h"
+#include "shaders/depth_only_fs.h"
 
 #define MAX_RENDER_CMDS 1024
 #define MAX_MESHES 64
@@ -20,6 +24,7 @@ typedef struct {
   mat4 view_proj;
   vec3 camera_pos;
   f32 time;
+  GpuColor clear_color;
 
   // Per-thread command queues (no atomics needed)
   u8 thread_count;
@@ -32,6 +37,11 @@ typedef struct {
   GpuRenderTarget hdr_target;
   u32 canvas_width;
   u32 canvas_height;
+
+  // Depth prepass
+  GpuShader depth_shader;
+  GpuPipeline depth_pipeline;
+  b32 depth_prepass_enabled;
 } RendererState;
 
 global RendererState g_renderer;
@@ -66,6 +76,29 @@ void renderer_init(ArenaAllocator *arena, u8 thread_count, u32 canvas_width, u32
   g_renderer.canvas_width = canvas_width;
   g_renderer.canvas_height = canvas_height;
   g_renderer.hdr_target = gpu_make_render_target(canvas_width, canvas_height, GPU_TEXTURE_FORMAT_RGBA16F, msaa_samples);
+
+  g_renderer.depth_shader = gpu_make_shader(&(GpuShaderDesc){
+      .vs_code = (const char *)fish_instanced_depth_vs,
+      .fs_code = (const char *)depth_only_fs,
+      .uniform_blocks = FIXED_ARRAY_DEFINE(GpuUniformBlockDesc,
+          {.stage = GPU_STAGE_VERTEX_FRAGMENT, .size = sizeof(GlobalUniforms), .binding = 0},
+          {.stage = GPU_STAGE_VERTEX, .size = 48, .binding = 1},
+      ),
+      .storage_buffers = FIXED_ARRAY_DEFINE(GpuStorageBufferDesc,
+          {.stage = GPU_STAGE_VERTEX, .binding = 0, .readonly = true},
+      ),
+  });
+
+  g_renderer.depth_pipeline = gpu_make_pipeline(&(GpuPipelineDesc){
+      .shader = g_renderer.depth_shader,
+      .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
+      .primitive = GPU_PRIMITIVE_TRIANGLES,
+      .depth_test = true,
+      .depth_write = true,
+      .color_write_disabled = true,
+  });
+
+  g_renderer.depth_prepass_enabled = true;
 }
 
 void renderer_resize(u32 width, u32 height) {
@@ -110,6 +143,7 @@ Material_Handle renderer_create_material(MaterialDesc *desc) {
       .primitive = desc->primitive,
       .depth_test = desc->depth_test,
       .depth_write = desc->depth_write,
+      .depth_compare = desc->depth_compare,
   });
 
   material.properties.len = desc->properties.len;
@@ -202,6 +236,7 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color, f32 time) 
   memcpy(g_renderer.proj, proj, sizeof(mat4));
   mat4_mul(proj, view, g_renderer.view_proj);
   g_renderer.time = time;
+  g_renderer.clear_color = clear_color;
 
   // Extract camera position from inverse view matrix
   mat4 view_inv;
@@ -213,7 +248,7 @@ void renderer_begin_frame(mat4 view, mat4 proj, GpuColor clear_color, f32 time) 
     g_renderer.thread_cmds[i].len = 0;
   }
 
-  // Begin GPU pass to HDR render target
+  // Begin GPU pass to HDR render target (will be ended and restarted for depth prepass)
   gpu_begin_pass(&(GpuPassDesc){
       .clear_color = clear_color,
       .clear_depth = 1.0f,
@@ -251,6 +286,166 @@ void renderer_draw_mesh_instanced(GpuMesh_Handle mesh, Material_Handle material,
   arr_append(g_renderer.thread_cmds[tid], cmd);
 }
 
+internal void render_draw_mesh_cmd(RenderCmd *cmd, Material **last_applied_material) {
+  GpuMesh *mesh = ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh.mesh);
+  if (!mesh) return;
+
+  Material *material = ha_get(Material, &g_renderer.materials, cmd->draw_mesh.material);
+  assert(material);
+  if (material != *last_applied_material) {
+    gpu_apply_pipeline(material->pipeline);
+    *last_applied_material = material;
+  }
+
+  GlobalUniforms globals;
+  memcpy(globals.model, cmd->draw_mesh.model_matrix, sizeof(mat4));
+  memcpy(globals.view, g_renderer.view, sizeof(mat4));
+  memcpy(globals.proj, g_renderer.proj, sizeof(mat4));
+  memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
+  glm_vec3_copy(g_renderer.camera_pos, globals.camera_pos);
+  globals.time = g_renderer.time;
+
+  gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
+
+  GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
+  u32 mat_texture_count = 0;
+
+  u8 uniform_pack_buf[256];
+  u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
+  u16 binding_max_size[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
+
+  for (u8 p = 0; p < material->properties.len; p++) {
+    MaterialProperty *prop = &material->properties.items[p];
+    if (prop->type == MAT_PROP_TEXTURE) {
+      GpuTexture tex = prop->tex;
+      if (!gpu_texture_is_ready(tex)) {
+        tex = g_renderer.placeholder_texture;
+      }
+      mat_textures[mat_texture_count++] = tex;
+    } else {
+      void *data;
+      u32 size;
+      switch (prop->type) {
+        case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
+        case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
+        case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
+        case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
+        case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
+        default: continue;
+      }
+      assert(prop->offset + size <= sizeof(uniform_pack_buf));
+      memcpy(uniform_pack_buf + prop->offset, data, size);
+      binding_used[prop->binding] = 1;
+      u16 end = prop->offset + size;
+      if (end > binding_max_size[prop->binding]) {
+        binding_max_size[prop->binding] = end;
+      }
+    }
+  }
+
+  for (u8 b = 1; b < GPU_MAX_UNIFORMBLOCK_SLOTS; b++) {
+    if (binding_used[b]) {
+      gpu_apply_uniforms(b, uniform_pack_buf, binding_max_size[b]);
+    }
+  }
+
+  GpuBindings bindings = {
+      .vertex_buffers = {.items = {mesh->vbuf}, .len = 1},
+      .index_buffer = mesh->ibuf,
+      .index_format = mesh->index_format,
+      .textures = {.len = mat_texture_count},
+  };
+  for (u32 ti = 0; ti < mat_texture_count; ti++) {
+    bindings.textures.items[ti] = mat_textures[ti];
+  }
+  gpu_apply_bindings(&bindings);
+
+  gpu_draw_indexed(mesh->index_count, 1);
+}
+
+internal void render_draw_mesh_instanced_cmd(RenderCmd *cmd, Material **last_applied_material) {
+  GpuMesh *mesh = ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh_instanced.mesh);
+  if (!mesh) return;
+
+  Material *material = ha_get(Material, &g_renderer.materials, cmd->draw_mesh_instanced.material);
+  assert(material);
+
+  InstanceBuffer *ib = ha_get(InstanceBuffer, &g_renderer.instance_buffers,
+                              cmd->draw_mesh_instanced.instances);
+  if (!ib || ib->instance_count == 0) return;
+
+  if (material != *last_applied_material) {
+    gpu_apply_pipeline(material->pipeline);
+    *last_applied_material = material;
+  }
+
+  GlobalUniforms globals;
+  mat4_identity(globals.model);
+  memcpy(globals.view, g_renderer.view, sizeof(mat4));
+  memcpy(globals.proj, g_renderer.proj, sizeof(mat4));
+  memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
+  glm_vec3_copy(g_renderer.camera_pos, globals.camera_pos);
+  globals.time = g_renderer.time;
+
+  gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
+
+  GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
+  u32 mat_texture_count = 0;
+
+  u8 uniform_pack_buf[256];
+  u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
+  u16 binding_max_size[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
+
+  for (u8 p = 0; p < material->properties.len; p++) {
+    MaterialProperty *prop = &material->properties.items[p];
+    if (prop->type == MAT_PROP_TEXTURE) {
+      GpuTexture tex = prop->tex;
+      if (!gpu_texture_is_ready(tex)) {
+        tex = g_renderer.placeholder_texture;
+      }
+      mat_textures[mat_texture_count++] = tex;
+    } else {
+      void *data;
+      u32 size;
+      switch (prop->type) {
+        case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
+        case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
+        case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
+        case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
+        case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
+        default: continue;
+      }
+      assert(prop->offset + size <= sizeof(uniform_pack_buf));
+      memcpy(uniform_pack_buf + prop->offset, data, size);
+      binding_used[prop->binding] = 1;
+      u16 end = prop->offset + size;
+      if (end > binding_max_size[prop->binding]) {
+        binding_max_size[prop->binding] = end;
+      }
+    }
+  }
+
+  for (u8 b = 1; b < GPU_MAX_UNIFORMBLOCK_SLOTS; b++) {
+    if (binding_used[b]) {
+      gpu_apply_uniforms(b, uniform_pack_buf, binding_max_size[b]);
+    }
+  }
+
+  GpuBindings bindings = {
+      .vertex_buffers = {.items = {mesh->vbuf}, .len = 1},
+      .index_buffer = mesh->ibuf,
+      .index_format = mesh->index_format,
+      .storage_buffers = {.items = {ib->buffer}, .len = 1},
+      .textures = {.len = mat_texture_count},
+  };
+  for (u32 ti = 0; ti < mat_texture_count; ti++) {
+    bindings.textures.items[ti] = mat_textures[ti];
+  }
+  gpu_apply_bindings(&bindings);
+
+  gpu_draw_indexed(mesh->index_count, ib->instance_count);
+}
+
 void renderer_end_frame(void) {
   debug_assert_msg(
       is_main_thread(),
@@ -258,116 +453,24 @@ void renderer_end_frame(void) {
 
   Material *last_applied_material = NULL;
 
-  // Process commands from all threads
-  for (u8 t = 0; t < g_renderer.thread_count; t++) {
-    DynArray(RenderCmd) *cmds = &g_renderer.thread_cmds[t];
+  if (g_renderer.depth_prepass_enabled) {
+    // DEPTH PREPASS: Draw instanced meshes with depth-only pipeline
+    gpu_apply_pipeline(g_renderer.depth_pipeline);
 
-    for (u32 i = 0; i < cmds->len; i++) {
-      RenderCmd *cmd = &cmds->items[i];
+    for (u8 t = 0; t < g_renderer.thread_count; t++) {
+      DynArray(RenderCmd) *cmds = &g_renderer.thread_cmds[t];
+      for (u32 i = 0; i < cmds->len; i++) {
+        RenderCmd *cmd = &cmds->items[i];
+        if (cmd->type != RENDER_CMD_DRAW_MESH_INSTANCED) continue;
 
-      switch (cmd->type) {
-      case RENDER_CMD_DRAW_MESH: {
-        GpuMesh *mesh =
-            ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh.mesh);
-        if (!mesh)
-          continue;
+        GpuMesh *mesh = ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh_instanced.mesh);
+        if (!mesh) continue;
 
-        Material *material =
-            ha_get(Material, &g_renderer.materials, cmd->draw_mesh.material);
-        assert(material);
-        if (material != last_applied_material) {
-          gpu_apply_pipeline(material->pipeline);
-          last_applied_material = material;
-        }
-
-        GlobalUniforms globals;
-        memcpy(globals.model, cmd->draw_mesh.model_matrix, sizeof(mat4));
-        memcpy(globals.view, g_renderer.view, sizeof(mat4));
-        memcpy(globals.proj, g_renderer.proj, sizeof(mat4));
-        memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
-        glm_vec3_copy(g_renderer.camera_pos, globals.camera_pos);
-        globals.time = g_renderer.time;
-
-        gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
-
-        GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
-        u32 mat_texture_count = 0;
-
-        u8 uniform_pack_buf[256];
-        u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
-        u16 binding_max_size[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
-
-        for (u8 p = 0; p < material->properties.len; p++) {
-          MaterialProperty *prop = &material->properties.items[p];
-          if (prop->type == MAT_PROP_TEXTURE) {
-            GpuTexture tex = prop->tex;
-            if (!gpu_texture_is_ready(tex)) {
-              tex = g_renderer.placeholder_texture;
-            }
-            mat_textures[mat_texture_count++] = tex;
-          } else {
-            void *data;
-            u32 size;
-            switch (prop->type) {
-              case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
-              case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
-              case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
-              case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
-              case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
-              default: continue;
-            }
-            assert(prop->offset + size <= sizeof(uniform_pack_buf));
-            memcpy(uniform_pack_buf + prop->offset, data, size);
-            binding_used[prop->binding] = 1;
-            u16 end = prop->offset + size;
-            if (end > binding_max_size[prop->binding]) {
-              binding_max_size[prop->binding] = end;
-            }
-          }
-        }
-
-        for (u8 b = 1; b < GPU_MAX_UNIFORMBLOCK_SLOTS; b++) {
-          if (binding_used[b]) {
-            gpu_apply_uniforms(b, uniform_pack_buf, binding_max_size[b]);
-          }
-        }
-
-        GpuBindings bindings = {
-            .vertex_buffers = {.items = {mesh->vbuf}, .len = 1},
-            .index_buffer = mesh->ibuf,
-            .index_format = mesh->index_format,
-            .textures = {.len = mat_texture_count},
-        };
-        for (u32 t = 0; t < mat_texture_count; t++) {
-          bindings.textures.items[t] = mat_textures[t];
-        }
-        gpu_apply_bindings(&bindings);
-
-        gpu_draw_indexed(mesh->index_count, 1);
-        break;
-      }
-
-      case RENDER_CMD_DRAW_MESH_INSTANCED: {
-        GpuMesh *mesh =
-            ha_get(GpuMesh, &g_renderer.meshes, cmd->draw_mesh_instanced.mesh);
-        if (!mesh)
-          continue;
-
-        Material *material = ha_get(Material, &g_renderer.materials,
-                                    cmd->draw_mesh_instanced.material);
-        assert(material);
-
+        Material *material = ha_get(Material, &g_renderer.materials, cmd->draw_mesh_instanced.material);
         InstanceBuffer *ib = ha_get(InstanceBuffer, &g_renderer.instance_buffers,
                                     cmd->draw_mesh_instanced.instances);
-        if (!ib || ib->instance_count == 0)
-          continue;
+        if (!ib || ib->instance_count == 0) continue;
 
-        if (material != last_applied_material) {
-          gpu_apply_pipeline(material->pipeline);
-          last_applied_material = material;
-        }
-
-        // Build GlobalUniforms (model matrix unused for instanced - shader reads from storage)
         GlobalUniforms globals;
         mat4_identity(globals.model);
         memcpy(globals.view, g_renderer.view, sizeof(mat4));
@@ -375,43 +478,32 @@ void renderer_end_frame(void) {
         memcpy(globals.view_proj, g_renderer.view_proj, sizeof(mat4));
         glm_vec3_copy(g_renderer.camera_pos, globals.camera_pos);
         globals.time = g_renderer.time;
-
         gpu_apply_uniforms(0, &globals, sizeof(GlobalUniforms));
 
-        GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
-        u32 mat_texture_count = 0;
-
-        // Pack material properties by binding
+        // Apply material uniforms for wave animation (binding 1)
         u8 uniform_pack_buf[256];
         u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
         u16 binding_max_size[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
 
         for (u8 p = 0; p < material->properties.len; p++) {
           MaterialProperty *prop = &material->properties.items[p];
-          if (prop->type == MAT_PROP_TEXTURE) {
-            GpuTexture tex = prop->tex;
-            if (!gpu_texture_is_ready(tex)) {
-              tex = g_renderer.placeholder_texture;
-            }
-            mat_textures[mat_texture_count++] = tex;
-          } else {
-            void *data;
-            u32 size;
-            switch (prop->type) {
-              case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
-              case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
-              case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
-              case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
-              case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
-              default: continue;
-            }
-            assert(prop->offset + size <= sizeof(uniform_pack_buf));
-            memcpy(uniform_pack_buf + prop->offset, data, size);
-            binding_used[prop->binding] = 1;
-            u16 end = prop->offset + size;
-            if (end > binding_max_size[prop->binding]) {
-              binding_max_size[prop->binding] = end;
-            }
+          if (prop->type == MAT_PROP_TEXTURE) continue;
+          void *data;
+          u32 size;
+          switch (prop->type) {
+            case MAT_PROP_FLOAT: data = &prop->f;  size = sizeof(f32);  break;
+            case MAT_PROP_VEC2:  data = prop->v2;  size = sizeof(vec2); break;
+            case MAT_PROP_VEC3:  data = prop->v3;  size = sizeof(vec3); break;
+            case MAT_PROP_VEC4:  data = prop->v4;  size = sizeof(vec4); break;
+            case MAT_PROP_MAT4:  data = prop->m4;  size = sizeof(mat4); break;
+            default: continue;
+          }
+          assert(prop->offset + size <= sizeof(uniform_pack_buf));
+          memcpy(uniform_pack_buf + prop->offset, data, size);
+          binding_used[prop->binding] = 1;
+          u16 end = prop->offset + size;
+          if (end > binding_max_size[prop->binding]) {
+            binding_max_size[prop->binding] = end;
           }
         }
 
@@ -426,23 +518,38 @@ void renderer_end_frame(void) {
             .index_buffer = mesh->ibuf,
             .index_format = mesh->index_format,
             .storage_buffers = {.items = {ib->buffer}, .len = 1},
-            .textures = {.len = mat_texture_count},
         };
-        for (u32 t = 0; t < mat_texture_count; t++) {
-          bindings.textures.items[t] = mat_textures[t];
-        }
         gpu_apply_bindings(&bindings);
-
         gpu_draw_indexed(mesh->index_count, ib->instance_count);
-        break;
       }
+    }
+
+    // End depth prepass and start color pass (no clear - keep depth)
+    gpu_end_pass();
+    gpu_begin_pass(&(GpuPassDesc){
+        .render_target = g_renderer.hdr_target,
+        .no_clear = true,
+    });
+    last_applied_material = NULL;
+  }
+
+  // COLOR PASS: Draw all meshes with their materials
+  for (u8 t = 0; t < g_renderer.thread_count; t++) {
+    DynArray(RenderCmd) *cmds = &g_renderer.thread_cmds[t];
+    for (u32 i = 0; i < cmds->len; i++) {
+      RenderCmd *cmd = &cmds->items[i];
+      switch (cmd->type) {
+        case RENDER_CMD_DRAW_MESH:
+          render_draw_mesh_cmd(cmd, &last_applied_material);
+          break;
+        case RENDER_CMD_DRAW_MESH_INSTANCED:
+          render_draw_mesh_instanced_cmd(cmd, &last_applied_material);
+          break;
       }
     }
   }
 
   gpu_end_pass();
-
   gpu_blit_to_screen(g_renderer.hdr_target);
-
   gpu_commit();
 }

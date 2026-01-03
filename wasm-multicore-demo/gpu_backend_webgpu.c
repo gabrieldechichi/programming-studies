@@ -17,9 +17,9 @@ WASM_IMPORT(js_gpu_make_pipeline) void js_gpu_make_pipeline(u32 idx, u32 shader_
     u32 tex_count, u32 *tex_stages, u32 *tex_sampler_bindings, u32 *tex_texture_bindings,
     u32 primitive, u32 cull_mode, u32 face_winding, u32 depth_compare, u32 depth_test, u32 depth_write,
     u32 blend_enabled, u32 blend_src, u32 blend_dst, u32 blend_op,
-    u32 blend_src_alpha, u32 blend_dst_alpha, u32 blend_op_alpha);
+    u32 blend_src_alpha, u32 blend_dst_alpha, u32 blend_op_alpha, u32 color_write_disabled);
 WASM_IMPORT(js_gpu_destroy_pipeline) void js_gpu_destroy_pipeline(u32 idx);
-WASM_IMPORT(js_gpu_begin_pass) void js_gpu_begin_pass(f32 r, f32 g, f32 b, f32 a, f32 depth, u32 rt_idx);
+WASM_IMPORT(js_gpu_begin_pass) void js_gpu_begin_pass(f32 r, f32 g, f32 b, f32 a, f32 depth, u32 rt_idx, u32 no_clear);
 WASM_IMPORT(js_gpu_apply_pipeline) void js_gpu_apply_pipeline(u32 handle_idx);
 WASM_IMPORT(js_gpu_draw) void js_gpu_draw(u32 vertex_count, u32 instance_count);
 WASM_IMPORT(js_gpu_draw_indexed) void js_gpu_draw_indexed(u32 index_count, u32 instance_count);
@@ -114,7 +114,8 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
         desc->primitive, desc->cull_mode, desc->face_winding, desc->depth_compare,
         desc->depth_test, desc->depth_write,
         desc->blend.enabled, desc->blend.src_factor, desc->blend.dst_factor, desc->blend.op,
-        desc->blend.src_factor_alpha, desc->blend.dst_factor_alpha, desc->blend.op_alpha);
+        desc->blend.src_factor_alpha, desc->blend.dst_factor_alpha, desc->blend.op_alpha,
+        desc->color_write_disabled);
 }
 
 void gpu_backend_destroy_pipeline(u32 idx) {
@@ -125,7 +126,7 @@ void gpu_backend_begin_pass(GpuPassDesc *desc) {
     u32 rt_idx = handle_equals(desc->render_target, INVALID_HANDLE) ? 0xFFFFFFFF : desc->render_target.idx;
     js_gpu_begin_pass(desc->clear_color.r, desc->clear_color.g,
                       desc->clear_color.b, desc->clear_color.a,
-                      desc->clear_depth, rt_idx);
+                      desc->clear_depth, rt_idx, desc->no_clear);
 }
 
 void gpu_backend_apply_pipeline(u32 handle_idx) {

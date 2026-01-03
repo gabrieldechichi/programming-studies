@@ -66,6 +66,7 @@ typedef struct {
   // todo: use flags here
   b32 depth_test;
   b32 depth_write;
+  GpuCompareFunc depth_compare; // default: GPU_COMPARE_LESS (0)
 
   FixedArray(MaterialPropertyDesc, MAX_MATERIAL_PROPERTIES) properties;
 } MaterialDesc;

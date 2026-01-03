@@ -174,7 +174,8 @@ void on_fish_loaded(Handle asset, void *data, void *user_data) {
       .vertex_layout = STATIC_MESH_VERTEX_LAYOUT,
       .primitive = GPU_PRIMITIVE_TRIANGLES,
       .depth_test = true,
-      .depth_write = true,
+      .depth_write = false,
+      .depth_compare = GPU_COMPARE_LESS_EQUAL,
       .properties = FIXED_ARRAY_DEFINE(
           MaterialPropertyDesc,
           {.name = "albedo", .type = MAT_PROP_TEXTURE, .binding = 0},

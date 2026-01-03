@@ -434,7 +434,8 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             blendOp: number,
             blendSrcAlpha: number,
             blendDstAlpha: number,
-            blendOpAlpha: number
+            blendOpAlpha: number,
+            colorWriteDisabled: number
         ): void => {
             if (!renderer) return;
 
@@ -560,6 +561,7 @@ export function createGpuImports(memory: WebAssembly.Memory) {
 
             const colorTarget: GPUColorTargetState = {
                 format: sceneRenderFormat,
+                writeMask: colorWriteDisabled ? 0 : GPUColorWrite.ALL,
             };
 
             if (blendEnabled) {
@@ -621,10 +623,13 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             delete pipelineTexInfo[handleIdx];
         },
 
-        js_gpu_begin_pass: (r: number, g: number, b: number, a: number, depth: number, rtIdx: number) => {
+        js_gpu_begin_pass: (r: number, g: number, b: number, a: number, depth: number, rtIdx: number, noClear: number) => {
             if (!renderer) return;
 
-            currentEncoder = renderer.device.createCommandEncoder();
+            // Only create encoder if we don't have one (allows multi-pass rendering)
+            if (!currentEncoder) {
+                currentEncoder = renderer.device.createCommandEncoder();
+            }
 
             let colorView: GPUTextureView;
             let resolveTarget: GPUTextureView | undefined;
@@ -644,20 +649,26 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 depthView = renderer.depthTexture.createView();
             }
 
+            const colorLoadOp: GPULoadOp = noClear ? "load" : "clear";
+            const depthLoadOp: GPULoadOp = noClear ? "load" : "clear";
+            // With MSAA, we can only discard on the final pass. For multi-pass rendering,
+            // we need to store so subsequent passes can load.
+            const colorStoreOp: GPUStoreOp = (resolveTarget && noClear) ? "discard" : "store";
+
             currentPass = currentEncoder.beginRenderPass({
                 colorAttachments: [
                     {
                         view: colorView,
-                        resolveTarget: resolveTarget,
+                        resolveTarget: noClear ? resolveTarget : undefined,
                         clearValue: { r, g, b, a },
-                        loadOp: "clear",
-                        storeOp: resolveTarget ? "discard" : "store",
+                        loadOp: colorLoadOp,
+                        storeOp: colorStoreOp,
                     },
                 ],
                 depthStencilAttachment: {
                     view: depthView,
                     depthClearValue: depth,
-                    depthLoadOp: "clear",
+                    depthLoadOp: depthLoadOp,
                     depthStoreOp: "store",
                 },
             });

@@ -66,9 +66,15 @@ dirs:
 	powershell -Command "if (!(Test-Path $(OUT_DIR))) { New-Item -ItemType Directory -Path $(OUT_DIR) }"
 
 build_shaders:
-	./out/shader_compiler.exe --input shaders/fish_vs.wgsl --output shaders/fish_vs.h --name fish_vs
-	./out/shader_compiler.exe --input shaders/fish_instanced_vs.wgsl --output shaders/fish_instanced_vs.h --name fish_instanced_vs
-	./out/shader_compiler.exe --input shaders/fish_fs.wgsl --output shaders/fish_fs.h --name fish_fs
+	./out/shader_compiler.exe --input shaders/fish_vs.wgsl --output shaders/fish_vs_webgpu.h --name fish_vs_webgpu
+	./out/shader_compiler.exe --input shaders/fish_instanced_vs.wgsl --output shaders/fish_instanced_vs_webgpu.h --name fish_instanced_vs_webgpu
+	./out/shader_compiler.exe --input shaders/fish_fs.wgsl --output shaders/fish_fs_webgpu.h --name fish_fs_webgpu
+	./out/shader_compiler.exe --input shaders/fish_instanced_depth_vs.wgsl --output shaders/fish_instanced_depth_vs_webgpu.h --name fish_instanced_depth_vs_webgpu
+	./out/shader_compiler.exe --input shaders/depth_only_fs.wgsl --output shaders/depth_only_fs_webgpu.h --name depth_only_fs_webgpu
+
+build_shaders_d3d11:
+	./out/shader_compiler.exe --input shaders/fish_instanced_depth_vs.hlsl --output shaders/fish_instanced_depth_vs_d3d11.h --name fish_instanced_depth_vs_d3d11 --backend d3d11 --type vs
+	./out/shader_compiler.exe --input shaders/depth_only_fs.hlsl --output shaders/depth_only_fs_d3d11.h --name depth_only_fs_d3d11 --backend d3d11 --type ps
 
 wasm: build_shaders
 	$(CC) $(CFLAGS) $(SRC) -o $(OUT_DIR)/wasm.wasm $(LDFLAGS)

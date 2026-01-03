@@ -1,0 +1,11 @@
+#pragma once
+
+#ifdef WIN32
+#include "fish_instanced_depth_vs_d3d11.h"
+#define fish_instanced_depth_vs fish_instanced_depth_vs_d3d11
+#define fish_instanced_depth_vs_len fish_instanced_depth_vs_d3d11_len
+#else
+#include "fish_instanced_depth_vs_webgpu.h"
+#define fish_instanced_depth_vs fish_instanced_depth_vs_webgpu
+#define fish_instanced_depth_vs_len fish_instanced_depth_vs_webgpu_len
+#endif
