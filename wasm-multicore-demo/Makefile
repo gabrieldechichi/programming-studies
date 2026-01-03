@@ -20,15 +20,15 @@ CC = clang
 #   -msign-ext             Sign extension instructions
 #   -mrelaxed-simd         Relaxed SIMD (faster, less deterministic)
 
-# CFLAGS = --target=wasm32-wasi-threads \
-# 		 --sysroot ./wasi-sdk/win32/share/wasi-sysroot \
-# 		 -O3 -flto -DNDEBUG \
-# 		 -ffast-math \
-# 		 -fomit-frame-pointer -fno-stack-protector -funroll-loops \
-# 		 -ffunction-sections -fdata-sections \
-# 		 -msimd128 -matomics -mbulk-memory \
-# 		 -DCGLM_SIMD -DCGLM_SIMD_WASM \
-# 		 -I. -DWASM
+CFLAGS_RELEASE = --target=wasm32-wasi-threads \
+		 --sysroot ./wasi-sdk/win32/share/wasi-sysroot \
+		 -O3 -flto -DNDEBUG \
+		 -ffast-math \
+		 -fomit-frame-pointer -fno-stack-protector -funroll-loops \
+		 -ffunction-sections -fdata-sections \
+		 -msimd128 -matomics -mbulk-memory \
+		 -DCGLM_SIMD -DCGLM_SIMD_WASM \
+		 -I. -DWASM
 
 CFLAGS = --target=wasm32-wasi-threads \
 		 --sysroot ./wasi-sdk/win32/share/wasi-sysroot \
@@ -72,6 +72,9 @@ build_shaders:
 
 wasm: build_shaders
 	$(CC) $(CFLAGS) $(SRC) -o $(OUT_DIR)/wasm.wasm $(LDFLAGS)
+
+wasm-release: build_shaders
+	$(CC) $(CFLAGS_RELEASE) $(SRC) -o $(OUT_DIR)/wasm.wasm $(LDFLAGS)
 
 test: dirs
 	$(CC) $(CFLAGS) $(TEST_SRC) -o $(OUT_DIR)/wasm.wasm $(LDFLAGS)

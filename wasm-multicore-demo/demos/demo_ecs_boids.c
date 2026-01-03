@@ -1042,6 +1042,11 @@ void app_init(AppMemory *memory) {
   });
 
   LOG_INFO("Boids demo initialized: % boids", FMT_UINT(NUM_BOIDS));
+#if WIN32
+  if (is_main_thread()){
+      os_set_fullscreen(true);
+  }
+#endif
 }
 
 void app_update_and_render(AppMemory *memory) {
