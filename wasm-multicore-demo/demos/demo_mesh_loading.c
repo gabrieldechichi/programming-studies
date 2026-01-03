@@ -43,11 +43,11 @@ void app_init(AppMemory *memory)
   g_camera = camera_init(VEC3(0, 0, 1.5), VEC3(0, 0, 0), 60.0f);
   renderer_init(&app_ctx->arena, app_ctx->num_threads, (u32)memory->canvas_width, (u32)memory->canvas_height, 4);
 
-  g_albedo_tex = gpu_make_texture("fishAlbedo2.png");
-  g_tint_tex = gpu_make_texture("tints.png");
-  g_metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
+  g_albedo_tex = gpu_make_texture("public/fishAlbedo2.png");
+  g_tint_tex = gpu_make_texture("public/tints.png");
+  g_metallic_gloss_tex = gpu_make_texture("public/fishMetallicGloss.png");
 
-  g_file_op = os_start_read_file("fish.hasset");
+  g_file_op = os_start_read_file("public/fish.hasset");
 }
 
 void app_update_and_render(AppMemory *memory)
@@ -148,9 +148,6 @@ void app_update_and_render(AppMemory *memory)
 
   mat4 model;
   glm_mat4_identity(model);
-  // glm_rotate_y(model, g_rotation, model);
-  // glm_rotate_y(model, g_rotation, model);
-  // glm_scale(model, VEC3(0.01, 0.01, 0.01));
   mat_trs_euler(VEC3_ZERO, VEC3(RAD(90), RAD(55), 0), VEC3(0.01, 0.01, 0.01), model);
 
   renderer_draw_mesh(g_mesh, g_material, model);

@@ -621,6 +621,9 @@ void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count,
             u32 tex_slot = pip->tex_bindings[i];
             u32 sampler_slot = pip->sampler_bindings[i];
 
+            debug_assert_msg(tex_slot < GPU_MAX_TEXTURE_SLOTS, "tex_slot out of bounds");
+            debug_assert_msg(sampler_slot < GPU_MAX_TEXTURE_SLOTS, "sampler_slot out of bounds");
+
             if (tex_slot >= max_tex_slot) max_tex_slot = tex_slot + 1;
             if (sampler_slot >= max_sampler_slot) max_sampler_slot = sampler_slot + 1;
 

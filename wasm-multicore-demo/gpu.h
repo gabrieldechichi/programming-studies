@@ -61,7 +61,7 @@ typedef struct {
 } GpuStorageBufferDesc;
 
 // Texture binding description (sampler + texture pair)
-#define GPU_MAX_TEXTURE_SLOTS 4
+#define GPU_MAX_TEXTURE_SLOTS 8
 
 typedef struct {
     GpuShaderStage stage;      // which shader stage(s) can access this

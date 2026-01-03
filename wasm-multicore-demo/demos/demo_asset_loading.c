@@ -62,8 +62,8 @@ void log_mesh_data(ModelBlobAsset *model, u8 *blob) {
         LOG_INFO("  Index count: %", FMT_UINT(mesh->index_count));
         LOG_INFO("  Vertex count: %", FMT_UINT(mesh->vertex_count));
 
-        f32 *positions = (f32 *)blob_array_get(mesh, mesh->positions);
-        f32 *normals = (f32 *)blob_array_get(mesh, mesh->normals);
+        f32 *positions = (f32 *)blob_array_get(f32, mesh, mesh->positions);
+        f32 *normals = (f32 *)blob_array_get(f32, mesh, mesh->normals);
 
         LOG_INFO("  First position: (%, %, %)",
                  FMT_FLOAT(positions[0]),
@@ -76,13 +76,13 @@ void log_mesh_data(ModelBlobAsset *model, u8 *blob) {
                  FMT_FLOAT(normals[2]));
 
         if (mesh->index_format == INDEX_FORMAT_U16) {
-            u16 *indices = (u16 *)blob_array_get(mesh, mesh->indices);
+            u16 *indices = (u16 *)blob_array_get(u16, mesh, mesh->indices);
             LOG_INFO("  First triangle: %, %, %",
                      FMT_UINT(indices[0]),
                      FMT_UINT(indices[1]),
                      FMT_UINT(indices[2]));
         } else {
-            u32 *indices = (u32 *)blob_array_get(mesh, mesh->indices);
+            u32 *indices = (u32 *)blob_array_get(f32, mesh, mesh->indices);
             LOG_INFO("  First triangle: %, %, %",
                      FMT_UINT(indices[0]),
                      FMT_UINT(indices[1]),

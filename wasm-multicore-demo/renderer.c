@@ -280,7 +280,6 @@ void renderer_end_frame(void) {
           last_applied_material = material;
         }
 
-        // Build GlobalUniforms for this draw
         GlobalUniforms globals;
         memcpy(globals.model, cmd->draw_mesh.model_matrix, sizeof(mat4));
         memcpy(globals.view, g_renderer.view, sizeof(mat4));
@@ -294,7 +293,6 @@ void renderer_end_frame(void) {
         GpuTexture mat_textures[GPU_MAX_TEXTURE_SLOTS];
         u32 mat_texture_count = 0;
 
-        // Pack material properties by binding
         u8 uniform_pack_buf[256];
         u8 binding_used[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
         u16 binding_max_size[GPU_MAX_UNIFORMBLOCK_SLOTS] = {0};
@@ -444,8 +442,7 @@ void renderer_end_frame(void) {
 
   gpu_end_pass();
 
-  // Blit HDR framebuffer to screen
   gpu_blit_to_screen(g_renderer.hdr_target);
 
-  gpu_commit(); // Flushes uniforms internally before submit
+  gpu_commit();
 }
