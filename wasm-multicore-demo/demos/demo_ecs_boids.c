@@ -16,8 +16,8 @@
 #include "shaders/fish_instanced_vs.h"
 #include "shaders/fish_fs.h"
 
-// #define NUM_BOIDS 100000
-#define NUM_BOIDS 25000
+#define NUM_BOIDS 100000
+// #define NUM_BOIDS 25000
 #define NUM_TARGETS 2
 #define NUM_OBSTACLES 1
 
