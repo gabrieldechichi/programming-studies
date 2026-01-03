@@ -134,6 +134,52 @@ const TEXTURE_FORMATS: GPUTextureFormat[] = [
     "rgba16float", // GPU_TEXTURE_FORMAT_RGBA16F
 ];
 
+// GPU_CULL_BACK = 0, GPU_CULL_NONE = 1, GPU_CULL_FRONT = 2
+const CULL_MODES: GPUCullMode[] = [
+    "back",  // GPU_CULL_BACK (default)
+    "none",  // GPU_CULL_NONE
+    "front", // GPU_CULL_FRONT
+];
+
+// GPU_FACE_CCW = 0, GPU_FACE_CW = 1
+const FRONT_FACES: GPUFrontFace[] = [
+    "ccw", // GPU_FACE_CCW (default)
+    "cw",  // GPU_FACE_CW
+];
+
+// GPU_COMPARE_LESS = 0, GPU_COMPARE_NEVER = 1, etc.
+const COMPARE_FUNCS: GPUCompareFunction[] = [
+    "less",          // GPU_COMPARE_LESS (default)
+    "never",         // GPU_COMPARE_NEVER
+    "equal",         // GPU_COMPARE_EQUAL
+    "less-equal",    // GPU_COMPARE_LESS_EQUAL
+    "greater",       // GPU_COMPARE_GREATER
+    "not-equal",     // GPU_COMPARE_NOT_EQUAL
+    "greater-equal", // GPU_COMPARE_GREATER_EQUAL
+    "always",        // GPU_COMPARE_ALWAYS
+];
+
+// GPU_BLEND_ZERO = 0, GPU_BLEND_ONE = 1, etc.
+const BLEND_FACTORS: GPUBlendFactor[] = [
+    "zero",              // GPU_BLEND_ZERO
+    "one",               // GPU_BLEND_ONE
+    "src",               // GPU_BLEND_SRC_COLOR
+    "one-minus-src",     // GPU_BLEND_ONE_MINUS_SRC_COLOR
+    "src-alpha",         // GPU_BLEND_SRC_ALPHA
+    "one-minus-src-alpha", // GPU_BLEND_ONE_MINUS_SRC_ALPHA
+    "dst",               // GPU_BLEND_DST_COLOR
+    "one-minus-dst",     // GPU_BLEND_ONE_MINUS_DST_COLOR
+    "dst-alpha",         // GPU_BLEND_DST_ALPHA
+    "one-minus-dst-alpha", // GPU_BLEND_ONE_MINUS_DST_ALPHA
+];
+
+// GPU_BLEND_OP_ADD = 0, etc.
+const BLEND_OPS: GPUBlendOperation[] = [
+    "add",              // GPU_BLEND_OP_ADD
+    "subtract",         // GPU_BLEND_OP_SUBTRACT
+    "reverse-subtract", // GPU_BLEND_OP_REVERSE_SUBTRACT
+];
+
 const BLIT_SHADER = `
 @group(0) @binding(0) var blitSampler: sampler;
 @group(0) @binding(1) var blitTexture: texture_2d<f32>;
@@ -213,8 +259,11 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                         : type === 2 ? GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
                         : GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
 
+            // WebGPU requires buffer size to be a multiple of 4 when mappedAtCreation is true
+            const alignedSize = Math.ceil(size / 4) * 4;
+
             const buffer = renderer.device.createBuffer({
-                size,
+                size: alignedSize,
                 usage,
                 mappedAtCreation: dataPtr !== 0,
             });
@@ -368,8 +417,18 @@ export function createGpuImports(memory: WebAssembly.Memory) {
             texSamplerBindingsPtr: number,
             texTextureBindingsPtr: number,
             primitive: number,
+            cullMode: number,
+            faceWinding: number,
+            depthCompare: number,
             depthTest: number,
-            depthWrite: number
+            depthWrite: number,
+            blendEnabled: number,
+            blendSrc: number,
+            blendDst: number,
+            blendOp: number,
+            blendSrcAlpha: number,
+            blendDstAlpha: number,
+            blendOpAlpha: number
         ): void => {
             if (!renderer) return;
 
@@ -493,6 +552,25 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 bindGroupLayouts: bindGroupLayouts,
             });
 
+            const colorTarget: GPUColorTargetState = {
+                format: sceneRenderFormat,
+            };
+
+            if (blendEnabled) {
+                colorTarget.blend = {
+                    color: {
+                        srcFactor: BLEND_FACTORS[blendSrc] || "one",
+                        dstFactor: BLEND_FACTORS[blendDst] || "zero",
+                        operation: BLEND_OPS[blendOp] || "add",
+                    },
+                    alpha: {
+                        srcFactor: BLEND_FACTORS[blendSrcAlpha] || "one",
+                        dstFactor: BLEND_FACTORS[blendDstAlpha] || "zero",
+                        operation: BLEND_OPS[blendOpAlpha] || "add",
+                    },
+                };
+            }
+
             const pipeline = renderer.device.createRenderPipeline({
                 layout: pipelineLayout,
                 vertex: {
@@ -508,16 +586,17 @@ export function createGpuImports(memory: WebAssembly.Memory) {
                 fragment: {
                     module: shaderModule,
                     entryPoint: "fs_main",
-                    targets: [{ format: sceneRenderFormat }],
+                    targets: [colorTarget],
                 },
                 primitive: {
                     topology: PRIMITIVE_TOPOLOGIES[primitive],
-                    cullMode: "back",
+                    cullMode: CULL_MODES[cullMode] || "back",
+                    frontFace: FRONT_FACES[faceWinding] || "ccw",
                 },
                 depthStencil: {
                     format: "depth24plus",
                     depthWriteEnabled: depthTest ? !!depthWrite : false,
-                    depthCompare: depthTest ? "less" : "always",
+                    depthCompare: depthTest ? (COMPARE_FUNCS[depthCompare] || "less") : "always",
                 },
             });
 

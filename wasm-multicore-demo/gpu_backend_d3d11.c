@@ -58,6 +58,9 @@ typedef struct {
     UINT vb_strides[GPU_MAX_VERTEX_BUFFERS];
     UINT ub_sizes[GPU_MAX_UNIFORMBLOCK_SLOTS];
     GpuShaderStage tex_stages[GPU_MAX_TEXTURE_SLOTS];
+    u32 tex_bindings[GPU_MAX_TEXTURE_SLOTS];
+    u32 sampler_bindings[GPU_MAX_TEXTURE_SLOTS];
+    u32 tex_count;
 } D3D11Pipeline;
 
 typedef struct {
@@ -408,8 +411,11 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
         pip->ub_sizes[binding] = (size + 255) / 256 * 256;
     }
 
+    pip->tex_count = (u32)shader->texture_bindings.len;
     for (u32 i = 0; i < shader->texture_bindings.len; i++) {
         pip->tex_stages[i] = shader->texture_bindings.items[i].stage;
+        pip->tex_bindings[i] = shader->texture_bindings.items[i].texture_binding;
+        pip->sampler_bindings[i] = shader->texture_bindings.items[i].sampler_binding;
     }
 
     D3D11_INPUT_ELEMENT_DESC input_elems[GPU_MAX_VERTEX_ATTRS];
@@ -583,35 +589,38 @@ void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count,
     }
 
     if (bindings->textures.len > 0) {
+        u32 max_tex_slot = 0, max_sampler_slot = 0;
         ID3D11ShaderResourceView *vs_srvs[GPU_MAX_TEXTURE_SLOTS] = {0};
         ID3D11ShaderResourceView *ps_srvs[GPU_MAX_TEXTURE_SLOTS] = {0};
         ID3D11SamplerState *vs_samplers[GPU_MAX_TEXTURE_SLOTS] = {0};
         ID3D11SamplerState *ps_samplers[GPU_MAX_TEXTURE_SLOTS] = {0};
-        u32 vs_count = 0, ps_count = 0;
 
         for (u32 i = 0; i < bindings->textures.len; i++) {
             D3D11Texture *tex = &d3d11.textures[bindings->textures.items[i].idx];
             GpuShaderStage stage = pip->tex_stages[i];
+            u32 tex_slot = pip->tex_bindings[i];
+            u32 sampler_slot = pip->sampler_bindings[i];
+
+            if (tex_slot >= max_tex_slot) max_tex_slot = tex_slot + 1;
+            if (sampler_slot >= max_sampler_slot) max_sampler_slot = sampler_slot + 1;
 
             if (stage & GPU_STAGE_VERTEX) {
-                vs_srvs[i] = tex->srv;
-                vs_samplers[i] = tex->sampler;
-                vs_count = i + 1;
+                vs_srvs[tex_slot] = tex->srv;
+                vs_samplers[sampler_slot] = tex->sampler;
             }
             if (stage & GPU_STAGE_FRAGMENT) {
-                ps_srvs[i] = tex->srv;
-                ps_samplers[i] = tex->sampler;
-                ps_count = i + 1;
+                ps_srvs[tex_slot] = tex->srv;
+                ps_samplers[sampler_slot] = tex->sampler;
             }
         }
 
-        if (vs_count > 0) {
-            ID3D11DeviceContext_VSSetShaderResources(d3d11.context, 0, vs_count, vs_srvs);
-            ID3D11DeviceContext_VSSetSamplers(d3d11.context, 0, vs_count, vs_samplers);
+        if (max_tex_slot > 0) {
+            ID3D11DeviceContext_VSSetShaderResources(d3d11.context, 0, max_tex_slot, vs_srvs);
+            ID3D11DeviceContext_PSSetShaderResources(d3d11.context, 0, max_tex_slot, ps_srvs);
         }
-        if (ps_count > 0) {
-            ID3D11DeviceContext_PSSetShaderResources(d3d11.context, 0, ps_count, ps_srvs);
-            ID3D11DeviceContext_PSSetSamplers(d3d11.context, 0, ps_count, ps_samplers);
+        if (max_sampler_slot > 0) {
+            ID3D11DeviceContext_VSSetSamplers(d3d11.context, 0, max_sampler_slot, vs_samplers);
+            ID3D11DeviceContext_PSSetSamplers(d3d11.context, 0, max_sampler_slot, ps_samplers);
         }
     }
 }

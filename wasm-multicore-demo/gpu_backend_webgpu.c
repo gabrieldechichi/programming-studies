@@ -15,7 +15,9 @@ WASM_IMPORT(js_gpu_make_pipeline) void js_gpu_make_pipeline(u32 idx, u32 shader_
     u32 ub_count, u32 *ub_stages, u32 *ub_sizes, u32 *ub_bindings,
     u32 sb_count, u32 *sb_stages, u32 *sb_bindings, u32 *sb_readonly,
     u32 tex_count, u32 *tex_stages, u32 *tex_sampler_bindings, u32 *tex_texture_bindings,
-    u32 primitive, u32 depth_test, u32 depth_write);
+    u32 primitive, u32 cull_mode, u32 face_winding, u32 depth_compare, u32 depth_test, u32 depth_write,
+    u32 blend_enabled, u32 blend_src, u32 blend_dst, u32 blend_op,
+    u32 blend_src_alpha, u32 blend_dst_alpha, u32 blend_op_alpha);
 WASM_IMPORT(js_gpu_destroy_pipeline) void js_gpu_destroy_pipeline(u32 idx);
 WASM_IMPORT(js_gpu_begin_pass) void js_gpu_begin_pass(f32 r, f32 g, f32 b, f32 a, f32 depth, u32 rt_idx);
 WASM_IMPORT(js_gpu_apply_pipeline) void js_gpu_apply_pipeline(u32 handle_idx);
@@ -109,7 +111,10 @@ void gpu_backend_make_pipeline(u32 idx, GpuPipelineDesc *desc, GpuShaderSlot *sh
         (u32)shader->uniform_blocks.len, ub_stages, ub_sizes, ub_bindings,
         (u32)shader->storage_buffers.len, sb_stages, sb_bindings, sb_readonly,
         (u32)shader->texture_bindings.len, tex_stages, tex_sampler_bindings, tex_texture_bindings,
-        desc->primitive, desc->depth_test, desc->depth_write);
+        desc->primitive, desc->cull_mode, desc->face_winding, desc->depth_compare,
+        desc->depth_test, desc->depth_write,
+        desc->blend.enabled, desc->blend.src_factor, desc->blend.dst_factor, desc->blend.op,
+        desc->blend.src_factor_alpha, desc->blend.dst_factor_alpha, desc->blend.op_alpha);
 }
 
 void gpu_backend_destroy_pipeline(u32 idx) {

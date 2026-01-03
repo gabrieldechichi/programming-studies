@@ -1,5 +1,5 @@
-Texture2D tex : register(t0);
 SamplerState samp : register(s0);
+Texture2D tex : register(t1);
 
 struct VertexOutput {
     float4 position : SV_POSITION;

@@ -56,7 +56,7 @@ void app_init(AppMemory *memory) {
             .items = {{
                 .stage = GPU_STAGE_FRAGMENT,
                 .sampler_binding = 0,
-                .texture_binding = 0,
+                .texture_binding = 1,
             }},
             .len = 1,
         },

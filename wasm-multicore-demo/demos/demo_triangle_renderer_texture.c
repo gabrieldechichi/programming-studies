@@ -54,7 +54,7 @@ void app_init(AppMemory *memory) {
                 GLOBAL_UNIFORMS_DESC,
             ),
             .texture_bindings = FIXED_ARRAY_DEFINE(GpuTextureBindingDesc,
-                GPU_TEXTURE_BINDING_FRAG(0, 0),
+                GPU_TEXTURE_BINDING_FRAG(1, 0),
             ),
         },
         .vertex_layout = {
