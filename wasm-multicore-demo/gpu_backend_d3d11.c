@@ -609,7 +609,8 @@ void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count,
     }
 
     if (bindings->textures.len > 0) {
-        u32 max_tex_slot = 0, max_sampler_slot = 0;
+        u32 vs_max_tex_slot = 0, vs_max_sampler_slot = 0;
+        u32 ps_max_tex_slot = 0, ps_max_sampler_slot = 0;
         ID3D11ShaderResourceView *vs_srvs[GPU_MAX_TEXTURE_SLOTS] = {0};
         ID3D11ShaderResourceView *ps_srvs[GPU_MAX_TEXTURE_SLOTS] = {0};
         ID3D11SamplerState *vs_samplers[GPU_MAX_TEXTURE_SLOTS] = {0};
@@ -624,26 +625,31 @@ void gpu_backend_apply_bindings(GpuBindings *bindings, u32 ub_idx, u32 ub_count,
             debug_assert_msg(tex_slot < GPU_MAX_TEXTURE_SLOTS, "tex_slot out of bounds");
             debug_assert_msg(sampler_slot < GPU_MAX_TEXTURE_SLOTS, "sampler_slot out of bounds");
 
-            if (tex_slot >= max_tex_slot) max_tex_slot = tex_slot + 1;
-            if (sampler_slot >= max_sampler_slot) max_sampler_slot = sampler_slot + 1;
-
             if (stage & GPU_STAGE_VERTEX) {
                 vs_srvs[tex_slot] = tex->srv;
                 vs_samplers[sampler_slot] = tex->sampler;
+                if (tex_slot >= vs_max_tex_slot) vs_max_tex_slot = tex_slot + 1;
+                if (sampler_slot >= vs_max_sampler_slot) vs_max_sampler_slot = sampler_slot + 1;
             }
             if (stage & GPU_STAGE_FRAGMENT) {
                 ps_srvs[tex_slot] = tex->srv;
                 ps_samplers[sampler_slot] = tex->sampler;
+                if (tex_slot >= ps_max_tex_slot) ps_max_tex_slot = tex_slot + 1;
+                if (sampler_slot >= ps_max_sampler_slot) ps_max_sampler_slot = sampler_slot + 1;
             }
         }
 
-        if (max_tex_slot > 0) {
-            ID3D11DeviceContext_VSSetShaderResources(d3d11.context, 0, max_tex_slot, vs_srvs);
-            ID3D11DeviceContext_PSSetShaderResources(d3d11.context, 0, max_tex_slot, ps_srvs);
+        if (vs_max_tex_slot > 0) {
+            ID3D11DeviceContext_VSSetShaderResources(d3d11.context, 0, vs_max_tex_slot, vs_srvs);
         }
-        if (max_sampler_slot > 0) {
-            ID3D11DeviceContext_VSSetSamplers(d3d11.context, 0, max_sampler_slot, vs_samplers);
-            ID3D11DeviceContext_PSSetSamplers(d3d11.context, 0, max_sampler_slot, ps_samplers);
+        if (ps_max_tex_slot > 0) {
+            ID3D11DeviceContext_PSSetShaderResources(d3d11.context, 0, ps_max_tex_slot, ps_srvs);
+        }
+        if (vs_max_sampler_slot > 0) {
+            ID3D11DeviceContext_VSSetSamplers(d3d11.context, 0, vs_max_sampler_slot, vs_samplers);
+        }
+        if (ps_max_sampler_slot > 0) {
+            ID3D11DeviceContext_PSSetSamplers(d3d11.context, 0, ps_max_sampler_slot, ps_samplers);
         }
     }
 }

@@ -1,8 +1,8 @@
 cbuffer GlobalUniforms : register(b0) {
-    float4x4 model;
-    float4x4 view;
-    float4x4 proj;
-    float4x4 view_proj;
+    row_major float4x4 model;
+    row_major float4x4 view;
+    row_major float4x4 proj;
+    row_major float4x4 view_proj;
     float3 camera_pos;
     float time;
 };

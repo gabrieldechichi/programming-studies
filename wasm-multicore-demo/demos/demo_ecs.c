@@ -8,8 +8,6 @@
 #include "camera.h"
 #include "app.h"
 
-#include "ecs/ecs_entity.c"
-
 global EcsWorld g_world;
 
 void app_init(AppMemory *memory) {

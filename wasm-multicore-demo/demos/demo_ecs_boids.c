@@ -861,14 +861,14 @@ void app_init(AppMemory *memory) {
   ThreadContext *tctx = tctx_current();
   asset_system_init(&state.assets, 64);
 
-  state.fish_albedo_tex = gpu_make_texture("fishAlbedo2.png");
-  state.fish_tint_tex = gpu_make_texture("tints.png");
-  state.fish_metallic_gloss_tex = gpu_make_texture("fishMetallicGloss.png");
-  state.shark_albedo_tex = gpu_make_texture("SharkAlbedo.png");
-  state.shark_metallic_gloss_tex = gpu_make_texture("SharkMetallicGloss.png");
+  state.fish_albedo_tex = gpu_make_texture("public/fishAlbedo2.png");
+  state.fish_tint_tex = gpu_make_texture("public/tints.png");
+  state.fish_metallic_gloss_tex = gpu_make_texture("public/fishMetallicGloss.png");
+  state.shark_albedo_tex = gpu_make_texture("public/SharkAlbedo.png");
+  state.shark_metallic_gloss_tex = gpu_make_texture("public/SharkMetallicGloss.png");
 
-  asset_load_blob(&state.assets, "fish.hasset", on_fish_loaded, NULL);
-  asset_load_blob(&state.assets, "shark.hasset", on_shark_loaded, NULL);
+  asset_load_blob(&state.assets, "public/fish.hasset", on_fish_loaded, NULL);
+  asset_load_blob(&state.assets, "public/shark.hasset", on_shark_loaded, NULL);
 
   f32 spawn_radius = 15.0f;
   f32 spawn_center_x = 20.0f;

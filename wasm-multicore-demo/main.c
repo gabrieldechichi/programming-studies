@@ -47,7 +47,7 @@
 
 
 
-#include "demos/demo_mesh_loading.c"
+// #include "demos/demo_mesh_loading.c"
 // #include "demos/demo_fish.c"
 // #include "demos/demo_asset_loading.c"
 // #include "demos/demo_cube_instancing.c"
@@ -71,4 +71,4 @@
 // #include "demos/demo_ecs_inout.c"
 // #include "demos/demo_ecs_change_detection.c"
 // #include "demos/demo_ecs_systems.c"
-// #include "demos/demo_ecs_boids.c"
+#include "demos/demo_ecs_boids.c"
