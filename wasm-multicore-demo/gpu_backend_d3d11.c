@@ -706,7 +706,20 @@ u32 gpu_backend_texture_is_ready(u32 idx) {
 }
 
 void gpu_backend_destroy_texture(u32 idx) {
-    UNUSED(idx);
+    D3D11Texture *tex = &d3d11.textures[idx];
+    if (tex->sampler) {
+        ID3D11SamplerState_Release(tex->sampler);
+        tex->sampler = NULL;
+    }
+    if (tex->srv) {
+        ID3D11ShaderResourceView_Release(tex->srv);
+        tex->srv = NULL;
+    }
+    if (tex->texture) {
+        ID3D11Texture2D_Release(tex->texture);
+        tex->texture = NULL;
+    }
+    tex->ready = false;
 }
 
 internal DXGI_FORMAT d3d11_texture_format(GpuTextureFormat format) {
