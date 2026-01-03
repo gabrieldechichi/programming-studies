@@ -8,10 +8,10 @@
 #include "shaders/fish_instanced_depth_vs.h"
 #include "shaders/depth_only_fs.h"
 
-#define MAX_RENDER_CMDS 1024
+#define MAX_RENDER_CMDS 4096
 #define MAX_MESHES 64
 #define MAX_MATERIALS 64
-#define MAX_INSTANCE_BUFFERS 16
+#define MAX_INSTANCE_BUFFERS 256
 
 typedef struct {
   HandleArray_GpuMesh meshes;

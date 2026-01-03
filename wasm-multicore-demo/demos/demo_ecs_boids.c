@@ -21,6 +21,9 @@
 #define NUM_TARGETS 2
 #define NUM_OBSTACLES 1
 
+#define INSTANCE_BATCH_SIZE (1024 * 8)
+#define NUM_INSTANCE_BATCHES ((NUM_BOIDS + INSTANCE_BATCH_SIZE - 1) / INSTANCE_BATCH_SIZE)
+
 #define GRID_SIZE (8192)
 #define MAX_PER_BUCKET 256
 #define CELL_SIZE 8.0f
@@ -124,7 +127,7 @@ typedef struct {
   EcsEntity obstacle_entities[NUM_OBSTACLES];
   BoidBucket buckets[GRID_SIZE];
   mat4 instance_data[NUM_BOIDS];
-  InstanceBuffer_Handle instance_buffer;
+  InstanceBuffer_Handle instance_buffers[NUM_INSTANCE_BATCHES];
 
   f32 total_time;
 } GameState;
@@ -1037,12 +1040,14 @@ void app_init(AppMemory *memory) {
                                     .name = "BuildMatricesSystem",
                                 });
 
-  state.instance_buffer = renderer_create_instance_buffer(&(InstanceBufferDesc){
-      .stride = sizeof(mat4),
-      .max_instances = NUM_BOIDS,
-  });
+  for (u32 i = 0; i < NUM_INSTANCE_BATCHES; i++) {
+    state.instance_buffers[i] = renderer_create_instance_buffer(&(InstanceBufferDesc){
+        .stride = sizeof(mat4),
+        .max_instances = INSTANCE_BATCH_SIZE,
+    });
+  }
 
-  LOG_INFO("Boids demo initialized: % boids", FMT_UINT(NUM_BOIDS));
+  LOG_INFO("Boids demo initialized: % boids, % batches of %", FMT_UINT(NUM_BOIDS), FMT_UINT(NUM_INSTANCE_BATCHES), FMT_UINT(INSTANCE_BATCH_SIZE));
 #if WIN32
   if (is_main_thread()){
       os_set_fullscreen(true);
@@ -1073,13 +1078,26 @@ void app_update_and_render(AppMemory *memory) {
 
   ecs_progress(&state.world, memory->dt);
 
+  //todo: make this multithreaded
   if (is_main_thread()) {
-    renderer_update_instance_buffer(state.instance_buffer, state.instance_data,
-                                    NUM_BOIDS);
+    for (u32 batch = 0; batch < NUM_INSTANCE_BATCHES; batch++) {
+      u32 start = batch * INSTANCE_BATCH_SIZE;
+      u32 count = INSTANCE_BATCH_SIZE;
+      if (start + count > NUM_BOIDS) {
+        count = NUM_BOIDS - start;
+      }
+      renderer_update_instance_buffer(state.instance_buffers[batch],
+                                      &state.instance_data[start], count);
+    }
+  }
 
+  Range_u64 batch_range = lane_range(NUM_INSTANCE_BATCHES);
+  for (u64 batch = batch_range.min; batch < batch_range.max; batch++) {
     renderer_draw_mesh_instanced(state.fish_mesh, state.fish_material,
-                                 state.instance_buffer);
+                                 state.instance_buffers[batch]);
+  }
 
+  if (is_main_thread()) {
     renderer_end_frame();
     input_end_frame(&state.input);
   }

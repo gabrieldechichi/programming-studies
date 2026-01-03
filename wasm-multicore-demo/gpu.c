@@ -32,7 +32,7 @@ typedef struct {
 
 local_persist GpuStateInternal gpu_state;
 
-#define GPU_INITIAL_BUFFER_CAPACITY 64
+#define GPU_INITIAL_BUFFER_CAPACITY 256
 #define GPU_INITIAL_TEXTURE_CAPACITY 32
 #define GPU_INITIAL_SHADER_CAPACITY 16
 #define GPU_INITIAL_PIPELINE_CAPACITY 16

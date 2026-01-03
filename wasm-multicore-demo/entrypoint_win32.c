@@ -367,7 +367,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line,
       .window_handle = g_hwnd,
       .width = (u32)initial_width,
       .height = (u32)initial_height,
-      .vsync = true,
+      .vsync = false,
       .debug = true,
   });
 
